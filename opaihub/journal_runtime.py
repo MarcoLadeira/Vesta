@@ -541,6 +541,33 @@ def _is_settled(store: sqlite3.Connection, run_id: str) -> bool:
     return bool(row is not None and row["terminal_verdict"])
 
 
+def _fence_for_late_evidence(
+    store: sqlite3.Connection, run_id: str, fence: int | None
+) -> tuple[int | None, bool]:
+    """Which fence a piece of after-the-fact evidence should be written under.
+
+    Evidence does not always arrive before the run it describes ends. #818's
+    qualification names two of these outright -- "late provider completion" and
+    "delayed usage reporting" -- and a provider CLI reporting its usage after
+    OPai has already filed the turn is the ordinary way to reach them.
+
+    ``record_terminal`` releases the lease, so a fenced append is refused from
+    that moment on. That refusal is right for a *stale* writer and wrong here:
+    there is no current holder for a settled run to be stale relative to. A
+    writer fenced out by a genuine takeover is a different shape entirely --
+    takeover leaves a new, unreleased lease, so the run is not settled and this
+    path is never taken.
+
+    Returns the fence to use and whether the run had already ended, so the
+    caller can say so in the payload rather than filing late evidence as though
+    it arrived on time.
+    """
+
+    if not _is_settled(store, run_id):
+        return fence, False
+    return None, True
+
+
 def record_run_cost(
     root: Path,
     *,
@@ -570,6 +597,10 @@ def record_run_cost(
 
     with _store(root) as store:
         if store is None:
+            return False
+        try:
+            fence, after_terminal = _fence_for_late_evidence(store, run_id, fence)
+        except (sqlite3.DatabaseError, JournalStoreError):
             return False
         try:
             journal_store.record_operation(
@@ -606,6 +637,10 @@ def record_run_cost(
                 "amount_usd": float(amount_usd),
                 "measurement_kind": measurement_kind,
                 "model": model,
+                # Recorded rather than hidden: a reader replaying this history
+                # must be able to tell spend that arrived while the run was
+                # live from spend that turned up after it was filed.
+                "after_terminal": after_terminal,
             },
             producer=producer,
         )
@@ -631,10 +666,16 @@ def record_verification(
     keep that pairing.
     """
 
+    after_terminal = False
     with _store(root) as store:
         if store is None:
             return False
         try:
+            # Resolved before the artifact write, because that write asserts
+            # the fence too -- and a settled run has no live lease to assert
+            # against, so leaving it until afterwards refused the whole record
+            # rather than only its event.
+            fence, after_terminal = _fence_for_late_evidence(store, run_id, fence)
             with journal_store._transaction(store):
                 if fence is not None:
                     journal_store._assert_fence(store, run_id, fence)
@@ -660,6 +701,10 @@ def record_verification(
                 "verdict": verdict,
                 "policy_digest": policy_digest,
                 "manifest_digest": manifest_digest,
+                # A verification that lands after the verdict is a
+                # contradiction worth keeping, not one to drop silently: it is
+                # evidence that the terminal state was reached without it.
+                "after_terminal": after_terminal,
             },
             producer=producer,
         )

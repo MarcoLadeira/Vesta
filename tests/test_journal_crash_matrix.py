@@ -43,6 +43,8 @@ import sys
 import tempfile
 import textwrap
 import unittest
+
+from opaihub import journal_runtime
 from pathlib import Path
 
 from opaihub import journal_store
@@ -105,6 +107,9 @@ def _run_child(root: Path, body: str) -> subprocess.CompletedProcess:
         text=True,
         timeout=180,
     )
+
+
+CRASH_NOW = "2026-09-08T10:00:00+00:00"
 
 
 class _CrashFixture(unittest.TestCase):
@@ -634,6 +639,240 @@ class ReconstructionAfterDeathTests(unittest.TestCase):
         self.assertEqual(
             json.loads(store.execute("SELECT payload FROM events").fetchone()[0]),
             {"answer": 42},
+        )
+
+
+class EvidenceThatArrivesAfterTheRunEndedTests(unittest.TestCase):
+    """#818's qualification names two of these: "late provider completion" and
+    "delayed usage reporting".
+
+    A provider CLI reporting its usage after OPai has already filed the turn is
+    the ordinary way to reach them, not an exotic one.
+
+    Measured before this existed: the cost row landed on a run already filed
+    `completed`, the fenced event was refused because `record_terminal` had
+    released the lease, and `record_run_cost` returned True anyway. So
+    `cost_events` held spend that the event log had no record of -- two truths
+    inside the one store whose entire premise is "one ordered event history".
+    A projection rebuilt from events would have been missing the money.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        self.fence = journal_runtime.record_admission(
+            self.root,
+            task_id="t",
+            run_id="r1",
+            task="a turn",
+            now=CRASH_NOW,
+            surface="gui",
+        )
+
+    def _finish(self, verdict: str = "completed") -> None:
+        journal_runtime.record_terminal(
+            self.root,
+            run_id="r1",
+            event_type=journal_runtime.EVENT_FINISHED,
+            verdict=verdict,
+            reason="answered",
+            now=CRASH_NOW,
+            fence=self.fence,
+        )
+
+    def _events(self):
+        store = open_store(self.root)
+        try:
+            return [
+                (str(row["event_type"]), json.loads(row["payload"]))
+                for row in store.execute(
+                    "SELECT event_type, payload FROM events"
+                    " WHERE run_id = 'r1' ORDER BY sequence"
+                )
+            ]
+        finally:
+            store.close()
+
+    def _verdict(self) -> str:
+        store = open_store(self.root)
+        try:
+            row = store.execute(
+                "SELECT terminal_verdict FROM runs WHERE run_id = 'r1'"
+            ).fetchone()
+            return str(row["terminal_verdict"] or "")
+        finally:
+            store.close()
+
+    def _cost_rows(self) -> int:
+        store = open_store(self.root)
+        try:
+            return int(store.execute("SELECT COUNT(*) FROM cost_events").fetchone()[0])
+        finally:
+            store.close()
+
+    def _record_cost(self) -> bool:
+        return journal_runtime.record_run_cost(
+            self.root,
+            run_id="r1",
+            operation_key="r1:late",
+            amount_usd=4.20,
+            measurement_kind="actual",
+            now=CRASH_NOW,
+            fence=self.fence,
+        )
+
+    def _record_verification(self, verdict: str = "failed") -> bool:
+        return journal_runtime.record_verification(
+            self.root,
+            run_id="r1",
+            verdict=verdict,
+            policy_digest="p",
+            manifest_digest="m",
+            now=CRASH_NOW,
+            fence=self.fence,
+        )
+
+    def test_a_late_cost_reaches_the_event_log_not_only_the_cost_table(self):
+        self._finish()
+
+        self.assertTrue(self._record_cost())
+
+        self.assertEqual(self._cost_rows(), 1)
+        kinds = [kind for kind, _payload in self._events()]
+        self.assertIn(journal_runtime.EVENT_COSTED, kinds)
+
+    def test_a_late_cost_says_that_it_was_late(self):
+        """Replay has to be able to tell spend that arrived while the run was
+        live from spend that turned up after it was filed."""
+
+        self._finish()
+        self._record_cost()
+
+        payload = dict(
+            next(
+                p for kind, p in self._events() if kind == journal_runtime.EVENT_COSTED
+            )
+        )
+
+        self.assertIs(payload["after_terminal"], True)
+
+    def test_an_on_time_cost_is_not_marked_late(self):
+        self._record_cost()
+
+        payload = dict(
+            next(
+                p for kind, p in self._events() if kind == journal_runtime.EVENT_COSTED
+            )
+        )
+
+        self.assertIs(payload["after_terminal"], False)
+
+    def test_a_late_verification_is_recorded_rather_than_dropped(self):
+        """A verification that lands after the verdict is a contradiction worth
+        keeping: it is evidence the terminal state was reached without it."""
+
+        self._finish()
+
+        self.assertTrue(self._record_verification())
+
+        kinds = [kind for kind, _payload in self._events()]
+        self.assertIn(journal_runtime.EVENT_VERIFIED, kinds)
+
+    def test_late_evidence_never_changes_the_verdict(self):
+        """The whole point of the guard it relaxes. Recording is not revising."""
+
+        self._finish("completed")
+
+        self._record_cost()
+        self._record_verification("failed")
+
+        self.assertEqual(self._verdict(), "completed")
+
+    def test_a_settled_run_still_cannot_be_re_admitted(self):
+        """Relaxing the fence for evidence must not reopen the run itself."""
+
+        self._finish()
+
+        reopened = journal_runtime.record_run_snapshot(
+            self.root,
+            run_id="r1",
+            task_id="t",
+            task="a turn",
+            state="running",
+            now=CRASH_NOW,
+        )
+
+        self.assertFalse(reopened)
+        self.assertEqual(self._verdict(), "completed")
+
+
+class AStaleWriterIsStillRefusedTests(unittest.TestCase):
+    """The case the relaxation must not touch.
+
+    A writer fenced out by a *takeover* is a different shape from one writing
+    after the end: takeover leaves a new, unreleased lease, so the run is not
+    settled and the late-evidence path is never taken. If this ever passes,
+    the fence has been given away rather than accounted for.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        self.old_fence = journal_runtime.record_admission(
+            self.root,
+            task_id="t",
+            run_id="r1",
+            task="a turn",
+            now=CRASH_NOW,
+            surface="gui",
+        )
+        store = open_store(self.root)
+        try:
+            # Somebody else takes the run over. The run is emphatically not
+            # settled -- it is being worked on by its new owner.
+            acquire_lease(store, run_id="r1", owner="gui", now=CRASH_NOW)
+        finally:
+            store.close()
+
+    def _events(self) -> int:
+        store = open_store(self.root)
+        try:
+            return int(
+                store.execute(
+                    "SELECT COUNT(*) FROM events WHERE run_id = 'r1'"
+                ).fetchone()[0]
+            )
+        finally:
+            store.close()
+
+    def test_a_superseded_writer_cannot_record_a_cost(self):
+        before = self._events()
+
+        journal_runtime.record_run_cost(
+            self.root,
+            run_id="r1",
+            operation_key="r1:stale",
+            amount_usd=99.0,
+            measurement_kind="actual",
+            now=CRASH_NOW,
+            fence=self.old_fence,
+        )
+
+        self.assertEqual(self._events(), before)
+
+    def test_a_superseded_writer_cannot_record_a_verification(self):
+        self.assertFalse(
+            journal_runtime.record_verification(
+                self.root,
+                run_id="r1",
+                verdict="passed",
+                policy_digest="p",
+                manifest_digest="m",
+                now=CRASH_NOW,
+                fence=self.old_fence,
+            )
         )
 
 
