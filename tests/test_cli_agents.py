@@ -58,8 +58,25 @@ def test_agents_budget_parser_keeps_exact_decimal(tmp_path):
 
 
 def test_agents_create_persists_without_implicitly_dispatching(tmp_path):
-    args = cli.build_parser().parse_args(["agents", "create", "Repair independent defects", "--project", str(tmp_path), "--budget", "1.000000001", "--json"])
-    with mock.patch("opai.agents_bridge.create_objective_payload", return_value={"objective_id": "o", "status": "planning"}) as create, mock.patch("opaihub.objective_execution.ObjectiveExecutor.run") as run:
+    args = cli.build_parser().parse_args(
+        [
+            "agents",
+            "create",
+            "Repair independent defects",
+            "--project",
+            str(tmp_path),
+            "--budget",
+            "1.000000001",
+            "--json",
+        ]
+    )
+    with (
+        mock.patch(
+            "opai.agents_bridge.create_objective_payload",
+            return_value={"objective_id": "o", "status": "planning"},
+        ) as create,
+        mock.patch("opaihub.objective_execution.ObjectiveExecutor.run") as run,
+    ):
         with redirect_stdout(io.StringIO()):
             assert args.func(args) == 0
         assert create.call_args.args[1]["budgetUsd"] == "1.000000001"
@@ -68,9 +85,14 @@ def test_agents_create_persists_without_implicitly_dispatching(tmp_path):
 
 
 def test_agents_run_uses_shared_executor_in_foreground(tmp_path):
-    args = cli.build_parser().parse_args(["agents", "run", "o", "--project", str(tmp_path), "--json"])
+    args = cli.build_parser().parse_args(
+        ["agents", "run", "o", "--project", str(tmp_path), "--json"]
+    )
     with mock.patch("opaihub.objective_execution.ObjectiveExecutor") as executor:
-        executor.return_value.run.return_value = {"objective_id": "o", "status": "completed"}
+        executor.return_value.run.return_value = {
+            "objective_id": "o",
+            "status": "completed",
+        }
         with redirect_stdout(io.StringIO()):
             assert args.func(args) == 0
         executor.return_value.run.assert_called_once_with("o")

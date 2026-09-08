@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import sys
 import threading
@@ -21,9 +22,17 @@ def authorize_request(packet, request_path, response_path):
     authority = Path(packet["authority_root"]).resolve()
     objective = ObjectiveStore(authority).snapshot(packet["objective_id"])
     planning = packet["run_id"] == objective["run_id"] + "-plan"
-    assignment = None if planning else next(
-        (item for item in objective["assignments"] if item["run_id"] == packet["run_id"]),
-        None,
+    assignment = (
+        None
+        if planning
+        else next(
+            (
+                item
+                for item in objective["assignments"]
+                if item["run_id"] == packet["run_id"]
+            ),
+            None,
+        )
     )
     owned = objective["planning"] if planning else assignment
     if (
@@ -44,12 +53,20 @@ def authorize_request(packet, request_path, response_path):
         request_path.resolve() != (directory / "request.json").resolve()
         or response_path.resolve() != (directory / "response.json").resolve()
     ):
-        raise ValueError("Worker request and response must use the assigned evidence directory")
+        raise ValueError(
+            "Worker request and response must use the assigned evidence directory"
+        )
     worktree = Path(packet["worktree"]).resolve()
     lease = next(
-        (item for item in WorktreeManager(authority).list()
-         if item.run_id == packet["run_id"] and Path(item.path).resolve() == worktree
-         and item.task_id == task_id and item.owner == owned["owner"] and item.state == "active"),
+        (
+            item
+            for item in WorktreeManager(authority).list()
+            if item.run_id == packet["run_id"]
+            and Path(item.path).resolve() == worktree
+            and item.task_id == task_id
+            and item.owner == owned["owner"]
+            and item.state == "active"
+        ),
         None,
     )
     if lease is None or worktree == authority:
@@ -63,13 +80,18 @@ def authorize_request(packet, request_path, response_path):
     if not isinstance(prompt, str) or not prompt or len(prompt) > 32_000:
         raise ValueError("Worker prompt exceeds bounded context")
     readonly = planning or str(assignment.get("role", "")).casefold() in {
-        "planner", "explorer", "researcher", "reviewer", "critic",
+        "planner",
+        "explorer",
+        "researcher",
+        "reviewer",
+        "critic",
     }
     return {
         **packet,
         "mode": "plan" if readonly else objective["mode"],
         "model_id": assignment["model"]
-        if assignment and assignment.get("model_authorized") else objective["model"],
+        if assignment and assignment.get("model_authorized")
+        else objective["model"],
         "allow_cloud": objective["allow_cloud"] is True,
     }
 
@@ -89,10 +111,15 @@ def main(argv=None) -> int:
     cancel = threading.Event()
 
     def parent_closed():
-        stream = getattr(sys.stdin, "buffer", None)
-        if stream is not None:
-            stream.read()
-            cancel.set()
+        if sys.stdin is None:
+            return
+        try:
+            descriptor = sys.stdin.fileno()
+            while os.read(descriptor, 4096):
+                pass
+        except (OSError, ValueError):
+            pass
+        cancel.set()
 
     threading.Thread(
         target=parent_closed, name="objective-parent-watch", daemon=True

@@ -86,7 +86,8 @@ def _paths(value, *, limit=100, protected=True):
             or ":" in path
             or ".." in parts
             or (not parts and path != ".")
-            or protected and any(
+            or protected
+            and any(
                 part.casefold() in _RESERVED_PATHS
                 or part.casefold().startswith(".opcoding")
                 for part in parts
@@ -635,7 +636,10 @@ class ObjectiveStore:
             obj = self._load(db, objective_id)
             obj["assignments"] = self._assignments(db, objective_id)
             admission = self._queue_projection(db, obj, obj["assignments"])
-            obj["revision"] = db.execute("SELECT COALESCE(MAX(sequence),0) FROM events WHERE run_id=?", (obj["run_id"],)).fetchone()[0]
+            obj["revision"] = db.execute(
+                "SELECT COALESCE(MAX(sequence),0) FROM events WHERE run_id=?",
+                (obj["run_id"],),
+            ).fetchone()[0]
             obj["cost_usd"], obj["cost_complete"] = self._costs(db, objective_id)
             obj["cost_complete"] = (
                 obj["cost_complete"]
@@ -652,7 +656,9 @@ class ObjectiveStore:
                 obj["allowed_actions"].append("resume")
             elif obj["status"] in {"ready", "running", "planning"}:
                 obj["allowed_actions"].append("pause")
-                if not obj["planning"]["owner"] and not any(item["owner"] for item in obj["assignments"]):
+                if not obj["planning"]["owner"] and not any(
+                    item["owner"] for item in obj["assignments"]
+                ):
                     obj["allowed_actions"].append("run")
             if (
                 obj["status"] in {"ready-to-integrate", "needs-attention"}
@@ -682,29 +688,44 @@ class ObjectiveStore:
                 )
             from .receipt import _content_hash, build_objective_receipts
 
-            costs = [dict(row) for row in db.execute(
-                "SELECT operation_key,assignment_id,amount_usd,measurement_kind FROM objective_cost_events WHERE objective_id=? ORDER BY operation_key",
-                (objective_id,),
-            )]
+            costs = [
+                dict(row)
+                for row in db.execute(
+                    "SELECT operation_key,assignment_id,amount_usd,measurement_kind FROM objective_cost_events WHERE objective_id=? ORDER BY operation_key",
+                    (objective_id,),
+                )
+            ]
             obj["cost_evidence_hash"] = _content_hash({"cost_events": costs})
             for item in obj["assignments"]:
                 if item["assignment_id"] in admission:
                     item["admission"] = admission[item["assignment_id"]]
-                item["cost_evidence_hash"] = _content_hash({
-                    "cost_events": [row for row in costs if row["assignment_id"] == item["assignment_id"]],
-                })
+                item["cost_evidence_hash"] = _content_hash(
+                    {
+                        "cost_events": [
+                            row
+                            for row in costs
+                            if row["assignment_id"] == item["assignment_id"]
+                        ],
+                    }
+                )
             obj["receipt"], receipts = build_objective_receipts(obj)
             for item in obj["assignments"]:
                 item["receipt"] = receipts[item["assignment_id"]]
             return obj
 
     def _queue_projection(self, db, obj, items):
-        active = [json.loads(row[0]) for row in db.execute(
-            "SELECT payload FROM objective_assignments WHERE owner<>''"
-        )]
-        limits = [json.loads(row[0])["project_limit"] for row in db.execute(
-            "SELECT payload FROM agent_objectives WHERE status NOT IN ('completed','cancelled')"
-        )]
+        active = [
+            json.loads(row[0])
+            for row in db.execute(
+                "SELECT payload FROM objective_assignments WHERE owner<>''"
+            )
+        ]
+        limits = [
+            json.loads(row[0])["project_limit"]
+            for row in db.execute(
+                "SELECT payload FROM agent_objectives WHERE status NOT IN ('completed','cancelled')"
+            )
+        ]
         states = {item["name"]: item["status"] for item in items}
         own_active = [item for item in items if item["owner"]]
         result = {}
@@ -712,16 +733,23 @@ class ObjectiveStore:
             if item["status"] != "pending":
                 continue
             waiting, blockers, reason = False, [], "Ready for an execution slot"
-            dependencies = [name for name in item["depends_on"] if states[name] != "completed"]
-            conflicts = [row for row in active if
-                         _overlap(item["intended_paths"], row["intended_paths"])
-                         or not item.get("parallel_eligible", True)
-                         or not row.get("parallel_eligible", True)]
+            dependencies = [
+                name for name in item["depends_on"] if states[name] != "completed"
+            ]
+            conflicts = [
+                row
+                for row in active
+                if _overlap(item["intended_paths"], row["intended_paths"])
+                or not item.get("parallel_eligible", True)
+                or not row.get("parallel_eligible", True)
+            ]
             if obj["status"] not in {"ready", "running"}:
                 reason = "Objective " + obj["status"].replace("-", " ")
             elif dependencies:
                 reason = "Waiting for dependencies: " + ", ".join(dependencies)
-                blockers = [row for row in items if row["name"] in dependencies and row["owner"]]
+                blockers = [
+                    row for row in items if row["name"] in dependencies and row["owner"]
+                ]
             elif conflicts:
                 reason = "Waiting for overlapping or sequential work"
                 blockers = conflicts
@@ -731,7 +759,9 @@ class ObjectiveStore:
                 reason, blockers = "Objective concurrency limit reached", own_active
             elif item.get("blocked_reason"):
                 reason = item["blocked_reason"]
-            waiting = bool(blockers) and all(row["status"] in {"running", "stopping"} for row in blockers)
+            waiting = bool(blockers) and all(
+                row["status"] in {"running", "stopping"} for row in blockers
+            )
             result[item["assignment_id"]] = {
                 "reason": reason,
                 "waiting_for_owners": waiting,
@@ -879,7 +909,9 @@ class ObjectiveStore:
             if activity is not None:
                 item["activity"] = _text(activity, "activity", 2000, empty=True)
                 self._event(
-                    db, self._load(db, objective_id), "activity",
+                    db,
+                    self._load(db, objective_id),
+                    "activity",
                     {"assignment_id": assignment_id, "activity": item["activity"]},
                 )
             self._save_assignment(db, item)
@@ -921,7 +953,9 @@ class ObjectiveStore:
             objective_id, assignment_id, owner, fence, activity=activity
         )
 
-    def observe_route(self, objective_id, assignment_id, owner, fence, *, model=None, provider=None):
+    def observe_route(
+        self, objective_id, assignment_id, owner, fence, *, model=None, provider=None
+    ):
         with self._db(True) as db:
             item = self._owned(db, objective_id, assignment_id, owner, fence)
             if model:
@@ -929,8 +963,24 @@ class ObjectiveStore:
             if provider:
                 item["observed_provider"] = _text(provider, "provider", 200)
             self._save_assignment(db, item)
-            db.execute("UPDATE runs SET model=?,provider=? WHERE run_id=?", (item.get("observed_model", item["model"]), item.get("observed_provider", item["provider"]), item["run_id"]))
-            self._event(db, self._load(db, objective_id), "route-observed", {"assignment_id": assignment_id, "model": item.get("observed_model"), "provider": item.get("observed_provider")})
+            db.execute(
+                "UPDATE runs SET model=?,provider=? WHERE run_id=?",
+                (
+                    item.get("observed_model", item["model"]),
+                    item.get("observed_provider", item["provider"]),
+                    item["run_id"],
+                ),
+            )
+            self._event(
+                db,
+                self._load(db, objective_id),
+                "route-observed",
+                {
+                    "assignment_id": assignment_id,
+                    "model": item.get("observed_model"),
+                    "provider": item.get("observed_provider"),
+                },
+            )
 
     def _refresh(self, db, obj):
         items = self._assignments(db, obj["objective_id"])
@@ -1266,8 +1316,15 @@ class ObjectiveStore:
         return recovered
 
     def acknowledge_interrupted(
-        self, objective_id, owner, dispatch_fence, *, assignment_id=None,
-        phase=None, result=None, changed_files=(),
+        self,
+        objective_id,
+        owner,
+        dispatch_fence,
+        *,
+        assignment_id=None,
+        phase=None,
+        result=None,
+        changed_files=(),
     ):
         if (assignment_id is None) == (phase is None):
             raise ValueError("Specify one interrupted assignment or phase")
@@ -1276,8 +1333,16 @@ class ObjectiveStore:
         paths = _paths(changed_files, limit=10000, protected=False)
         with self._db(True) as db:
             obj = self._load(db, objective_id)
-            item = obj[phase] if phase else self._owned(
-                db, objective_id, assignment_id, owner, dispatch_fence + 1,
+            item = (
+                obj[phase]
+                if phase
+                else self._owned(
+                    db,
+                    objective_id,
+                    assignment_id,
+                    owner,
+                    dispatch_fence + 1,
+                )
             )
             if (
                 item["owner"] != owner
@@ -1287,8 +1352,12 @@ class ObjectiveStore:
             ):
                 raise StaleWriterError("Interrupted ownership no longer matches")
             item.update(
-                status="cancelled" if item["status"] == "stopping" else "needs-attention",
-                last_owner=owner, owner="", result=result or {},
+                status="cancelled"
+                if item["status"] == "stopping"
+                else "needs-attention",
+                last_owner=owner,
+                owner="",
+                result=result or {},
             )
             if phase is None:
                 item.update(
@@ -1300,10 +1369,17 @@ class ObjectiveStore:
             else:
                 self._save_obj(db, obj)
             self._refresh(db, obj)
-            self._event(db, obj, "interrupted-owner-terminated", {
-                "assignment_id": assignment_id, "phase": phase,
-                "owner": owner, "dispatch_fence": dispatch_fence,
-            })
+            self._event(
+                db,
+                obj,
+                "interrupted-owner-terminated",
+                {
+                    "assignment_id": assignment_id,
+                    "phase": phase,
+                    "owner": owner,
+                    "dispatch_fence": dispatch_fence,
+                },
+            )
         return self.snapshot(objective_id)
 
     def begin_integration(self, objective_id, owner, lease_seconds=120):

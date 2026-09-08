@@ -3,6 +3,38 @@ import { openApp, openNav, sendPrompt, expectNoFatalErrors } from "./helpers/app
 
 const objective = { objective_id: 'obj-1', objective: 'Repair independent regressions', status: 'running', budget_usd: '4', cost_usd: null, cost_complete: false, max_parallel: 2, allowed_actions: ['pause', 'budget'], assignments: [{ assignment_id: 'a-1', title: 'API repair', status: 'blocked', depends_on: ['a-0'], intended_paths: ['api/'], blocked_reason: 'Waiting for contract', allowed_actions: ['stop', 'reroute'], activity: ['Read api/server.py'] }], integration: { status: 'pending' } };
 
+test('live objective updates continue after acknowledgement and reject older revisions', async ({ page }) => {
+  const diagnostics = await openApp(page, { boot: { prefs: { multiAgentEnabled: true } } });
+  await expect(page.locator('#modeBtn')).toContainText('Agents');
+  const id = await sendPrompt(page);
+  await page.evaluate(({ o, id }) => window.__mock.emitObjective({ requestId: id, workspaceRoot: '/demo', objective: { ...o, revision: 1 } }), { o: objective, id });
+  await expect(page.locator('.agents-objective')).toContainText(objective.objective);
+  await page.evaluate(({ o, id }) => {
+    window.__mock.emitObjective({ requestId: id, workspaceRoot: '/demo', objective: { ...o, revision: 3, cost_usd: '0.42' } });
+    window.__mock.emitObjective({ requestId: id, workspaceRoot: '/demo', objective: { ...o, revision: 2, cost_usd: '0.01' } });
+  }, { o: objective, id });
+  await expect(page.locator('.agents-metrics')).toContainText('$0.42');
+  expect(await page.evaluate(() => window.__opai.state.busy)).toBe(false);
+  expectNoFatalErrors(diagnostics);
+});
+
+test('objective selection preserves canonical worktree and receipt targets', async ({ page }) => {
+  const recorded = { ...objective, receipt: { report: 'opai-objective-receipt', objective_id: 'obj-1' }, assignments: [{ ...objective.assignments[0], worktree: '/workers/a', branch: 'codex/a', receipt: { report: 'opai-agent-receipt', assignment_id: 'a-1' } }] };
+  const diagnostics = await openApp(page, { dashboards: { agents: { objectives: [recorded, { ...objective, objective_id: 'obj-2', objective: 'Another objective' }], cards: [] } } });
+  await page.evaluate(() => {
+    window.__mock.bridge.openObjectiveWorktree = (raw, callback) => { window.__mock.worktreeTarget = JSON.parse(raw); callback(JSON.stringify({ ok: true })); };
+  });
+  await openNav(page, 'Agents');
+  await page.locator('[data-objective-select="obj-2"]').click();
+  await expect(page.locator('.agents-objective h2')).toHaveText('Another objective');
+  await page.locator('[data-objective-select="obj-1"]').click();
+  await page.getByRole('button', { name: 'Open worktree' }).click();
+  expect(await page.evaluate(() => window.__mock.worktreeTarget)).toEqual({ objective_id: 'obj-1', assignment_id: 'a-1' });
+  await page.locator('[data-agent-receipt][data-assignment-id="a-1"]').click();
+  expect(await page.evaluate(() => JSON.parse(window.__mock.copiedTexts.at(-1)))).toEqual(recorded.assignments[0].receipt);
+  expectNoFatalErrors(diagnostics);
+});
+
 test('multiple agents checkbox preserves permission mode and model, persists, and travels with retry', async ({ page }) => {
   const diagnostics = await openApp(page, { boot: { prefs: { multiAgentEnabled: true } } });
   const selection = await page.evaluate(() => ({ mode: window.__opai.state.mode.id, model: window.__opai.state.model.id }));

@@ -541,8 +541,10 @@ def _run(
         objective_worker = arguments[:1] == ["--opai-objective-worker"]
         if objective_worker and len(arguments) != 3:
             return 2
-        needs_desktop = not objective_worker and (desktop or _gui_requested(arguments)) and (
-            "--once" not in arguments
+        needs_desktop = (
+            not objective_worker
+            and (desktop or _gui_requested(arguments))
+            and ("--once" not in arguments)
         )
         context = preflight_startup(
             arguments,

@@ -2646,11 +2646,16 @@ def _run_gui(
             self._cancels[control_id] = cancel
 
             def emit_snapshot(objective):
-                self.objectiveControlReady.emit(json.dumps({
-                    "ok": True,
-                    "objective": objective,
-                    "workspaceRoot": str(turn_root),
-                }, default=str))
+                self.objectiveControlReady.emit(
+                    json.dumps(
+                        {
+                            "ok": True,
+                            "objective": objective,
+                            "workspaceRoot": str(turn_root),
+                        },
+                        default=str,
+                    )
+                )
 
             def job():
                 from opai.agents_bridge import control_objective_payload
@@ -2661,9 +2666,15 @@ def _run_gui(
 
                     if payload.get("action") in {"run", "reconcile", "verify"}:
                         if payload.get("assignment_id") is not None:
-                            raise ValueError("Execution and integration operate on the whole objective")
+                            raise ValueError(
+                                "Execution and integration operate on the whole objective"
+                            )
                         executor = ObjectiveExecutor(turn_root, on_event=emit_snapshot)
-                        execute = executor.run if payload["action"] == "run" else executor.reconcile
+                        execute = (
+                            executor.run
+                            if payload["action"] == "run"
+                            else executor.reconcile
+                        )
                         objective = execute(payload["objective_id"], cancel)
                         return {
                             "ok": True,
@@ -2680,9 +2691,9 @@ def _run_gui(
                         "prioritize",
                     }:
                         self.objectiveControlReady.emit(json.dumps(result, default=str))
-                        result["objective"] = ObjectiveExecutor(turn_root, on_event=emit_snapshot).run(
-                            payload["objective_id"], cancel=cancel
-                        )
+                        result["objective"] = ObjectiveExecutor(
+                            turn_root, on_event=emit_snapshot
+                        ).run(payload["objective_id"], cancel=cancel)
                     return result
                 except Exception as exc:  # noqa: BLE001
                     return {
@@ -2740,11 +2751,20 @@ def _run_gui(
                 if result.get("objective_id"):
                     emit_snapshot(result)
                 elif accepted.is_set():
-                    self.objectiveControlReady.emit(json.dumps({
-                        "ok": False,
-                        "error": safe_detail(RuntimeError(result.get("error") or "Objective execution was interrupted")),
-                        "workspaceRoot": str(turn_root),
-                    }))
+                    self.objectiveControlReady.emit(
+                        json.dumps(
+                            {
+                                "ok": False,
+                                "error": safe_detail(
+                                    RuntimeError(
+                                        result.get("error")
+                                        or "Objective execution was interrupted"
+                                    )
+                                ),
+                                "workspaceRoot": str(turn_root),
+                            }
+                        )
+                    )
                 else:
                     self.replyReady.emit(
                         json.dumps({"requestId": request_id, "result": result})
@@ -3215,8 +3235,15 @@ def _run_gui(
 
             try:
                 target = objective_worktree_path(self.root, json.loads(payload_json))
-                opened = QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(target)))
-                return json.dumps({"ok": opened, "error": "" if opened else "The worktree could not be opened."})
+                opened = QtGui.QDesktopServices.openUrl(
+                    QtCore.QUrl.fromLocalFile(str(target))
+                )
+                return json.dumps(
+                    {
+                        "ok": opened,
+                        "error": "" if opened else "The worktree could not be opened.",
+                    }
+                )
             except (OSError, ValueError, KeyError) as exc:
                 return json.dumps({"ok": False, "error": safe_detail(exc)})
 

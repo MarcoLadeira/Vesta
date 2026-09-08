@@ -14,8 +14,14 @@ from opaihub.objective_execution import ObjectiveExecutor, parse_plan
 
 def test_packaged_workers_use_internal_entrypoint_instead_of_python_module():
     from opaihub.objective_execution import worker_command
+
     with mock.patch("opai.bootstrap._packaged_runtime", return_value=True):
-        assert worker_command(Path("request"), Path("response")) == [sys.executable, "--opai-objective-worker", "request", "response"]
+        assert worker_command(Path("request"), Path("response")) == [
+            sys.executable,
+            "--opai-objective-worker",
+            "request",
+            "response",
+        ]
 
 
 def fixture(tmp_path, assignments, *, check="assert True", **options):
@@ -101,6 +107,7 @@ def test_planner_cannot_authorize_paid_model_and_review_role_is_read_only(tmp_pa
         "assignment_id": "a",
         "task_id": "t",
         "run_id": "r",
+        "fence": 1,
         "role": "reviewer",
         "model": "account:paid",
     }

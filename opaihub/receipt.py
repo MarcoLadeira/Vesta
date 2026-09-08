@@ -101,7 +101,9 @@ def build_objective_receipts(snapshot: dict[str, Any]) -> tuple[dict, dict[str, 
             "verification": item["verification"],
             "branch": item["branch"],
             "base_sha": item["base_sha"],
-            "head_sha": (item.get("result", {}).get("git_evidence") or {}).get("head_sha"),
+            "head_sha": (item.get("result", {}).get("git_evidence") or {}).get(
+                "head_sha"
+            ),
             "evidence_hash": _content_hash({"evidence": item.get("result", {})}),
             "cost_evidence_hash": item.get("cost_evidence_hash"),
         }
@@ -110,7 +112,9 @@ def build_objective_receipts(snapshot: dict[str, Any]) -> tuple[dict, dict[str, 
     integration = snapshot.get("integration") or {}
     with localcontext() as context:
         context.prec = 256
-        child_cost = sum((Decimal(item["cost_usd"]) for item in children.values()), Decimal(0))
+        child_cost = sum(
+            (Decimal(item["cost_usd"]) for item in children.values()), Decimal(0)
+        )
         coordinator_cost = Decimal(snapshot["cost_usd"]) - child_cost
     body = {
         "report": "opai-objective-receipt",
@@ -120,13 +124,18 @@ def build_objective_receipts(snapshot: dict[str, Any]) -> tuple[dict, dict[str, 
         "run_id": snapshot["run_id"],
         "revision": snapshot["revision"],
         "status": snapshot["status"],
-        "provisional": snapshot["status"] not in {"completed", "cancelled", "failed", "needs-attention"}
-        or bool(integration.get("owner")) or bool(snapshot.get("planning", {}).get("owner"))
+        "provisional": snapshot["status"]
+        not in {"completed", "cancelled", "failed", "needs-attention"}
+        or bool(integration.get("owner"))
+        or bool(snapshot.get("planning", {}).get("owner"))
         or any(item["owner"] for item in snapshot.get("assignments", [])),
         "cost_usd": snapshot["cost_usd"],
         "cost_complete": snapshot["cost_complete"],
         "cost_evidence_hash": snapshot.get("cost_evidence_hash"),
-        "cost_components": {"coordinator_usd": str(coordinator_cost), "agents_usd": str(child_cost)},
+        "cost_components": {
+            "coordinator_usd": str(coordinator_cost),
+            "agents_usd": str(child_cost),
+        },
         "budget_usd": snapshot["budget_usd"],
         "verification": integration.get("verification", {}),
         "integration": {

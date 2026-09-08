@@ -691,7 +691,18 @@ def cmd_objectives(args: argparse.Namespace) -> int:
         if action == "create":
             from opai.agents_bridge import create_objective_payload
 
-            objective = create_objective_payload(root, {"text": args.objective, "mode": args.mode, "model": args.model, "maxParallel": args.max_parallel, "budgetUsd": args.budget, "allowCloud": args.allow_cloud, "requestId": args.request_id})
+            objective = create_objective_payload(
+                root,
+                {
+                    "text": args.objective,
+                    "mode": args.mode,
+                    "model": args.model,
+                    "maxParallel": args.max_parallel,
+                    "budgetUsd": args.budget,
+                    "allowCloud": args.allow_cloud,
+                    "requestId": args.request_id,
+                },
+            )
             if args.start_objective:
                 from opaihub.objective_execution import ObjectiveExecutor
 
@@ -705,7 +716,14 @@ def cmd_objectives(args: argparse.Namespace) -> int:
             objective = ObjectiveStore(root).snapshot(args.objective_id)
             receipt = objective["receipt"]
             if args.assignment:
-                item = next((row for row in objective["assignments"] if row["assignment_id"] == args.assignment), None)
+                item = next(
+                    (
+                        row
+                        for row in objective["assignments"]
+                        if row["assignment_id"] == args.assignment
+                    ),
+                    None,
+                )
                 if item is None:
                     raise ValueError("Assignment does not belong to this objective")
                 receipt = item["receipt"]
@@ -744,20 +762,31 @@ def cmd_objectives(args: argparse.Namespace) -> int:
                 cost = item.get("cost_usd", "0")
                 coverage = "complete" if item.get("cost_complete") else "incomplete"
                 budget = item.get("budget_usd")
-                print(f"  Cost: ${cost} ({coverage}); budget: {'unset' if budget is None else '$' + budget}")
+                print(
+                    f"  Cost: ${cost} ({coverage}); budget: {'unset' if budget is None else '$' + budget}"
+                )
                 for assignment in item.get("assignments", []):
                     print(
                         f"  {assignment['assignment_id']}  {assignment['status']}  {assignment.get('title', '')}"
                     )
-                    route = assignment.get("observed_model") or assignment.get("model") or "auto"
-                    print(f"    Model: {route}; cost: ${assignment.get('cost_usd', '0')}")
+                    route = (
+                        assignment.get("observed_model")
+                        or assignment.get("model")
+                        or "auto"
+                    )
+                    print(
+                        f"    Model: {route}; cost: ${assignment.get('cost_usd', '0')}"
+                    )
                     if assignment.get("blocked_reason"):
                         print(f"    {assignment['blocked_reason']}")
                 if action != "list":
                     integration = item.get("integration") or {}
                     evidence = integration.get("result") or {}
                     for label, value in (
-                        ("Integration", evidence.get("summary") or evidence.get("error")),
+                        (
+                            "Integration",
+                            evidence.get("summary") or evidence.get("error"),
+                        ),
                         ("Commit", evidence.get("head_sha")),
                         ("Branch", integration.get("branch")),
                         ("Worktree", integration.get("worktree")),
@@ -768,7 +797,10 @@ def cmd_objectives(args: argparse.Namespace) -> int:
             action == "create" and args.start_objective
         )
         if executed and (result.get("objective") or {}).get("status") in {
-            "failed", "needs-attention", "cancelled", "blocked",
+            "failed",
+            "needs-attention",
+            "cancelled",
+            "blocked",
         }:
             return 1
         return 0
@@ -4262,7 +4294,11 @@ def build_parser() -> argparse.ArgumentParser:
                 )
                 command.add_argument("--json", action="store_true")
                 if action == "receipt":
-                    command.add_argument("--sign", action="store_true", help="Sign the receipt with the local integrity key")
+                    command.add_argument(
+                        "--sign",
+                        action="store_true",
+                        help="Sign the receipt with the local integrity key",
+                    )
                 if action == "create":
                     command.add_argument("objective")
                     command.add_argument("--mode", default="safe-auto")
@@ -4271,7 +4307,9 @@ def build_parser() -> argparse.ArgumentParser:
                     command.add_argument("--budget", default=None)
                     command.add_argument("--allow-cloud", action="store_true")
                     command.add_argument("--request-id", default=None)
-                    command.add_argument("--run", dest="start_objective", action="store_true")
+                    command.add_argument(
+                        "--run", dest="start_objective", action="store_true"
+                    )
                 elif action != "list":
                     command.add_argument("objective_id")
                 command.add_argument("--assignment", default=None)

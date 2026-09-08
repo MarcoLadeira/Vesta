@@ -29,10 +29,20 @@ def _installed_version(_name: str) -> str:
 
 def test_desktop_internal_worker_keeps_integrity_preflight_without_loading_qt():
     imported = []
+
     def importer(name):
         imported.append(name)
-        return SimpleNamespace(main=lambda args: 0 if args == ["request", "response"] else 9)
-    code = bootstrap.run_desktop(["--opai-objective-worker", "request", "response"], source_root=ROOT, spec_finder=SpecFinder("PySide6"), distribution_lookup=_installed_version, importer=importer)
+        return SimpleNamespace(
+            main=lambda args: 0 if args == ["request", "response"] else 9
+        )
+
+    code = bootstrap.run_desktop(
+        ["--opai-objective-worker", "request", "response"],
+        source_root=ROOT,
+        spec_finder=SpecFinder("PySide6"),
+        distribution_lookup=_installed_version,
+        importer=importer,
+    )
     assert code == 0
     assert imported == ["opaihub.objective_worker"]
 
