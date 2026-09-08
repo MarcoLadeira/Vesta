@@ -789,14 +789,30 @@ def cmd_journal(args: argparse.Namespace) -> int:
         # because pids get reused -- so only the first is offered as a fact, and
         # the closing line is printed only when there is genuinely nothing more
         # to say.
-        unresolved = [
+        # Two different reasons a run is not actionable, and they call for
+        # different things from the reader, so they are counted separately
+        # rather than lumped under one "cannot verify".
+        stale = [
+            entry
+            for entry in runs
+            if entry["owner_liveness"] == journal_liveness.OWNER_STALE
+        ]
+        unverified = [
             entry
             for entry in runs
             if entry["owner_liveness"] not in journal_liveness.ACTIONABLE
+            and entry["owner_liveness"] != journal_liveness.OWNER_STALE
         ]
-        if unresolved:
+        if stale:
             print(
-                f"\n{len(unresolved)} run(s) have an owner OPai cannot verify. "
+                f"\n{len(stale)} run(s) had an owner that stopped responding. "
+                "It may be stuck, or busy with something that reports nothing. "
+                "OPai will not end them for you, because a run that is merely "
+                "quiet may still be working."
+            )
+        if unverified:
+            print(
+                f"\n{len(unverified)} run(s) have an owner OPai cannot verify. "
                 "A process id that is still in use may belong to something else "
                 "entirely, so OPai will not call that work finished or abandoned."
             )

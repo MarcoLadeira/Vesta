@@ -453,6 +453,29 @@ class PendingTests(_JournalCommandFixture):
         self.assertIn("Another OPai may still be working on it.", output)
         self.assertIn("cannot verify", output)
 
+    def test_a_stale_owner_gets_its_own_caveat_not_the_unverified_one(self):
+        """Two different situations that ask different things of the reader.
+
+        "OPai cannot verify who owns this" is about a pid that might have been
+        reused. "The owner stopped responding" is about a process that was
+        demonstrably tending the run and went quiet. Collapsing them into one
+        sentence loses the only part that tells the reader what to look at.
+        """
+
+        from opaihub import journal_liveness
+
+        self._unfinished_run()
+
+        with mock.patch.object(
+            journal_liveness,
+            "owner_liveness",
+            return_value=journal_liveness.OWNER_STALE,
+        ):
+            _, output = self._run("pending")
+
+        self.assertIn("stopped responding", output)
+        self.assertNotIn("cannot verify", output)
+
     def test_the_caveat_is_absent_when_every_owner_is_resolved(self):
         """Printed only when it is true, so it keeps meaning something."""
 
