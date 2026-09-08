@@ -205,6 +205,7 @@ for, in the confident direction:
 | terminal states are earned | did this run die? | "the owning session ended" (it had not) |
 | unknown cost is not zero | what did today cost? | `$0.00` |
 | approvals are consumed once | may I run this? | yes, to all eight racers |
+| evidence-backed delivery | can I push? | "Ready to push & open PRs", from `bool(token)` |
 | approvals bind to a run | is this approval mine? | yes, to a different window's run |
 | the install works | is OPai healthy? | `ready`, with a dead desktop icon |
 | one canonical origin | which surface asked? | `"gui"`, for CLI and background too |
@@ -553,6 +554,48 @@ disagreements     : 0
 not, and says "unknown" out loud when the projection had to stop at an
 unreadable event -- because a *short* history compared against a complete
 table would report disagreements that are only the part it never read.
+
+
+## A promise the app made and nothing had checked
+
+The session inspector said **"Ready to push & open PRs"**. It got that from
+
+```python
+connected = bool(token)
+ready = connected and allow
+```
+
+the *presence of a string*. An expired, revoked, wrong-scope or mistyped token
+produced the identical line, and the user finds out at the worst possible
+moment -- after a run has done all the work and tries to push.
+
+OPai already knew how to check. `verify_github_connection` calls `/user` and
+returns a real verdict. It was wired to one button in the Connection Doctor,
+its result was never persisted, and the readiness row never consulted it. The
+check answered a dialog and was forgotten.
+
+The verdict is now remembered, and the row cites it:
+
+| what a check found | what the row says |
+| --- | --- |
+| valid | Ready to push & open PRs |
+| never checked | Token connected · not verified yet |
+| rejected | GitHub rejected this token — reconnect in Settings |
+| unreachable | Token connected · last check couldn't reach GitHub |
+
+`ready` itself is unchanged and still means "a token is stored and pushes are
+allowed" -- refusing to run because nobody has verified a token that works
+would break the flow the gate exists to enable. What changed is that no caller
+can render "ready" as "verified" without saying which it means.
+
+On this machine the row now reads *not verified yet*, which is true, and sits
+directly under **Tests: Not Run** -- the same honesty the app already had in
+one place and not the other.
+
+Recording is a wrapper rather than a call at each return. The implementation
+has five exits and hooking them one by one means a later sixth is silently not
+recorded; one exit by construction is the same reasoning
+`gui_pipeline.handle_gui_message` uses for its terminal event.
 
 
 ## Status
