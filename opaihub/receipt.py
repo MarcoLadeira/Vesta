@@ -76,6 +76,72 @@ def build_receipt(project_root: Path, *, sign: bool = True) -> dict[str, Any]:
     return body
 
 
+def build_objective_receipts(snapshot: dict[str, Any]) -> tuple[dict, dict[str, dict]]:
+    from decimal import Decimal, localcontext
+
+    children = {}
+    for item in snapshot.get("assignments", []):
+        body = {
+            "report": "opai-agent-receipt",
+            "schema_version": 1,
+            "objective_id": snapshot["objective_id"],
+            "assignment_id": item["assignment_id"],
+            "task_id": item["task_id"],
+            "run_id": item["run_id"],
+            "status": item["status"],
+            "provisional": bool(item["owner"]) or item["status"] == "pending",
+            "owner": item["owner"] or item.get("last_owner", ""),
+            "role": item["role"],
+            "model": item.get("observed_model") or item["model"],
+            "provider": item.get("observed_provider") or item["provider"],
+            "cost_usd": item["cost_usd"],
+            "cost_complete": item["cost_complete"],
+            "budget_usd": item["budget_usd"],
+            "changed_files": item["changed_files"],
+            "verification": item["verification"],
+            "branch": item["branch"],
+            "base_sha": item["base_sha"],
+            "head_sha": (item.get("result", {}).get("git_evidence") or {}).get("head_sha"),
+            "evidence_hash": _content_hash({"evidence": item.get("result", {})}),
+            "cost_evidence_hash": item.get("cost_evidence_hash"),
+        }
+        body["receipt_hash"] = _content_hash(body)
+        children[item["assignment_id"]] = body
+    integration = snapshot.get("integration") or {}
+    with localcontext() as context:
+        context.prec = 256
+        child_cost = sum((Decimal(item["cost_usd"]) for item in children.values()), Decimal(0))
+        coordinator_cost = Decimal(snapshot["cost_usd"]) - child_cost
+    body = {
+        "report": "opai-objective-receipt",
+        "schema_version": 1,
+        "objective_id": snapshot["objective_id"],
+        "task_id": snapshot["task_id"],
+        "run_id": snapshot["run_id"],
+        "revision": snapshot["revision"],
+        "status": snapshot["status"],
+        "provisional": snapshot["status"] not in {"completed", "cancelled", "failed", "needs-attention"}
+        or bool(integration.get("owner")) or bool(snapshot.get("planning", {}).get("owner"))
+        or any(item["owner"] for item in snapshot.get("assignments", [])),
+        "cost_usd": snapshot["cost_usd"],
+        "cost_complete": snapshot["cost_complete"],
+        "cost_evidence_hash": snapshot.get("cost_evidence_hash"),
+        "cost_components": {"coordinator_usd": str(coordinator_cost), "agents_usd": str(child_cost)},
+        "budget_usd": snapshot["budget_usd"],
+        "verification": integration.get("verification", {}),
+        "integration": {
+            "branch": integration.get("branch", ""),
+            "head_sha": (integration.get("result") or {}).get("head_sha"),
+            "changed_files": (integration.get("result") or {}).get("changed_files", []),
+            "conflicts": integration.get("conflicts", []),
+        },
+        "agents": list(children.values()),
+        "privacy": "Local execution evidence; no raw prompts or provider responses.",
+    }
+    body["receipt_hash"] = _content_hash(body)
+    return body, children
+
+
 def verify_receipt(project_root: Path, receipt: dict[str, Any]) -> dict[str, Any]:
     """Fail-closed verification: content hash + signature (#88).
 

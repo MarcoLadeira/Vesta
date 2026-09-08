@@ -701,6 +701,20 @@ def cmd_objectives(args: argparse.Namespace) -> int:
             result = objectives_payload(root)
         elif action == "show":
             result = {"objective": ObjectiveStore(root).snapshot(args.objective_id)}
+        elif action == "receipt":
+            objective = ObjectiveStore(root).snapshot(args.objective_id)
+            receipt = objective["receipt"]
+            if args.assignment:
+                item = next((row for row in objective["assignments"] if row["assignment_id"] == args.assignment), None)
+                if item is None:
+                    raise ValueError("Assignment does not belong to this objective")
+                receipt = item["receipt"]
+            if args.sign:
+                from opaihub.signing import sign
+
+                receipt = sign(root, receipt)
+            print(json.dumps(receipt, indent=2, default=str))
+            return 0
         elif action in {"run", "resume"}:
             from opaihub.objective_execution import ObjectiveExecutor
 
@@ -4230,6 +4244,7 @@ def build_parser() -> argparse.ArgumentParser:
                 "list",
                 "create",
                 "show",
+                "receipt",
                 "run",
                 "pause",
                 "resume",
@@ -4246,6 +4261,8 @@ def build_parser() -> argparse.ArgumentParser:
                     "--project", default=argparse.SUPPRESS, help="Project root"
                 )
                 command.add_argument("--json", action="store_true")
+                if action == "receipt":
+                    command.add_argument("--sign", action="store_true", help="Sign the receipt with the local integrity key")
                 if action == "create":
                     command.add_argument("objective")
                     command.add_argument("--mode", default="safe-auto")

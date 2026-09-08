@@ -133,6 +133,8 @@ def validate_plan(assignments):
         risk = raw.get("risk", "low")
         if risk not in {"low", "medium", "high"}:
             raise ValueError("Unknown assignment risk")
+        if type(raw.get("parallel_eligible", True)) is not bool:
+            raise ValueError("Parallel eligibility must be a boolean")
         if (
             "depends_on" in raw
             and "dependencies" in raw
@@ -147,6 +149,8 @@ def validate_plan(assignments):
             title=_text(raw.get("title", name), "title", 300),
             objective=_text(raw.get("objective", raw.get("title", "")), "objective"),
             role=_text(raw.get("role", "implementer"), "role", 100),
+            rationale=_text(raw.get("rationale", ""), "rationale", 2000, empty=True),
+            parallel_eligible=raw.get("parallel_eligible", True),
             intended_paths=_paths(raw.get("intended_paths", [])),
             depends_on=_strings(
                 raw.get("depends_on", raw.get("dependencies", [])), "depends_on", 32
@@ -630,6 +634,7 @@ class ObjectiveStore:
         with self._db() as db:
             obj = self._load(db, objective_id)
             obj["assignments"] = self._assignments(db, objective_id)
+            admission = self._queue_projection(db, obj, obj["assignments"])
             obj["revision"] = db.execute("SELECT COALESCE(MAX(sequence),0) FROM events WHERE run_id=?", (obj["run_id"],)).fetchone()[0]
             obj["cost_usd"], obj["cost_complete"] = self._costs(db, objective_id)
             obj["cost_complete"] = (
@@ -673,7 +678,64 @@ class ObjectiveStore:
                         else []
                     )
                 )
+            from .receipt import _content_hash, build_objective_receipts
+
+            costs = [dict(row) for row in db.execute(
+                "SELECT operation_key,assignment_id,amount_usd,measurement_kind FROM objective_cost_events WHERE objective_id=? ORDER BY operation_key",
+                (objective_id,),
+            )]
+            obj["cost_evidence_hash"] = _content_hash({"cost_events": costs})
+            for item in obj["assignments"]:
+                if item["assignment_id"] in admission:
+                    item["admission"] = admission[item["assignment_id"]]
+                item["cost_evidence_hash"] = _content_hash({
+                    "cost_events": [row for row in costs if row["assignment_id"] == item["assignment_id"]],
+                })
+            obj["receipt"], receipts = build_objective_receipts(obj)
+            for item in obj["assignments"]:
+                item["receipt"] = receipts[item["assignment_id"]]
             return obj
+
+    def _queue_projection(self, db, obj, items):
+        active = [json.loads(row[0]) for row in db.execute(
+            "SELECT payload FROM objective_assignments WHERE owner<>''"
+        )]
+        limits = [json.loads(row[0])["project_limit"] for row in db.execute(
+            "SELECT payload FROM agent_objectives WHERE status NOT IN ('completed','cancelled')"
+        )]
+        states = {item["name"]: item["status"] for item in items}
+        own_active = [item for item in items if item["owner"]]
+        result = {}
+        for item in items:
+            if item["status"] != "pending":
+                continue
+            waiting, blockers, reason = False, [], "Ready for an execution slot"
+            dependencies = [name for name in item["depends_on"] if states[name] != "completed"]
+            conflicts = [row for row in active if
+                         _overlap(item["intended_paths"], row["intended_paths"])
+                         or not item.get("parallel_eligible", True)
+                         or not row.get("parallel_eligible", True)]
+            if obj["status"] not in {"ready", "running"}:
+                reason = "Objective " + obj["status"].replace("-", " ")
+            elif dependencies:
+                reason = "Waiting for dependencies: " + ", ".join(dependencies)
+                blockers = [row for row in items if row["name"] in dependencies and row["owner"]]
+            elif conflicts:
+                reason = "Waiting for overlapping or sequential work"
+                blockers = conflicts
+            elif limits and len(active) >= min(limits):
+                reason, blockers = "Project concurrency limit reached", active
+            elif len(own_active) >= obj["max_parallel"]:
+                reason, blockers = "Objective concurrency limit reached", own_active
+            elif item.get("blocked_reason"):
+                reason = item["blocked_reason"]
+            waiting = bool(blockers) and all(row["status"] in {"running", "stopping"} for row in blockers)
+            result[item["assignment_id"]] = {
+                "reason": reason,
+                "waiting_for_owners": waiting,
+                "blocking_assignment_ids": [row["assignment_id"] for row in blockers],
+            }
+        return result
 
     def list_objectives(self, limit=50):
         if type(limit) is not int or not 1 <= limit <= 500:
@@ -732,6 +794,8 @@ class ObjectiveStore:
                     continue
                 if any(
                     _overlap(item["intended_paths"], other["intended_paths"])
+                    or not item.get("parallel_eligible", True)
+                    or not other.get("parallel_eligible", True)
                     for other in active
                 ):
                     continue
