@@ -83,6 +83,87 @@ def _default_http(
         return int(exc.code), body
 
 
+#: What is actually known about whether the stored token works.
+#:
+#: `push_readiness` used to answer "ready" from `bool(token)` alone, and the
+#: inspector rendered that as "Ready to push & open PRs" -- a claim about the
+#: future with nothing behind it. An expired, revoked, wrong-scope or mistyped
+#: token is the same string to a presence check, and the user finds out after
+#: a run has done all the work.
+#:
+#: These are what a *check* found, not what a check would find. "unknown" is
+#: the honest default and is never upgraded by assumption.
+VERIFICATION_UNKNOWN = "unknown"
+VERIFICATION_VALID = "valid"
+VERIFICATION_REJECTED = "rejected"
+VERIFICATION_UNREACHABLE = "unreachable"
+
+#: How long a live check stays worth citing. A token can be revoked a second
+#: after it was verified, so this is not a guarantee -- it is the difference
+#: between "checked, recently" and "checked, once, a month ago", which is a
+#: distinction the person deciding whether to trust the row can use.
+VERIFICATION_FRESH_SECONDS = 24 * 60 * 60
+
+
+def _verification_status_from(result: "Mapping[str, Any]") -> str:
+    auth = str(result.get("authStatus") or "")
+    if auth == "connected":
+        return VERIFICATION_VALID
+    if auth in ("invalid", "forbidden"):
+        return VERIFICATION_REJECTED
+    if auth == "provider_unavailable":
+        return VERIFICATION_UNREACHABLE
+    return VERIFICATION_UNKNOWN
+
+
+def record_verification(result: "Mapping[str, Any]") -> None:
+    """Persist what a live check found, so a later claim can cite it.
+
+    Only the verdict, the login and the time -- never the token. The config's
+    shadow journal refuses any key that looks credential-bearing, and these
+    deliberately do not.
+    """
+
+    status = _verification_status_from(result)
+    login = str(result.get("login") or "")
+
+    def mutate(config: dict[str, Any]) -> None:
+        config["verification_status"] = status
+        config["verified_at"] = int(time.time())
+        if login:
+            config["verification_login"] = login
+
+    try:
+        _update_config(mutate)
+    except Exception:  # noqa: BLE001 - a diagnostic must not break a check
+        return
+
+
+def last_verification() -> dict[str, Any]:
+    """What the last live check found, or that there has never been one."""
+
+    config = _load_config()
+    status = str(config.get("verification_status") or VERIFICATION_UNKNOWN)
+    try:
+        checked_at = int(config.get("verified_at") or 0)
+    except (TypeError, ValueError):
+        checked_at = 0
+    if status not in (
+        VERIFICATION_VALID,
+        VERIFICATION_REJECTED,
+        VERIFICATION_UNREACHABLE,
+    ):
+        status = VERIFICATION_UNKNOWN
+    age = int(time.time()) - checked_at if checked_at else None
+    return {
+        "status": status if checked_at else VERIFICATION_UNKNOWN,
+        "checked_at": checked_at,
+        "age_seconds": age,
+        "fresh": bool(age is not None and age <= VERIFICATION_FRESH_SECONDS),
+        "login": str(config.get("verification_login") or ""),
+    }
+
+
 def _load_config() -> dict[str, Any]:
     try:
         return dict(json.loads(_config_path().read_text(encoding="utf-8")))
@@ -334,6 +415,13 @@ def github_readiness() -> dict[str, Any]:
     else:
         reason = "consent_off"
         next_step = "A token is connected. Enable pushes/PRs: opai github allow-push on"
+    # What a *check* found, carried alongside what is merely present. `ready`
+    # deliberately still means "a token is stored and pushes are allowed":
+    # refusing to run because nobody has verified a token that works would
+    # break the flow this gate exists to enable. What changes is that callers
+    # can no longer render "ready" as "verified" without saying which they
+    # mean.
+    verification = last_verification()
     return {
         "connected": connected,
         "token_source": source,
@@ -341,6 +429,9 @@ def github_readiness() -> dict[str, Any]:
         "ready": ready,
         "reason": reason,
         "next_step": next_step,
+        "verification": verification["status"],
+        "verified_at": verification["checked_at"],
+        "verification_fresh": verification["fresh"],
     }
 
 
@@ -364,6 +455,21 @@ def github_status() -> dict[str, Any]:
 
 
 def verify_github_connection(*, http: HttpFn = _default_http) -> dict[str, Any]:
+    """Live-check the stored token, and remember what it found.
+
+    A wrapper rather than a call at each return: the implementation has five
+    exits, and hooking them one by one means a later sixth is silently not
+    recorded -- which is how the check came to answer a single dialog and be
+    forgotten everywhere else. One exit by construction, the same reasoning
+    `gui_pipeline.handle_gui_message` uses for its terminal event.
+    """
+
+    result = _verify_github_connection(http=http)
+    record_verification(result)
+    return result
+
+
+def _verify_github_connection(*, http: HttpFn = _default_http) -> dict[str, Any]:
     """Live-check the stored GitHub token for the Connection Doctor (Bug 5).
 
     GitHub is not an AI-provider adapter, so the generic ``testProvider`` probe

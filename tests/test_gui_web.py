@@ -607,7 +607,32 @@ class BootPayloadTests(unittest.TestCase):
         # read-only Ask run doesn't clutter the panel with it.
         from opai.gui_web import _github_row_value, _inspector
 
-        self.assertEqual(_github_row_value({"ready": True}), "Ready to push & open PRs")
+        # #818: "ready" used to mean `bool(token)` and rendered as a promise
+        # about the future. An expired, revoked, wrong-scope or mistyped token
+        # produced the identical line, and the user found out after a run had
+        # done all the work. The promise is now only made when a live check
+        # actually said so.
+        self.assertEqual(
+            _github_row_value({"ready": True, "verification": "valid"}),
+            "Ready to push & open PRs",
+        )
+        self.assertIn(
+            "not verified",
+            _github_row_value({"ready": True, "verification": "unknown"}),
+        )
+        self.assertIn(
+            "not verified",
+            _github_row_value({"ready": True}),
+            "a caller that says nothing about verification has not verified anything",
+        )
+        self.assertIn(
+            "rejected",
+            _github_row_value({"ready": True, "verification": "rejected"}),
+        )
+        self.assertIn(
+            "reach GitHub",
+            _github_row_value({"ready": True, "verification": "unreachable"}),
+        )
         self.assertIn(
             "token", _github_row_value({"ready": False, "reason": "no_token"})
         )
@@ -1510,3 +1535,140 @@ class TheLedgersOwnCompletenessJudgementReachesTheHeaderTests(unittest.TestCase)
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GithubReadinessCitesACheckTests(unittest.TestCase):
+    """#818: a claim about the future needs something behind it.
+
+    `github_readiness` computed `connected = bool(token)` -- the presence of a
+    string -- and the inspector rendered that as "Ready to push & open PRs".
+    An expired, revoked, wrong-scope or mistyped token is the same string to a
+    presence check.
+
+    OPai already knew how to check: `verify_github_connection` calls /user and
+    returns a real verdict. It was wired to one button in the Connection
+    Doctor, its result was never persisted, and the readiness row never
+    consulted it. The check answered a dialog and was forgotten.
+    """
+
+    def test_a_verdict_is_remembered_so_a_later_claim_can_cite_it(self):
+        from opaihub import github_connector
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(
+                github_connector, "_config_path", lambda: Path(tmp) / "github.json"
+            ):
+                github_connector.record_verification(
+                    {"authStatus": "connected", "login": "someone"}
+                )
+                found = github_connector.last_verification()
+
+        self.assertEqual(found["status"], github_connector.VERIFICATION_VALID)
+        self.assertEqual(found["login"], "someone")
+        self.assertTrue(found["fresh"])
+
+    def test_a_rejection_is_remembered_too(self):
+        from opaihub import github_connector
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(
+                github_connector, "_config_path", lambda: Path(tmp) / "github.json"
+            ):
+                github_connector.record_verification({"authStatus": "invalid"})
+                found = github_connector.last_verification()
+
+        self.assertEqual(found["status"], github_connector.VERIFICATION_REJECTED)
+
+    def test_never_checked_reads_as_unknown_not_as_valid(self):
+        from opaihub import github_connector
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(
+                github_connector, "_config_path", lambda: Path(tmp) / "github.json"
+            ):
+                found = github_connector.last_verification()
+
+        self.assertEqual(found["status"], github_connector.VERIFICATION_UNKNOWN)
+        self.assertFalse(found["fresh"])
+        self.assertEqual(found["checked_at"], 0)
+
+    def test_the_stored_verdict_never_contains_a_credential(self):
+        """The config's shadow journal refuses credential-shaped keys.
+
+        A secret written into an append-only journal survives disconnects,
+        rotations and `opai github disconnect` alike, so the record has to
+        stay clear of anything that looks like one.
+        """
+
+        from opaihub import github_connector
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "github.json"
+            with mock.patch.object(github_connector, "_config_path", lambda: path):
+                github_connector.record_verification(
+                    {"authStatus": "connected", "login": "someone"}
+                )
+                stored = json.loads(path.read_text(encoding="utf-8"))
+
+        self.assertTrue(stored)
+        for key in stored:
+            self.assertFalse(
+                github_connector._looks_like_a_credential(key),
+                f"{key!r} would be refused by the config's own credential guard",
+            )
+
+    def test_every_exit_of_the_live_check_is_recorded(self):
+        """Five exits, and hooking them one at a time misses the sixth.
+
+        The wrapper records once, by construction -- the same reasoning
+        `gui_pipeline.handle_gui_message` uses for its terminal event.
+        """
+
+        from opaihub import github_connector
+
+        cases = [
+            (200, {"login": "someone"}, github_connector.VERIFICATION_VALID),
+            (401, {}, github_connector.VERIFICATION_REJECTED),
+            (500, {}, github_connector.VERIFICATION_UNREACHABLE),
+        ]
+        for status_code, body, expected in cases:
+            with self.subTest(status=status_code):
+                with tempfile.TemporaryDirectory() as tmp:
+                    with (
+                        mock.patch.object(
+                            github_connector,
+                            "_config_path",
+                            lambda: Path(tmp) / "github.json",
+                        ),
+                        mock.patch.object(
+                            github_connector,
+                            "stored_github_token",
+                            lambda: ("t0ken", "keychain"),
+                        ),
+                    ):
+                        github_connector.verify_github_connection(
+                            http=lambda *a, **k: (status_code, body)
+                        )
+                        found = github_connector.last_verification()
+
+                self.assertEqual(found["status"], expected)
+
+    def test_readiness_carries_the_verdict_to_whoever_renders_it(self):
+        from opaihub import github_connector
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                mock.patch.object(
+                    github_connector, "_config_path", lambda: Path(tmp) / "github.json"
+                ),
+                mock.patch.object(
+                    github_connector,
+                    "stored_github_token",
+                    lambda: ("t0ken", "keychain"),
+                ),
+            ):
+                github_connector.record_verification({"authStatus": "connected"})
+                readiness = github_connector.github_readiness()
+
+        self.assertIn("verification", readiness)
+        self.assertEqual(readiness["verification"], github_connector.VERIFICATION_VALID)

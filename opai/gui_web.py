@@ -536,9 +536,22 @@ def _workspace_refresh(root: Path) -> dict[str, Any]:
 
 
 def _github_row_value(readiness: dict[str, Any]) -> str:
-    """A concise, honest push-readiness line for the inspector (#300)."""
+    """A concise, honest push-readiness line for the inspector (#300).
+
+    "Ready to push & open PRs" is a claim about the future, and it used to be
+    made from ``bool(token)`` -- an expired, revoked, wrong-scope or mistyped
+    token produced the identical line, and the user found out after a run had
+    done all the work. It is now only said when a live check actually said so.
+    """
     if readiness.get("ready"):
-        return "Ready to push & open PRs"
+        verification = str(readiness.get("verification") or "unknown")
+        if verification == "valid":
+            return "Ready to push & open PRs"
+        if verification == "rejected":
+            return "GitHub rejected this token \u2014 reconnect in Settings"
+        if verification == "unreachable":
+            return "Token connected \u00b7 last check couldn't reach GitHub"
+        return "Token connected \u00b7 not verified yet"
     connect_message = "Connect a token in Settings"
     return {
         "no_token": connect_message,
