@@ -262,9 +262,26 @@ identities for the same underlying call, and the money is attached to only one
 of them -- so `cost_events` joined to the operations that represent *paid work*
 yields nothing.
 
-Every one of the 21 is `measurement_kind = "estimated"`. There is not a single
-`actual`. The schema supports `actual`, `derived` and `unavailable`; nothing
-writes them.
+~~Every one of the 21 is `measurement_kind = "estimated"`.~~ Since fixed, and
+the cause was one line. `CostTelemetry` already reports how a number was
+arrived at -- `normalize_account_result` returns `actual` when a provider gave
+a real dollar figure (Claude does) and `estimated` when it did not (Codex) --
+and the mirror hard-coded `estimated` over the top.
+
+The zero was the worse half. `cost_usd` is deliberately `None` for a call
+whose price nobody measured, and `float(... or 0.0)` turned that into a
+recorded **$0.00**. "Unknown cost is never represented as zero", inside the
+store the epic wants to make authoritative. The `unavailable` kind existed
+from v1 and had no writer. Now:
+
+```
+operation         amount  measurement_kind
+r1:account        0.0421  actual         <- Claude reported dollars
+r1:codex             0.0  unavailable    <- Codex reported none
+```
+
+A provider that reports exactly $0.00 still records `actual`. Measuring zero
+is a measurement; only absence is unknown.
 
 Four `model_call_paid` operations have been sitting in `executing` since
 2026-09-01 -- claimed, never reconciled.
@@ -363,6 +380,35 @@ people to click through."
 recording because no test would have found it: every test of that surface was
 correct, and the payload it was given was correct. Only the running application
 had the combination of facts that made it wrong.
+
+
+## An operation could go backwards, and that is why the two identities stay
+
+The two operation identities above are the same call recorded twice: the
+idempotency layer claims `model_call_paid:<digest>`, and the cost mirror claims
+`<turn>:account`. #818 asks for one operation identity per external effect, so
+unifying them is the obvious next step.
+
+Trying it surfaced why it is not a one-line change. `record_run_cost` claims
+its operation as `observed`, and `record_operation` set `state`
+**unconditionally** -- so pointing the cost at the idempotency key would have
+set an already-`reconciled` push back to in-flight. For a table whose entire
+job is idempotency for pushes, PRs, commits and paid calls, that is the wrong
+direction to be silent in.
+
+The `runs` table has forbidden terminal regression since #613. `operations` had
+no equivalent, and nothing had hit it only because the two writers use disjoint
+key schemes -- luck, not design, and exactly the luck that runs out when the
+keys are unified.
+
+That guard now exists, so the unification has somewhere safe to land. It is
+still not done here: it means changing which key the mirror uses across two
+layers, and the guard is the prerequisite rather than the change itself.
+
+`uncertain` is deliberately off the ladder -- an outcome that becomes
+unknowable after it was reconciled is a real thing to record -- and so is any
+state a newer OPai wrote that this build cannot rank, because refusing that
+would turn a forwards-compatibility problem into a hard failure.
 
 ## Status
 
