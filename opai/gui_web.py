@@ -73,6 +73,7 @@ WEB_DIR = Path(__file__).resolve().parent / "assets" / "web"
 _BRIDGE_PREFERENCE_KEYS = frozenset(
     {
         "default_model",
+        "multi_agent_enabled",
         "default_mode",
         "default_task_mode",
         "default_output_format",
@@ -781,6 +782,7 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
         "outputFormats": output_formats(),
         "prefs": {
             "model": prefs.get("default_model", "auto"),
+            "multiAgentEnabled": prefs.get("multi_agent_enabled") is True,
             "mode": mode,
             "focus": focus,
             "format": fmt,
@@ -1423,6 +1425,13 @@ def dashboard_section_payload(root: Path, section_id: str) -> dict[str, Any]:
     try:
         vm = build_view_model(root)
         section = next((s for s in vm["sections"] if s.get("id") == section_id), None)
+        if section_id == "agents":
+            from opai.agents_bridge import objectives_payload
+
+            section = {
+                **(section or {"id": "agents", "title": "Agents"}),
+                **objectives_payload(root),
+            }
     except Exception as exc:  # noqa: BLE001
         return {"error": safe_detail(exc)}
     return section or {"error": "not found"}
@@ -1886,6 +1895,8 @@ def _run_gui(
         connectionDoctorReady = QtCore.Signal(str)
         # Async data delivery (#146): heavy payloads leave the GUI thread.
         dashboardReady = QtCore.Signal(str)
+        objectiveReady = QtCore.Signal(str)
+        objectiveControlReady = QtCore.Signal(str)
         settingsReady = QtCore.Signal(str)
         toolApplied = QtCore.Signal(str)
         statusReady = QtCore.Signal(str)
@@ -2628,11 +2639,123 @@ def _run_gui(
 
         # ---- async slots --------------------------------------------- #
         @QtCore.Slot(str)
+        def controlObjective(self, payload_json: str) -> None:
+            turn_root = self.root
+            control_id = "objective-control-" + uuid.uuid4().hex
+            cancel = threading.Event()
+            self._cancels[control_id] = cancel
+
+            def emit_snapshot(objective):
+                self.objectiveControlReady.emit(json.dumps({
+                    "ok": True,
+                    "objective": objective,
+                    "workspaceRoot": str(turn_root),
+                }, default=str))
+
+            def job():
+                from opai.agents_bridge import control_objective_payload
+
+                try:
+                    payload = json.loads(payload_json)
+                    from opaihub.objective_execution import ObjectiveExecutor
+
+                    if payload.get("action") in {"reconcile", "verify"}:
+                        objective = ObjectiveExecutor(turn_root, on_event=emit_snapshot).reconcile(
+                            payload["objective_id"], cancel
+                        )
+                        return {
+                            "ok": True,
+                            "objective": objective,
+                            "workspaceRoot": str(turn_root),
+                        }
+                    result = control_objective_payload(turn_root, payload)
+                    if payload.get("action") in {
+                        "resume",
+                        "budget",
+                        "set_budget",
+                        "sequential",
+                        "reroute",
+                        "prioritize",
+                    }:
+                        self.objectiveControlReady.emit(json.dumps(result, default=str))
+                        result["objective"] = ObjectiveExecutor(turn_root, on_event=emit_snapshot).run(
+                            payload["objective_id"], cancel=cancel
+                        )
+                    return result
+                except Exception as exc:  # noqa: BLE001
+                    return {
+                        "ok": False,
+                        "error": safe_detail(exc),
+                        "workspaceRoot": str(turn_root),
+                    }
+
+            worker = Worker(job)
+
+            def done(result_json):
+                self._cancels.pop(control_id, None)
+                self.objectiveControlReady.emit(result_json)
+
+            worker.done.connect(done)
+            worker.finished.connect(lambda: self._confirm_teardown(control_id))
+            start_tracked_worker(self._workers, worker)
+
+        def _send_objective(self, payload: dict[str, Any]) -> None:
+            turn_root = self.root
+            request_id = str(payload.get("requestId") or uuid.uuid4().hex)
+            cancel = threading.Event()
+            self._cancels[request_id] = cancel
+
+            def emit_snapshot(objective):
+                self.objectiveReady.emit(
+                    json.dumps(
+                        {
+                            "requestId": request_id,
+                            "objective": objective,
+                            "workspaceRoot": str(turn_root),
+                        },
+                        default=str,
+                    )
+                )
+
+            def job():
+                from opai.agents_bridge import create_objective_payload
+                from opaihub.objective_execution import ObjectiveExecutor
+
+                objective = create_objective_payload(
+                    turn_root, {**payload, "requestId": request_id}
+                )
+                emit_snapshot(objective)
+                return ObjectiveExecutor(turn_root, on_event=emit_snapshot).run(
+                    objective["objective_id"],
+                    cancel=cancel,
+                )
+
+            def done(result_json):
+                self._cancels.pop(request_id, None)
+                result = json.loads(result_json)
+                if result.get("objective_id"):
+                    emit_snapshot(result)
+                else:
+                    self.replyReady.emit(
+                        json.dumps({"requestId": request_id, "result": result})
+                    )
+
+            worker = Worker(job)
+            worker.done.connect(done)
+            worker.finished.connect(lambda: self._confirm_teardown(request_id))
+            start_tracked_worker(self._workers, worker)
+
+        @QtCore.Slot(str)
         def send(self, payload_json: str) -> None:
             try:
                 payload = json.loads(payload_json)
             except ValueError:
                 payload = {}
+            if not isinstance(payload, dict):
+                return
+            if payload.get("multiAgentEnabled") is True:
+                self._send_objective(payload)
+                return
             text = str(payload.get("text", "")).strip()
             if not text:
                 return
@@ -2872,9 +2995,7 @@ def _run_gui(
             """Discover loopback models off the GUI thread and publish the catalog."""
 
             def discover() -> dict[str, Any]:
-                return _models(
-                    self.root, discover_local=True, discover_accounts=True
-                )
+                return _models(self.root, discover_local=True, discover_accounts=True)
 
             worker = Worker(discover)
 

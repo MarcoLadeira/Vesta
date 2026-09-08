@@ -263,12 +263,21 @@
       (offered[BYPASS_MODE.id]
         ? '<div class="cpop-sep" role="separator"></div>' + editRow(BYPASS_MODE, null)
         : "") +
+      '<div class="cpop-sep" role="separator"></div>' +
+      menuRow({ role: "menuitemcheckbox", title: "Allow multiple agents mode", desc: "Coordinate independent assignments within your current permissions", active: st.multiAgentEnabled === true }).replace('class="cpop-row', 'data-multi-agent="true" class="cpop-row') +
       (editsUnavailable
         ? '<p class="cpop-note cpop-note-warn">Update this provider CLI to enable scoped edits. Plan remains available.</p>'
         : "");
     pop.querySelectorAll("[data-id]").forEach(function (row) {
       row.onclick = function () { setMode(row.dataset.id); closePopovers(); };
     });
+    pop.querySelector("[data-multi-agent]").onclick = function (event) {
+      event.stopPropagation();
+      var api = global.__opai || {};
+      if (api.setMultiAgentEnabled) api.setMultiAgentEnabled(!state().multiAgentEnabled);
+      buildModePop();
+      pop.querySelector("[data-multi-agent]").focus();
+    };
     // 1-4 pick a graded mode while the menu is open. Bypass has no number on
     // purpose -- a keystroke is exactly the kind of drift it should not have.
     pop.onkeydown = function (event) {

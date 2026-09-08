@@ -680,6 +680,67 @@ def _iso_now_for_journal() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def cmd_objectives(args: argparse.Namespace) -> int:
+    from opai.agents_bridge import control_objective_payload, objectives_payload
+    from opaihub.agent_objectives import ObjectiveStore
+    from opaihub.command_runner import redact
+
+    root = _project(args.project)
+    action = args.agents_command
+    try:
+        if action == "create":
+            from opai.agents_bridge import create_objective_payload
+
+            objective = create_objective_payload(root, {"text": args.objective, "mode": args.mode, "model": args.model, "maxParallel": args.max_parallel, "budgetUsd": args.budget, "allowCloud": args.allow_cloud, "requestId": args.request_id})
+            if args.start_objective:
+                from opaihub.objective_execution import ObjectiveExecutor
+
+                objective = ObjectiveExecutor(root).run(objective["objective_id"])
+            result = {"objective": objective}
+        elif action == "list":
+            result = objectives_payload(root)
+        elif action == "show":
+            result = {"objective": ObjectiveStore(root).snapshot(args.objective_id)}
+        elif action in {"run", "resume"}:
+            from opaihub.objective_execution import ObjectiveExecutor
+
+            if action == "resume":
+                ObjectiveStore(root).control(args.objective_id, "resume")
+            result = {"objective": ObjectiveExecutor(root).run(args.objective_id)}
+        else:
+            result = control_objective_payload(
+                root,
+                {
+                    "objective_id": args.objective_id,
+                    "assignment_id": args.assignment,
+                    "action": action,
+                    "value": args.value,
+                },
+            )
+        if args.json:
+            print(json.dumps(result, default=str))
+        else:
+            objectives = result.get("objectives", [result.get("objective", {})])
+            if not objectives:
+                print("No engineering objectives yet.")
+            for item in objectives:
+                print(
+                    f"{item.get('objective_id', '')}  {item.get('status', 'unknown')}  {item.get('objective', '')}"
+                )
+                for assignment in item.get("assignments", []):
+                    print(
+                        f"  {assignment['assignment_id']}  {assignment['status']}  {assignment.get('title', '')}"
+                    )
+        return 0
+    except Exception as exc:  # noqa: BLE001
+        print(
+            json.dumps({"ok": False, "error": redact(str(exc))})
+            if args.json
+            else redact(str(exc))
+        )
+        return 1
+
+
 def cmd_journal(args: argparse.Namespace) -> int:
     """Inspect, back up and recover the #613 runtime journal.
 
@@ -4137,6 +4198,44 @@ def build_parser() -> argparse.ArgumentParser:
         p = sub.add_parser(name)
         p.add_argument("--project", default=None, help="Project root")
         p.set_defaults(func=cmd_delegate, hub_args=hub_args)
+        if name == "agents":
+            agent_sub = p.add_subparsers(dest="agents_command")
+            for action in (
+                "list",
+                "create",
+                "show",
+                "run",
+                "pause",
+                "resume",
+                "stop",
+                "sequential",
+                "budget",
+                "prioritize",
+                "reroute",
+                "reconcile",
+                "verify",
+            ):
+                command = agent_sub.add_parser(action)
+                command.add_argument(
+                    "--project", default=argparse.SUPPRESS, help="Project root"
+                )
+                command.add_argument("--json", action="store_true")
+                if action == "create":
+                    command.add_argument("objective")
+                    command.add_argument("--mode", default="safe-auto")
+                    command.add_argument("--model", default="auto")
+                    command.add_argument("--max-parallel", type=int, default=2)
+                    command.add_argument("--budget", default=None)
+                    command.add_argument("--allow-cloud", action="store_true")
+                    command.add_argument("--request-id", default=None)
+                    command.add_argument("--run", dest="start_objective", action="store_true")
+                elif action != "list":
+                    command.add_argument("objective_id")
+                command.add_argument("--assignment", default=None)
+                command.add_argument(
+                    "--value", default=None, help="Budget in USD, priority, or model ID"
+                )
+                command.set_defaults(func=cmd_objectives)
 
     p = sub.add_parser("dashboard", help="Write or serve the local OPai dashboard")
     p.add_argument("--project", default=None, help="Project root")

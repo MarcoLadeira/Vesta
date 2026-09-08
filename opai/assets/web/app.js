@@ -55,6 +55,7 @@ const state = {
   model: { id: "auto", label: "Auto", kind: "auto" },
   mode: { id: "safe-auto", label: "Safe Auto" },
   focus: "general", format: "normal",
+  multiAgentEnabled: false, agentsSnapshot: null, agentsSelection: null, agentsPollTimer: null, agentsRequests: new Map(),
   accounts: [], panel: true, message: null, lastFailedRequestId: null,
   responseDensity: "balanced",
   tlNodes: null, activityRenderPending: false, timelineRenders: 0,
@@ -327,6 +328,7 @@ function applyBootSelection(b) {
   state.panel = b.prefs.showPanel !== false;
   state.focus = b.prefs.focus || "general";
   state.format = b.prefs.format || "normal";
+  state.multiAgentEnabled = b.prefs.multiAgentEnabled === true;
   const m = (b.models || []).find((x) => x.id === b.selectedModel) || (b.models || [])[0];
   if (m) state.model = { ...m, advancedLabel: m.advanced_label };
   const md = (b.modes || []).find((x) => x.id === b.prefs.mode) || (b.modes || [])[0];
@@ -454,6 +456,8 @@ function boot() {
   if (bridge.connectionDoctorReady) bridge.connectionDoctorReady.connect(onConnectionDoctorReady);
   // #146: async data delivery — heavy payloads computed off the GUI thread.
   if (bridge.dashboardReady) bridge.dashboardReady.connect(onDashboardReady);
+  if (bridge.objectiveReady) bridge.objectiveReady.connect(onObjectiveReady);
+  if (bridge.objectiveControlReady) bridge.objectiveControlReady.connect(onObjectiveControlReady);
   if (bridge.settingsReady) bridge.settingsReady.connect(onSettingsReady);
   if (bridge.statusReady) bridge.statusReady.connect(onStatusReady);
   if (bridge.workspaceReady) bridge.workspaceReady.connect(onWorkspaceReady);
@@ -744,6 +748,10 @@ function wireUpdateSheet() {
 }
 
 function rebootFromState() {
+  clearTimeout(state.agentsPollTimer);
+  state.agentsSnapshot = null;
+  state.agentsSelection = null;
+  state.agentsRequests.clear();
   state.dashRequest = null;
   state.settingsRequest = null;
   state.statusRequest = null;
@@ -1724,6 +1732,9 @@ function renderStatus(st) {
 
 /* ---------- views ---------- */
 function switchView(id) {
+  clearTimeout(state.agentsPollTimer);
+  state.dashRequest = null;
+  state.dashPaint = null;
   state.view = id;
   closeMobileSidebar();
   // If the destination lives inside a folded group, unfold it so the active
@@ -2145,6 +2156,7 @@ function send(retryOf) {
   const sel = retryOf || {
     text, model: state.model.id, mode: state.mode.id, focus: state.focus, format: state.format,
     modelKind: state.model.kind, modelLabel: state.model.label, modelProvider: state.model.provider,
+    multiAgentEnabled: state.multiAgentEnabled === true,
     contextHints: state.contextHints.slice(),
   };
   // Free-tier consent: one confirmation per provider, ever. If the user has
@@ -2195,6 +2207,7 @@ function send(retryOf) {
   bridge.send(JSON.stringify({
     requestId, text: requestText, model: sel.model, mode: sel.mode, focus: sel.focus,
     format: sel.format, allowCloud: sel.allowCloud === true, allowLimit: sel.allowLimit === true,
+    multiAgentEnabled: sel.multiAgentEnabled === true,
     contextHints,
     // F9/F17: one-time approval for a policy-blocked command — the exact
     // string echoed by the pipeline, never a rewritten one. Omitted unless set.
@@ -4049,14 +4062,17 @@ function setBusy(on) {
 }
 
 /* ---------- dashboards ---------- */
-function renderDashboard(section) {
+function renderDashboard(section, quiet = false) {
+  clearTimeout(state.agentsPollTimer);
+  const workspaceRoot = (state.boot.workspace || {}).root;
   const page = $("#dashPage");
-  renderViewState(page, {
+  if (!quiet) renderViewState(page, {
     kind: "loading",
     title: "Loading dashboard",
     reason: "Waiting for locally prepared dashboard data.",
   });
   const paint = (json) => {
+    if (state.view !== section || (state.boot.workspace || {}).root !== workspaceRoot) return;
     let s = {};
     try { s = JSON.parse(json); } catch (_e) {
       renderViewState(page, {
@@ -4096,6 +4112,23 @@ function renderDashboard(section) {
         action: "open_chat",
         actionLabel: "Open chat",
       }, () => switchView("chat"));
+      return;
+    }
+    if (section === "agents" && window.OPaiAgentsWorkspace) {
+      const currentObjectives = (state.agentsSnapshot || {}).objectives || [];
+      const incomingObjectives = Array.isArray(s.objectives) ? s.objectives : [];
+      const merged = incomingObjectives.map((objective) => {
+        const current = currentObjectives.find((item) => item.objective_id === objective.objective_id);
+        return current && objectiveRevision(current) > objectiveRevision(objective) ? current : objective;
+      });
+      currentObjectives.forEach((objective) => {
+        if (!merged.some((item) => item.objective_id === objective.objective_id)) merged.push(objective);
+      });
+      state.agentsSnapshot = { ...s, objectives: merged };
+      paintAgentsWorkspace();
+      state.agentsPollTimer = setTimeout(() => {
+        if (state.view === "agents" && (state.boot.workspace || {}).root === workspaceRoot) renderDashboard("agents", true);
+      }, 3000);
       return;
     }
     if (!s.hero && !(s.kpis || []).length && !(s.cards || []).length && !(s.actions || []).length) {
@@ -4147,11 +4180,69 @@ function onDashboardReady(json) {
     return;
   }
   if (!state.dashPaint || !d || typeof d !== "object" || Array.isArray(d) || d.requestId !== state.dashRequest) return; // stale
+  if (d.workspaceRoot && d.workspaceRoot !== (state.boot.workspace || {}).root) return;
   if (!Object.prototype.hasOwnProperty.call(d, "data") || !d.data || typeof d.data !== "object" || Array.isArray(d.data)) {
     state.dashPaint("");
     return;
   }
   state.dashPaint(JSON.stringify(d.data));
+}
+function paintAgentsWorkspace() {
+  if (state.view !== "agents" || !state.agentsSnapshot) return;
+  // Keep a draft control value and keyboard focus stable during polling.
+  if (document.activeElement && document.activeElement.matches("[data-agent-value]") && $("#dashPage").contains(document.activeElement)) return;
+  window.OPaiAgentsWorkspace.mount($("#dashPage"), state.agentsSnapshot, {
+    selection: state.agentsSelection,
+    onAction: runAction,
+    onSelect: (selection) => { state.agentsSelection = selection; paintAgentsWorkspace(); },
+    onControl: (payload) => {
+      if (bridge.controlObjective) bridge.controlObjective(JSON.stringify(payload));
+      else toast("Objective controls are unavailable in this host.");
+    },
+  });
+}
+function objectiveRevision(objective) {
+  return Number.isSafeInteger(objective.revision) && objective.revision >= 0 ? objective.revision : 0;
+}
+function applyObjectiveSnapshot(objective) {
+  if (!objective || typeof objective.objective_id !== "string") return false;
+  const snapshot = state.agentsSnapshot || {};
+  const objectives = Array.isArray(snapshot.objectives) ? snapshot.objectives.slice() : [];
+  const index = objectives.findIndex((o) => o.objective_id === objective.objective_id);
+  if (index >= 0 && objectiveRevision(objectives[index]) > objectiveRevision(objective)) return false;
+  if (index < 0) objectives.unshift(objective); else objectives[index] = objective;
+  state.agentsSnapshot = { ...snapshot, objectives };
+  return true;
+}
+function onObjectiveReady(json) {
+  let d; try { d = JSON.parse(json); } catch (_e) { return; }
+  if (!d || d.workspaceRoot !== (state.boot.workspace || {}).root) return;
+  const initial = d.requestId === state.currentRequest && state.lastSend && state.lastSend.multiAgentEnabled;
+  const knownObjective = state.agentsRequests.get(d.requestId);
+  if (!initial && (!knownObjective || knownObjective !== (d.objective || {}).objective_id)) return;
+  if (!applyObjectiveSnapshot(d.objective)) return;
+  if (!initial) { paintAgentsWorkspace(); return; }
+  state.agentsRequests.set(d.requestId, d.objective.objective_id);
+  state.agentsSelection = { objectiveId: d.objective.objective_id };
+  stopTimer(); cancelTokenRender();
+  state.currentRequest = null;
+  state.message = null;
+  $("#statusStrip").hidden = true;
+  if (state.pending) state.pending.innerHTML = '<div class="card">Objective opened in Agents.</div>';
+  state.pending = null;
+  setBusy(false);
+  switchView("agents");
+  paintAgentsWorkspace();
+}
+function onObjectiveControlReady(json) {
+  let d; try { d = JSON.parse(json); } catch (_e) { return; }
+  if (!d || d.workspaceRoot !== (state.boot.workspace || {}).root) return;
+  if (!d.ok) { toast(safeStateReason(d.error, "Objective control failed.")); return; }
+  // Invalidate a pre-control poll so it cannot overwrite the newer snapshot.
+  state.dashRequest = null;
+  if (applyObjectiveSnapshot(d.objective)) paintAgentsWorkspace();
+  clearTimeout(state.agentsPollTimer);
+  if (state.view === "agents") state.agentsPollTimer = setTimeout(() => renderDashboard("agents", true), 3000);
 }
 function runAction(aid, cmd) {
   if (aid === "panic_toggle") { switchView("chat"); bridge.runTool("panic"); return; }
@@ -4794,6 +4885,12 @@ if (typeof window !== "undefined") {
     // Pure-ish internals exposed for unit tests: the payload→state selection
     // sync (F16/F4) and the derived next-run agent mode preview (F21).
     applyBootSelection: (b) => applyBootSelection(b),
+    setMultiAgentEnabled: (enabled) => {
+      state.multiAgentEnabled = enabled === true;
+      if (state.boot && state.boot.prefs) state.boot.prefs.multiAgentEnabled = state.multiAgentEnabled;
+      if (bridge && bridge.savePref) bridge.savePref("multi_agent_enabled", String(state.multiAgentEnabled));
+      if (window.OPaiComposer) window.OPaiComposer.refresh();
+    },
     derivedAgentMode: () => derivedAgentMode(),
     applyAppearance: (p) => applyAppearance(p),
     // Used by the redesigned composer's overflow menu (Keyboard shortcuts).

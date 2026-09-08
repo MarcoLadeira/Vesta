@@ -15,6 +15,7 @@ MODES = ["ask", "plan", "approve-edits", "safe-auto", "auto-edits", "full-auto"]
 DEFAULT_PREFERENCES: dict[str, Any] = {
     "schema_version": 3,
     "default_model": "auto",
+    "multi_agent_enabled": False,
     "default_mode": DEFAULT_MODE,
     # Full Auto pin contract (#137): Full Auto is the effective mode only when
     # explicitly pinned with a recorded acknowledgement. A stale persisted
@@ -73,6 +74,7 @@ DEFAULT_PREFERENCES: dict[str, Any] = {
 _ALLOWED_KEYS = {
     "schema_version",
     "default_model",
+    "multi_agent_enabled",
     "default_mode",
     "full_auto_pinned",
     "full_auto_acknowledged_at",
@@ -128,6 +130,7 @@ def _sanitize(data: dict[str, Any]) -> dict[str, Any]:
     if clean.get("activity_copy") not in {"on", "off"}:
         clean["activity_copy"] = "on"
     clean["onboarding_seen"] = bool(clean.get("onboarding_seen"))
+    clean["multi_agent_enabled"] = clean.get("multi_agent_enabled") is True
     safe = clean.get("safe_auto")
     if not isinstance(safe, dict):
         clean["safe_auto"] = DEFAULT_PREFERENCES["safe_auto"]

@@ -538,7 +538,10 @@ def _run(
     validate_integrity: bool = True,
 ) -> int:
     try:
-        needs_desktop = (desktop or _gui_requested(arguments)) and (
+        objective_worker = arguments[:1] == ["--opai-objective-worker"]
+        if objective_worker and len(arguments) != 3:
+            return 2
+        needs_desktop = not objective_worker and (desktop or _gui_requested(arguments)) and (
             "--once" not in arguments
         )
         context = preflight_startup(
@@ -563,6 +566,9 @@ def _run(
             else:
                 print(release_version_text(), file=stdout)
             return 0
+        if objective_worker:
+            module = importer("opaihub.objective_worker")
+            return int(module.main(arguments[1:]))
         module = importer("opai.cli")
         if desktop:
             return int(module.gui_main())  # type: ignore[attr-defined]

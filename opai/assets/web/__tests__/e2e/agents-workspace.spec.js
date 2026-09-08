@@ -1,0 +1,103 @@
+import { test, expect } from "@playwright/test";
+import { openApp, openNav, sendPrompt, expectNoFatalErrors } from "./helpers/app.js";
+
+const objective = { objective_id: 'obj-1', objective: 'Repair independent regressions', status: 'running', budget_usd: '4', cost_usd: null, cost_complete: false, max_parallel: 2, allowed_actions: ['pause', 'budget'], assignments: [{ assignment_id: 'a-1', title: 'API repair', status: 'blocked', depends_on: ['a-0'], intended_paths: ['api/'], blocked_reason: 'Waiting for contract', allowed_actions: ['stop', 'reroute'], activity: ['Read api/server.py'] }], integration: { status: 'pending' } };
+
+test('multiple agents checkbox preserves permission mode and model, persists, and travels with retry', async ({ page }) => {
+  const diagnostics = await openApp(page, { boot: { prefs: { multiAgentEnabled: true } } });
+  const selection = await page.evaluate(() => ({ mode: window.__opai.state.mode.id, model: window.__opai.state.model.id }));
+  await page.locator('#modeBtn').click();
+  const toggle = page.getByRole('menuitemcheckbox', { name: /Allow multiple agents mode/ });
+  await expect(toggle).toHaveAttribute('aria-checked', 'true');
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-checked', 'false');
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-checked', 'true');
+  await page.keyboard.press('Escape');
+  const id = await sendPrompt(page);
+  expect(await page.evaluate(() => window.__mock.lastRequest)).toMatchObject({ ...selection, multiAgentEnabled: true });
+  expect(await page.evaluate(() => window.__mock.savedPrefs)).toContainEqual(['multi_agent_enabled', 'true']);
+  await page.evaluate((rid) => window.__mock.emitReply(rid, { status: 'failed', error: 'Temporary provider failure' }), id);
+  await page.evaluate(() => window.__opai.setMultiAgentEnabled(false));
+  await page.evaluate(() => window.__opai.send(window.__opai.state.lastSend));
+  expect(await page.evaluate(() => window.__mock.lastRequest.multiAgentEnabled)).toBe(true);
+  expectNoFatalErrors(diagnostics);
+});
+
+test('canonical recovery renders with provider readiness and controls use journal IDs', async ({ page }) => {
+  const diagnostics = await openApp(page, { dashboards: { agents: { objectives: [objective], cards: [{ title: 'Provider readiness', body: 'Local worker ready' }] } } });
+  await openNav(page, 'Agents');
+  await expect(page.locator('#dashPage')).toContainText('Repair independent regressions');
+  await expect(page.locator('#dashPage')).toContainText('Local worker ready');
+  await expect(page.locator('#dashPage')).toContainText('Not reported');
+  await page.locator('[data-agent-action="pause"]').click();
+  expect(await page.evaluate(() => window.__mock.objectiveControls)).toEqual([{ objective_id: 'obj-1', action: 'pause' }]);
+  await page.getByLabel('Budget in USD').fill('7.5');
+  await page.locator('[data-agent-action="budget"]').click();
+  await page.getByLabel('Assignment model').fill('local-coder');
+  await page.locator('[data-agent-action="reroute"]').click();
+  expect(await page.evaluate(() => window.__mock.objectiveControls.slice(1))).toEqual([{ objective_id: 'obj-1', action: 'budget', value: '7.5' }, { objective_id: 'obj-1', assignment_id: 'a-1', action: 'reroute', value: 'local-coder' }]);
+  await page.evaluate((o) => window.__mock.emitObjectiveControl({ ok: true, objective: { ...o, status: 'paused', allowed_actions: ['resume'] }, workspaceRoot: '/demo' }), objective);
+  await expect(page.locator('.agents-objective > header')).toContainText('Paused');
+  await expect(page.locator('[data-agent-action="pause"]')).toHaveCount(0);
+  await page.evaluate((o) => window.__mock.emitObjectiveControl({ ok: true, objective: { ...o, status: 'completed' }, workspaceRoot: '/other' }), objective);
+  await expect(page.locator('.agents-objective > header')).toContainText('Paused');
+  expectNoFatalErrors(diagnostics);
+});
+
+test('objective signal releases chat only for the active request and workspace', async ({ page }) => {
+  await openApp(page, { boot: { prefs: { multiAgentEnabled: true } }, workspaceSwitch: { boot: { prefs: { multiAgentEnabled: false } } }, dashboards: { agents: { objectives: [objective] } } });
+  const id = await sendPrompt(page);
+  await page.evaluate((o) => window.__mock.emitObjective({ requestId: 'stale', objective: o, workspaceRoot: '/demo' }), objective);
+  expect(await page.evaluate(() => window.__opai.state.busy)).toBe(true);
+  await page.evaluate(({ o, id }) => window.__mock.emitObjective({ requestId: id, objective: o, workspaceRoot: '/other' }), { o: objective, id });
+  expect(await page.evaluate(() => window.__opai.state.busy)).toBe(true);
+  await page.evaluate(({ o, id }) => window.__mock.emitObjective({ requestId: id, objective: o, workspaceRoot: '/demo' }), { o: objective, id });
+  await expect(page.locator('#dashPage')).toContainText('Repair independent regressions');
+  expect(await page.evaluate(() => ({ busy: window.__opai.state.busy, view: window.__opai.state.view }))).toEqual({ busy: false, view: 'agents' });
+  await page.evaluate(() => window.__mock.switchWorkspace('/other'));
+  await expect.poll(() => page.evaluate(() => window.__opai.state.boot.workspace.root)).toBe('/other');
+  expect(await page.evaluate(() => window.__opai.state.multiAgentEnabled)).toBe(false);
+  expect(await page.evaluate(() => window.__opai.state.agentsSnapshot)).toBe(null);
+});
+
+test('older objective and dashboard responses cannot replace a newer request or another view', async ({ page }) => {
+  await openApp(page, { boot: { prefs: { multiAgentEnabled: true } }, dashboards: { agents: { objectives: [objective] } } });
+  const oldId = await sendPrompt(page, 'First objective');
+  await page.evaluate(({ o, id }) => window.__mock.emitObjective({ requestId: id, objective: o, workspaceRoot: '/demo' }), { o: objective, id: oldId });
+  await expect(page.locator('#dashPage')).toContainText(objective.objective);
+  const oldPoll = await page.evaluate(() => window.__mock.dashboardRequests.at(-1).requestId);
+  await openNav(page, 'Chat');
+  const newId = await sendPrompt(page, 'Second objective');
+  await page.evaluate(({ o, id, poll }) => {
+    window.__mock.emitObjective({ requestId: id, objective: { ...o, objective: 'Stale objective' }, workspaceRoot: '/demo' });
+    window.__mock.emitDashboard({ requestId: poll, workspaceRoot: '/demo', data: { objectives: [{ ...o, objective: 'Stale dashboard' }] } });
+  }, { o: objective, id: oldId, poll: oldPoll });
+  expect(await page.evaluate(() => ({ view: window.__opai.state.view, requestId: window.__opai.state.currentRequest, busy: window.__opai.state.busy }))).toEqual({ view: 'chat', requestId: newId, busy: true });
+  await page.evaluate(({ o, id }) => window.__mock.emitObjective({ requestId: id, objective: { ...o, objective_id: 'obj-2', objective: 'Second objective' }, workspaceRoot: '/demo' }), { o: objective, id: newId });
+  expect(await page.evaluate(() => window.__opai.state.busy)).toBe(false);
+});
+
+for (const viewport of [{ width: 1440, height: 1080 }, { width: 520, height: 1000 }]) {
+  test(`journal evidence is readable and contained at ${viewport.width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize(viewport);
+    const recorded = { ...objective, cost_usd: '0.125001', assignments: [
+      { ...objective.assignments[0], role: 'Implementer', owner: 'worker-api', objective: 'Repair the API response without changing the public contract.', model: 'local-coder', status: 'running', cost_usd: '0.125001', allowed_actions: ['stop'], depends_on: [], blocked_reason: '', changed_files: ['api/server.py'], worktree: '/worktrees/objective-1/api-repair', branch: 'codex/agents-api-repair', activity: 'Checking API response compatibility', verification: { status: 'pending-integration', summary: 'Worker checks are recorded; integrated verification is still pending.' } },
+      { assignment_id: 'a-2', title: 'Cover response boundaries', role: 'Tester', status: 'pending', model: 'local-coder', intended_paths: ['tests/api/'], depends_on: ['a-1'], cost_usd: null, activity: 'Waiting for the API repair' },
+    ] };
+    const diagnostics = await openApp(page, { boot: { prefs: { showPanel: false } }, dashboards: { agents: { objectives: [recorded], cards: [] } } });
+    // Drive the same nav button if its mobile rail is currently off canvas.
+    await page.evaluate(() => document.querySelector('.nav-item[data-id="agents"]').click());
+    await expect(page.locator('.agents-metrics')).toContainText('$0.125001');
+    await expect(page.locator('.agents-detail')).toContainText('Checking API response compatibility');
+    await expect(page.locator('.agents-evidence').first()).not.toHaveAttribute('open');
+    expect(await page.locator('.agents-workspace').evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath(`agents-${viewport.width}.png`), fullPage: true });
+    await page.locator('[data-agent-select="a-2"]').click();
+    await expect(page.locator('.agents-detail h3')).toHaveText('Cover response boundaries');
+    await expect(page.locator('.agents-detail')).toContainText('API repair · a-1');
+    await page.evaluate(() => window.__mock.emitObjectiveControl({ ok: true, workspaceRoot: '/demo', objective: { objective_id: 'unsafe', objective: '<img src=x onerror="alert(1)">', status: '<script>unsafe</script>', assignments: [] } }));
+    await expect(page.locator('.agents-workspace img, .agents-workspace script')).toHaveCount(0);
+    expectNoFatalErrors(diagnostics);
+  });
+}
