@@ -787,13 +787,27 @@ def _journal_cost(root: Path, telemetry: Any, *, operation_key: str) -> None:
     identity = _JOURNAL_RUN.get()
     if not identity or telemetry is None:
         return
+    # #818: the telemetry already knows how well it knows this number.
+    # `normalize_account_result` reports "actual" when a provider gave a real
+    # dollar figure (Claude does) and "estimated" when it did not (Codex), and
+    # this used to hard-code "estimated" over the top -- which is why every
+    # cost event in a real journal reads as an estimate and not one reads as
+    # actual. The store has accepted the distinction since v1.
+    #
+    # The zero mattered more. `cost_usd` is deliberately None for a call whose
+    # price nobody measured, and `or 0.0` turned that into a recorded $0.00 --
+    # "unknown cost represented as zero", in the canonical record itself. The
+    # store's `unavailable` kind exists for exactly this and had no writer.
+    measured = getattr(telemetry, "cost_usd", None)
+    known = isinstance(measured, (int, float)) and not isinstance(measured, bool)
+    kind = str(getattr(telemetry, "cost_measurement", "") or "estimated")
     with contextlib.suppress(Exception):  # noqa: BLE001 - never block a turn
         journal_runtime.record_run_cost(
             root,
             run_id=str(identity["run_id"]),
             operation_key=operation_key,
-            amount_usd=float(getattr(telemetry, "cost_usd", 0.0) or 0.0),
-            measurement_kind="estimated",
+            amount_usd=float(measured) if known else 0.0,
+            measurement_kind=kind if known else "unavailable",
             now=_iso_now(),
             fence=identity.get("fence"),
             model=str(getattr(telemetry, "model", "") or ""),
