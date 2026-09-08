@@ -278,7 +278,14 @@ def _phase_is_proven_stopped(phase: Any) -> bool:
 def _background_cancellation_tracker(project_root: Path, run_id: str) -> Any:
     from .cancellation_lifecycle import CancellationTracker
 
-    return CancellationTracker(project_root, f"background-{_valid_run_id(run_id)}")
+    return CancellationTracker(
+        project_root,
+        f"background-{_valid_run_id(run_id)}",
+        # #818: this scope really is a journalled run, so its cancellation
+        # phases can reach the canonical record rather than living only in the
+        # per-scope file the tracker keeps.
+        journal_run_id=_valid_run_id(run_id),
+    )
 
 
 def _confirmed_background_cancellation(tracker: Any) -> dict[str, Any]:

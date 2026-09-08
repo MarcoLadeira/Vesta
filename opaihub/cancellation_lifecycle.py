@@ -174,10 +174,24 @@ class CancellationTracker:
     a phase backward — they converge on whichever phase is already reached.
     """
 
-    def __init__(self, project_root: Path, scope_id: str) -> None:
+    def __init__(
+        self,
+        project_root: Path,
+        scope_id: str,
+        *,
+        journal_run_id: str = "",
+    ) -> None:
         self.project_root = project_root.expanduser().resolve()
         self.scope_id = _safe_scope_id(scope_id)
         self._path = cancellation_journal_path(self.project_root, self.scope_id)
+        # #818: which run in the canonical journal this scope is cancelling, if
+        # any. Passed explicitly rather than derived from `scope_id`, because
+        # scope ids are namespaced per caller ("background-<run>",
+        # "account-<operation>", "aci-<uuid>") and only some of them name a
+        # journalled run at all. Guessing would either write events under a
+        # foreign key that does not exist or, worse, under one that does and
+        # belongs to something else.
+        self.journal_run_id = str(journal_run_id or "").strip()
 
     def phase(self) -> CancelPhase | None:
         projection = run_journal.load(
@@ -223,7 +237,33 @@ class CancellationTracker:
                 raise RuntimeError("cancellation phase decline with no recorded phase")
             return current
         _record, projection = result
-        return CancelPhase(projection["phase"])
+        phase = CancelPhase(projection["phase"])
+        self._mirror(phase, reason_code)
+        return phase
+
+    def _mirror(self, phase: CancelPhase, reason_code: str) -> None:
+        """Copy an accepted phase into the canonical journal. Never raises.
+
+        Deliberately outside ``append_if``'s lock. The decision is already made
+        and durable by the time this runs, so holding the cancellation lock
+        across a second store's write would add latency to a stop -- the one
+        operation where latency is the whole complaint (#380 measures it).
+        """
+
+        if not self.journal_run_id:
+            return
+        try:
+            from . import journal_runtime
+
+            journal_runtime.record_cancellation_phase(
+                self.project_root,
+                run_id=self.journal_run_id,
+                phase=phase.value,
+                reason_code=reason_code,
+                now=_now_iso(),
+            )
+        except Exception:  # noqa: BLE001 - a mirror never fails a real stop
+            return
 
     def request(self, *, reason_code: str = "user_requested") -> CancelPhase:
         """Record that a stop was asked for. Safe to call more than once."""

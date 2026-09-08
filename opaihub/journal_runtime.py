@@ -56,6 +56,13 @@ from .journal_store import (
 EVENT_ADMITTED = "run.admitted"
 EVENT_STARTED = "run.started"
 EVENT_CANCELLED = "run.cancelled"
+#: One step of a cancellation, not the whole of it. #818 asks for cancellation
+#: to be "explicitly two-phase: requested/acknowledged/terminated/reconciled",
+#: and `cancellation_lifecycle` already models that properly -- in a *different*
+#: journal. This is the canonical store learning the same phases, so a reader
+#: of one record does not have to consult the other to know whether a stop was
+#: asked for, seen, or confirmed.
+EVENT_CANCEL_PHASE = "run.cancel_phase"
 EVENT_FINISHED = "run.finished"
 EVENT_VERIFIED = "run.verified"
 EVENT_COSTED = "run.cost_recorded"
@@ -87,6 +94,7 @@ EVENT_PRIVACY = {
     # These three carry a reason or a detail, which is free-form by design.
     EVENT_FINISHED: PRIVACY_SENSITIVE,
     EVENT_CANCELLED: PRIVACY_SENSITIVE,
+    EVENT_CANCEL_PHASE: PRIVACY_SENSITIVE,
     EVENT_VERIFIED: PRIVACY_SENSITIVE,
 }
 
@@ -751,6 +759,67 @@ def beat_lease(root: Path, *, run_id: str, now: str) -> bool:
             return False
 
 
+def record_cancellation_phase(
+    root: Path,
+    *,
+    run_id: str,
+    phase: str,
+    reason_code: str,
+    now: str,
+    producer: str = "cancellation",
+) -> bool:
+    """Mirror one accepted cancellation phase into the canonical journal.
+
+    The phases themselves are decided and made durable by
+    ``cancellation_lifecycle``, which is deliberately left as the authority:
+    it holds the lock that makes two racing cancellations converge, and a
+    mirror that tried to re-decide anything would be a second opinion on the
+    one question #380 exists to give a single answer to.
+
+    So this records, and only records. It is called after the transition has
+    already been accepted, outside that lock, and every failure is swallowed --
+    a cancellation must never be slowed or refused by its own bookkeeping.
+
+    A scope with no journalled run simply writes nothing: the event table's
+    ``run_id`` is a foreign key, so an unknown run is refused by the store
+    rather than inventing a row for it.
+    """
+
+    if not str(run_id).strip() or not str(phase).strip():
+        return False
+    if not journal_store.journal_path(root).exists():
+        return False
+    fence: int | None = None
+    with _store(root) as store:
+        if store is None:
+            return False
+        try:
+            fence = _live_fence_on(store, run_id)
+            fence, after_terminal = _fence_for_late_evidence(store, run_id, fence)
+        except (sqlite3.DatabaseError, JournalStoreError):
+            return False
+    return (
+        record_event(
+            root,
+            run_id=run_id,
+            event_type=EVENT_CANCEL_PHASE,
+            now=now,
+            fence=fence,
+            payload={
+                "phase": str(phase),
+                "reason_code": str(reason_code or ""),
+                # A `terminated` that lands after the run was filed is the
+                # normal shape of a confirmed teardown, not an anomaly -- but
+                # replay still has to be able to see which side of the verdict
+                # it arrived on.
+                "after_terminal": after_terminal,
+            },
+            producer=producer,
+        )
+        is not None
+    )
+
+
 def unterminated_runs(
     root: Path,
     *,
@@ -888,6 +957,7 @@ __all__ = (
     "EVENT_PRIVACY",
     "EVENT_COSTED",
     "EVENT_CANCELLED",
+    "EVENT_CANCEL_PHASE",
     "EVENT_FINISHED",
     "EVENT_STARTED",
     "EVENT_VERIFIED",
@@ -897,6 +967,7 @@ __all__ = (
     "unterminated_summary",
     "record_run_cost",
     "record_verification",
+    "record_cancellation_phase",
     "record_event",
     "record_terminal",
     "beat_lease",
