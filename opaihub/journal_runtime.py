@@ -667,6 +667,45 @@ def record_verification(
     )
 
 
+def beat_lease(root: Path, *, run_id: str, now: str) -> bool:
+    """Restamp the heartbeat on a lease **this process holds**. Never raises.
+
+    The identity check is the whole guard, and it is the rule ``owner_lease``
+    states for the file it keeps: "refreshing someone else's lease would keep a
+    dead owner looking alive forever, which is the exact failure this module
+    exists to prevent". So the update matches on pid *and* boot id, and a
+    process that has been superseded restamps nothing.
+
+    No fence is needed for the same reason. A fence proves you were the current
+    holder at acquisition; the identity proves you are the process that
+    acquired it, which is the stronger claim here -- a lease taken over by
+    somebody else no longer carries our identity, so the update simply matches
+    no rows.
+
+    Best-effort, like every other mirror on this path: a heartbeat that cannot
+    be written costs evidence, never the turn it describes.
+    """
+
+    if not str(run_id).strip():
+        return False
+    if not journal_store.journal_path(root).exists():
+        return False
+    with _store(root) as store:
+        if store is None:
+            return False
+        try:
+            with journal_store._transaction(store):
+                cursor = store.execute(
+                    "UPDATE leases SET heartbeat_at = ?"
+                    " WHERE run_id = ? AND released_at IS NULL"
+                    " AND owner_pid = ? AND owner_boot = ?",
+                    (now, run_id, os.getpid(), owner_lease.boot_id()),
+                )
+                return cursor.rowcount > 0
+        except (sqlite3.DatabaseError, JournalStoreError, TypeError, ValueError):
+            return False
+
+
 def unterminated_runs(
     root: Path,
     *,
@@ -717,6 +756,7 @@ def unterminated_runs(
                 " r.created_at, r.updated_at,"
                 " l.owner AS lease_owner, l.heartbeat_at AS lease_heartbeat_at,"
                 " l.released_at AS lease_released_at,"
+                " l.acquired_at AS lease_acquired_at,"
                 " l.owner_pid, l.owner_boot"
                 " FROM runs r LEFT JOIN leases l ON l.run_id = r.run_id"
                 " WHERE r.terminal_verdict IS NULL OR r.terminal_verdict = ''"
@@ -814,4 +854,5 @@ __all__ = (
     "record_verification",
     "record_event",
     "record_terminal",
+    "beat_lease",
 )

@@ -153,9 +153,32 @@ differs from the recorded one is conclusively a reused pid. That needs a
 per-platform probe (`GetProcessTimes`, `/proc/<pid>/stat`, `sysctl`) and is
 worth doing separately rather than smuggling into this change.
 
-There is still no heartbeat. `heartbeat_at` is stamped at acquisition and at
-release and by nothing in between, so it cannot yet distinguish a process that
-is alive but wedged from one that is alive and working.
+~~There is still no heartbeat.~~ Since fixed, and the correction is left
+visible because the reasoning changed with it. `heartbeat_at` had two writers,
+acquire and release, so it recorded when a run *started* and nothing else. A
+reader could tell a lease was held and never whether anyone was still holding
+it.
+
+A running turn now restamps it, from the activity stream rather than from a
+timer. That distinction is the point: a timer would keep a wedged run's lease
+warm and report it healthy forever, hiding the exact thing a heartbeat exists
+to expose. If events are flowing, work is happening.
+
+That adds a fifth verdict, `owner_stale` -- the owner is still there and has
+stopped tending this. Two rules keep it honest:
+
+* **Only a heartbeat that stopped counts.** It must have moved since
+  acquisition. A heartbeat that never moved proves nothing, because background
+  and CLI runs do not beat at all, and judging them by a clock they never wound
+  would report every one of them as dead.
+* **Stale is reported, never acted on.** A quiet process may be wedged,
+  suspended, or in a long provider call that emits nothing. `owner_stale` is
+  outside `ACTIONABLE` and counts as possibly-alive, so recovery still refuses
+  to write a terminal verdict over it.
+
+The staleness window and the beat interval are `owner_lease`'s own constants
+rather than new ones. Two definitions of "stale" in one codebase is the second
+opinion this epic exists to remove.
 
 ## Found while measuring, not fixed here
 

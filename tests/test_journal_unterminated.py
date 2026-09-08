@@ -534,5 +534,119 @@ class ATaskNamesTheConversationItCameFromTests(_PendingFixture):
         self.assertEqual(self._session_of("task-a"), "")
 
 
+class ALeaseCanBeRestampedByTheProcessHoldingItTests(_PendingFixture):
+    """#818: `heartbeat_at` had two writers -- acquire and release -- and so
+    recorded the moment a run started and nothing else.
+
+    The identity check is the whole guard, and it is the rule `owner_lease`
+    already states: "refreshing someone else's lease would keep a dead owner
+    looking alive forever, which is the exact failure this module exists to
+    prevent".
+    """
+
+    LATER = "2026-08-27T12:05:00+00:00"
+
+    def _heartbeat(self, run_id: str = "live") -> str:
+        entry = unterminated_runs(self.root)[0]
+        self.assertEqual(entry["run_id"], run_id)
+        return str(entry["lease_heartbeat_at"])
+
+    def test_a_beat_moves_the_heartbeat(self):
+        self._admit("live")
+        before = self._heartbeat()
+
+        self.assertTrue(
+            journal_runtime.beat_lease(self.root, run_id="live", now=self.LATER)
+        )
+        self.assertNotEqual(self._heartbeat(), before)
+        self.assertEqual(self._heartbeat(), self.LATER)
+
+    def test_the_acquisition_time_is_left_alone(self):
+        """The comparison that tells "beaten" from "never beaten" needs both."""
+
+        self._admit("live")
+        acquired = unterminated_runs(self.root)[0]["lease_acquired_at"]
+
+        journal_runtime.beat_lease(self.root, run_id="live", now=self.LATER)
+
+        self.assertEqual(unterminated_runs(self.root)[0]["lease_acquired_at"], acquired)
+
+    def test_a_lease_owned_by_another_process_is_not_restamped(self):
+        self._admit("live")
+        before = self._heartbeat()
+        store = open_store(self.root)
+        try:
+            store.execute("UPDATE leases SET owner_boot = 'a-different-opai'")
+        finally:
+            store.close()
+
+        self.assertFalse(
+            journal_runtime.beat_lease(self.root, run_id="live", now=self.LATER)
+        )
+        self.assertEqual(self._heartbeat(), before)
+
+    def test_a_released_lease_is_not_restamped(self):
+        """A finished run must not be able to look alive again."""
+
+        fence = self._admit("live")
+        store = open_store(self.root)
+        try:
+            from opaihub.journal_store import release_lease
+
+            release_lease(store, run_id="live", fence=fence, now=NOW)
+        finally:
+            store.close()
+
+        self.assertFalse(
+            journal_runtime.beat_lease(self.root, run_id="live", now=self.LATER)
+        )
+
+    def test_beating_an_unknown_run_is_simply_false(self):
+        self._admit("live")
+
+        self.assertFalse(
+            journal_runtime.beat_lease(self.root, run_id="nobody", now=self.LATER)
+        )
+
+    def test_a_blank_run_id_is_refused(self):
+        self.assertFalse(journal_runtime.beat_lease(self.root, run_id="", now=NOW))
+
+    def test_a_project_with_no_journal_is_simply_false(self):
+        self.assertFalse(journal_runtime.beat_lease(self.root, run_id="x", now=NOW))
+
+    def test_a_corrupt_journal_does_not_raise(self):
+        """This runs on the turn path; it must never be the reason a turn dies."""
+
+        self._admit("live")
+        journal_path(self.root).write_bytes(b"not a database")
+
+        self.assertFalse(
+            journal_runtime.beat_lease(self.root, run_id="live", now=self.LATER)
+        )
+
+    def test_the_gui_pipeline_beats_from_the_activity_stream(self):
+        """A static ratchet. A heartbeat nothing calls is a column nothing
+        writes, which is exactly the state this replaced.
+
+        Pinned against the activity emitter rather than a timer on purpose: a
+        timer would keep restamping a wedged run's lease and report it healthy
+        forever, hiding the very thing a heartbeat exists to expose.
+        """
+
+        source = (
+            Path(__file__).resolve().parent.parent / "opaihub" / "gui_pipeline.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("def _journal_beat(", source)
+        self.assertIn("journal_runtime.beat_lease(", source)
+        self.assertIn("_journal_beat(root)", source)
+        self.assertIn("_HEARTBEAT_INTERVAL_SECONDS", source)
+        self.assertIn(
+            "_HEARTBEAT_INTERVAL_SECONDS = owner_lease.HEARTBEAT_INTERVAL_SECONDS",
+            source,
+            "one definition of the interval, shared with the legacy lease",
+        )
+
+
 if __name__ == "__main__":  # pragma: no cover - convenience
     unittest.main()

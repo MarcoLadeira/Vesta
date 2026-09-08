@@ -20,12 +20,14 @@ from __future__ import annotations
 
 import os
 import unittest
+from datetime import datetime, timedelta, timezone
 
 from opaihub import journal_liveness, owner_lease
 from opaihub.journal_liveness import (
     ACTIONABLE,
     OWNED_HERE,
     OWNER_GONE,
+    OWNER_STALE,
     OWNER_UNKNOWN,
     OWNER_UNVERIFIED,
     VERDICTS,
@@ -34,6 +36,8 @@ from opaihub.journal_liveness import (
 )
 
 FOREIGN_BOOT = "0" * 32
+ISO_START = "2026-09-08T10:00:00+00:00"
+START = datetime(2026, 9, 8, 10, 0, 0, tzinfo=timezone.utc)
 
 
 def _lease(**fields):
@@ -222,6 +226,123 @@ class MayBeAliveAnswersTheRecoveryQuestionTests(unittest.TestCase):
                         is_pid_running=lambda pid, a=answer: a,
                     )
                 )
+
+
+class AnOwnerThatStoppedRespondingIsNotTheSameAsOneThatLeftTests(unittest.TestCase):
+    """#818: `heartbeat_at` was written at acquisition and by nothing else.
+
+    So a reader could tell that a lease was *held* and never whether anyone was
+    still holding it -- which is precisely the difference "cancelled is
+    impossible while owned controllable work is still alive" turns on.
+
+    The rule that keeps this honest is that only a heartbeat which *stopped*
+    counts. A heartbeat that never moved proves nothing: background runs and
+    CLI runs do not beat, and judging them by a clock they never wound would
+    report every one of them as dead.
+    """
+
+    def _lease(self, *, acquired, heartbeat, pid=4242):
+        return {
+            "owner": "gui",
+            "owner_pid": pid,
+            "owner_boot": FOREIGN_BOOT,
+            "lease_acquired_at": acquired,
+            "lease_heartbeat_at": heartbeat,
+        }
+
+    def _verdict(self, lease, *, at, running=True):
+        return owner_liveness(
+            lease, is_pid_running=lambda pid: running, this_pid=-1, now=at
+        )
+
+    def test_a_lease_that_was_never_beaten_is_never_called_stale(self):
+        """A surface that does not beat must not be judged by the clock."""
+
+        lease = self._lease(acquired=ISO_START, heartbeat=ISO_START)
+
+        verdict = self._verdict(lease, at=START + timedelta(hours=3))
+
+        self.assertEqual(verdict, OWNER_UNVERIFIED)
+
+    def test_a_recently_beaten_lease_is_not_stale(self):
+        lease = self._lease(acquired=ISO_START, heartbeat="2026-09-08T10:05:00+00:00")
+
+        verdict = self._verdict(lease, at=START + timedelta(minutes=5, seconds=10))
+
+        self.assertEqual(verdict, OWNER_UNVERIFIED)
+
+    def test_a_lease_that_was_beaten_and_went_quiet_is_stale(self):
+        lease = self._lease(acquired=ISO_START, heartbeat="2026-09-08T10:05:00+00:00")
+
+        verdict = self._verdict(lease, at=START + timedelta(minutes=8))
+
+        self.assertEqual(verdict, OWNER_STALE)
+
+    def test_a_process_that_is_gone_outranks_a_quiet_heartbeat(self):
+        """ "Gone" is the more precise answer, so it wins."""
+
+        lease = self._lease(acquired=ISO_START, heartbeat="2026-09-08T10:05:00+00:00")
+
+        verdict = self._verdict(lease, at=START + timedelta(minutes=8), running=False)
+
+        self.assertEqual(verdict, OWNER_GONE)
+
+    def test_our_own_run_is_never_called_stale(self):
+        """We are the process reading this; we are plainly alive."""
+
+        lease = {
+            "owner": "gui",
+            "owner_pid": os.getpid(),
+            "owner_boot": owner_lease.boot_id(),
+            "lease_acquired_at": ISO_START,
+            "lease_heartbeat_at": "2026-09-08T10:05:00+00:00",
+        }
+
+        verdict = owner_liveness(lease, now=START + timedelta(days=1))
+
+        self.assertEqual(verdict, OWNED_HERE)
+
+    def test_the_window_is_owner_leases_own(self):
+        """One definition of "stale" in the codebase, not two."""
+
+        lease = self._lease(acquired=ISO_START, heartbeat="2026-09-08T10:05:00+00:00")
+        just_inside = START + timedelta(
+            minutes=5, seconds=owner_lease.STALE_AFTER_SECONDS - 1
+        )
+        just_outside = START + timedelta(
+            minutes=5, seconds=owner_lease.STALE_AFTER_SECONDS + 1
+        )
+
+        self.assertEqual(self._verdict(lease, at=just_inside), OWNER_UNVERIFIED)
+        self.assertEqual(self._verdict(lease, at=just_outside), OWNER_STALE)
+
+    def test_unreadable_timestamps_are_not_stale(self):
+        for acquired, heartbeat in (
+            ("", ""),
+            (ISO_START, "not a date"),
+            ("not a date", ISO_START),
+            (None, None),
+        ):
+            with self.subTest(acquired=acquired, heartbeat=heartbeat):
+                lease = self._lease(acquired=acquired, heartbeat=heartbeat)
+                self.assertNotEqual(
+                    self._verdict(lease, at=START + timedelta(days=1)), OWNER_STALE
+                )
+
+    def test_a_stale_owner_is_reported_but_never_acted_on(self):
+        """A wedged process may be mid-provider-call. Writing a terminal
+        verdict over it is the defect this module exists to stop."""
+
+        lease = self._lease(acquired=ISO_START, heartbeat="2026-09-08T10:05:00+00:00")
+
+        self.assertNotIn(OWNER_STALE, ACTIONABLE)
+        self.assertTrue(
+            may_be_alive(
+                lease,
+                is_pid_running=lambda pid: True,
+                this_pid=-1,
+            )
+        )
 
 
 class TheVocabularyIsClosedTests(unittest.TestCase):

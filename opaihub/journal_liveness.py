@@ -36,6 +36,7 @@ the legacy record it is destined to replace.
 from __future__ import annotations
 
 import os
+from datetime import datetime, timezone
 from typing import Any, Callable, Mapping, Sequence
 
 from . import owner_lease
@@ -48,18 +49,62 @@ OWNER_GONE = "owner_gone"
 #: A process with the recorded id exists, but it may not be the same one.
 #: Deliberately not "alive" -- that is the claim the evidence cannot support.
 OWNER_UNVERIFIED = "owner_unverified"
+#: The owner was tending this run and stopped. Distinct from OWNER_GONE: the
+#: process may well still exist. What is known is that it has not restamped a
+#: heartbeat it was previously restamping, which is positive evidence rather
+#: than the absence of it.
+OWNER_STALE = "owner_stale"
 #: No process was recorded, or the platform declined to say. Pre-migration
 #: leases land here, and so does a locked-down platform.
 OWNER_UNKNOWN = "unknown"
 
 #: Every verdict, so a surface can be checked for exhaustiveness rather than
 #: discovering a new one in production.
-VERDICTS: Sequence[str] = (OWNED_HERE, OWNER_GONE, OWNER_UNVERIFIED, OWNER_UNKNOWN)
+VERDICTS: Sequence[str] = (
+    OWNED_HERE,
+    OWNER_GONE,
+    OWNER_STALE,
+    OWNER_UNVERIFIED,
+    OWNER_UNKNOWN,
+)
 
 #: The verdicts a recovery pass may act on without asking anything further.
 #: ``OWNER_UNVERIFIED`` is absent on purpose: acting on it would be acting on a
 #: guess, and a wrong guess here cancels somebody's running work.
 ACTIONABLE: Sequence[str] = (OWNED_HERE, OWNER_GONE)
+
+
+def _moment(value: Any) -> datetime | None:
+    """One ISO timestamp, or ``None`` for anything that is not one."""
+
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _stopped_responding(lease: Mapping[str, Any], now: datetime | None) -> bool:
+    """True when a lease that *was* being tended has gone quiet.
+
+    Two conditions, and the first is what keeps this honest. The heartbeat must
+    have moved since the lease was acquired -- proof that somebody was
+    restamping it. Without that, a quiet heartbeat means only that this
+    surface never beats one: background runs and CLI runs do not, and judging
+    them by a clock they never wound would report every one of them as dead.
+
+    So absence of a heartbeat proves nothing here, and only its *stopping*
+    does. The staleness window is `owner_lease`'s, deliberately: two
+    definitions of "stale" in one codebase is the kind of second opinion #818
+    exists to remove.
+    """
+
+    heartbeat = _moment(lease.get("lease_heartbeat_at"))
+    acquired = _moment(lease.get("lease_acquired_at"))
+    if heartbeat is None or acquired is None or heartbeat <= acquired:
+        return False
+    reference = now or datetime.now(timezone.utc)
+    return (reference - heartbeat).total_seconds() > owner_lease.STALE_AFTER_SECONDS
 
 
 def owner_liveness(
@@ -68,6 +113,7 @@ def owner_liveness(
     is_pid_running: Callable[[int], bool | None] = pid_is_running,
     this_pid: int | None = None,
     this_boot: str = "",
+    now: datetime | None = None,
 ) -> str:
     """One of :data:`VERDICTS` for a lease row.
 
@@ -91,9 +137,13 @@ def owner_liveness(
     try:
         running = is_pid_running(pid)
     except Exception:  # noqa: BLE001 - a probe that fails answers "unknown"
-        return OWNER_UNKNOWN
+        running = None
     if running is False:
+        # Checked before staleness because it is the more precise answer: a
+        # process that no longer exists is gone, not merely quiet.
         return OWNER_GONE
+    if _stopped_responding(lease, now):
+        return OWNER_STALE
     if running is True:
         # A pid that matches ours but carries a foreign boot id is a *reused*
         # pid -- our own interpreter would have written our boot id. Reporting
@@ -140,6 +190,14 @@ def may_be_alive(
     )
 
 
+# `OWNER_STALE` is deliberately absent from `ACTIONABLE` and counts as
+# possibly-alive above. A process that stopped restamping its heartbeat may be
+# wedged, suspended, or in the middle of a long provider call that emits
+# nothing -- and reconciling it would write a terminal verdict over work that
+# is still running, which is the defect this module was built to stop. It is
+# reported so a person can decide; it is not acted on automatically.
+
+
 def describe(verdict: str) -> str:
     """A sentence for a person, matching the verdict exactly.
 
@@ -153,6 +211,7 @@ def describe(verdict: str) -> str:
 _SENTENCES = {
     OWNED_HERE: "This OPai is working on it now.",
     OWNER_GONE: "The OPai that started this is no longer running.",
+    OWNER_STALE: "The OPai that started this stopped responding.",
     OWNER_UNVERIFIED: "Another OPai may still be working on it.",
     OWNER_UNKNOWN: "OPai cannot tell whether this is still running.",
 }
@@ -180,6 +239,7 @@ __all__: Sequence[str] = (
     "ACTIONABLE",
     "OWNED_HERE",
     "OWNER_GONE",
+    "OWNER_STALE",
     "OWNER_UNKNOWN",
     "OWNER_UNVERIFIED",
     "VERDICTS",

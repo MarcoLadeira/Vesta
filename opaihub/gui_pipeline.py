@@ -13,7 +13,7 @@ from typing import Any
 
 from opai.release_identity import surface_identity_payload
 
-from . import command_consent
+from . import command_consent, owner_lease
 from .agent_policy import (
     AgentMode,
     build_capability_contract,
@@ -716,6 +716,11 @@ def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+#: How often a running turn restamps its journal lease. Borrowed from
+#: ``owner_lease`` rather than chosen again: two intervals for one heartbeat
+#: would let the two records disagree about whether the same run is healthy.
+_HEARTBEAT_INTERVAL_SECONDS = owner_lease.HEARTBEAT_INTERVAL_SECONDS
+
 #: The journal identity of the turn running on this thread, or ``None``.
 #:
 #: Set by :func:`_handle_gui_message` once admission has been mirrored, read by
@@ -739,6 +744,32 @@ _TERMINAL_EVENTS: dict[str, tuple[str, str]] = {
     "error": (journal_runtime.EVENT_FINISHED, "failed"),
     "blocked": (journal_runtime.EVENT_FINISHED, "blocked"),
 }
+
+
+def _journal_beat(root: Path) -> None:
+    """Restamp this turn's lease so a live run does not read as abandoned.
+
+    Until now nothing wrote ``leases.heartbeat_at`` between acquisition and
+    release, so the column recorded the moment a run *started* and nothing
+    else. A reader could tell that a lease was held; it could not tell whether
+    anyone was still holding it, and #818's "cancelled is impossible while
+    owned controllable work is still alive" rests on exactly that difference.
+
+    Called from the activity emitter, which fires as phases advance and as a
+    provider streams, and throttled there -- so the beat costs one small write
+    every ``HEARTBEAT_INTERVAL`` of a turn rather than one per event.
+
+    Best-effort in the strongest sense: a heartbeat that cannot be written
+    makes a run look quiet, and a heartbeat that raised would make it fail.
+    """
+
+    identity = _JOURNAL_RUN.get()
+    if not identity:
+        return
+    with contextlib.suppress(Exception):  # noqa: BLE001 - never block a turn
+        journal_runtime.beat_lease(
+            root, run_id=str(identity.get("run_id") or ""), now=_iso_now()
+        )
 
 
 def _journal_cost(root: Path, telemetry: Any, *, operation_key: str) -> None:
@@ -856,7 +887,20 @@ def _handle_gui_message(
     Edit/Write attempts refused by the provider's permission gate.
     """
 
+    # When this turn's lease was last restamped, on the monotonic clock so a
+    # system clock change cannot make the next beat look overdue or unreachable.
+    _last_beat = [0.0]
+
     def _emit(etype: str, status: str, title: str, **kw: Any) -> None:
+        # #818: the activity stream is the honest liveness signal available
+        # here -- if events are flowing, this turn is doing something. Beating
+        # on a timer instead would keep restamping a wedged run's lease and
+        # report it as healthy forever, which is the failure a heartbeat is
+        # supposed to expose rather than hide.
+        elapsed = time.monotonic() - _last_beat[0]
+        if elapsed >= _HEARTBEAT_INTERVAL_SECONDS:
+            _last_beat[0] = time.monotonic()
+            _journal_beat(root)
         if on_event:
             from opai.activity import make_event
 
