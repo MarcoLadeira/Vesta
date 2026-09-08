@@ -1199,6 +1199,47 @@ class ObjectiveStore:
                     recovered.append(obj["objective_id"])
         return recovered
 
+    def acknowledge_interrupted(
+        self, objective_id, owner, dispatch_fence, *, assignment_id=None,
+        phase=None, result=None, changed_files=(),
+    ):
+        if (assignment_id is None) == (phase is None):
+            raise ValueError("Specify one interrupted assignment or phase")
+        if phase is not None and phase not in {"planning", "integration"}:
+            raise ValueError("Unknown objective phase")
+        paths = _paths(changed_files, limit=10000, protected=False)
+        with self._db(True) as db:
+            obj = self._load(db, objective_id)
+            item = obj[phase] if phase else self._owned(
+                db, objective_id, assignment_id, owner, dispatch_fence + 1,
+            )
+            if (
+                item["owner"] != owner
+                or item["fence"] != dispatch_fence + 1
+                or item["expires_at"] is not None
+                or item["status"] not in {"needs-attention", "stopping"}
+            ):
+                raise StaleWriterError("Interrupted ownership no longer matches")
+            item.update(
+                status="cancelled" if item["status"] == "stopping" else "needs-attention",
+                last_owner=owner, owner="", result=result or {},
+            )
+            if phase is None:
+                item.update(
+                    changed_files=paths,
+                    activity="Interrupted worker terminated",
+                    blocked_reason="Execution was interrupted; retained changes require review",
+                )
+                self._save_assignment(db, item)
+            else:
+                self._save_obj(db, obj)
+            self._refresh(db, obj)
+            self._event(db, obj, "interrupted-owner-terminated", {
+                "assignment_id": assignment_id, "phase": phase,
+                "owner": owner, "dispatch_fence": dispatch_fence,
+            })
+        return self.snapshot(objective_id)
+
     def begin_integration(self, objective_id, owner, lease_seconds=120):
         owner = _text(owner, "owner", 200)
         with self._db(True) as db:

@@ -29,7 +29,7 @@ Architecture: extend the existing SQLite runtime journal with objective and assi
 
 Testing, lint, benchmarks and independent review are deferred at the user's explicit request on 2026-09-08. Existing test changes were written before that instruction; subsequent implementation changes are untested. Keep PR #842 draft and #821 open.
 
-Expired owners are fenced and surfaced as needing attention. Their capacity remains reserved until termination is established; automatic orphan release and provider-operation replay are deliberately unavailable. Recovery of retained work needs a proven-termination path before that part of the epic is complete.
+Expired owners are fenced and surfaced as needing attention. A returning original owner can acknowledge termination against the interrupted fence, retain its evidence and release capacity without claiming success. If the owner never returns, capacity remains reserved; automatic orphan release and provider-operation replay are unavailable. Recovery after complete supervisor loss still needs a proven-termination path before that part of the epic is complete.
 
 ## Validation and delivery constraints
 

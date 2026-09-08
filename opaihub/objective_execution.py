@@ -510,14 +510,20 @@ class ObjectiveExecutor:
             finally:
                 if lease:
                     self.worktrees.release(lease.lease_id, owner=self.owner)
-        self.store.finish_plan(
-            objective_id,
-            self.owner,
-            reservation["fence"],
-            assignments=rows,
-            status=status,
-            result=detail,
-        )
+        try:
+            self.store.finish_plan(
+                objective_id,
+                self.owner,
+                reservation["fence"],
+                assignments=rows,
+                status=status,
+                result=detail,
+            )
+        except StaleWriterError:
+            self.store.acknowledge_interrupted(
+                objective_id, self.owner, reservation["fence"],
+                phase="planning", result=detail,
+            )
         return self._emit(objective_id)
 
     def control(self, objective_id: str, action: str, assignment_id=None, value=None):
@@ -607,16 +613,22 @@ class ObjectiveExecutor:
                 if invoked and self._finalize_costs(objective_id, assignment, result):
                     if status != "cancelled":
                         status = "needs-attention"
-                self.store.finish_assignment(
-                    objective_id,
-                    aid,
-                    self.owner,
-                    fence,
-                    status=status,
-                    changed_files=observed.get("changed_files", []),
-                    verification={"status": "pending-integration"},
-                    result=result,
-                )
+                try:
+                    self.store.finish_assignment(
+                        objective_id,
+                        aid,
+                        self.owner,
+                        fence,
+                        status=status,
+                        changed_files=observed.get("changed_files", []),
+                        verification={"status": "pending-integration"},
+                        result=result,
+                    )
+                except StaleWriterError:
+                    self.store.acknowledge_interrupted(
+                        objective_id, self.owner, fence, assignment_id=aid,
+                        changed_files=observed.get("changed_files", []), result=result,
+                    )
             finally:
                 try:
                     if lease:
@@ -943,6 +955,11 @@ class ObjectiveExecutor:
                     objective_id, self.owner, admission["fence"],
                     status="needs-attention", **evidence,
                 )
+        except StaleWriterError:
+            self.store.acknowledge_interrupted(
+                objective_id, self.owner, admission["fence"],
+                phase="integration", result={**result, "interrupted_integration": evidence},
+            )
         finally:
             if lease:
                 self.worktrees.release(lease.lease_id, owner=self.owner)
