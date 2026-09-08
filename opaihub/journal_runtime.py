@@ -1013,6 +1013,82 @@ def _summary(task: str, *, limit: int = 200) -> str:
     return journal_store.redact(text)[:limit]
 
 
+def unevidenced_completions(root: Path) -> dict[str, Any]:
+    """Which runs are recorded as completed with nothing behind the verdict.
+
+    #818 AC6 asks that ``completed`` be impossible without the required
+    objective, verification and delivery evidence. It is not: the store
+    accepts whatever verdict a caller hands it, and a run admitted and
+    immediately terminated as ``completed`` -- no verification event, no
+    artifact, no cost, no recorded ending beyond the verdict itself -- is
+    written without complaint. Measured, not inferred.
+
+    This does not refuse the write, and that restraint is deliberate. Every
+    mirror in this module records rather than re-decides, because the layer
+    that *can* decide is the completion machinery in ``opaihub.completion``
+    which has the answer, the diff and the policy in front of it. A journal
+    that started overruling verdicts would be a second opinion on the one
+    question the epic exists to give a single answer to -- and refusing to
+    record a terminal state would leave the run reading as unfinished, which
+    is a worse lie than an unevidenced completion.
+
+    So it counts, and makes the gap addressable. Enforcement is Stage 5's, and
+    it needs this number to be zero first.
+
+    Evidence means, for a completed run: a ``run.verified`` event, a
+    verification manifest artifact, or a recorded cost. Any one of them is a
+    trace that something actually happened. None of them is a verdict with
+    nothing under it.
+    """
+
+    empty: dict[str, Any] = {
+        "available": False,
+        "unavailable_reason": "",
+        "completed": 0,
+        "unevidenced": 0,
+        "run_ids": [],
+    }
+    with _store(root) as store:
+        if store is None:
+            # The same two words the pending summary uses, for the same
+            # reason: "a newer OPai wrote this" points at an upgrade and
+            # "unreadable" points at a corrupt file.
+            empty["unavailable_reason"] = (
+                "incompatible" if _written_by_a_newer_opai(root) else "unreadable"
+            )
+            return empty
+        try:
+            rows = store.execute(
+                "SELECT r.run_id AS run_id,"
+                " (SELECT COUNT(*) FROM events e WHERE e.run_id = r.run_id"
+                "  AND e.event_type = ?) AS verifications,"
+                " (SELECT COUNT(*) FROM artifacts a WHERE a.identity = r.run_id"
+                "  AND a.kind = 'verification_manifest') AS manifests,"
+                " (SELECT COUNT(*) FROM events e WHERE e.run_id = r.run_id"
+                "  AND e.event_type = ?) AS costs"
+                " FROM runs r WHERE r.terminal_verdict = 'completed'"
+                " ORDER BY r.run_id",
+                (EVENT_VERIFIED, EVENT_COSTED),
+            ).fetchall()
+        except (sqlite3.DatabaseError, JournalStoreError):
+            empty["unavailable_reason"] = "unreadable"
+            return empty
+
+    bare = [
+        str(row["run_id"])
+        for row in rows
+        if not (row["verifications"] or row["manifests"] or row["costs"])
+    ]
+    return {
+        "available": True,
+        "unavailable_reason": "",
+        "completed": len(rows),
+        "unevidenced": len(bare),
+        # Bounded: a report is for acting on, and a thousand ids is a dump.
+        "run_ids": bare[:50],
+    }
+
+
 __all__ = (
     "EVENT_ADMITTED",
     "EVENT_PRIVACY",
@@ -1026,6 +1102,7 @@ __all__ = (
     "record_admission",
     "unterminated_runs",
     "unterminated_summary",
+    "unevidenced_completions",
     "record_run_cost",
     "record_verification",
     "record_cancellation_phase",

@@ -737,6 +737,16 @@ def cmd_journal(args: argparse.Namespace) -> int:
         abandoned = migration.get("unterminated_runs_abandoned", 0)
         if abandoned:
             print(f"  abandoned:      {abandoned} (owning process is gone)")
+        # Named separately from "unfinished": these runs *ended*, and said they
+        # succeeded. What they have not got is anything to show for it.
+        if migration.get("completed_runs_known", False):
+            bare = int(migration.get("completed_runs_without_evidence", 0))
+            total = int(migration.get("completed_runs", 0))
+            if bare:
+                print(
+                    f"  unevidenced:    {bare} of {total} completed runs have no"
+                    " verification, manifest or cost"
+                )
         print(f"  backups:        {backup.get('backups', 0)}", end="")
         print(f" (latest {backup['latest']})" if backup.get("latest") else "")
         return 0
@@ -1059,6 +1069,16 @@ def _journal_migration(root: Path) -> dict[str, object]:
         facts["unterminated_runs_unknown_because"] = str(
             pending.get("unavailable_reason") or ""
         )
+
+        # #818 AC6 asks that `completed` be impossible without the required
+        # evidence. It is not yet -- the store records whatever verdict a
+        # caller hands it -- so the honest intermediate step is to count the
+        # completions that have nothing behind them. Enforcement needs this
+        # number to be zero first, and nothing could see it before.
+        evidence = journal_runtime.unevidenced_completions(root)
+        facts["completed_runs_known"] = bool(evidence.get("available"))
+        facts["completed_runs"] = int(evidence.get("completed", 0))
+        facts["completed_runs_without_evidence"] = int(evidence.get("unevidenced", 0))
 
         from opaihub import journal_background, journal_retirement
 

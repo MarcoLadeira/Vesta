@@ -48,6 +48,28 @@ def _disk_failure(*_args, **_kwargs):
     raise sqlite3.OperationalError("disk I/O error")
 
 
+class _FailsOnQuery:
+    """A connection that opens cleanly and dies on one statement.
+
+    The volume that disappears mid-query is a different failure from the one
+    that will not open, and it reaches a different branch. ``failing_disk``
+    only ever produces the second.
+    """
+
+    _POISON = "terminal_verdict = 'completed'"
+
+    def __init__(self, connection):
+        self._connection = connection
+
+    def execute(self, sql, *rest):
+        if self._POISON in sql:
+            raise sqlite3.DatabaseError("database disk image is malformed")
+        return self._connection.execute(sql, *rest)
+
+    def __getattr__(self, name):
+        return getattr(self._connection, name)
+
+
 class _JournalledRun(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
@@ -443,6 +465,175 @@ class CancellationDualReadTests(_JournalledRun):
         """Scope ids are namespaced per caller; only some name a journalled run."""
 
         self.assertIsNone(self.report(scope="aci-1234", run_id=""))
+
+
+class UnevidencedCompletionTests(_JournalledRun):
+    """#818 AC6: `completed` is supposed to be impossible without evidence.
+
+    It is not. The store records whatever verdict a caller hands it, so a run
+    can be admitted and immediately terminated as ``completed`` with no
+    verification event, no manifest and no cost -- measured, not inferred.
+
+    Refusing the write would be the wrong fix and these tests pin why. The
+    layer that *can* judge a completion is ``opaihub.completion``, which has
+    the answer, the diff and the policy in front of it; a journal that started
+    overruling verdicts would be a second opinion on the one question this
+    epic exists to give a single answer to. And refusing to record a terminal
+    state would leave the run reading as unfinished, which is a worse lie than
+    an unevidenced completion.
+
+    So the honest intermediate step is to count them. Enforcement is Stage 5's
+    and it needs this number to be zero first.
+    """
+
+    def complete(self, run_id: str, task_id: str) -> int | None:
+        fence = journal_runtime.record_admission(
+            self.root,
+            task_id=task_id,
+            run_id=run_id,
+            task="a turn",
+            now=NOW,
+            surface="cli",
+        )
+        return fence
+
+    def terminate(self, run_id: str, fence: int | None) -> None:
+        journal_runtime.record_terminal(
+            self.root,
+            run_id=run_id,
+            event_type="run.completed",
+            verdict="completed",
+            reason="",
+            now=LATER,
+            fence=fence,
+        )
+
+    def test_a_verdict_with_nothing_behind_it_is_counted(self):
+        fence = self.complete("run-2", "task-2")
+        self.terminate("run-2", fence)
+
+        report = journal_runtime.unevidenced_completions(self.root)
+
+        self.assertTrue(report["available"])
+        self.assertEqual(report["unevidenced"], 1)
+        self.assertIn("run-2", report["run_ids"])
+
+    def test_a_verified_run_is_not_counted(self):
+        fence = self.complete("run-2", "task-2")
+        journal_runtime.record_verification(
+            self.root,
+            run_id="run-2",
+            verdict="verified",
+            policy_digest="policy",
+            manifest_digest="manifest",
+            now=NOW,
+            fence=fence,
+        )
+        self.terminate("run-2", fence)
+
+        report = journal_runtime.unevidenced_completions(self.root)
+
+        self.assertEqual(report["completed"], 1)
+        self.assertEqual(report["unevidenced"], 0)
+
+    def test_a_run_that_cost_something_is_not_counted(self):
+        """Spending money is a trace that something actually happened."""
+
+        fence = self.complete("run-2", "task-2")
+        journal_runtime.record_run_cost(
+            self.root,
+            run_id="run-2",
+            operation_key="run-2:claude",
+            amount_usd=0.0421,
+            measurement_kind="actual",
+            now=NOW,
+            fence=fence,
+        )
+        self.terminate("run-2", fence)
+
+        report = journal_runtime.unevidenced_completions(self.root)
+
+        self.assertEqual(report["unevidenced"], 0)
+
+    def test_runs_that_did_not_complete_are_not_counted(self):
+        fence = self.complete("run-2", "task-2")
+        journal_runtime.record_terminal(
+            self.root,
+            run_id="run-2",
+            event_type="run.failed",
+            verdict="failed",
+            reason="provider_error",
+            now=LATER,
+            fence=fence,
+        )
+
+        report = journal_runtime.unevidenced_completions(self.root)
+
+        self.assertEqual(report["completed"], 0)
+        self.assertEqual(report["unevidenced"], 0)
+
+    def test_an_unreadable_journal_reports_unknown_not_zero(self):
+        """Zero unevidenced completions is reassuring. It must be earned."""
+
+        with self.failing_disk():
+            report = journal_runtime.unevidenced_completions(self.root)
+
+        self.assertFalse(report["available"])
+        self.assertEqual(report["unavailable_reason"], "unreadable")
+        self.assertEqual(report["unevidenced"], 0)
+
+    def test_a_store_that_opens_and_then_fails_is_also_unknown(self):
+        """The other half of a disk failure, and the half nothing reached.
+
+        ``failing_disk`` makes the *open* raise, which takes the
+        ``store is None`` path. A volume that dies mid-query opens fine and
+        then throws, and that branch had no test at all -- teeth-testing found
+        it by sabotaging a line no test could reach.
+        """
+
+        fence = self.complete("run-2", "task-2")
+        self.terminate("run-2", fence)
+
+        real_open = journal_store.open_store
+
+        def opens_then_fails(*args, **kwargs):
+            # A proxy rather than monkeypatching the method: sqlite3.Connection
+            # is a C type and `connection.execute = ...` raises AttributeError,
+            # which is a failure of the test rather than of the code.
+            return _FailsOnQuery(real_open(*args, **kwargs))
+
+        with mock.patch.object(journal_runtime, "open_store", opens_then_fails):
+            report = journal_runtime.unevidenced_completions(self.root)
+
+        self.assertFalse(report["available"])
+        self.assertEqual(report["unavailable_reason"], "unreadable")
+        self.assertEqual(report["unevidenced"], 0)
+
+    def test_the_id_list_is_bounded(self):
+        """A report is for acting on; a thousand ids is a dump."""
+
+        for index in range(60):
+            fence = self.complete(f"bare-{index:03d}", f"task-{index:03d}")
+            self.terminate(f"bare-{index:03d}", fence)
+
+        report = journal_runtime.unevidenced_completions(self.root)
+
+        self.assertEqual(report["unevidenced"], 60)
+        self.assertEqual(len(report["run_ids"]), 50)
+
+    def test_doctor_actually_asks(self):
+        """The seventh piece of machinery nothing called would be this one."""
+
+        from opai import cli
+
+        fence = self.complete("run-2", "task-2")
+        self.terminate("run-2", fence)
+
+        facts = cli._journal_migration(self.root)
+
+        self.assertTrue(facts["completed_runs_known"])
+        self.assertEqual(facts["completed_runs"], 1)
+        self.assertEqual(facts["completed_runs_without_evidence"], 1)
 
 
 if __name__ == "__main__":  # pragma: no cover
