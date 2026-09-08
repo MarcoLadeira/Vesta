@@ -24,7 +24,6 @@ from __future__ import annotations
 import json
 import re
 import subprocess  # nosec B404 - fixed git/pip argv, never a shell
-import sys
 import time
 from pathlib import Path
 from typing import Any, Callable, Sequence
@@ -87,10 +86,24 @@ def _default_git(root: Path, args: Sequence[str]) -> "subprocess.CompletedProces
 
 
 def _default_pip_install(root: Path) -> "subprocess.CompletedProcess[str]":
-    from opaihub.proc import no_window_kwargs
+    from opaihub.proc import console_interpreter, no_window_kwargs
 
+    # Not sys.executable: the updater usually runs inside the desktop app,
+    # whose interpreter is pythonw.exe, and pip derives a gui_scripts
+    # launcher from it by replacing "python" with "pythonw" -- producing
+    # "pythonww.exe", which does not exist. Installing OPai from its own GUI
+    # would then leave the desktop icon dead, exiting 1 with no window and no
+    # message. See opaihub.proc.console_interpreter.
     return subprocess.run(  # nosec B603 - fixed argv, no shell
-        [sys.executable, "-m", "pip", "install", "-e", str(root), "--no-deps"],
+        [
+            console_interpreter(),
+            "-m",
+            "pip",
+            "install",
+            "-e",
+            str(root),
+            "--no-deps",
+        ],
         capture_output=True,
         text=True,
         check=False,

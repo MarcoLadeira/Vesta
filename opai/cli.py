@@ -900,6 +900,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     stale = status["stale_paths"]
     validation = validate_all(root)
     journal = _journal_doctor(root)
+    launchers = _launcher_doctor()
     readiness = (
         "ready"
         if (
@@ -907,6 +908,12 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             and not summary["missing"]
             and stale["ok"]
             and not _journal_needs_attention(journal)
+            # A dead desktop icon is not a footnote. Every other surface can be
+            # perfectly healthy while the way the user actually opens OPai does
+            # nothing at all, so an unstartable launcher has to reach the
+            # top-line verdict or doctor is reporting on a machine it did not
+            # check.
+            and not _launchers_need_attention(launchers)
         )
         else "attention"
     )
@@ -933,6 +940,9 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         # #613 AC10: database health, migration status and degraded
         # integrity are visible here rather than only to the store.
         "runtime_journal": journal,
+        # What the installed launchers will really spawn, read from the
+        # launchers themselves rather than assumed from this process.
+        "launchers": launchers,
         "next_steps": [
             "Run opai activate --repair to fix broken or missing client integrations.",
             "Restart AI clients after global skill changes.",
@@ -941,6 +951,61 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     }
     print_json(payload)
     return 0
+
+
+def _launcher_doctor() -> dict[str, object]:
+    """What the installed launchers will spawn, or why that is unknown.
+
+    Doctor runs when something is already wrong, so this degrades rather than
+    raises -- but it degrades to ``available: False``, never to a claim of
+    health. "I could not check the launchers" and "the launchers are fine"
+    are different answers and only one of them is reassuring.
+    """
+
+    try:
+        from opaihub import launcher_health
+    except Exception as exc:  # noqa: BLE001 - doctor never raises
+        return {
+            "available": False,
+            "healthy": False,
+            "reason": type(exc).__name__,
+            "launchers": [],
+        }
+    try:
+        reports = launcher_health.inspect_launchers()
+        payload = dict(launcher_health.summary(reports))
+    except Exception as exc:  # noqa: BLE001 - doctor never raises
+        return {
+            "available": False,
+            "healthy": False,
+            "reason": type(exc).__name__,
+            "launchers": [],
+        }
+    payload["launchers"] = [
+        {
+            "name": report.name,
+            "status": report.status,
+            "interpreter": report.interpreter,
+            "windowed": report.windowed,
+            "detail": report.describe(),
+        }
+        for report in reports
+    ]
+    return payload
+
+
+def _launchers_need_attention(launchers: dict[str, object]) -> bool:
+    """True only when a launcher was read and found unstartable.
+
+    An unreadable or uncheckable install is *not* treated as broken here:
+    doctor already reports it as unavailable, and turning "I could not look"
+    into a red verdict would be the same overconfidence in the other
+    direction.
+    """
+
+    if not launchers.get("available"):
+        return False
+    return bool(launchers.get("broken"))
 
 
 def _journal_migration(root: Path) -> dict[str, object]:
