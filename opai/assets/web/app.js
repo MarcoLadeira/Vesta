@@ -4194,6 +4194,14 @@ function paintAgentsWorkspace() {
   window.OPaiAgentsWorkspace.mount($("#dashPage"), state.agentsSnapshot, {
     selection: state.agentsSelection,
     onAction: runAction,
+    onCopyReceipt: (receipt) => { copyText(JSON.stringify(receipt, null, 2)); toast("Receipt copied."); },
+    onOpenWorktree: (payload) => {
+      if (!bridge.openObjectiveWorktree) { toast("Worktree access is unavailable in this host."); return; }
+      bridge.openObjectiveWorktree(JSON.stringify(payload), (json) => {
+        let result; try { result = JSON.parse(json); } catch (_) { result = {}; }
+        if (!result.ok) toast(safeStateReason(result.error, "The worktree could not be opened."));
+      });
+    },
     onSelect: (selection) => { state.agentsSelection = selection; paintAgentsWorkspace(); },
     onControl: (payload) => {
       if (bridge.controlObjective) bridge.controlObjective(JSON.stringify(payload));

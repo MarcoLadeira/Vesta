@@ -47,6 +47,7 @@ def control_objective_payload(root: Path, payload: dict[str, Any]) -> dict[str, 
         raise ValueError("A canonical objective ID is required")
     action = payload.get("action")
     actions = {
+        "run": "run",
         "cancel": "stop",
         "stop": "stop",
         "pause": "pause",
@@ -84,3 +85,31 @@ def objectives_payload(root: Path) -> dict[str, Any]:
         "objectives": ObjectiveStore(root).list_objectives(),
         "workspaceRoot": str(root.resolve()),
     }
+
+
+def objective_worktree_path(root: Path, payload: dict[str, Any]) -> Path:
+    from opaihub.worktree_leases import WorktreeManager
+
+    if not isinstance(payload, dict) or not isinstance(payload.get("objective_id"), str):
+        raise ValueError("A canonical objective ID is required")
+    objective = ObjectiveStore(root).snapshot(payload["objective_id"])
+    if payload.get("assignment_id"):
+        item = next((row for row in objective["assignments"] if row["assignment_id"] == payload["assignment_id"]), None)
+        if item is None:
+            raise ValueError("Assignment does not belong to this objective")
+        task_id, run_id = item["task_id"], item["run_id"]
+    else:
+        item = objective["integration"]
+        task_id, run_id = objective["task_id"], objective["run_id"] + "-integration"
+    if not item.get("worktree"):
+        raise ValueError("No worktree has been recorded yet")
+    target = Path(item["worktree"]).resolve()
+    lease = next((row for row in WorktreeManager(root).list()
+                  if row.task_id == task_id and row.run_id == run_id
+                  and Path(row.path).resolve() == target and row.branch == item["branch"]), None)
+    if lease is None or not target.is_dir():
+        raise ValueError("The recorded worktree is no longer available")
+    info = target.stat()
+    if lease.filesystem_id and tuple(lease.filesystem_id) != (info.st_dev, info.st_ino):
+        raise ValueError("The recorded worktree was replaced")
+    return target

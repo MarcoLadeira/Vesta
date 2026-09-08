@@ -652,6 +652,8 @@ class ObjectiveStore:
                 obj["allowed_actions"].append("resume")
             elif obj["status"] in {"ready", "running", "planning"}:
                 obj["allowed_actions"].append("pause")
+                if not obj["planning"]["owner"] and not any(item["owner"] for item in obj["assignments"]):
+                    obj["allowed_actions"].append("run")
             if (
                 obj["status"] in {"ready-to-integrate", "needs-attention"}
                 and obj["assignments"]

@@ -2659,10 +2659,12 @@ def _run_gui(
                     payload = json.loads(payload_json)
                     from opaihub.objective_execution import ObjectiveExecutor
 
-                    if payload.get("action") in {"reconcile", "verify"}:
-                        objective = ObjectiveExecutor(turn_root, on_event=emit_snapshot).reconcile(
-                            payload["objective_id"], cancel
-                        )
+                    if payload.get("action") in {"run", "reconcile", "verify"}:
+                        if payload.get("assignment_id") is not None:
+                            raise ValueError("Execution and integration operate on the whole objective")
+                        executor = ObjectiveExecutor(turn_root, on_event=emit_snapshot)
+                        execute = executor.run if payload["action"] == "run" else executor.reconcile
+                        objective = execute(payload["objective_id"], cancel)
                         return {
                             "ok": True,
                             "objective": objective,
@@ -2703,6 +2705,7 @@ def _run_gui(
             turn_root = self.root
             request_id = str(payload.get("requestId") or uuid.uuid4().hex)
             cancel = threading.Event()
+            accepted = threading.Event()
             self._cancels[request_id] = cancel
 
             def emit_snapshot(objective):
@@ -2724,6 +2727,7 @@ def _run_gui(
                 objective = create_objective_payload(
                     turn_root, {**payload, "requestId": request_id}
                 )
+                accepted.set()
                 emit_snapshot(objective)
                 return ObjectiveExecutor(turn_root, on_event=emit_snapshot).run(
                     objective["objective_id"],
@@ -2735,6 +2739,12 @@ def _run_gui(
                 result = json.loads(result_json)
                 if result.get("objective_id"):
                     emit_snapshot(result)
+                elif accepted.is_set():
+                    self.objectiveControlReady.emit(json.dumps({
+                        "ok": False,
+                        "error": safe_detail(RuntimeError(result.get("error") or "Objective execution was interrupted")),
+                        "workspaceRoot": str(turn_root),
+                    }))
                 else:
                     self.replyReady.emit(
                         json.dumps({"requestId": request_id, "result": result})
@@ -3198,6 +3208,17 @@ def _run_gui(
             resolved = resolve_openable(self.root, target)
             if resolved is not None:
                 QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(resolved)))
+
+        @QtCore.Slot(str, result=str)
+        def openObjectiveWorktree(self, payload_json: str) -> str:
+            from opai.agents_bridge import objective_worktree_path
+
+            try:
+                target = objective_worktree_path(self.root, json.loads(payload_json))
+                opened = QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(target)))
+                return json.dumps({"ok": opened, "error": "" if opened else "The worktree could not be opened."})
+            except (OSError, ValueError, KeyError) as exc:
+                return json.dumps({"ok": False, "error": safe_detail(exc)})
 
         @QtCore.Slot(result=str)
         def recents(self) -> str:

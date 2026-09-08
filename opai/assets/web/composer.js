@@ -550,9 +550,9 @@
     // Mode button — visible text shows the value; aria-label carries purpose +
     // value so the menu button announces both to assistive tech.
     var mLabel = modeLabelOf(mode);
-    if (els.modeBtnLabel) els.modeBtnLabel.textContent = mLabel;
+    if (els.modeBtnLabel) els.modeBtnLabel.textContent = mLabel + (st.multiAgentEnabled ? " · Agents" : "");
     if (els.modeDot) els.modeDot.style.background = dotVar(MODE_DOT[mode.id] || "accent");
-    if (els.modeBtn) els.modeBtn.setAttribute("aria-label", "Mode: " + mLabel);
+    if (els.modeBtn) els.modeBtn.setAttribute("aria-label", "Mode: " + mLabel + (st.multiAgentEnabled ? ", multiple agents enabled" : ""));
     // Model button
     var mdLabel = shortModel(model);
     if (els.modelBtnLabel) els.modelBtnLabel.textContent = mdLabel;

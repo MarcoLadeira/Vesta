@@ -105,8 +105,17 @@ def worker_prompt(objective: dict, assignment: dict) -> str:
             key: assignment[key] for key in PLAN_FIELDS if key in assignment
         },
         "dependency_reports": handoffs,
+        "dependency_report_count": len(dependencies),
     }
     encoded = json.dumps(packet, ensure_ascii=False, default=str)
+    while len(encoded) > 22000 and handoffs:
+        entry = handoffs[-1]
+        if entry["summary"]:
+            entry["summary"] = entry["summary"][:max(0, len(entry["summary"]) - (len(encoded) - 22000))]
+            entry["summary_truncated"] = True
+        else:
+            handoffs.pop()
+        encoded = json.dumps(packet, ensure_ascii=False, default=str)
     if len(encoded) > 22000:
         raise ValueError("Assignment context exceeds the worker context limit")
     return (
@@ -199,7 +208,10 @@ def run_worker_process(
     directory.mkdir(parents=True, exist_ok=False)
     request = directory / "request.json"
     response = directory / "response.json"
-    atomic_write_text(request, json.dumps(packet))
+    encoded = json.dumps(packet, ensure_ascii=False)
+    if len(encoded.encode("utf-8")) > 512_000:
+        raise ValueError("Worker request exceeds bounded context")
+    atomic_write_text(request, encoded)
     env = dict(os.environ)
     env["OPAI_COMMAND_CONSENT_DIR"] = str(directory / "consent")
     source_root = str(Path(__file__).resolve().parents[1])
@@ -555,6 +567,10 @@ class ObjectiveExecutor:
         return self._emit(objective_id)
 
     def control(self, objective_id: str, action: str, assignment_id=None, value=None):
+        if action == "run":
+            if assignment_id is not None:
+                raise ValueError("Run operates on the whole objective")
+            return self.run(objective_id)
         if action in {"reconcile", "verify"}:
             if assignment_id is not None:
                 raise ValueError("Integration operates on the whole objective")

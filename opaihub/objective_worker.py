@@ -79,7 +79,7 @@ def main(argv=None) -> int:
     if len(args) != 2:
         return 2
     request_path, response_path = map(Path, args)
-    if request_path.stat().st_size > 100_000:
+    if request_path.stat().st_size > 512_000:
         raise ValueError("Worker request exceeds bounded context")
     packet = json.loads(request_path.read_text(encoding="utf-8"))
     packet = authorize_request(packet, request_path, response_path)

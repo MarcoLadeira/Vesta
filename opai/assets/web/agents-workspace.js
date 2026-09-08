@@ -22,7 +22,7 @@
     const parts = amount.split(".");
     return "$" + parts[0] + "." + (parts[1] || "").padEnd(2, "0");
   }
-  const labels = { pause: "Pause", resume: "Resume", stop: "Stop", cancel: "Stop", sequential: "Run sequentially", budget: "Set budget", set_budget: "Set budget", prioritize: "Move first", reroute: "Reroute", reconcile: "Reconcile", verify: "Verify integration" };
+  const labels = { run: "Run queued work", pause: "Pause", resume: "Resume", stop: "Stop", cancel: "Stop", sequential: "Run sequentially", budget: "Set budget", set_budget: "Set budget", prioritize: "Move first", reroute: "Reroute", reconcile: "Reconcile", verify: "Verify integration" };
   function controls(item, objectiveId, assignmentId) {
     return '<div class="agents-controls">' + list(item.allowed_actions).filter((a) => Object.prototype.hasOwnProperty.call(labels, a)).map((action) => {
       let field = "";
@@ -36,6 +36,10 @@
   }
   function fact(label, value) {
     return value ? '<div class="agents-fact"><dt>' + label + '</dt><dd>' + esc(value) + '</dd></div>' : "";
+  }
+  function artifacts(item, objectiveId, assignmentId) {
+    const ids = ' data-objective-id="' + esc(objectiveId) + '"' + (assignmentId ? ' data-assignment-id="' + esc(assignmentId) + '"' : '');
+    return '<div class="agents-controls">' + (item.worktree ? '<button type="button" class="btn" data-agent-worktree' + ids + '>Open worktree</button>' : '') + (item.receipt ? '<button type="button" class="btn" data-agent-receipt' + ids + '>Copy receipt</button>' : '') + '</div>';
   }
   function items(label, values, empty) {
     const entries = list(values);
@@ -78,13 +82,19 @@
       if (selected) {
         html += '<p class="agents-eyebrow">Selected assignment</p><h3>' + esc(selected.title || selected.assignment_id) + '</h3>';
         if (selected.objective) html += '<p>' + esc(selected.objective) + '</p>';
+        if (selected.rationale) html += '<section class="agents-section"><h4>Why this assignment</h4><p>' + esc(selected.rationale) + '</p></section>';
+        if (selected.parallel_eligible === false) html += '<p class="agents-note">Runs sequentially by plan</p>';
         html += '<dl class="agents-facts">' + fact("Owner", selected.owner || selected.last_owner) + fact("Model", selected.observed_model || selected.model) + fact("Provider", selected.observed_provider || selected.provider) + fact("Route", typeof selected.route === "string" ? selected.route : selected.route && selected.route.kind) + '</dl>';
         html += controls(selected, o.objective_id, selected.assignment_id);
         if (selected.blocked_reason) html += '<p class="agents-note">' + esc(selected.blocked_reason) + '</p>';
+        if (selected.admission && selected.admission.reason !== selected.blocked_reason) html += '<p class="agents-note">' + esc(selected.admission.reason) + '</p>';
         html += activity(selected.activity);
         html += '<div class="agents-detail-grid">' + items("Intended paths", selected.intended_paths, "Scope not recorded") + items("Dependencies", list(selected.depends_on).map((id) => { const dependency = assignments.find((a) => (a.assignment_id === id || a.name === id)); return dependency ? (dependency.title || id) + " · " + id : id; }), "No dependencies recorded") + '</div>';
         html += items("Changed files", selected.changed_files, "No changed files recorded") + verification(selected.verification);
         html += '<dl class="agents-facts">' + fact("Worktree", selected.worktree) + fact("Branch", selected.branch) + '</dl>';
+        html += artifacts(selected, o.objective_id, selected.assignment_id);
+        if (selected.result && selected.result.handoff && selected.result.handoff.summary) html += '<section class="agents-section"><h4>Reported findings</h4><p>' + esc(selected.result.handoff.summary) + '</p></section>';
+        if (selected.receipt) html += evidence("Agent receipt", selected.receipt);
         html += evidence("Assignment evidence", selected);
       }
       const integration = o.integration || {};
@@ -96,6 +106,7 @@
       html += '<dl class="agents-facts">' + fact("Integration branch", integration.branch) + fact("Integration worktree", integration.worktree) + '</dl>';
       html += evidence("Integration evidence", integration);
       if (o.receipt) html += evidence("Result receipt", o.receipt);
+      html += artifacts({ worktree: integration.worktree, receipt: o.receipt }, o.objective_id);
       html += '</section></section>';
     });
     // Provider readiness remains visible even before the first objective.
@@ -116,6 +127,12 @@
     element.querySelectorAll(".agents-evidence").forEach((detail) => { detail.open = openEvidence.has((detail.closest("[data-objective-id]") || {}).dataset?.objectiveId + ":" + detail.querySelector("summary").textContent); });
     element.querySelectorAll("[data-readiness-action]").forEach((button) => { button.onclick = () => options.onAction && options.onAction(button.dataset.readinessAction, button.dataset.command); });
     element.querySelectorAll("[data-objective-select]").forEach((button) => { button.onclick = () => options.onSelect && options.onSelect({ objectiveId: button.dataset.objectiveSelect }); });
+    element.querySelectorAll("[data-agent-worktree]").forEach((button) => { button.onclick = () => options.onOpenWorktree && options.onOpenWorktree({ objective_id: button.dataset.objectiveId, assignment_id: button.dataset.assignmentId }); });
+    element.querySelectorAll("[data-agent-receipt]").forEach((button) => { button.onclick = () => {
+      const objective = list(snapshot.objectives).find((item) => item.objective_id === button.dataset.objectiveId);
+      const item = button.dataset.assignmentId ? objective && list(objective.assignments).find((row) => row.assignment_id === button.dataset.assignmentId) : objective;
+      if (item && item.receipt && options.onCopyReceipt) options.onCopyReceipt(item.receipt);
+    }; });
     element.querySelectorAll("[data-agent-select]").forEach((button) => { button.onclick = () => options.onSelect && options.onSelect({ objectiveId: button.dataset.objectiveId, assignmentId: button.dataset.agentSelect }); });
     element.querySelectorAll("[data-agent-action]").forEach((button) => { button.onclick = () => {
       const payload = { objective_id: button.dataset.objectiveId, action: button.dataset.agentAction };
