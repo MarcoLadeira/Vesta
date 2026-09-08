@@ -495,6 +495,35 @@ class PendingTests(_JournalCommandFixture):
         self.assertIn("runs", payload)
         self.assertIn("operations", payload)
 
+    def test_status_says_unknown_rather_than_zero_when_it_could_not_read(self):
+        """#818. An unreadable journal used to print "unfinished: 0", which is
+        what a healthy empty one prints. Nothing covered the rendering, so
+        deleting the branch that distinguishes them changed no test.
+        """
+
+        from opaihub import journal_runtime
+
+        self._unfinished_run()
+
+        with mock.patch.object(
+            journal_runtime,
+            "unterminated_summary",
+            return_value={
+                "available": False,
+                "unavailable_reason": "incompatible",
+                "unterminated": 0,
+                "lease_held": 0,
+                "abandoned": 0,
+                "by_owner": {},
+            },
+        ):
+            code, output = self._run("status")
+
+        self.assertEqual(code, 0)
+        self.assertIn("unknown", output)
+        self.assertIn("incompatible", output)
+        self.assertNotIn("unfinished:     0", output)
+
     def test_status_reports_the_unfinished_count(self):
         self._unfinished_run()
 

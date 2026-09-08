@@ -723,10 +723,14 @@ def cmd_journal(args: argparse.Namespace) -> int:
         print(f"  retirement:     {migration.get('retirement', 'unknown')}")
         for blocker in migration.get("blockers", []) or []:
             print(f"    - {blocker}")
-        unterminated = migration.get("unterminated_runs", 0)
-        print(f"  unfinished:     {unterminated}", end="")
-        held = migration.get("unterminated_runs_holding_a_lease", 0)
-        print(f" ({held} still holding a lease)" if unterminated else "")
+        if not migration.get("unterminated_runs_known", True):
+            why = migration.get("unterminated_runs_unknown_because") or "unreadable"
+            print(f"  unfinished:     unknown ({why})")
+        else:
+            unterminated = migration.get("unterminated_runs", 0)
+            print(f"  unfinished:     {unterminated}", end="")
+            held = migration.get("unterminated_runs_holding_a_lease", 0)
+            print(f" ({held} still holding a lease)" if unterminated else "")
         # Narrower than "unfinished" on purpose: only runs whose owning process
         # is provably gone. Everything else is either being worked on or cannot
         # be judged, and neither is something to hand a user as a chore.
@@ -984,6 +988,12 @@ def _journal_migration(root: Path) -> dict[str, object]:
         facts["unterminated_runs"] = int(pending.get("unterminated", 0))
         facts["unterminated_runs_holding_a_lease"] = int(pending.get("lease_held", 0))
         facts["unterminated_runs_abandoned"] = int(pending.get("abandoned", 0))
+        # Zero unfinished runs and "could not read the journal" are different
+        # answers, and only one of them is reassuring.
+        facts["unterminated_runs_known"] = bool(pending.get("available"))
+        facts["unterminated_runs_unknown_because"] = str(
+            pending.get("unavailable_reason") or ""
+        )
 
         from opaihub import journal_background, journal_retirement
 

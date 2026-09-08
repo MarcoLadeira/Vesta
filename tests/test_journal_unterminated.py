@@ -648,5 +648,126 @@ class ALeaseCanBeRestampedByTheProcessHoldingItTests(_PendingFixture):
         )
 
 
+class ACountNobodyCouldTakeIsNotZeroTests(_PendingFixture):
+    """#818: "unknown ... is never represented as zero", in the recovery report.
+
+    `available` used to mean "the journal file exists". So an unreadable store
+    reported `available: True, unterminated: 0` -- byte for byte what a healthy
+    journal with nothing pending reports. This is the summary a recovery pass
+    reads after a crash, which is the worst possible moment to answer "nothing
+    to worry about" when the truth is "I could not look".
+
+    Found by running an older build against a journal a newer one had migrated
+    -- a downgrade this branch's own schema bump makes reachable. `store_health`
+    said "incompatible" in plain words and this said zero, in the same breath.
+    """
+
+    def _summary(self) -> dict:
+        return unterminated_summary(self.root)
+
+    def test_a_healthy_journal_reports_its_count_as_an_answer(self):
+        self._admit("live")
+
+        summary = self._summary()
+
+        self.assertTrue(summary["available"])
+        self.assertEqual(summary["unavailable_reason"], "")
+        self.assertEqual(summary["unterminated"], 1)
+
+    def test_a_corrupt_journal_does_not_report_zero_outstanding(self):
+        self._admit("live")
+        journal_path(self.root).write_bytes(b"not a database at all")
+
+        summary = self._summary()
+
+        self.assertFalse(summary["available"])
+        self.assertEqual(summary["unavailable_reason"], "unreadable")
+
+    def test_a_journal_from_a_newer_opai_says_so_rather_than_corrupt(self):
+        """Two failures that need different words. "A newer OPai wrote this"
+        points at an upgrade; "unreadable" points at a corrupt file, and
+        sending someone to the wrong one wastes their evening."""
+
+        self._admit("live")
+        store = sqlite3.connect(journal_path(self.root))
+        try:
+            store.execute(
+                "UPDATE schema_meta SET value = ? WHERE key = 'schema_version'",
+                (str(journal_store.SCHEMA_VERSION + 1),),
+            )
+            store.commit()
+        finally:
+            store.close()
+
+        summary = self._summary()
+
+        self.assertFalse(summary["available"])
+        self.assertEqual(summary["unavailable_reason"], "incompatible")
+
+    def test_no_journal_at_all_is_its_own_answer(self):
+        """A project that has never journalled is not a broken one."""
+
+        summary = self._summary()
+
+        self.assertFalse(summary["available"])
+        self.assertEqual(summary["unavailable_reason"], "no_journal")
+
+    def test_a_degraded_journal_is_still_served(self):
+        """`usable` already treats degraded as serviceable -- some rows are
+        unreadable and the critical state is not unknown -- so only corrupt and
+        incompatible stop the count meaning anything."""
+
+        self._admit("live")
+        store = open_store(self.root)
+        try:
+            store.execute("UPDATE events SET payload = 'not json' WHERE sequence = 1")
+            store.commit()
+        finally:
+            store.close()
+
+        summary = self._summary()
+
+        self.assertTrue(summary["available"], "degraded is still an answer")
+
+    def test_a_store_that_opens_but_fails_its_check_is_not_served(self):
+        """The `usable` branch, which no other case here reaches.
+
+        A store that will not open at all is caught earlier; a degraded one is
+        deliberately still served. Only a store that opens cleanly and then
+        fails its integrity check lands here, and real page corruption cannot
+        be produced reliably across platforms -- so the verdict is injected,
+        the same compromise `test_journal_fault_injection` documents. What
+        this pins is that an unusable verdict is *believed*, not that SQLite
+        detects any particular damage.
+        """
+
+        self._admit("live")
+        corrupt = journal_store.IntegrityReport(
+            state=journal_store.INTEGRITY_CORRUPT,
+            schema_version=journal_store.SCHEMA_VERSION,
+            detail="database disk image is malformed",
+        )
+
+        with mock.patch.object(journal_store, "check_integrity", return_value=corrupt):
+            summary = self._summary()
+
+        self.assertFalse(summary["available"])
+        self.assertEqual(summary["unavailable_reason"], journal_store.INTEGRITY_CORRUPT)
+
+    def test_a_readable_and_an_unreadable_journal_never_look_alike(self):
+        """The property in one assertion, because collapsing these two back
+        together is exactly the regression this class exists to catch."""
+
+        self._admit("live")
+        healthy = self._summary()
+        journal_path(self.root).write_bytes(b"nope")
+        broken = self._summary()
+
+        self.assertNotEqual(
+            (healthy["available"], healthy["unavailable_reason"]),
+            (broken["available"], broken["unavailable_reason"]),
+        )
+
+
 if __name__ == "__main__":  # pragma: no cover - convenience
     unittest.main()

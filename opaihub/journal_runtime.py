@@ -899,6 +899,30 @@ def unterminated_runs(
     return pending
 
 
+def _written_by_a_newer_opai(root: Path) -> bool:
+    """Whether the store's schema is ahead of what this build understands.
+
+    Read with a bare connection on purpose. ``open_store`` migrates, and
+    migration is exactly what refuses here -- so asking it would be asking the
+    thing that already said no.
+    """
+
+    try:
+        connection = sqlite3.connect(journal_store.journal_path(root))
+    except (sqlite3.DatabaseError, OSError):
+        return False
+    try:
+        row = connection.execute(
+            "SELECT value FROM schema_meta WHERE key = 'schema_version'"
+        ).fetchone()
+        return bool(row) and int(row[0]) > journal_store.SCHEMA_VERSION
+    except (sqlite3.DatabaseError, TypeError, ValueError):
+        return False
+    finally:
+        with contextlib.suppress(Exception):  # noqa: BLE001
+            connection.close()
+
+
 def unterminated_summary(
     root: Path,
     *,
@@ -915,13 +939,50 @@ def unterminated_summary(
 
     facts: dict[str, Any] = {
         "available": False,
+        # Why the counts below are not an answer, when they are not one.
+        # "" means they are.
+        "unavailable_reason": "",
         "unterminated": 0,
         "lease_held": 0,
         "abandoned": 0,
         "by_owner": {verdict: 0 for verdict in journal_liveness.VERDICTS},
     }
     if not journal_store.journal_path(root).exists():
+        facts["unavailable_reason"] = "no_journal"
         return facts
+
+    # `available` means the store was *read*, not that a file exists. It used
+    # to mean the latter, so an unreadable journal reported
+    # `available: True, unterminated: 0` -- indistinguishable from a healthy
+    # journal with nothing pending. This is the report a recovery pass makes
+    # after a crash, which is the worst possible moment to answer "nothing to
+    # worry about" when the truth is "I could not look".
+    #
+    # Found by running an older build against a journal a newer one had
+    # migrated -- a downgrade this branch's schema bump makes reachable.
+    # `store_health` said "incompatible" loudly and this said zero.
+    with _store(root) as store:
+        if store is None:
+            # `_store` swallows every open failure alike, and the two that
+            # matter here need different words. "A newer OPai wrote this"
+            # points at an upgrade; "unreadable" points at a corrupt file, and
+            # sending someone to the wrong one of those wastes their evening.
+            facts["unavailable_reason"] = (
+                "incompatible" if _written_by_a_newer_opai(root) else "unreadable"
+            )
+            return facts
+        try:
+            report = journal_store.check_integrity(store)
+        except (sqlite3.DatabaseError, JournalStoreError):
+            facts["unavailable_reason"] = "unreadable"
+            return facts
+    if not report.usable:
+        # `usable` already treats `degraded` as serviceable -- some rows are
+        # unreadable and the critical state is not unknown -- so only corrupt
+        # and incompatible stop the count meaning anything.
+        facts["unavailable_reason"] = report.state
+        return facts
+
     pending = unterminated_runs(root, limit=10_000, is_pid_running=is_pid_running)
     facts["available"] = True
     facts["unterminated"] = len(pending)
