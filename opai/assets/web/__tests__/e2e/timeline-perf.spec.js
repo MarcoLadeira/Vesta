@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-import { finishRequest, openApp, sendPrompt } from "./helpers/app.js";
+import { finishRequest, openApp, openTurnDetails, sendPrompt } from "./helpers/app.js";
 
 
 test.beforeEach(async ({ page }) => openApp(page));
@@ -37,6 +37,7 @@ test("a completed collapsed activity log stays unmounted until opened", async ({
     }
   }, id);
   await finishRequest(page, id);
+  await openTurnDetails(page);
   await expect(page.locator(".timeline.done .tl-row")).toHaveCount(0);
   await page.locator(".gen-toggle.done").click();
   await expect(page.locator(".timeline.done .tl-row")).toHaveCount(2000);

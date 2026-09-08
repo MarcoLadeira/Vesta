@@ -447,14 +447,10 @@ class BootPayloadTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
             payload = self._boot(root)
-        # Simple top level (unlabeled) + one folded Insights group.
-        self.assertEqual(
-            [g["group"] for g in payload["navGroups"]],
-            ["", "Insights"],
-        )
-        by_name = {g["group"]: g for g in payload["navGroups"]}
-        self.assertFalse(by_name[""].get("collapsed"))
-        self.assertTrue(by_name["Insights"]["collapsed"])
+        # No nav rows at all: the sidebar is the recents list. Chat, Prompt
+        # Library and the Insights dashboards are routable but unlisted, and
+        # New chat is a header action.
+        self.assertEqual(payload["navGroups"], [])
 
     def test_models_carry_badges_and_auto_present(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -512,6 +508,73 @@ class BootPayloadTests(unittest.TestCase):
             self.assertEqual(controls["focus"], "build")
             self.assertEqual(controls["agent_mode_preview"], "implement")
             self.assertFalse(controls["read_only"])
+
+    def test_a_first_run_boots_with_the_inspector_hidden(self):
+        """The boot payload must not ask for an inspector nobody requested.
+
+        Honest scope: this passed before the fix too. ``load_gui_preferences``
+        always merges ``DEFAULT_PREFERENCES``, so the ``.get(..., True)``
+        fallback that used to sit here never actually fired -- it was a latent
+        disagreement with the documented default, not the cause of SMOKE-UX-001.
+        That cause was in the front end (``app.js`` state and ``index.html``),
+        where the shell painted the panel open before any preference was known.
+        This pins the payload half so the two cannot drift apart later.
+        """
+        from opaihub.gui_preferences import save_gui_preferences
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            self.assertFalse(boot_payload(root)["prefs"]["showPanel"])
+
+            # ...and an explicit choice is still honoured in both directions.
+            save_gui_preferences(root, {"show_control_panel": True})
+            self.assertTrue(boot_payload(root)["prefs"]["showPanel"])
+            save_gui_preferences(root, {"show_control_panel": False})
+            self.assertFalse(boot_payload(root)["prefs"]["showPanel"])
+
+    def test_bypass_is_a_switch_that_leaves_the_mode_intact(self):
+        """Toggling Bypass must not cost the user the mode they were in.
+
+        As a sixth entry in the mode list, turning bypass on discarded the
+        selected mode and turning it off could not give it back. As a switch it
+        composes: the mode persists underneath and reappears when it is off.
+        """
+        from opaihub.command_policy import resolve_autonomy
+        from opaihub.gui_preferences import load_gui_preferences, save_gui_preferences
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            save_gui_preferences(root, {"default_mode": "auto-edits"})
+
+            def effective():
+                prefs = load_gui_preferences(root)
+                return prefs["default_mode"], resolve_autonomy(
+                    prefs["default_mode"],
+                    bypass_permissions=prefs["bypass_permissions"],
+                )
+
+            self.assertEqual(effective(), ("auto-edits", "auto-edits"))
+            save_gui_preferences(root, {"bypass_permissions": True})
+            self.assertEqual(effective(), ("auto-edits", "bypass"))
+            save_gui_preferences(root, {"bypass_permissions": False})
+            self.assertEqual(effective(), ("auto-edits", "auto-edits"))
+
+    def test_the_bypass_switch_is_persistable_from_the_bridge(self):
+        # A switch the front end cannot save is not a switch.
+        from opai.gui_web import _BRIDGE_PREFERENCE_KEYS
+
+        self.assertIn("bypass_permissions", _BRIDGE_PREFERENCE_KEYS)
+
+    def test_the_stored_default_and_the_payload_fallback_agree(self):
+        # The bug was a disagreement between these two, so assert them together.
+        from opaihub.gui_preferences import DEFAULT_PREFERENCES
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            self.assertEqual(
+                bool(DEFAULT_PREFERENCES["show_control_panel"]),
+                bool(boot_payload(root)["prefs"]["showPanel"]),
+            )
 
     def test_inspector_shows_live_agent_mode_preview_beside_last_run(self):
         # F21: the persisted "Agent mode" row is the last completed run; the
@@ -703,6 +766,94 @@ class WebAssetsTests(unittest.TestCase):
 
 
 class SettingsPayloadTests(unittest.TestCase):
+    def test_custom_account_models_are_projected_into_the_live_catalog(self):
+        from opai.gui_web import _models
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            overrides = Path(tmp) / "models.json"
+            overrides.write_text(
+                json.dumps(
+                    {
+                        "providers": {
+                            "codex": {
+                                "models": [
+                                    {
+                                        "id": "gpt-custom",
+                                        "display": "My GPT",
+                                        "capability": "best",
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            base = {
+                "models": [
+                    {
+                        "id": "account:codex:gpt-default",
+                        "model": "gpt-default",
+                        "label": "Codex · Default",
+                        "provider": "codex",
+                        "kind": "account",
+                        "group": "codex",
+                    }
+                ],
+                "accounts": [],
+                "connections": [],
+            }
+            with (
+                mock.patch.dict("os.environ", {"OPAI_MODEL_OVERRIDES": str(overrides)}),
+                mock.patch("opai.gui_web.A.available_models", return_value=base),
+            ):
+                payload = _models(root, discover_local=False)
+
+        custom = next(
+            model
+            for model in payload["models"]
+            if model["id"] == "account:codex:gpt-custom"
+        )
+        self.assertEqual(custom["label"], "Codex · My GPT")
+        self.assertEqual(custom["badge"], "best")
+
+    def test_settings_exposes_the_global_model_override_report(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            overrides = Path(tmp) / "models.json"
+            overrides.write_text(
+                json.dumps(
+                    {
+                        "providers": {
+                            "codex": {
+                                "models": [
+                                    {
+                                        "id": "gpt-custom",
+                                        "display": "My GPT",
+                                        "capability": "best",
+                                    }
+                                ],
+                                "hide": ["gpt-old"],
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with (
+                mock.patch.dict("os.environ", {"OPAI_MODEL_OVERRIDES": str(overrides)}),
+                mock.patch("opai.gui_web._cached_update_check", return_value={}),
+            ):
+                payload = settings_payload(root)
+
+        self.assertEqual(payload["modelOverrides"]["path"], "~/.opai/models.json")
+        self.assertEqual(
+            payload["modelOverrides"]["providers"]["codex"]["models"][0]["id"],
+            "gpt-custom",
+        )
+        self.assertEqual(payload["modelOverrides"]["hidden"]["codex"], ["gpt-old"])
+
     def test_about_exposes_the_same_asset_build_identity_as_boot(self):
         from opai.compatibility import runtime_compatibility_payload
 

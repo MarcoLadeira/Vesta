@@ -55,7 +55,11 @@ const state = {
   model: { id: "auto", label: "Auto", kind: "auto" },
   mode: { id: "safe-auto", label: "Safe Auto" },
   focus: "general", format: "normal",
-  accounts: [], panel: true, message: null, lastFailedRequestId: null,
+  // Hidden until the boot payload (or the user) says otherwise, matching
+  // gui_preferences' documented default. Starting true meant the shell
+  // painted an empty inspector before any preference was known -- and, with
+  // no bridge attached, kept it open forever.
+  accounts: [], panel: false, bypassPermissions: false, message: null, lastFailedRequestId: null,
   responseDensity: "balanced",
   tlNodes: null, activityRenderPending: false, timelineRenders: 0,
   latestActivity: null,
@@ -109,7 +113,13 @@ function assistantPresentationHtml(headerHtml, text, presentation, options = {})
     proseHtml: responseProseHtml(mdToHtml(text || "")),
     presentation,
     result: options.result,
+    verdict: options.verdict,
+    nextAction: options.nextAction,
+    costUsd: options.costUsd,
+    elapsed: options.elapsed,
+    changedFiles: options.changedFiles,
     changesHtml: options.changesHtml || "",
+    outsideHtml: options.outsideHtml || "",
     supportHtml: options.supportHtml || "",
     warningsHtml: options.warningsHtml || "",
     legacyWorkHtml: options.legacyWorkHtml || "",
@@ -318,7 +328,12 @@ function onboardingCtx() {
 // identically at first boot and after every workspace switch, so the composer,
 // inspector, and header can never disagree (F16/F4).
 function applyBootSelection(b) {
-  state.panel = b.prefs.showPanel !== false;
+  // Explicit opt-in: an absent preference means hidden, matching the
+  // stored default. `!== false` treated undefined as "show", which is how
+  // a first run ended up with an empty inspector open.
+  state.panel = b.prefs.showPanel === true;
+  // Authority layered over the mode, not a mode of its own.
+  state.bypassPermissions = b.prefs.bypassPermissions === true;
   state.focus = b.prefs.focus || "general";
   state.format = b.prefs.format || "normal";
   const m = (b.models || []).find((x) => x.id === b.selectedModel) || (b.models || [])[0];
@@ -327,10 +342,61 @@ function applyBootSelection(b) {
   if (md) state.mode = md;
 }
 
+// Global picker overrides are keyed by provider model IDs, while the UI's
+// account entries carry a routing ID such as `account:claude:opus`. Keep that
+// translation in one predicate so native selects, the redesigned composer and
+// Settings defaults cannot drift apart.
+function modelOverrideId(model) {
+  if (!model) return "";
+  if (model.model) return String(model.model).toLowerCase();
+  const id = String(model.id || "");
+  const parts = id.split(":");
+  return String(parts[parts.length - 1] || id).toLowerCase();
+}
+function isModelVisible(model, overrides) {
+  if (!model || model.kind === "auto") return true;
+  const report = overrides || state.modelOverrides || (state.boot && state.boot.modelOverrides) || {};
+  const hidden = (report.hidden && report.hidden[String(model.provider || "").toLowerCase()]) || [];
+  const modelId = modelOverrideId(model);
+  return !hidden.some((id) => String(id).toLowerCase() === modelId || String(id).toLowerCase() === String(model.id || "").toLowerCase());
+}
+window.OPaiModelVisibility = isModelVisible;
+
+function applyModelCatalog(catalog) {
+  if (!catalog || typeof catalog !== "object") return;
+  if (Array.isArray(catalog.accounts)) {
+    state.boot.accounts = catalog.accounts;
+    state.accounts = catalog.accounts;
+    renderAccount();
+  }
+  if (Array.isArray(catalog.connections)) {
+    state.boot.connections = catalog.connections;
+    catalog.connections.forEach((connection) => {
+      updateDoctorCard(connection.providerId || connection.provider, connection);
+    });
+  }
+  if (catalog.modelOverrides && typeof catalog.modelOverrides === "object") {
+    state.modelOverrides = catalog.modelOverrides;
+    state.boot.modelOverrides = catalog.modelOverrides;
+  }
+  if (!Array.isArray(catalog.models)) return;
+  state.boot.models = catalog.models;
+  const selected = catalog.models.find((model) => model.id === state.model.id && isModelVisible(model));
+  if (selected) state.model = { ...selected, advancedLabel: selected.advanced_label };
+  else {
+    const fallback = catalog.models.find((model) => model.id === "auto") || catalog.models.find((model) => isModelVisible(model));
+    if (fallback) {
+      state.model = { ...fallback, advancedLabel: fallback.advanced_label };
+      bridge.savePref("default_model", fallback.id);
+    }
+  }
+}
+
 function boot() {
   bridge.boot((json) => {
     state.boot = JSON.parse(json);
     const b = state.boot;
+    state.modelOverrides = b.modelOverrides || {};
     state.accounts = b.accounts || [];
     applyBootSelection(b);
     // One-time consent per free-tier model id: after the first "Send to X"
@@ -389,8 +455,9 @@ function boot() {
     // must be offered even though no dropdown change event fired.
   });
   if (bridge.modelsChanged) bridge.modelsChanged.connect((json) => {
-    const catalog = JSON.parse(json);
-    if (catalog.models) { state.boot.models = catalog.models; renderComposerSelects(); }
+    let catalog = {};
+    try { catalog = JSON.parse(json); } catch (_e) { return; }
+    applyModelCatalog(catalog);
   });
   if (bridge.providerLoginReady) bridge.providerLoginReady.connect(onProviderLoginReady);
   if (bridge.connectionDoctorReady) bridge.connectionDoctorReady.connect(onConnectionDoctorReady);
@@ -423,25 +490,15 @@ function boot() {
       }
     });
   }, 2000);
-  // Ask the question, rather than only reading the last answer.
-  //
-  // Everything above reports update state; none of it discovers any. Boot
-  // reads the stored operation without touching the network, and the loop's
-  // `maintain()` reconciles and advances persisted work but performs no check.
-  // The only call that actually looked was a button in Settings, so a source
-  // checkout could sit any number of commits behind origin/main while the app
-  // cheerfully repeated whatever it last cached -- and restarting could not
-  // help, because boot is exactly the path that does not look.
-  //
-  // Forced at startup: for a source checkout the check is a one-branch `git
-  // fetch`, and "did anything land while I was away" is the question a restart
-  // is implicitly asking. The periodic one is unforced, so the service's own
-  // minimum interval still decides whether it does any work; this only means
-  // the question gets asked at all.
-  if (bridge.checkForUpdates) {
-    setTimeout(() => bridge.checkForUpdates(true), 3000);
-    setInterval(() => bridge.checkForUpdates(false), 15 * 60 * 1000);
-  }
+  // Update scheduling used to live here: a forced check three seconds after
+  // boot, then an ordinary one every fifteen minutes. That put updater policy
+  // in the one place that cannot know the install type, the channel, the retry
+  // state, or whether another window is already doing it -- and because an
+  // ordinary check inside the freshness window returns the persisted answer,
+  // roughly fifteen of every sixteen of those ticks reached nothing at all.
+  // Nothing here any more. The scheduler runs in the backend, off the UI
+  // thread, and the 2s status poll above is the only contribution from this
+  // side: it says "time passed", and UpdateScheduler decides what that means.
 }
 
 // One brand voice, one source: copy comes from opai/brand.py via the boot
@@ -473,6 +530,11 @@ function renderUpdateBanner(update) {
   // still open to read it — silence would look like a button that did nothing.
   const restartReply = state.update.restart;
   if (restartReply && restartReply.message) toast(String(restartReply.message));
+  // A manual check that could not run says so. Without this the click is
+  // answered by whatever the banner already said, which for an "up to date"
+  // installation is indistinguishable from a successful check.
+  const manualReply = state.update.manual_check;
+  if (manualReply && manualReply.message) toast(String(manualReply.message));
   const states = {
     available: ["Update available", "A signed OPai update is ready to download.", "accent"],
     downloading: ["Downloading update", "You can keep working while OPai downloads.", "accent"],
@@ -515,11 +577,18 @@ function renderUpdateBanner(update) {
   const config = states[status];
   shell.dataset.state = status;
   shell.dataset.tone = config[2];
-  $("#updateBannerText").textContent = config[0];
+  // Plain copy, from the backend. The internal diagnostic -- "cannot update
+  // transactionally", "4 commits behind origin/main" -- is true, useful in
+  // `opai update doctor`, and not what someone wanting the new version needs
+  // to read.
+  const summary = ((state.update || {}).discovery || {}).summary || {};
+  const title = String(summary.title || config[0]);
+  const message = String(summary.message || config[1]);
+  $("#updateBannerText").textContent = title;
   $("#updateSheetTitle").textContent = candidate.version
-    ? `${config[0]} · OPai ${candidate.version}`
-    : config[0];
-  $("#updateSheetDescription").textContent = config[1];
+    ? `${title} · OPai ${candidate.version}`
+    : title;
+  $("#updateSheetDescription").textContent = message;
   const meta = $("#updateSheetMeta");
   meta.replaceChildren();
   const metadata = [
@@ -602,16 +671,31 @@ function renderUpdateActions(status, operation) {
   }
   // A source checkout updates by fast-forwarding from origin/main, not by
   // downloading a package: offer the deliberate developer apply instead.
+  // Ownership decides, not install type alone.
+  //
+  // A pipx or Homebrew installation can report an install type that looks
+  // self-updatable while another tool actually owns it, and offering "Update
+  // now" there invites the updater to act on an installation it does not own.
+  // The backend's `self_updatable` is the authority; the button is only drawn
+  // when it agrees.
+  const ownership = ((state.update || {}).discovery || {});
   if (status === "unsupported_install"
     && state.update && state.update.installed
     && state.update.installed.install_type === "source_checkout") {
-    list.push(["Update now", "developer_apply", true], ["Check again", "check", false]);
-    const apply = state.update.developer_apply;
-    if (apply && apply.dirty) {
-      // The plain apply refused on uncommitted changes; the explicit second
-      // step stashes them and restores them after the fast-forward.
-      list.splice(1, 0, ["Update anyway (stash & restore)", "developer_apply_force", false]);
+    // Checking again is always safe and always useful, whoever owns the
+    // installation -- only *applying* is gated. Removing both left an
+    // externally-owned install with no action at all, which is less honest
+    // than the button it replaced.
+    if (ownership.self_updatable !== false) {
+      list.push(["Update now", "developer_apply", true]);
+      const apply = state.update.developer_apply;
+      if (apply && apply.dirty) {
+        // The plain apply refused on uncommitted changes; the explicit second
+        // step stashes them and restores them after the fast-forward.
+        list.push(["Update anyway (stash & restore)", "developer_apply_force", false]);
+      }
     }
+    list.push(["Check again", "check", false]);
   }
   list.forEach((item) => host.appendChild(updateActionButton(item[0], item[1], item[2], status)));
 }
@@ -1010,34 +1094,7 @@ function toggleWsMenu() {
 }
 
 /* ---------- composer selects ---------- */
-function renderComposerSelects() {
-  const modeSel = $("#modeSel"); modeSel.innerHTML = "";
-  (state.boot.modes || []).forEach((m) => {
-    const o = document.createElement("option"); o.value = m.id; o.textContent = m.label;
-    if (m.id === state.mode.id) o.selected = true; modeSel.appendChild(o);
-  });
-  modeSel.onchange = () => {
-    // A chosen mode is the mode, and it is durable. Full Auto used to be the
-    // exception: picking it opened an acknowledgement modal and pinned via a
-    // dedicated bridge slot, because a plain savePref was downgraded server
-    // side. The downgrade is gone, so a mode now persists by being picked —
-    // across restarts, reboots and workspace switches — like any other setting.
-    state.mode = state.boot.modes.find((m) => m.id === modeSel.value) || state.mode;
-    bridge.savePref("default_mode", state.mode.id);
-    // Keep the local autonomy snapshot coherent: an explicit non-Full-Auto
-    // choice becomes the requested mode for this workspace, so the pin ack is
-    // not re-offered for a mode the user just deliberately left.
-    if (state.boot.autonomy) {
-      state.boot.autonomy.requested_mode = state.mode.id;
-      state.boot.autonomy.effective_mode = state.mode.id;
-    }
-    // The run mode is a local, explicit user selection. Paint it in the header
-    // immediately, then let the asynchronous status refresh fill in its
-    // independently computed spend and savings values. This avoids showing the
-    // previous (potentially more permissive) mode while that refresh is in flight.
-    renderStatus({ line: $("#statusLine").textContent });
-    renderComposerContext(); refreshInspector(); refreshStatus();
-  };
+function renderModelSelect(syncContext = true) {
   const modelSel = $("#modelSel"); modelSel.innerHTML = "";
   // Group models by their group field into optgroup sections
   const PICKER_GROUPS = [
@@ -1052,7 +1109,7 @@ function renderComposerSelects() {
   // Out-of-credit models are removed from selection entirely (the redesigned
   // picker popover shows the explanation). If the current selection just ran
   // out of credit, fall back to Auto — never leave a dead model selected.
-  const selectable = allModels.filter((m) => !m.out_of_credit);
+  const selectable = allModels.filter((m) => !m.out_of_credit && isModelVisible(m));
   const currentEntry = allModels.find((m) => m.id === state.model.id);
   if (currentEntry && currentEntry.out_of_credit) {
     state.model = { id: "auto", label: "OPai · Auto mode", kind: "auto", provider: "" };
@@ -1090,8 +1147,41 @@ function renderComposerSelects() {
     if (m) state.model = { ...m, advancedLabel: m.advanced_label };
     setProviderDot(); renderComposerContext(); bridge.savePref("default_model", state.model.id); refreshInspector(); refreshStatus();
   };
-  setProviderDot();
-  renderComposerContext();
+  if (syncContext) {
+    setProviderDot();
+    renderComposerContext();
+  }
+}
+
+function renderComposerSelects() {
+  const modeSel = $("#modeSel"); modeSel.innerHTML = "";
+  (state.boot.modes || []).forEach((m) => {
+    const o = document.createElement("option"); o.value = m.id; o.textContent = m.label;
+    if (m.id === state.mode.id) o.selected = true; modeSel.appendChild(o);
+  });
+  modeSel.onchange = () => {
+    // A chosen mode is the mode, and it is durable. Full Auto used to be the
+    // exception: picking it opened an acknowledgement modal and pinned via a
+    // dedicated bridge slot, because a plain savePref was downgraded server
+    // side. The downgrade is gone, so a mode now persists by being picked —
+    // across restarts, reboots and workspace switches — like any other setting.
+    state.mode = state.boot.modes.find((m) => m.id === modeSel.value) || state.mode;
+    bridge.savePref("default_mode", state.mode.id);
+    // Keep the local autonomy snapshot coherent: an explicit non-Full-Auto
+    // choice becomes the requested mode for this workspace, so the pin ack is
+    // not re-offered for a mode the user just deliberately left.
+    if (state.boot.autonomy) {
+      state.boot.autonomy.requested_mode = state.mode.id;
+      state.boot.autonomy.effective_mode = state.mode.id;
+    }
+    // The run mode is a local, explicit user selection. Paint it in the header
+    // immediately, then let the asynchronous status refresh fill in its
+    // independently computed spend and savings values. This avoids showing the
+    // previous (potentially more permissive) mode while that refresh is in flight.
+    renderStatus({ line: $("#statusLine").textContent });
+    renderComposerContext(); refreshInspector(); refreshStatus();
+  };
+  renderModelSelect();
 }
 
 function autonomyConsequence(modeId) {
@@ -1925,8 +2015,8 @@ function finalizeBuild(r) {
     {
       legacyBeforeHtml: activitySummaryHtml(),
       result: r,
-      extraHtml: buildResultHtml(r) +
-        (r.receipt ? metaFooter({ receipt: r.receipt }, sel, durMs) : ""),
+      outsideHtml: buildResultHtml(r),
+      extraHtml: r.receipt ? metaFooter({ receipt: r.receipt }, sel, durMs) : "",
     },
   );
   wireActivitySummary(el);
@@ -2141,8 +2231,8 @@ function buildPending(sel) {
            <span class="gen-detail" hidden></span>
          </div>
          <div class="gen-reassure" aria-live="polite"></div>
-         <button class="gen-toggle" type="button" aria-controls="${activityLogId}" aria-expanded="false">View work log · 0</button>
-         <div class="timeline" id="${activityLogId}" role="log" aria-label="AI activity" hidden></div>
+         <button class="gen-toggle" type="button" aria-controls="${activityLogId}" aria-expanded="true">Hide work log</button>
+         <div class="timeline" id="${activityLogId}" role="log" aria-label="AI activity"></div>
        </div>
        <div class="stream-block-list">
          <details class="stream-earlier" hidden>
@@ -2916,6 +3006,33 @@ function completionVerdictHtml(r) {
 // returned, even when OPai could not verify the user's objective. Rendering a
 // runtime phase as the final status reintroduced the Round 6 contradiction:
 // "Partial" above "Implement · Completed" below.
+/**
+ * The verdict as the summary row should say it.
+ *
+ * Two labelling systems meet here. `completionVerdictLabel` is reason-code
+ * aware -- a plain chat answer is "Response received", never "Completed",
+ * because the run verified nothing about the content and saying otherwise
+ * overclaims. The summary row's own vocabulary is friendlier for the generic
+ * cases ("No changes made" rather than "Partial").
+ *
+ * So the specific label wins when it is actually specific, and the friendly
+ * one is used when it is not. Getting this backwards printed "Done" over a
+ * turn the system had carefully declined to call completed.
+ */
+function summaryVerdict(r) {
+  const item = completionVerdict(r);
+  if (!item) return null;
+  const specific = completionVerdictLabel(item);
+  const generic = verdictLabel(item.verdict);
+  return {
+    state: item.verdict,
+    label: item.label,
+    displayLabel: specific !== generic ? specific : "",
+    reason: item.reason,
+    nextAction: item.nextAction,
+  };
+}
+
 function completionVerdictLabel(item) {
   if (item && item.canonical) return item.label;
   return item && item.reasonCode === "answer_delivered"
@@ -2942,12 +3059,18 @@ function metaFooter(r, sel, durMs) {
   const badge = receiptBadge(rc);
   // Cost/savings line — the SAME honest text the flat footer used, so the
   // money-truth contract holds: a paid call shows spend and never "saved".
-  const bits = [sel.modelLabel || "OPai", OPaiActivity.formatElapsed(durMs)];
+  const elapsed = OPaiActivity.formatElapsed(durMs);
+  const bits = [sel.modelLabel || "OPai"];
+  // Same rule as the summary row: a turn that finished inside the clock's
+  // resolution has no duration worth printing.
+  if (elapsed && !/^0+[:0]*$/.test(String(elapsed).replace(/[^0-9:]/g, ""))) bits.push(elapsed);
   if (+rc.estimated_actual_usd) bits.push("$" + (+rc.estimated_actual_usd).toFixed(4) + " spent");
   if (+rc.estimated_savings_usd) bits.push("$" + (+rc.estimated_savings_usd).toFixed(4) + " saved");
   if (rc.paid_call_avoided) bits.push("paid call avoided");
-  const verdict = completionVerdict(r);
-  if (verdict) bits.unshift(`${verdict.verdict}: ${verdict.reason}`);
+  // No verdict prefix here: the summary row states it, and the ticket's message
+  // carries it in full. This strip is about where the money figure came from,
+  // and it was repeating the whole sentence a third time.
+
   return `<div class="receipt-card">` +
     `<div class="footer-note" role="button" tabindex="0" title="Copy this receipt" aria-label="Copy receipt">` +
       `<span class="rc-badge rc-${badge.cls}" title="${esc(badge.title)}">${esc(badge.label)}</span>` +
@@ -3110,6 +3233,12 @@ function startGuidedProviderLogin(provider, { button = null, retryPayload = null
   }
 }
 
+function refreshConnectedModels() {
+  if (bridge && bridge.discoverModels) {
+    try { bridge.discoverModels(); } catch (_e) { return; }
+  }
+}
+
 function onProviderLoginReady(json) {
   let envelope = {};
   try { envelope = JSON.parse(json || "{}"); } catch (_e) { return; }
@@ -3123,6 +3252,7 @@ function onProviderLoginReady(json) {
   }
   updateDoctorCard(pending.provider, result);
   if (!result.signedIn) { toast(result.message || "Sign-in was not verified"); return; }
+  refreshConnectedModels();
   toast(result.message || `${providerName(pending.provider)} sign-in verified`);
   if (pending.retryPayload && !state.busy && (!pending.retryRequestId || (state.message && state.message.requestId === pending.retryRequestId))) sendSelection(pending.retryPayload);
 }
@@ -3245,7 +3375,17 @@ function renderErrorCard(el, status, r, sel) {
     toast(`Continuing with ${state.model.label}`);
     sendSelection(payload);
   };
-  const retryButton = el.querySelector('[data-a="retry"]'); if (retryButton) retryButton.onclick = () => retry();
+  const retryButton = el.querySelector('[data-a="retry"]');
+  if (retryButton) {
+    retryButton.onclick = (event) => {
+      // Retry sits inside the turn summary's <summary>, where a click would
+      // otherwise reach the disclosure and expand the diagnostics on its way
+      // to retrying -- so the one action that matters would also dump the
+      // whole panel open.
+      if (retryButton.dataset.stopToggle) event.preventDefault();
+      retry();
+    };
+  }
   const signIn = el.querySelector('[data-a="signin"]'); if (signIn) signIn.onclick = () => {
     const retryPayload = state.lastSend ? { ...state.lastSend } : (sel ? { ...sel } : null);
     startGuidedProviderLogin(loginProvider, { button: signIn, retryPayload, retryRequestId: state.lastFailedRequestId });
@@ -3270,6 +3410,7 @@ function renderErrorCard(el, status, r, sel) {
     bridge.testProvider(provider, (json2) => {
       let result = {}; try { result = JSON.parse(json2); } catch (_e) { /* keep {} */ }
       reconnect.disabled = false; reconnect.textContent = "Test connection";
+      refreshConnectedModels();
       if (result.authStatus === "connected") { toast("Connection verified — Retry should work now"); return; }
       const hint = result.loginHint ? " " + result.loginHint : "";
       toast((result.safeDiagnostic || "Still not connected.") + hint);
@@ -3282,6 +3423,7 @@ function renderErrorCard(el, status, r, sel) {
     bridge.disconnectAccount(provider, (json2) => {
       let result = {}; try { result = JSON.parse(json2); } catch (_e) { /* keep {} */ }
       disconnect.disabled = false; disconnect.textContent = "Disconnect account";
+      if (result.disconnected) refreshConnectedModels();
       toast(result.message || (result.disconnected ? "Signed out." : "Could not sign out."));
     });
   };
@@ -3396,7 +3538,8 @@ function finalize(status, r) {
   }
   if (r && (r.workflow || r.agent_policy)) supportHtml += workflowCardHtml(r);
   const planSteps = (r && r.plan && r.plan.steps) || [];
-  if (planSteps.length) supportHtml += planCardHtml(planSteps);
+  let outsideHtml = "";
+  if (planSteps.length) outsideHtml += planCardHtml(planSteps);
   el.innerHTML = assistantPresentationHtml(
     headerHtml,
     answer,
@@ -3405,10 +3548,19 @@ function finalize(status, r) {
       result: r,
       changesHtml,
       supportHtml,
+      outsideHtml,
       warningsHtml: unverifiedClaimHtml(r),
       legacyWorkHtml: activitySummaryHtml(),
       legacyFinalHtml: completionVerdictHtml(r),
       extraHtml: metaFooter(r, sel, durMs),
+      // The summary line's own facts. Cost and elapsed are not in the
+      // presentation payload -- they live on the receipt and the call site --
+      // so they are handed over rather than dug for.
+      verdict: summaryVerdict(r),
+      nextAction: (((r && r.workflow) || {}).next_actions || [])[0] || "",
+      costUsd: Number(((r && r.receipt) || {}).estimated_actual_usd) || 0,
+      elapsed: OPaiActivity.formatElapsed(durMs),
+      changedFiles: ((r && r.changed_files) || []).length,
       retryable: Boolean(state.lastSend),
     },
   );
@@ -3420,8 +3572,18 @@ function finalize(status, r) {
   wireChangesetCard(el);
   wireStructuredEvidence(el);
   enhanceCodeBlocks(el);
-    const cvRetry = el.querySelector('.completion-verdict [data-a="retry"]');
-    if (cvRetry) cvRetry.onclick = () => retry();
+    // Retry moved from the completion-verdict card onto the turn summary's
+    // row when that card was folded into it. Wiring it by the old selector
+    // alone left the button rendered and dead.
+    const cvRetry = el.querySelector('.turn-summary [data-a="retry"], .completion-verdict [data-a="retry"]');
+    if (cvRetry) {
+      cvRetry.onclick = (event) => {
+        // Inside <summary>, a click would toggle the disclosure on its way to
+        // the handler, so retrying would also dump the diagnostics open.
+        if (cvRetry.dataset.stopToggle) event.preventDefault();
+        retry();
+      };
+    }
   } finally {
     restoreChatScroll(scrollSnapshot);
   }
@@ -3718,16 +3880,24 @@ function workflowCardHtml(result) {
   }
   ).join("");
   const provider = flow.provider || {};
-  const cost = flow.cost || {};
+  // PR, Merge and Cost used to render unconditionally. On an Explain run that
+  // meant "PR: not opened" and "Merge: —" -- two rows stating that things
+  // which were never going to happen did not happen -- and a Cost that the
+  // summary row and the receipt strip were already showing. A row earns its
+  // place by carrying something that happened.
+  // The verdict is the turn summary's first word now, so this stops repeating
+  // it. It used to render its own phase here, which is how the detail could
+  // read "Completed" under a summary that said "No changes made" -- the same
+  // duplication that had one turn announcing its outcome three times.
   return `<div class="workflow-card">
-    <div class="wf-head"><span>${esc(mode)}</span><span>${esc(displayedPhase)}</span></div>
-    ${displayedMessage ? `<div class="wf-message">${esc(displayedMessage)}</div>` : ""}
-    <div class="wf-row"><span>PR</span><strong>${esc(flow.pr_url || "not opened")}</strong></div>
-    <div class="wf-row"><span>Merge</span><strong>${esc(pretty(flow.merge_status))}</strong></div>
+    <div class="wf-head"><span>${esc(mode)}</span></div>
+
+    ${flow.pr_url ? `<div class="wf-row"><span>PR</span><strong>${esc(flow.pr_url)}</strong></div>` : ""}
+    ${flow.merge_status && flow.merge_status !== "not_requested" ? `<div class="wf-row"><span>Merge</span><strong>${esc(pretty(flow.merge_status))}</strong></div>` : ""}
     ${flow.issue_number ? `<div class="wf-row"><span>Issue</span><strong>#${esc(flow.issue_number)}</strong></div>` : ""}
     ${provider.model ? `<div class="wf-row"><span>Provider</span><strong>${esc(provider.model)}</strong></div>` : ""}
-    ${cost.estimated_actual_usd != null ? `<div class="wf-row"><span>Cost</span><strong>$${esc(Number(cost.estimated_actual_usd).toFixed(4))}</strong></div>` : ""}
-    ${actions ? `<div class="wf-subhead">Next actions</div><ul class="wf-actions">${actions}</ul>` : ""}
+
+
     ${history ? `<details class="wf-history"${state.responseDensity === "detailed" ? " open" : ""}><summary>Timeline · ${(flow.history || []).length} events</summary>${history}</details>` : ""}
   </div>`;
 }
@@ -4044,7 +4214,9 @@ function settingsCtx(d) {
     d, bridge, state, esc, toast, inlineConfirm, switchView,
     refresh: renderSettings, updateDoctorCard, providerName,
     startGuidedProviderLogin, connectionHealthLabel, authStatusLabel,
+    refreshConnectedModels,
     renderComposerSelects,
+    isModelVisible, applyModelCatalog,
     applyAppearance, applyDefaults, applyClearedHistory,
     replayTour: () => { if (window.OPaiOnboarding) window.OPaiOnboarding.replay(onboardingCtx()); },
     startDoctorRefresh() {
@@ -4531,7 +4703,10 @@ function wire() {
     state.followLatest = true;
     scrollBottom(true);
   };
-  $("#newChat").onclick = startNewChat;
+  // New chat is a header action now; the sidebar is purely the chat list.
+  // Guarded because the sidebar button no longer exists in the markup.
+  const sidebarNewChat = $("#newChat");
+  if (sidebarNewChat) sidebarNewChat.onclick = startNewChat;
   $("#headerNewChat").onclick = startNewChat;
   $("#footSettings").onclick = () => switchView("settings");
   $("#headerSettings").onclick = () => switchView("settings");
@@ -4635,6 +4810,14 @@ if (typeof window !== "undefined") {
     applyAppearance: (p) => applyAppearance(p),
     // Used by the redesigned composer's overflow menu (Keyboard shortcuts).
     runCommand: (id) => runCommand(id),
+    // The composer's Bypass switch persists through here rather than reaching
+    // for the raw bridge, matching every other composer action on this surface.
+    setBypassPermissions: (on) => {
+      state.bypassPermissions = on === true;
+      bridge.savePref("bypass_permissions", on ? "true" : "false");
+      refreshInspector();
+      refreshStatus();
+    },
     // Context picker actions stay native so Chromium never receives arbitrary
     // host paths. The bridge returns only workspace-relative paths.
     pickContextFiles: (done) => {

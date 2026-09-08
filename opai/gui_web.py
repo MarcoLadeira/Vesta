@@ -77,6 +77,10 @@ _BRIDGE_PREFERENCE_KEYS = frozenset(
         "default_task_mode",
         "default_output_format",
         "show_control_panel",
+        # Bypass Permissions is a switch layered over the selected mode, so it
+        # persists like any other preference rather than through the Full Auto
+        # pin slot below (that slot exists for a mode; this is not one).
+        "bypass_permissions",
         "density",
         "response_density",
         "reduced_motion",
@@ -369,15 +373,54 @@ def clear_overview_cache() -> None:
 # --------------------------------------------------------------------------- #
 # Bridge payload builders (pure-ish; reuse the Qt-free data layer)
 # --------------------------------------------------------------------------- #
-def _models(root: Path, *, discover_local: bool = True) -> dict[str, Any]:
-    data = A.available_models(root, discover_local=discover_local)
+def _models(
+    root: Path, *, discover_local: bool = True, discover_accounts: bool = False
+) -> dict[str, Any]:
+    data = A.available_models(
+        root, discover_local=discover_local, discover_accounts=discover_accounts
+    )
+    from opai.model_overrides import load_overrides, overrides_report_payload
+    from opai.model_registry import ACCOUNT_PROVIDERS
+
+    override_report = load_overrides()
     models = []
     for opt in data["models"]:
         models.append({**opt, "badge": model_badge(opt)})
+    # Account model tuples are initialized when the connector module imports,
+    # but the global picker file can change while this GUI stays open. Project
+    # custom entries over an existing provider option so they are immediately
+    # usable without a restart (the runner already accepts an explicit model).
+    for provider, specs in override_report.models.items():
+        if provider not in ACCOUNT_PROVIDERS:
+            continue
+        template = next(
+            (item for item in models if item.get("provider") == provider), None
+        )
+        if template is None:
+            continue
+        for spec in specs:
+            if any(
+                item.get("provider") == provider and item.get("model") == spec.id
+                for item in models
+            ):
+                continue
+            custom = dict(template)
+            custom.update(
+                {
+                    "id": f"account:{provider}:{spec.id}",
+                    "label": f"{provider.title()} · {spec.display}",
+                    "advanced_label": spec.full,
+                    "model": spec.id,
+                    "speed": spec.capability,
+                    "badge": spec.capability,
+                }
+            )
+            models.append(custom)
     return {
         "models": models,
         "accounts": data.get("accounts", []),
         "connections": data.get("connections", []),
+        "modelOverrides": overrides_report_payload(override_report),
         **{
             key: data[key]
             for key in (
@@ -529,7 +572,9 @@ def _inspector(root: Path, sel: dict[str, Any]) -> dict[str, Any]:
     except Exception:  # noqa: BLE001
         prefs = {}
     data["permissions"] = permissions_for(
-        run_mode, safe_auto=(prefs or {}).get("safe_auto")
+        run_mode,
+        safe_auto=(prefs or {}).get("safe_auto"),
+        bypass_permissions=(prefs or {}).get("bypass_permissions") is True,
     )
     workflow = load_workflow_state(root)
     # F21: the persisted "Agent mode" row is the *last completed* run and goes
@@ -673,6 +718,21 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
     from opaihub.autonomy import MODE_LABELS, resolve_startup_mode
 
     _STARTUP.mark("boot:start")
+    # Record the build this process is running, before anything can change it.
+    # The baseline has to be the code actually loaded: capturing it later --
+    # lazily, on the first comparison -- would fingerprint whatever happens to
+    # be on disk by then and conclude, permanently and wrongly, that this
+    # process is current.
+    try:
+        from pathlib import Path as _Path
+
+        import opai as _opai
+
+        from opai.update.running_build import prime as _prime_running_build
+
+        _prime_running_build(_Path(_opai.__file__).parent / "assets")
+    except Exception:  # noqa: BLE001 - a staleness hint may never break boot
+        pass
     root = root.expanduser().resolve()
     prefs = load_gui_preferences(root)
     # Central autonomy decision (#137): boot into the effective mode, which is
@@ -730,7 +790,15 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
             "mode": mode,
             "focus": focus,
             "format": fmt,
-            "showPanel": bool(prefs.get("show_control_panel", True)),
+            # Default False, matching gui_preferences.DEFAULT_PREFERENCES. A True
+            # fallback here overrode that whenever the preference had not been
+            # written yet -- i.e. for every first-time user -- so a brand new,
+            # empty chat opened with an empty inspector taking the right third
+            # of the window.
+            "showPanel": bool(prefs.get("show_control_panel", False)),
+            # Bypass is a switch layered over the mode, so the composer needs
+            # it separately from the selected mode id.
+            "bypassPermissions": bool(prefs.get("bypass_permissions", False)),
             # Appearance (#241): applied to the document root at boot.
             "density": str(prefs.get("density") or "comfortable"),
             "responseDensity": str(prefs.get("response_density") or "balanced"),
@@ -758,6 +826,7 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
         "controls": describe_controls(mode, focus),
         "accounts": models["accounts"],
         "connections": models["connections"],
+        "modelOverrides": models["modelOverrides"],
         **{
             key: models[key]
             for key in (
@@ -1479,6 +1548,7 @@ def settings_payload(root: Path) -> dict[str, Any]:
         "permissions": permissions_for(
             str(prefs.get("default_mode") or "safe-auto"),
             safe_auto=prefs.get("safe_auto"),
+            bypass_permissions=prefs.get("bypass_permissions") is True,
         ),
         # Per-mode comparison (#239): what each run mode allows, derived from the
         # same permission rules — not re-invented copy. Highlighted against the
@@ -1508,6 +1578,9 @@ def settings_payload(root: Path) -> dict[str, Any]:
         "accounts": models["accounts"],
         "connections": models["connections"],
         "models": models["models"],
+        # User model picker edits are global (not workspace preferences). The
+        # path is deliberately home-redacted by the report builder.
+        "modelOverrides": models["modelOverrides"],
         "usage": build_usage_snapshots(
             root,
             models["models"],
@@ -1848,6 +1921,10 @@ def _run_gui(
             from opai.update.factory import create_update_service
 
             self._update_service = create_update_service(workspaces=[self.root])
+            # The scheduler, not the browser, decides when discovery runs.
+            from opai.update.scheduler import UpdateScheduler
+
+            self._update_scheduler = UpdateScheduler(self._update_service)
             self._update_started = False
             self._update_maintenance_running = False
 
@@ -2133,6 +2210,15 @@ def _run_gui(
                     self._update_service.maintain()
                 except Exception:  # noqa: BLE001 - persisted safe state is authoritative
                     _LOG.debug("Periodic updater maintenance failed", exc_info=True)
+                try:
+                    # The heartbeat is the only thing the front end still
+                    # contributes: it says "time passed", and every decision
+                    # about whether that means anything -- cadence, freshness,
+                    # startup, resume, backoff -- is made here, off the UI
+                    # thread, by the scheduler.
+                    self._update_scheduler.tick()
+                except Exception:  # noqa: BLE001 - discovery may never break maintenance
+                    _LOG.debug("Update scheduler tick failed", exc_info=True)
                 return self._update_service.status()
 
             worker = Worker(maintain)
@@ -2150,13 +2236,30 @@ def _run_gui(
         @QtCore.Slot(bool)
         def checkForUpdates(self, force: bool) -> None:
             def check() -> dict[str, object]:
+                # A manual check reports its own outcome. This used to swallow
+                # every failure into a debug log and return the previous
+                # status, so a user could press Check for updates, have nothing
+                # happen, and be shown the old "up to date" with no way to tell
+                # -- the one thing an update surface must never do.
+                outcome: dict[str, object] | None = None
                 try:
-                    self._update_service.check(
-                        force=bool(force), allow_automatic_download=True
-                    )
+                    if bool(force):
+                        outcome = self._update_service.check_now()
+                    else:
+                        self._update_service.check(allow_automatic_download=True)
                 except Exception:  # noqa: BLE001 - state/error contract is persisted
                     _LOG.debug("Updater discovery failed", exc_info=True)
-                return self._update_service.status()
+                    outcome = {
+                        "ok": False,
+                        "reason": "check_failed",
+                        "message": "OPai could not check for updates just now.",
+                    }
+                status = self._update_service.status()
+                if outcome is not None and not outcome.get("ok"):
+                    # One-shot, alongside the status rather than persisted into
+                    # it: the failure belongs to the click, not the install.
+                    status["manual_check"] = outcome
+                return status
 
             self._start_update_worker(check)
 
@@ -2330,7 +2433,28 @@ def _run_gui(
 
         @QtCore.Slot(result=str)
         def refreshModels(self) -> str:
-            return json.dumps(A.available_models(self.root, discover_local=True))
+            return json.dumps(_models(self.root, discover_local=True))
+
+        @QtCore.Slot(str, result=str)
+        def saveModelOverrides(self, payload_json: str) -> str:
+            """Atomically replace the user's global picker configuration."""
+            from opai.model_overrides import save_override_payload
+
+            try:
+                payload = json.loads(payload_json)
+                save_override_payload(payload)
+            except (TypeError, ValueError) as exc:
+                # The last valid file remains untouched; do not emit a catalog
+                # change for rejected browser data.
+                return json.dumps({"ok": False, "error": safe_detail(exc)})
+            catalog = _models(self.root, discover_local=True)
+            return json.dumps(
+                {
+                    "ok": True,
+                    "modelOverrides": catalog["modelOverrides"],
+                    "catalog": catalog,
+                }
+            )
 
         @QtCore.Slot(str, str, str, result=str)
         def setProviderBalance(self, provider: str, amount: str, currency: str) -> str:
@@ -2762,7 +2886,10 @@ def _run_gui(
         def discoverModels(self) -> None:
             """Discover loopback models off the GUI thread and publish the catalog."""
 
-            worker = Worker(lambda: A.available_models(self.root, discover_local=True))
+            def discover() -> dict[str, Any]:
+                return _models(self.root, discover_local=True, discover_accounts=True)
+
+            worker = Worker(discover)
 
             def _done(result_json: str) -> None:
                 self.modelsChanged.emit(result_json)

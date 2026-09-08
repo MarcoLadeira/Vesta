@@ -185,7 +185,10 @@ test("edit modes are disabled when the selected CLI lacks scoped edit controls",
   await expect(menu.locator('[data-id="safe-auto"]')).toBeDisabled();
   await expect(menu.locator('[data-id="approve-edits"]')).toBeDisabled();
   await expect(menu.locator('[data-id="auto-edits"]')).toBeDisabled();
-  await expect(menu.locator('[data-id="full-auto"]')).toBeDisabled();
+  // Bypass is a switch now, not a mode row -- and it is disabled here for the
+  // same reason: skipping the asking cannot grant an ability the CLI lacks.
+  await expect(menu.locator("[data-bypass]")).toBeDisabled();
+  await expect(menu.locator('[data-id="full-auto"]')).toHaveCount(0);
 });
 
 test("model popover shows working models, balances, and explains removals", async ({ page }) => {

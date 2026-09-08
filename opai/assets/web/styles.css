@@ -75,7 +75,14 @@ code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas
 /* When the grid column collapses to 0, the sidebar's own padding (24px) and
    right border (1px) still can't shrink below themselves under border-box, so
    it would leave a ~25px sliver. Zero them out so it hides completely. */
-.app.sidebar-hidden .sidebar { padding: 0; border-right-width: 0; }
+/* Children do not shrink with the column, so the active row's accent bar (and
+   anything else drawn at the very left) escaped as a stray sliver over the
+   thread. Clipping the collapsed rail is what actually hides it. */
+.app.sidebar-hidden .sidebar {
+  padding: 0;
+  border-right-width: 0;
+  overflow: hidden;
+}
 
 /* ---------- sidebar: the left rail ---------- */
 .sidebar {
@@ -100,16 +107,6 @@ code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas
   background: linear-gradient(180deg, transparent, rgba(52, 211, 153, 0.14) 30%, transparent 80%);
   pointer-events: none;
 }
-.new-chat {
-  display: flex; align-items: center; gap: var(--space-2); justify-content: center;
-  background: var(--brand-gradient);
-  color: var(--accent-ink); font-weight: 800; font-size: var(--type-label);
-  border: 0; border-radius: var(--r-md); padding: var(--space-3) var(--space-3); cursor: pointer;
-  box-shadow: 0 4px 18px var(--accent-glow), var(--inset-hi);
-  transition: transform 0.12s var(--ease), box-shadow 0.2s var(--ease), filter 0.2s;
-}
-.new-chat:hover { transform: translateY(-1px); box-shadow: 0 8px 26px var(--accent-glow); filter: brightness(1.05); }
-.new-chat:active { transform: translateY(0) scale(0.99); }
 /* OPai Build entry (#276): quieter sibling of New chat. */
 
 /* Build mode (#276): composer toggle + result card. */
@@ -309,6 +306,9 @@ code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas
   white-space: nowrap;
 }
 .topbar-action:hover { background: var(--glass-hi); border-color: var(--border-strong); }
+/* New chat lives in the header now, beside the other window-level actions.
+   The sidebar is the chat list: a button to start a new one is a global action,
+   not a row in the list of chats you already have. */
 .action-icon { color: var(--accent); font-size: var(--type-heading); font-weight: 500; line-height: 1; }
 .menu-lines { width: 15px; height: 14px; display: flex; flex-direction: column; justify-content: space-between; }
 .menu-lines i { display: block; height: 1.5px; border-radius: 2px; background: currentColor; }
@@ -704,6 +704,88 @@ kbd {
 .completion-verdict.partial .cv-title, .completion-verdict.blocked .cv-title, .completion-verdict.cancelled .cv-title { color: var(--amber); }
 .completion-verdict.failed, .completion-verdict.timeout { border-color: rgba(242, 118, 138, 0.42); }
 .completion-verdict.failed .cv-title, .completion-verdict.timeout .cv-title { color: var(--red); }
+/* ---------- the turn summary ----------
+ *
+ * One row under the answer, and every diagnostic behind it. A <details>, so
+ * the disclosure is the browser's -- keyboard, screen readers and
+ * find-in-page all work without a line of JavaScript.
+ *
+ * The row reads as a sentence, not a table: a status dot, one word for the
+ * verdict, then whichever facts this turn actually has. A read-only answer
+ * shows "Answered · $0.0021" and stops, which is the point -- the stack this
+ * replaces rendered every column whether or not it had anything in it.
+ */
+.turn-summary { margin: var(--space-4) 0 0; }
+.turn-summary > .ts-row {
+  display: inline-flex; align-items: center; gap: var(--space-2); max-width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border); border-radius: 999px;
+  background: var(--glass); cursor: pointer; list-style: none;
+  font-size: var(--type-caption); color: var(--muted);
+  transition: background 0.15s var(--ease), border-color 0.15s var(--ease);
+}
+.turn-summary > .ts-row::-webkit-details-marker { display: none; }
+.turn-summary > .ts-row:hover { background: var(--glass-hi); border-color: var(--border-strong); }
+.turn-summary > .ts-row:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.turn-summary .ts-dot {
+  width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: var(--muted);
+}
+.turn-summary .ts-verdict { color: var(--ink); font-weight: 650; flex-shrink: 0; }
+.turn-summary .ts-facts { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.turn-summary .ts-more { flex-shrink: 0; color: var(--faint); }
+.turn-summary .ts-more::after { content: " ›"; }
+.turn-summary[open] .ts-more::after { content: " ⌄"; }
+.turn-summary .ts-retry {
+  flex-shrink: 0; background: none; cursor: pointer; font-family: inherit;
+  border: 1px solid var(--border-strong); border-radius: 999px;
+  padding: var(--space-1) var(--space-3);
+  color: var(--ink); font-size: var(--type-caption);
+}
+.turn-summary .ts-retry:hover { border-color: var(--accent); color: var(--accent); }
+
+/* The verdict is the dot's colour, so the row carries the outcome before a
+   single word of it is read. */
+.turn-summary.is-completed .ts-dot { background: var(--green); }
+.turn-summary.is-partial .ts-dot,
+.turn-summary.is-needs_attention .ts-dot,
+.turn-summary.is-blocked .ts-dot { background: var(--amber); }
+.turn-summary.is-failed .ts-dot,
+.turn-summary.is-timeout .ts-dot { background: var(--red); }
+.turn-summary.is-answered .ts-dot { background: var(--accent); }
+
+/* One ticket, not a stack of cards.
+ *
+ * Nesting the old blocks unchanged left the panel looking like the thing it
+ * replaced: five bordered boxes, each with its own background and heading. The
+ * panel itself is the card now, and everything inside it is rows of one --
+ * inner borders, backgrounds and radii are stripped so the seams disappear. */
+.turn-summary .ts-detail {
+  margin-top: var(--space-3);
+  border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--glass); padding: var(--space-4);
+  display: grid; gap: var(--space-3);
+}
+.turn-summary .ts-detail > * { margin: 0; }
+.turn-summary .ts-reason { color: var(--ink); font-size: var(--type-caption); line-height: 1.5; }
+.turn-summary .ts-next {
+  color: var(--muted); font-size: var(--type-caption); line-height: 1.5;
+  margin-top: var(--space-2);
+}
+.turn-summary .ts-next > span { color: var(--accent); font-weight: 650; }
+.turn-summary .ts-detail .workflow-card,
+.turn-summary .ts-detail .receipt-card,
+.turn-summary .ts-detail .verification-card,
+.turn-summary .ts-detail .response-warnings {
+  border: 0; background: none; padding: 0; margin: 0; box-shadow: none;
+}
+/* The seam between the ticket's sections is a hairline, not a second box. */
+.turn-summary .ts-detail > * + * {
+  border-top: 1px solid var(--border); padding-top: var(--space-3);
+}
+/* Nested blocks keep their own styling; they simply stop being the first
+   thing anyone sees. The first needs no second top margin. */
+.turn-summary .ts-detail > *:first-child { margin-top: 0; }
+
 .evidence-bar {
   display: flex; flex-wrap: wrap; gap: var(--space-1); margin: var(--space-2) 0;
 }
@@ -1702,6 +1784,9 @@ body.ai-working .header-on-dot { animation: pulse 1.3s ease-in-out infinite; }
 .update-sheet-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .update-sheet-close { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: var(--type-heading); }
 .update-sheet p, .update-release-notes { color: var(--muted); font-size: var(--type-caption); line-height: 1.5; }
+/* Freshness sits directly under the description, quiet by default: routine
+   state should not become chrome noise, but "cached result - remote checked
+   47 min ago" is the one line that says whether to trust what is above it. */
 .update-sheet-meta { display: grid; grid-template-columns: auto 1fr; gap: var(--space-1) var(--space-3); font-size: var(--type-caption); }
 .update-sheet-meta dt { color: var(--faint); }
 .update-sheet-meta dd { color: var(--ink); margin: 0; overflow-wrap: anywhere; }
@@ -2209,6 +2294,31 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
 #ctxPop { left: var(--space-1); }
 #morePop { left: var(--space-1); }
 #modePop, #modelPop { right: 48px; }
+/* The mode menu is a fixed, known list -- four graded modes plus the Bypass
+   switch -- so it should never scroll. At 288px the longest description wrapped
+   to a second line, which both pushed the menu past its max-height and made one
+   row taller than the rest. Sized to fit every description on one line, with the
+   scroll removed so the whole menu is visible at once and evenly spaced. */
+#modePop {
+  width: 356px;
+  max-height: none;
+  overflow: visible;
+}
+#modePop .cpop-row {
+  align-items: center;
+  min-height: 46px;
+}
+/* The dot is nudged down for the default top-aligned rows; these are centred,
+   so that nudge would push it off the row's optical centre. */
+#modePop .cpop-dot { margin-top: 0; }
+/* Keep the number, the check and the row's right edge on one rhythm so the
+   column reads as a column rather than four separately-placed glyphs. */
+#modePop .cpop-meta { margin-left: auto; }
+#modePop .cpop-check { margin-left: var(--space-2); }
+#modePop .cpop-desc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The switch reads as a switch: it keeps the caution dot and sits visually
+   apart from the graded rows above it. */
+#modePop .cpop-row-switch { margin-top: var(--space-1); }
 .cpop-head, .cpop-group { font-size: var(--type-caption); letter-spacing: 0.08em; text-transform: uppercase;
   color: var(--faint); font-weight: var(--weight-semibold); padding: var(--space-2) var(--space-2) var(--space-1); }
 .cpop-group { padding-top: var(--space-2); }

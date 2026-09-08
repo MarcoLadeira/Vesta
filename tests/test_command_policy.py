@@ -242,16 +242,24 @@ class AutonomyMatrixTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertEqual(decide_command(command, autonomy=NORMAL).action, ASK)
 
-    def test_auto_edits_commits_locally_but_asks_before_publishing(self) -> None:
+    def test_auto_edits_still_asks_before_running_commands(self) -> None:
+        # Claude Code's accept-edits auto-accepts *file edits*; Bash keeps
+        # prompting. A command is not an edit, so this row matches NORMAL and
+        # the whole difference between the two modes lives in the edit
+        # capability (gui_permissions gives auto-edits edit=allow, run_any=ask).
+        # Asserting RUN here is what let the panel and the policy disagree.
+        for command in (
+            "git commit -m x",
+            "npx playwright test",
+            "git push",
+            "gh pr merge 1",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(
+                    decide_command(command, autonomy=AUTO_EDITS).action, ASK
+                )
         self.assertEqual(
-            decide_command("git commit -m x", autonomy=AUTO_EDITS).action, RUN
-        )
-        self.assertEqual(
-            decide_command("npx playwright test", autonomy=AUTO_EDITS).action, RUN
-        )
-        self.assertEqual(decide_command("git push", autonomy=AUTO_EDITS).action, ASK)
-        self.assertEqual(
-            decide_command("gh pr merge 1", autonomy=AUTO_EDITS).action, ASK
+            decide_command("cat README.md", autonomy=AUTO_EDITS).action, RUN
         )
 
     def test_bypass_never_asks(self) -> None:
@@ -291,3 +299,130 @@ class AutonomyNormalisationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ClaudeCodeModeParityTests(unittest.TestCase):
+    """Each OPai run mode must mean what the same word means in Claude Code.
+
+    | Claude Code        | OPai mode              | edits  | commands |
+    |--------------------|------------------------|--------|----------|
+    | Plan               | plan / ask             | block  | block    |
+    | Normal ("manual")  | safe-auto/approve-edits| ask    | ask      |
+    | Auto-accept edits  | auto-edits             | allow  | ask      |
+    | Bypass             | full-auto              | allow  | run      |
+
+    The edit column is ``gui_permissions._MODE_RULES``; the command column is
+    ``AUTONOMY_RULES``. They are separate tables that describe one mode, so a
+    test that reads both is the only thing that keeps them honest.
+    """
+
+    EXPECTED = {
+        "plan": ("block", BLOCK),
+        "ask": ("block", BLOCK),
+        "safe-auto": ("ask", ASK),
+        "approve-edits": ("ask", ASK),
+        "auto-edits": ("allow", ASK),
+        "full-auto": ("allow", RUN),
+    }
+
+    def test_edit_and_command_authority_agree_per_mode(self) -> None:
+        from opai.gui_permissions import permissions_for
+
+        for mode, (edit_state, command_action) in self.EXPECTED.items():
+            with self.subTest(mode=mode):
+                states = {row["id"]: row["state"] for row in permissions_for(mode)}
+                self.assertEqual(states.get("edit", "block"), edit_state)
+                self.assertEqual(
+                    decide_command("git commit -m x", autonomy=mode).action,
+                    command_action,
+                )
+
+    def test_accept_edits_is_the_only_mode_that_edits_but_still_asks(self) -> None:
+        from opai.gui_permissions import permissions_for
+
+        states = {row["id"]: row["state"] for row in permissions_for("auto-edits")}
+        self.assertEqual(states["edit"], "allow")
+        self.assertEqual(states["create"], "allow")
+        # ...while anything that leaves the editor still stops.
+        self.assertEqual(states["run_any"], "ask")
+        self.assertEqual(states["push"], "ask")
+
+    def test_reading_is_never_gated_in_any_mode(self) -> None:
+        for mode in self.EXPECTED:
+            with self.subTest(mode=mode):
+                self.assertEqual(
+                    decide_command("cat README.md", autonomy=mode).action, RUN
+                )
+
+    def test_plan_mode_refuses_rather_than_asks(self) -> None:
+        # Plan mode has no approval path: it is read-only by construction, so a
+        # write is refused outright rather than offered as a confirmation.
+        for command in ("git commit -m x", "git push", "npm run build"):
+            with self.subTest(command=command):
+                self.assertEqual(decide_command(command, autonomy="plan").action, BLOCK)
+
+
+class BypassIsASwitchNotAModeTests(unittest.TestCase):
+    """Bypass composes with the selected mode, the way Claude Code's flag does.
+
+    It used to be a sixth entry in the mode list, so turning it on discarded
+    whichever mode you were working in and turning it off could not give that
+    mode back. As a switch, "Plan, with permissions bypassed" is expressible
+    and the mode survives the toggle.
+    """
+
+    MODES = ("plan", "ask", "approve-edits", "safe-auto", "auto-edits")
+
+    def test_the_switch_grants_full_authority_from_any_mode(self) -> None:
+        from opaihub.command_policy import resolve_autonomy
+
+        for mode in self.MODES:
+            with self.subTest(mode=mode):
+                self.assertEqual(
+                    resolve_autonomy(mode, bypass_permissions=True), BYPASS
+                )
+
+    def test_switching_it_off_returns_the_mode_you_were_in(self) -> None:
+        from opaihub.command_policy import resolve_autonomy
+
+        expected = {
+            "plan": PLAN,
+            "ask": PLAN,
+            "approve-edits": NORMAL,
+            "safe-auto": NORMAL,
+            "auto-edits": AUTO_EDITS,
+        }
+        for mode, level in expected.items():
+            with self.subTest(mode=mode):
+                self.assertEqual(resolve_autonomy(mode), level)
+                # ...and the round trip is lossless.
+                resolve_autonomy(mode, bypass_permissions=True)
+                self.assertEqual(resolve_autonomy(mode), level)
+
+    def test_the_legacy_full_auto_mode_id_still_means_bypass(self) -> None:
+        from opaihub.command_policy import resolve_autonomy
+
+        self.assertEqual(resolve_autonomy("full-auto"), BYPASS)
+        self.assertEqual(resolve_autonomy("full-auto", bypass_permissions=True), BYPASS)
+
+    def test_the_switch_actually_changes_what_runs(self) -> None:
+        from opaihub.command_policy import resolve_autonomy
+
+        for mode in self.MODES:
+            with self.subTest(mode=mode):
+                guarded = decide_command(
+                    "git push", autonomy=resolve_autonomy(mode)
+                ).action
+                self.assertIn(guarded, {ASK, BLOCK})
+                self.assertEqual(
+                    decide_command(
+                        "git push",
+                        autonomy=resolve_autonomy(mode, bypass_permissions=True),
+                    ).action,
+                    RUN,
+                )
+
+    def test_the_preference_defaults_off(self) -> None:
+        from opaihub.gui_preferences import DEFAULT_PREFERENCES
+
+        self.assertIs(DEFAULT_PREFERENCES["bypass_permissions"], False)

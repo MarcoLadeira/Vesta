@@ -162,22 +162,26 @@ export async function openSettings(page, id) {
 }
 
 export async function openNav(page, label) {
+  // Do what a user does. The sidebar is the chat list now, so most destinations
+  // are reached from the header or from Settings -> Tools & Insights rather
+  // than from a nav row.
   if (label === "Settings") {
     await page.locator("#headerSettings").click();
     return;
   }
-  const target = page.getByRole("button", { name: label, exact: true });
-  // Simple-by-default sidebar: dashboard items may sit inside a folded group
-  // ("Insights"). Do what a user does — unfold it, then click.
-  if (!(await target.isVisible().catch(() => false))) {
-    const toggles = page.locator(".nav-group-toggle");
-    const count = await toggles.count();
-    for (let i = 0; i < count; i++) {
-      const toggle = toggles.nth(i);
-      if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
-    }
+  if (label === "Chat") {
+    await page.locator("#headerNewChat").click();
+    return;
   }
-  await target.click();
+  const target = page.getByRole("button", { name: label, exact: true });
+  if (await target.isVisible().catch(() => false)) {
+    await target.click();
+    return;
+  }
+  // Prompt Library and the Insights dashboards live in Settings now.
+  await page.locator("#headerSettings").click();
+  await page.locator('.settings-rail-item[data-rail-target="tools"]').click();
+  await page.locator(`[data-go-view] >> text=${label}`).first().click();
 }
 
 export function expectNoFatalErrors(diagnostics) {
@@ -193,4 +197,27 @@ export async function expectNoUiSentinels(page, locator = page.locator("body")) 
 export async function expectNoRawProviderIds(page) {
   const thread = await page.locator("#thread").innerText();
   expect(thread).not.toMatch(/account:(claude|codex|copilot):|anthropic\.messages\.create/);
+}
+
+/**
+ * Expand a turn's diagnostics.
+ *
+ * Everything describing a run -- evidence, verification, changes, the work
+ * log, the workflow card, the cost receipt -- now sits behind the one-line
+ * turn summary. Tests that assert on any of it have to open the disclosure
+ * first, exactly as a reader would.
+ *
+ * Idempotent, and a no-op on turns that have no diagnostics to show, so it can
+ * be called unconditionally before reaching into a response.
+ */
+export async function openTurnDetails(page, scope) {
+  const root = scope || page;
+  const summaries = root.locator(".turn-summary:not([open]) > .ts-row");
+  const count = await summaries.count();
+  for (let index = 0; index < count; index += 1) {
+    // Click the verdict, never the row's centre: Retry lives in the middle of
+    // the row on a failed turn, and clicking it would retry the request rather
+    // than open the panel.
+    await summaries.nth(index).locator(".ts-verdict").click();
+  }
 }

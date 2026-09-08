@@ -91,9 +91,16 @@ AUTONOMY_RULES: dict[str, dict[Capability, str]] = {
         Capability.WRITE_REMOTE: ASK,
         Capability.DESTRUCTIVE: ASK,
     },
+    # Claude Code's accept-edits, and exactly its bargain: *file edits* stop
+    # asking, commands do not. A command is not an edit -- `git commit`, `npm
+    # install` and a test runner can each do far more than the edit tools can --
+    # so this row is identical to NORMAL, and the whole difference between the
+    # two modes lives in the edit capability, which is not a command at all.
+    # It also has to keep matching gui_permissions._MODE_RULES["auto-edits"]
+    # ("run_any": "ask") or the permissions panel is lying about this mode.
     AUTO_EDITS: {
         Capability.READ: RUN,
-        Capability.WRITE_LOCAL: RUN,
+        Capability.WRITE_LOCAL: ASK,
         Capability.WRITE_REMOTE: ASK,
         Capability.DESTRUCTIVE: ASK,
     },
@@ -795,6 +802,29 @@ def normalize_autonomy(value: str | None) -> str:
         "yolo": BYPASS,
     }
     return legacy.get(text, DEFAULT_AUTONOMY)
+
+
+def resolve_autonomy(
+    mode: str | None,
+    *,
+    bypass_permissions: bool = False,
+) -> str:
+    """Compose the selected run mode with the orthogonal bypass switch.
+
+    Bypass is a *switch*, not a mode -- the same shape as Claude Code's
+    ``--dangerously-skip-permissions``. It used to be a sixth entry in the mode
+    list, so turning it on discarded whichever mode you were working in and
+    turning it off could not give that mode back. Composing them means "Plan,
+    with permissions bypassed" is expressible, and the switch is one click away
+    from off without losing your place.
+
+    The legacy ``full-auto`` mode id still resolves to BYPASS, so stored
+    preferences and older callers keep meaning what they meant.
+    """
+
+    if bypass_permissions:
+        return BYPASS
+    return normalize_autonomy(mode)
 
 
 def decide_command(

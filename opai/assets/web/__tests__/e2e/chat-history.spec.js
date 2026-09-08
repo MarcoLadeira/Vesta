@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-import { finishRequest, openApp, sendPrompt } from "./helpers/app.js";
+import { finishRequest, openApp, openTurnDetails, sendPrompt } from "./helpers/app.js";
 
 const structuredPresentation = {
   schema_version: 1,
@@ -116,15 +116,21 @@ test("live and archived assistants use the same structured evidence renderer", a
     presentation: structuredPresentation,
   });
 
+  // The verdict is the turn summary's own row now, not a card of its own, and
+  // the evidence is behind that summary -- so both are opened before being
+  // compared. The invariant is unchanged: a restored turn must render exactly
+  // as the live one did.
   const live = page.locator(".msg.bot").last();
+  await openTurnDetails(page, live);
   const liveEvidence = await live.locator(".evidence-item").allInnerTexts();
-  const liveVerdict = await live.locator(".completion-verdict").innerText();
+  const liveVerdict = await live.locator(".ts-row").innerText();
   await expect(live.locator(".gen-toggle.done")).toContainText("Work log (2)");
 
   await page.locator("#recents .recent", { hasText: "How does routing work?" }).click();
   const archived = page.locator(".msg", { has: page.locator(".evidence-bar") }).first();
+  await openTurnDetails(page, archived);
   expect(await archived.locator(".evidence-item").allInnerTexts()).toEqual(liveEvidence);
-  expect(await archived.locator(".completion-verdict").innerText()).toBe(liveVerdict);
+  expect(await archived.locator(".ts-row").innerText()).toBe(liveVerdict);
   await expect(archived.locator(".gen-toggle.done")).toContainText("Work log (2)");
   await expect(archived.locator(".body")).toContainText("The implementation is ready");
 });

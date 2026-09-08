@@ -1109,6 +1109,28 @@ def cmd_support_bundle(args: argparse.Namespace) -> int:
     return 0
 
 
+def _emit_update(payload: dict, args: argparse.Namespace) -> None:
+    """Print the canonical payload, as JSON or as sentences.
+
+    `--json` was declared on every update subcommand and read by none of them,
+    so the flag promised a choice and the command always printed JSON. A wall
+    of JSON cannot answer "why did it not notice the update?" for a person,
+    which is the question these surfaces exist for.
+
+    The human rendering is a formatter over the same payload -- it recomputes
+    nothing, so the two outputs cannot disagree.
+    """
+
+    from opai.update.report import render_status_lines
+
+    if bool(getattr(args, "json", False)):
+        print_json(payload)
+        return
+    verbose = str(getattr(args, "update_command", "") or "") == "doctor"
+    for line in render_status_lines(payload, verbose=verbose):
+        print(line)
+
+
 def cmd_update(args: argparse.Namespace) -> int:
     """Operate the canonical updater used by the desktop and doctor."""
     from opai.update.errors import UpdateError
@@ -1174,9 +1196,9 @@ def cmd_update(args: argparse.Namespace) -> int:
             "retriable": exc.retriable,
             "status": service.status(),
         }
-        print_json(payload)
+        _emit_update(payload, args)
         return 2
-    print_json(payload)
+    _emit_update(payload, args)
     state = str(payload.get("operation", {}).get("state", ""))
     if command == "check" and state == UpdateState.AVAILABLE.value:
         return 3
@@ -1591,11 +1613,23 @@ def claude_pre_tool_decision(
     # push, an account run could never finish "push and open a pull request".
     # Bypass means the user asked for no prompts; honouring that here is what
     # makes the mode mean the same thing on the account path as in-process.
-    from opaihub.command_policy import BYPASS, normalize_autonomy
+    from opaihub.command_policy import BLOCK, BYPASS, decide_command, normalize_autonomy
 
     autonomy = normalize_autonomy(os.environ.get("OPAI_AUTONOMY"))
     if autonomy == BYPASS:
         return _hook_allow()
+    # Plan mode is read-only by construction, so a write is refused outright
+    # rather than offered as a confirmation. Without this the hook fell through
+    # to the risky-command rules, which have nothing to say about `git commit`
+    # -- so plan mode happily committed, which is not what the mode promises
+    # and not what the same word means in Claude Code.
+    policy = decide_command(command, autonomy=autonomy)
+    if policy.action == BLOCK:
+        return _hook_deny(
+            f"OPai is in {autonomy} mode, which cannot change anything: "
+            f"{policy.reason}. Switch to a mode that allows edits, or ask for "
+            "a plan instead. Do not retry this command."
+        )
     # These GitHub commands are outward-facing, but an explicit one-shot
     # approval is the right boundary — a terminal destructive block leaves the
     # requested action impossible to complete through the GUI, which is exactly

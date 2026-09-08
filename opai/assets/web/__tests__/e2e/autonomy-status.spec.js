@@ -68,7 +68,10 @@ test("active repo and coding workflow status stay visible", async ({ page }) => 
   await expect(card).toContainText("Completed");
   await expect(card).not.toContainText("reported by agent");
   await expect(card).toContainText("https://github.test/pr/9");
-  await expect(card).toContainText("Inspect PR checks");
+  // Next actions are stated once, on the turn summary, whether they come from
+  // the verdict or -- as here -- from the workflow.
+  await expect(page.locator(".ts-next")).toContainText("Inspect PR checks");
+  await expect(card).not.toContainText("Inspect PR checks");
   await expect(card).toContainText("account:codex:gpt-5");
   await expect(card).toContainText("Timeline · 2 events");
 });

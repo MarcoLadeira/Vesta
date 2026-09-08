@@ -49,18 +49,21 @@ class Gui2ModelAndPreferenceTests(unittest.TestCase):
         ):
             ids = [option["id"] for option in account_models()]
 
+        self.assertIn("account:codex:gpt-5.6-sol", ids)
+        self.assertIn("account:codex:gpt-5.6-terra", ids)
+        self.assertIn("account:codex:gpt-5.6-luna", ids)
         self.assertIn("account:codex:gpt-5.5", ids)
         self.assertIn("account:codex:gpt-5.4", ids)
         self.assertIn("account:codex:gpt-5.4-mini", ids)
         self.assertIn("account:codex:gpt-5.3-codex-spark", ids)
 
     def test_codex_selected_model_reaches_exec_command(self):
-        runner = AccountRunner("codex", "/bin/codex", model="gpt-5.4-mini")
+        runner = AccountRunner("codex", "/bin/codex", model="gpt-5.6-sol")
 
         cmd = runner.build_command("fix tests", mode="safe-auto")
 
         self.assertIn("--model", cmd)
-        self.assertIn("gpt-5.4-mini", cmd)
+        self.assertIn("gpt-5.6-sol", cmd)
         self.assertIn("workspace-write", cmd)
         self.assertIn("on-request", cmd)
 

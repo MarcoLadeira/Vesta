@@ -149,7 +149,9 @@
     var items = model.items.map(function (item) {
       return '<span class="evidence-item evidence-' + esc(item.key) + '">' +
         '<span class="evidence-label">' + esc(item.label) + '</span>' +
-        '<span class="evidence-value">' + esc(item.value) + "</span></span>";
+        // Field values arrive as identifiers ("not_applicable"); the chip is
+        // read by a person, not matched by a parser.
+        '<span class="evidence-value">' + esc(item.value.replace(/_/g, " ")) + "</span></span>";
     }).join("");
     return '<section class="evidence-bar" aria-label="Run evidence">' + items + "</section>";
   }
@@ -444,34 +446,193 @@
       next + retry + "</section>";
   }
 
+  /* ---------- the turn summary ----------
+   *
+   * One line, and everything else behind it.
+   *
+   * A finished turn used to stack up to eight blocks under the answer: an
+   * evidence bar, a verification table, a changes card, a work log, a workflow
+   * card, warnings, a cost receipt and a completion verdict. Several of them
+   * said the same thing -- the verdict alone appeared three times, as the
+   * workflow card's heading, as the cost receipt's prefix, and as its own card
+   * -- and the result was unreadable precisely because nothing in it was
+   * ranked.
+   *
+   * The ranking is the fix. After a turn there are four questions worth
+   * answering on sight: did it work, what changed, what did it cost, and what
+   * do I do now. Everything else is diagnostics: wanted occasionally, and
+   * never wanted all at once.
+   *
+   * So the four live on one row and the diagnostics live behind it. The row
+   * is adaptive -- a read-only answer that changed nothing shows a verdict and
+   * a price, not four empty columns -- which is what keeps it a sentence
+   * rather than a dashboard.
+   */
+  var VERDICT_WORDS = {
+    completed: "Done",
+    // "Partial" is jargon for a specific, checkable thing: the model said it
+    // edited something and no diff evidence agrees. Say that.
+    partial: "No changes made",
+    blocked: "Blocked",
+    failed: "Failed",
+    cancelled: "Stopped",
+    timeout: "Timed out",
+    needs_attention: "Needs attention",
+  };
+
+  function turnSummaryModel(presentation, options) {
+    var extra = record(options) || {};
+    var model = presentationModel(presentation);
+    // Two sources carry the verdict and a turn may use either: the structured
+    // presentation's `run`, and the result-level `completion_verdict` that
+    // predates it. Reading only the first made a partial run whose verdict
+    // lives in the second render as plain "Answered" -- a failure quietly
+    // relabelled as a success, which is the one thing this row must never do.
+    var verdict = completionVerdictModel(presentation) || record(extra.verdict);
+    var facts = [];
+    var value;
+
+    var changes = model && record(model.changes);
+    var summary = changes && record(changes.summary);
+    var files = summary ? boundedCount(summary.files) : null;
+    if (files === null && boundedCount(extra.changedFiles) !== null) {
+      files = boundedCount(extra.changedFiles);
+    }
+    if (files) facts.push(files + (files === 1 ? " file" : " files"));
+
+    var tests = model && record(model.tests);
+    if (tests) {
+      var failed = boundedCount(tests.failed);
+      var passed = boundedCount(tests.passed);
+      // Failures first: a run with one failure and forty passes is a failing
+      // run, and leading with "40 tests passed" would be true and misleading.
+      if (failed) facts.push(failed + (failed === 1 ? " test failed" : " tests failed"));
+      else if (passed) facts.push(passed + (passed === 1 ? " test passed" : " tests passed"));
+    }
+
+    value = Number(extra.costUsd);
+    if (isFinite(value) && value > 0) facts.push("$" + value.toFixed(value < 0.01 ? 4 : 2));
+
+    // Elapsed, but not "00:00": a turn that finished inside the clock's
+    // resolution has nothing to report, and a zero on the row is noise
+    // dressed as a fact.
+    value = boundedText(extra.elapsed, 24);
+    if (value && !/^0+[:0]*$/.test(value.replace(/[^0-9:]/g, ""))) facts.push(value);
+
+    var state = verdict ? boundedText(verdict.state || verdict.verdict, 64).toLowerCase() : "";
+    return {
+      state: state || "answered",
+      label: state
+        ? (boundedText(verdict.displayLabel, 120) ||
+           VERDICT_WORDS[state] || boundedText(verdict.label, 120) || state)
+        : "Answered",
+      reason: verdict ? boundedText(verdict.reason, 800) : "",
+      // A next action can come from the verdict or from the workflow, and a
+      // turn may carry one without the other. Reading only the verdict's lost
+      // "Inspect PR checks" on every workflow-only turn -- the same way the
+      // reason vanished when the verdict card was folded away.
+      nextAction: (verdict && boundedText(verdict.nextAction || verdict.next_action, 500)) ||
+        boundedText(extra.nextAction, 500),
+      facts: facts,
+      retryable: extra.retryable === true &&
+        ["failed", "partial", "timeout"].indexOf(state) >= 0,
+    };
+  }
+
+  function renderTurnSummary(presentation, detailHtml, options) {
+    var model = turnSummaryModel(presentation, options);
+    var detail = String(detailHtml || "");
+    if (!detail) return "";
+    var facts = model.facts.length
+      ? '<span class="ts-facts">' + esc(model.facts.join(" · ")) + "</span>"
+      : "";
+    // The one action worth reaching without expanding anything. Inside the
+    // summary it would toggle the disclosure on its way to the handler, so it
+    // is marked for the click wiring to stop.
+    var retry = model.retryable
+      ? '<button class="ts-retry" type="button" data-a="retry" data-stop-toggle="1">Retry</button>'
+      : "";
+    // The reason and the next action are the summary's own, not a card's.
+    //
+    // They used to live on the completion-verdict card, and folding that card
+    // away took them with it -- on a turn with no workflow card to fall back
+    // to, "no changed-file or diff evidence verifies the requested edit"
+    // simply vanished. Owning them here means they appear exactly once and
+    // always, whatever else the turn happens to carry.
+    var headline = "";
+    if (model.reason) headline += '<p class="ts-reason">' + esc(model.reason) + "</p>";
+    if (model.nextAction) {
+      headline += '<p class="ts-next"><span>Next</span> ' + esc(model.nextAction) + "</p>";
+    }
+    return '<details class="turn-summary is-' + esc(model.state) + '">' +
+      '<summary class="ts-row">' +
+      '<span class="ts-dot" aria-hidden="true"></span>' +
+      '<span class="ts-verdict">' + esc(model.label) + "</span>" +
+      facts + retry +
+      '<span class="ts-more" aria-hidden="true">Details</span>' +
+      "</summary>" +
+      '<div class="ts-detail">' + headline + detail + "</div>" +
+      "</details>";
+  }
+
   function renderAssistantPresentation(options) {
     var value = options || {};
     var density = normalizeResponseDensity(value.density);
     var structured = presentationModel(value.presentation);
-    var content = "";
+    // The answer stays where it is. Everything that describes the *run* goes
+    // behind the one-line summary, which is the only part of this that is
+    // shown by default.
+    //
+    // The standalone completion verdict is gone rather than nested: it is the
+    // summary's first word now, and rendering it twice is how the old stack
+    // managed to say "Partially completed" three times in one turn.
+    // The split is between the work and the record of the work.
+    //
+    // Visible: the answer, a warning that contradicts it, the files that
+    // changed, and anything the user acts on -- a changeset to approve, a plan
+    // to edit, a build result to open. Those are the task, not a report about
+    // the task, and burying a review behind a disclosure would make reviewing
+    // the harder path.
+    //
+    // Behind the summary: evidence bars, verification tables, the work log,
+    // the workflow card, the cost receipt. Each is worth having and none is
+    // worth reading every time.
+    var content = String(value.proseHtml || "");
+    var detail = "";
     if (structured) {
-      content += String(value.proseHtml || "");
-      content += renderEvidenceBar(value.presentation);
-      content += renderVerificationDetails(value.result, { density: density });
-      content += String(value.changesHtml || "");
-      content += renderWorkLog(value.presentation, { density: density }) ||
+      detail += renderEvidenceBar(value.presentation);
+      detail += renderVerificationDetails(value.result, { density: density });
+      detail += renderWorkLog(value.presentation, { density: density }) ||
         String(value.legacyWorkHtml || "");
-      content += String(value.supportHtml || "") + String(value.extraHtml || "");
-      content += renderWarnings(value.result, value.presentation);
-      content += String(value.warningsHtml || value.prefixHtml || "");
-      content += renderCompletionVerdict(value.presentation, {
-        retryable: value.retryable === true,
-      }) || String(value.legacyFinalHtml || "");
+      detail += String(value.supportHtml || "") + String(value.extraHtml || "");
+      detail += renderWarnings(value.result, value.presentation);
     } else {
-      content += String(value.proseHtml || "");
-      content += renderVerificationDetails(value.result, { density: density });
-      content += String(value.changesHtml || "");
-      content += String(value.legacyWorkHtml || value.legacyBeforeHtml || "");
-      content += String(value.supportHtml || "") + String(value.extraHtml || "");
-      content += renderWarnings(value.result, value.presentation);
-      content += String(value.warningsHtml || value.prefixHtml || "");
-      content += String(value.legacyFinalHtml || "");
+      detail += renderVerificationDetails(value.result, { density: density });
+      detail += String(value.legacyWorkHtml || value.legacyBeforeHtml || "");
+      detail += String(value.supportHtml || "") + String(value.extraHtml || "");
+      // The verdict card is gone from here too. Folding the structured one
+      // into the summary row while leaving the legacy one inside the panel is
+      // how the same sentence still managed to appear three times: as the
+      // workflow card's message, as the cost strip's prefix, and as its own
+      // card -- with its next action repeated under both.
+      detail += renderWarnings(value.result, value.presentation);
     }
+    // One thing does not go behind the disclosure. An unverified-claim banner
+    // says the answer just above it disagrees with the measured result -- it is
+    // a warning *about the prose*, not a diagnostic about the run, and a
+    // contradiction the reader has to click to discover is worse than no
+    // contradiction detected at all.
+    content += String(value.warningsHtml || value.prefixHtml || "");
+    content += String(value.changesHtml || "");
+    content += String(value.outsideHtml || "");
+    content += renderTurnSummary(value.presentation, detail, {
+      verdict: value.verdict,
+      nextAction: value.nextAction,
+      costUsd: value.costUsd,
+      elapsed: value.elapsed,
+      changedFiles: value.changedFiles,
+      retryable: value.retryable === true,
+    });
     return renderResponseShell({
       density: density,
       headerHtml: String(value.headerHtml || ""),
@@ -496,6 +657,8 @@
   }
 
   return {
+    turnSummaryModel: turnSummaryModel,
+    renderTurnSummary: renderTurnSummary,
     RESPONSE_DENSITIES: RESPONSE_DENSITIES.slice(),
     normalizeResponseDensity: normalizeResponseDensity,
     userMessageModel: userMessageModel,

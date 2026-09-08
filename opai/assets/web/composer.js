@@ -33,10 +33,15 @@
     { id: "auto-edits", label: "Accept edits", desc: "Automatically accept all file edits" },
     { id: "plan", label: "Plan", desc: "Create a plan before making changes" },
   ];
-  var BYPASS_MODE = {
-    id: "full-auto",
+  // Bypass is a *switch*, not a fifth rung. Claude Code models the same
+  // authority as a flag because it is orthogonal to the mode: it applies on top
+  // of whichever mode you are in. As a row in this list, picking it replaced
+  // the mode you were working in and turning it off could not give that mode
+  // back -- so the menu could not express "Accept edits, without the asking".
+  var BYPASS_SWITCH = {
     label: "Bypass permissions",
-    desc: "Run everything, including pushes, without asking",
+    on: "On — nothing will ask, including pushes",
+    off: "Run everything, including pushes, without asking",
   };
   // Descriptions for every id, menu or not: `ask` is no longer offered but a
   // preferences file may still hold it, and a stored mode must stay nameable.
@@ -95,9 +100,29 @@
     sel.dispatchEvent(new Event("change", { bubbles: true }));
     refresh();
   }
+  function setBypass(on) {
+    // Authority only: the mode selector is deliberately untouched, so the mode
+    // survives the toggle in both directions.
+    var api = global.__opai || {};
+    if (typeof api.setBypassPermissions === "function") {
+      api.setBypassPermissions(on === true);
+    } else {
+      state().bypassPermissions = on === true;
+    }
+    refresh();
+  }
   function setModel(id) {
     var sel = $("#modelSel");
     if (!sel) return;
+    if (!Array.prototype.some.call(sel.options, function (option) { return option.value === id; })) {
+      var model = (boot().models || []).find(function (item) { return item.id === id; });
+      if (model) {
+        var option = document.createElement("option");
+        option.value = model.id;
+        option.textContent = model.label || model.id;
+        sel.appendChild(option);
+      }
+    }
     sel.value = id;
     sel.dispatchEvent(new Event("change", { bubbles: true }));
     refresh();
@@ -246,20 +271,42 @@
       }).replace('class="cpop-row', 'data-id="' + esc(entry.id) + '" class="cpop-row');
     };
     var rows = MODE_MENU.filter(function (entry) { return offered[entry.id]; });
+    var bypassOn = st.bypassPermissions === true;
     pop.innerHTML =
       '<div class="cpop-head">Mode</div>' +
       rows.map(editRow).join("") +
-      // Bypass is deliberately below the ladder and unnumbered: it is not the
-      // next rung, it is the decision to stop being asked at all.
-      (offered[BYPASS_MODE.id]
-        ? '<div class="cpop-sep" role="separator"></div>' + editRow(BYPASS_MODE, null)
-        : "") +
+      // Below the ladder and unnumbered, because it is not the next rung: it
+      // is the decision to stop being asked at all. It is a checkbox rather
+      // than a radio so the mode above stays selected while it is on.
+      '<div class="cpop-sep" role="separator"></div>' +
+      menuRow({
+        role: "menuitemcheckbox",
+        title: BYPASS_SWITCH.label,
+        desc: bypassOn ? BYPASS_SWITCH.on : BYPASS_SWITCH.off,
+        active: bypassOn,
+        dot: dotVar("caution"),
+        // Skipping the asking cannot grant an ability the CLI does not have:
+        // when a provider offers no scoped edit controls, bypass buys nothing
+        // and would only promise authority that will not materialise.
+        disabled: editsUnavailable,
+      }).replace('class="cpop-row', 'data-bypass="1" class="cpop-row cpop-row-switch') +
       (editsUnavailable
         ? '<p class="cpop-note cpop-note-warn">Update this provider CLI to enable scoped edits. Plan remains available.</p>'
         : "");
     pop.querySelectorAll("[data-id]").forEach(function (row) {
       row.onclick = function () { setMode(row.dataset.id); closePopovers(); };
     });
+    var bypassRow = pop.querySelector("[data-bypass]");
+    if (bypassRow) {
+      bypassRow.onclick = function () {
+        if (editsUnavailable) return;
+        // Toggles authority only. The selected mode is untouched, which is the
+        // whole point of it being a switch: turning it off returns the user to
+        // the mode they were already working in.
+        setBypass(!bypassOn);
+        buildModePop();
+      };
+    }
     // 1-4 pick a graded mode while the menu is open. Bypass has no number on
     // purpose -- a keystroke is exactly the kind of drift it should not have.
     pop.onkeydown = function (event) {
@@ -288,7 +335,8 @@
   // disabled* with a reason, so it is never silently missing.
   function pickerModels() {
     return (boot().models || []).filter(function (m) {
-      return m && m.kind !== "auto" && m.group !== "routing";
+      return m && m.kind !== "auto" && m.group !== "routing" &&
+        (!global.OPaiModelVisibility || global.OPaiModelVisibility(m));
     });
   }
   function isConfigured(m) { return m.available !== false; }
@@ -531,9 +579,26 @@
     // Mode button — visible text shows the value; aria-label carries purpose +
     // value so the menu button announces both to assistive tech.
     var mLabel = modeLabelOf(mode);
-    if (els.modeBtnLabel) els.modeBtnLabel.textContent = mLabel;
-    if (els.modeDot) els.modeDot.style.background = dotVar(MODE_DOT[mode.id] || "accent");
-    if (els.modeBtn) els.modeBtn.setAttribute("aria-label", "Mode: " + mLabel);
+    // Bypass is authority the user cannot see from the mode name alone, and it
+    // is the one state worth noticing without opening the menu. The mode keeps
+    // its own name -- the switch is additive, so the pill says so.
+    var bypassing = st.bypassPermissions === true;
+    if (els.modeBtnLabel) {
+      els.modeBtnLabel.textContent = bypassing ? mLabel + " · Bypass" : mLabel;
+    }
+    if (els.modeDot) {
+      els.modeDot.style.background = dotVar(
+        bypassing ? "caution" : MODE_DOT[mode.id] || "accent"
+      );
+    }
+    if (els.modeBtn) {
+      els.modeBtn.setAttribute(
+        "aria-label",
+        bypassing
+          ? "Mode: " + mLabel + ", permissions bypassed"
+          : "Mode: " + mLabel
+      );
+    }
     // Model button
     var mdLabel = shortModel(model);
     if (els.modelBtnLabel) els.modelBtnLabel.textContent = mdLabel;

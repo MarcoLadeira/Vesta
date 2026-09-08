@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import secrets
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -14,11 +15,24 @@ from opaihub.atomic_io import InterprocessLockTimeout
 from packaging.version import InvalidVersion, Version
 
 from .adapters import DeveloperGitUpdateAdapter, UpdateAdapter
+from .cadence import (
+    CADENCE_POLICY_VERSION,
+    cadence_reason,
+    LEGACY_INTERVAL_SECONDS,
+    discovery_interval_seconds,
+)
 from .download import DownloadError, SecureDownloader
 from .errors import UpdateError
 from .manifest import ManifestError, verify_manifest
 from .relaunch import relaunch_command, schedule_relaunch
+from .report import user_facing
+from .ownership import (
+    describe_ownership,
+    running_identity,
+    safe_launcher_identity,
+)
 from .models import (
+    UpdateTrigger,
     InstallType,
     InstalledBuild,
     UpdateCandidate,
@@ -60,6 +74,12 @@ def _diagnostic(category: str) -> str:
         category, "The update operation could not be completed safely."
     )
 
+
+_MANUAL_FAILURE_MESSAGES = {
+    "operation_busy": "Another update operation is running. Try again in a moment.",
+    "policy_blocked": "Updates for this installation are managed elsewhere.",
+    "operation_not_downloadable": "OPai could not start this update.",
+}
 
 _UNSUPPORTED_INSTALL_DIAGNOSTIC = (
     "This installation is not transactionally replaceable; use a "
@@ -113,11 +133,33 @@ def _parse_time(value: str) -> datetime | None:
     return parsed.astimezone(timezone.utc) if parsed.tzinfo else None
 
 
-def _jittered_check_interval(policy: UpdatePolicy) -> float:
-    """Apply stable local jitter without sending or persisting client identity."""
+def _resolve_trigger(value: object) -> UpdateTrigger | None:
+    """Best-effort trigger, because callers pass strings and enums alike."""
 
-    cohort = policy.rollout_cohort if policy.rollout_cohort >= 0 else 50
-    percent = ((cohort * 37) % 21) - 10
+    if isinstance(value, UpdateTrigger):
+        return value
+    try:
+        return UpdateTrigger(str(value))
+    except ValueError:
+        return None
+
+
+def _jittered_check_interval(policy: UpdatePolicy) -> float:
+    """Apply stable local jitter without sending or persisting client identity.
+
+    Seeded from `poll_jitter_seed`, never from `rollout_cohort`. They answer
+    different questions -- one spreads network load, the other decides staged
+    release eligibility -- and sharing a seed meant that moving an installation
+    between rollout buckets silently changed how often it polled.
+    """
+
+    seed = policy.poll_jitter_seed
+    if seed < 0:
+        # A policy written before the seed existed falls back to the cohort so
+        # its spread does not jump on upgrade; the store gives it a seed of its
+        # own on the next write.
+        seed = policy.rollout_cohort if policy.rollout_cohort >= 0 else 50
+    percent = ((seed * 37) % 21) - 10
     return policy.minimum_check_interval_seconds * (1 + percent / 100)
 
 
@@ -144,8 +186,69 @@ class UpdateService:
         self._now = now or (lambda: datetime.now(timezone.utc))
         self._restart_available: bool | None = None
 
+    def effective_check_interval_seconds(self) -> int:
+        """The interval this installation actually gates on, jitter included.
+
+        Exposed so the scheduler and the service cannot disagree: the scheduler
+        was deciding "due at 600" while `check()` gated at 540, which makes the
+        cadence a matter of which of the two you ask.
+        """
+
+        return int(_jittered_check_interval(self.policy()))
+
     def policy(self) -> UpdatePolicy:
-        return self.store.load_policy()
+        return self._migrate_cadence(self.store.load_policy())
+
+    def _migrate_cadence(self, policy: UpdatePolicy) -> UpdatePolicy:
+        """Adopt this installation's cadence, once, without silencing the user.
+
+        Changing a dataclass default does nothing to an installation that has
+        already run: the interval is persisted in policy.json, and every
+        machine that has ever started OPai has 14400 written into it. Without
+        this, new installs would discover updates every ten minutes, existing
+        ones would keep waiting four hours, and the difference would be
+        invisible to every test that starts from a fresh temp directory --
+        which is all of them.
+
+        Only an *untouched* legacy interval is migrated. A user who has chosen
+        their own interval keeps it, and the version stamp is written either
+        way so the question is asked exactly once.
+        """
+
+        if policy.cadence_policy_version >= CADENCE_POLICY_VERSION:
+            return self._ensure_jitter_seed(policy)
+        changes: dict[str, object] = {"cadence_policy_version": CADENCE_POLICY_VERSION}
+        # Provenance, not arithmetic. An interval the user or a managed policy
+        # chose is never touched, whatever it happens to equal -- inferring
+        # "untouched" from equality with the historic default silently
+        # overwrote anyone who had deliberately chosen exactly four hours.
+        chosen_by_someone = policy.cadence_source in {"user", "managed"}
+        legacy_untouched = (
+            policy.cadence_source in {"", "default"}
+            and policy.minimum_check_interval_seconds == LEGACY_INTERVAL_SECONDS
+        )
+        if not chosen_by_someone and legacy_untouched:
+            target = discovery_interval_seconds(
+                self.installed.install_type, policy.channel
+            )
+            if target != policy.minimum_check_interval_seconds:
+                changes["minimum_check_interval_seconds"] = target
+                changes["cadence_source"] = "migrated"
+        try:
+            return self._ensure_jitter_seed(self.store.update_policy(**changes))
+        except (OSError, UpdateError, ValueError):
+            # A policy that cannot be rewritten is still a usable policy.
+            return policy
+
+    def _ensure_jitter_seed(self, policy: UpdatePolicy) -> UpdatePolicy:
+        """Give this installation a polling seed of its own, once."""
+
+        if policy.poll_jitter_seed >= 0:
+            return policy
+        try:
+            return self.store.update_policy(poll_jitter_seed=secrets.randbelow(100))
+        except (OSError, UpdateError, ValueError):
+            return policy
 
     def set_policy(self, **changes: object) -> UpdatePolicy:
         allowed = {
@@ -165,6 +268,12 @@ class UpdateService:
         )
         if changes.get("automatic_install_on_quit") is True and not downloads:
             raise UpdateError("automatic_download_required")
+        if "minimum_check_interval_seconds" in changes:
+            # Record who chose it, so no future migration has to guess from the
+            # number. A user who picks exactly the historic default is now
+            # indistinguishable from one who picks anything else -- which is
+            # the point.
+            changes = {**changes, "cadence_source": "user"}
         return self.store.update_policy(**changes)
 
     def _recovery_candidate(self, target: UpdateCandidate) -> UpdateCandidate:
@@ -259,13 +368,17 @@ class UpdateService:
     def _save(self, operation: UpdateOperation) -> UpdateOperation:
         return self.store.save_operation(operation)
 
-    def _begin_check(self, current: UpdateOperation) -> UpdateOperation:
+    def _begin_check(
+        self, current: UpdateOperation, trigger: str = ""
+    ) -> UpdateOperation:
         if current.state is UpdateState.IDLE or can_transition(
             current.state, UpdateState.CHECKING
         ):
             return current.transition(
                 UpdateState.CHECKING,
                 last_check_at=self._now().isoformat(),
+                result_from_cache=False,
+                last_trigger=trigger or current.last_trigger,
                 error_category="",
                 safe_diagnostic="",
                 candidate={},
@@ -398,7 +511,14 @@ class UpdateService:
             result: dict[str, object] = {"checked": False, "reason": "offline"}
         else:
             try:
-                result = adapter.check_source(force=force)
+                # Always forced. Two freshness layers guarded this path -- the
+                # policy interval here and check_for_update's own one-hour TTL
+                # underneath -- so a check the policy had just decided was due
+                # could still be answered from an hour-old git result, while
+                # the operation recorded a successful remote check that never
+                # happened. Cadence is the policy's decision; by the time
+                # control reaches here it has been made.
+                result = adapter.check_source(force=True)
             except Exception:  # noqa: BLE001 - raw git errors normalize to safe state
                 result = {"checked": False, "reason": "offline"}
         if bool(result.get("checked")):
@@ -407,6 +527,8 @@ class UpdateService:
             changes = {
                 "candidate": {},
                 "last_successful_check_at": self._now().isoformat(),
+                "remote_checked_at": self._now().isoformat(),
+                "result_from_cache": False,
                 "retry_count": 0,
                 "next_retry_at": "",
             }
@@ -440,6 +562,8 @@ class UpdateService:
                 error_category="manual_update_required",
                 safe_diagnostic=_UNSUPPORTED_INSTALL_DIAGNOSTIC,
                 last_successful_check_at=self._now().isoformat(),
+                remote_checked_at=self._now().isoformat(),
+                result_from_cache=False,
                 retry_count=0,
                 next_retry_at="",
             )
@@ -451,12 +575,29 @@ class UpdateService:
         )
 
     def check(
-        self, *, force: bool = False, allow_automatic_download: bool = False
+        self,
+        *,
+        force: bool = False,
+        allow_automatic_download: bool = False,
+        trigger: str = "",
     ) -> UpdateOperation:
+        # The obligation travels with the reason. `force` stays for callers
+        # that predate the trigger, but a trigger that requires remote evidence
+        # can no longer be satisfied by a cached answer just because somebody
+        # forgot the boolean.
+        resolved = _resolve_trigger(trigger)
+        if resolved is not None and resolved.remote_required:
+            force = True
+        trigger = resolved.value if resolved is not None else str(trigger or "")
         policy = self.policy()
         current = self.store.load_operation()
         checked = _parse_time(current.last_successful_check_at)
         retry_at = _parse_time(current.next_retry_at)
+        interval = _jittered_check_interval(policy)
+        now = self._now()
+        eligible_at = (
+            (checked + timedelta(seconds=interval)).isoformat() if checked else ""
+        )
         if not force and (
             (
                 current.state is UpdateState.UNAVAILABLE
@@ -466,16 +607,34 @@ class UpdateService:
             or (
                 current.state is not UpdateState.UNAVAILABLE
                 and checked is not None
-                and (self._now() - checked).total_seconds()
-                < _jittered_check_interval(policy)
+                and (self._now() - checked).total_seconds() < interval
             )
         ):
-            return current
+            # A tick that is answered from the persisted operation is not a
+            # remote check, and must never be recorded as one. Only the
+            # attempt and the cache flag move here -- `remote_checked_at` and
+            # `last_successful_check_at` are left exactly where the last real
+            # contact with the update source put them.
+            try:
+                with self.store.operation_guard():
+                    latest = self._current_for(current.operation_id)
+                    return self._save(
+                        replace(
+                            latest,
+                            last_check_at=now.isoformat(),
+                            result_from_cache=True,
+                            next_check_eligible_at=eligible_at,
+                            last_trigger=trigger or latest.last_trigger,
+                            updated_at=now.isoformat(),
+                        )
+                    )
+            except (InterprocessLockTimeout, UpdateError):
+                return current
         try:
             with self.store.operation_guard():
                 policy = self.policy()
                 current = self.store.load_operation()
-                checking = self._save(self._begin_check(current))
+                checking = self._save(self._begin_check(current, trigger))
                 if not policy.discovery_allowed:
                     return self._save(checking.transition(UpdateState.POLICY_BLOCKED))
                 unsupported = self.installed.install_type in _FEEDLESS_INSTALL_TYPES
@@ -497,6 +656,8 @@ class UpdateService:
                             error_category="manual_update_required",
                             safe_diagnostic=_UNSUPPORTED_INSTALL_DIAGNOSTIC,
                             last_successful_check_at=self._now().isoformat(),
+                            remote_checked_at=self._now().isoformat(),
+                            result_from_cache=False,
                             retry_count=0,
                             next_retry_at="",
                         )
@@ -549,6 +710,8 @@ class UpdateService:
                 changes = {
                     "highest_metadata_version": durable_version,
                     "last_successful_check_at": self._now().isoformat(),
+                    "remote_checked_at": self._now().isoformat(),
+                    "result_from_cache": False,
                     "retry_count": 0,
                     "next_retry_at": "",
                 }
@@ -1095,10 +1258,64 @@ class UpdateService:
         recorded = _parse_time(operation.updated_at)
         return recorded is not None and recorded < _PROCESS_STARTED_AT
 
+    _STALE_PROCESS_DIAGNOSTIC = (
+        "OPai was updated on disk. Restart to use the new version."
+    )
+
+    def _running_build_is_stale(self) -> bool:
+        """Whether the files on disk moved on from what this process loaded."""
+
+        try:
+            from pathlib import Path as _Path
+
+            import opai
+            from .running_build import running_build_is_stale
+
+            return running_build_is_stale(_Path(opai.__file__).parent / "assets")
+        except Exception:  # noqa: BLE001 - a staleness hint may never break maintenance
+            return False
+
     def maintain(self) -> UpdateOperation:
         """Advance periodic discovery and persisted safe-boundary work."""
 
         current = self.reconcile_native_result()
+        # The disk moved on without us.
+        #
+        # `check()` asks whether the *checkout* is behind its remote, and after
+        # an update it correctly says no -- while the window in front of the
+        # user still runs whatever it loaded at launch. Nothing compared those
+        # two, so a session could sit for hours showing a UI several merges old
+        # with every surface agreeing there was nothing to update.
+        #
+        # COMPLETED is the honest state for that: installed, not yet running.
+        # It is also where the surface offers Restart now.
+        if (
+            current.state
+            not in {
+                UpdateState.COMPLETED,
+                UpdateState.RESTARTING,
+                UpdateState.HEALTH_CHECKING,
+                UpdateState.ROLLING_BACK,
+                UpdateState.DOWNLOADING,
+                UpdateState.VERIFYING,
+                UpdateState.INSTALLING,
+            }
+            and self._running_build_is_stale()
+        ):
+            try:
+                with self.store.operation_guard():
+                    latest = self._current_for(current.operation_id)
+                    checking = self._save(latest.transition(UpdateState.CHECKING))
+                    return self._save(
+                        checking.transition(
+                            UpdateState.COMPLETED,
+                            safe_diagnostic=self._STALE_PROCESS_DIAGNOSTIC,
+                            error_category="",
+                            progress_label="",
+                        )
+                    )
+            except (InterprocessLockTimeout, UpdateError):
+                return current
         if self._restart_already_happened(current):
             try:
                 with self.store.operation_guard():
@@ -1395,6 +1612,49 @@ class UpdateService:
         except InterprocessLockTimeout as exc:
             raise UpdateError("operation_busy", retriable=True) from exc
 
+    def check_now(self) -> dict[str, object]:
+        """The manual path: remote evidence, or an explicit reason there is none.
+
+        `check()` already raises honestly when it cannot run, but every caller
+        was free to swallow that and re-read `status()` -- which the desktop
+        surface did, so a user could press Check for updates, have nothing
+        happen at all, and be shown the previous "up to date" with no way to
+        tell the difference. That is the one thing an update surface must never
+        do, because the updater is how fixes arrive.
+
+        The outcome is returned rather than persisted: it belongs to the click,
+        not to the installation.
+        """
+
+        try:
+            operation = self.check(
+                trigger=UpdateTrigger.MANUAL, allow_automatic_download=True
+            )
+        except UpdateError as exc:
+            return {
+                "ok": False,
+                "reason": exc.category,
+                "message": _MANUAL_FAILURE_MESSAGES.get(
+                    exc.category, "OPai could not check for updates just now."
+                ),
+            }
+        if operation.result_from_cache:
+            # Belt and braces: a manual check answered from cache would be a
+            # contract violation, and silence is how it would go unnoticed.
+            return {
+                "ok": False,
+                "reason": "cached_result",
+                "message": "OPai could not confirm this with the update source.",
+            }
+        if operation.state is UpdateState.UNAVAILABLE:
+            return {
+                "ok": False,
+                "reason": operation.error_category or "unavailable",
+                "message": operation.safe_diagnostic
+                or "OPai couldn't reach the update source.",
+            }
+        return {"ok": True, "reason": "", "message": "", "state": operation.state.value}
+
     def status(self) -> dict[str, object]:
         return {
             "schema_version": 1,
@@ -1402,7 +1662,96 @@ class UpdateService:
             "policy": self.policy().to_dict(),
             "operation": self.store.load_operation().to_public_dict(),
             "restart_available": self.restart_available(),
+            "discovery": self.discovery_diagnostics(),
         }
+
+    def discovery_diagnostics(self) -> dict[str, object]:
+        """Everything needed to answer "why did it not notice?" in one place.
+
+        The canonical facts, computed once and shared by the GUI, the CLI and
+        doctor -- there is deliberately no second interpretation layer, because
+        two answers to "when did it last check" is how the first one stops
+        being trusted.
+        """
+
+        policy = self.policy()
+        operation = self.store.load_operation()
+        interval = int(_jittered_check_interval(policy))
+        checked = _parse_time(operation.last_successful_check_at)
+        next_eligible = (
+            (checked + timedelta(seconds=interval)).isoformat() if checked else ""
+        )
+        source = "signed release feed"
+        if isinstance(self.adapter, DeveloperGitUpdateAdapter):
+            source = "origin/main"
+        elif policy.owner is not UpdateOwner.OPAI:
+            source = f"managed by {policy.owner.value}"
+        ownership = describe_ownership(
+            self.installed.install_type, management_source=policy.management_source
+        )
+        running = running_identity()
+        # Running and disk identity are separate facts. `installed.version`
+        # comes from release-identity.json when that file exists, which an
+        # update rewrites -- so it can report the new version while this
+        # process is still the old build. Reported apart, and the disk one only
+        # when it actually differs, so no surface can claim a version is
+        # installed while the code answering the question is not it.
+        disk_version = str(self.installed.version)
+        disk_build = str(self.installed.build_id)
+        stale_process = bool(
+            running["version"] and disk_version and running["version"] != disk_version
+        )
+        diagnostics: dict[str, object] = {
+            "install_type": self.installed.install_type.value,
+            "channel": policy.channel,
+            "update_owner": policy.owner.value,
+            "update_source": source,
+            "running_version": running["version"],
+            "running_build_id": running["build_id"],
+            "disk_version": disk_version if stale_process else "",
+            "disk_build_id": disk_build if stale_process else "",
+            "version_differs_from_disk": stale_process,
+            "launcher": safe_launcher_identity(),
+            "ownership": ownership.to_dict(),
+            "self_updatable": ownership.self_updatable,
+            "cadence_seconds": int(policy.minimum_check_interval_seconds),
+            "cadence_reason": cadence_reason(
+                self.installed.install_type, policy.channel
+            ),
+            "effective_interval_seconds": interval,
+            # The four distinct facts. A surface that shows "checked just now"
+            # must read `remote_checked_at`, never `last_check_at`.
+            "last_scheduler_tick_at": operation.scheduler_tick_at,
+            "last_check_attempt_at": operation.last_check_at,
+            "last_remote_check_at": operation.remote_checked_at,
+            "last_successful_remote_check_at": operation.last_successful_check_at,
+            "showing_cached_result": bool(operation.result_from_cache),
+            "next_remote_check_eligible_at": operation.next_check_eligible_at
+            or next_eligible,
+            "last_trigger": operation.last_trigger,
+            "retry_count": int(operation.retry_count),
+            "next_retry_at": operation.next_retry_at,
+            "state": operation.state.value,
+            "discovery_allowed": bool(policy.discovery_allowed),
+            "automatic_downloads": bool(policy.automatic_downloads),
+            "automatic_install_on_quit": bool(policy.automatic_install_on_quit),
+            "restart_required": operation.state is UpdateState.COMPLETED,
+            "restart_available": self.restart_available(),
+        }
+        # Rendered here, not in the browser.
+        #
+        # The desktop needs the same sentence the CLI prints, and there must be
+        # exactly one place that decides what "checked remotely 2 min ago"
+        # means. A JavaScript copy of that rule would be a second
+        # interpretation layer, and the two would drift the first time either
+        # was touched -- which is the failure this whole epic is about.
+        # What the surface may say. Timings, cache provenance and commands are
+        # not in here on purpose -- they are diagnostics, and they belong to
+        # `opai update doctor`, not to someone who just wants the new version.
+        diagnostics["summary"] = user_facing(
+            {"operation": operation.to_public_dict(), "discovery": diagnostics}
+        )
+        return diagnostics
 
     def doctor(self) -> dict[str, object]:
         operation = self.store.load_operation()

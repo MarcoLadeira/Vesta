@@ -856,7 +856,10 @@
     // Offer exactly what the composer offers (boot.models), so the Default
     // model picker and the composer selector can never disagree (#238).
     var modelSource = boot.models && boot.models.length ? boot.models : d.models;
-    var modelOptions = (modelSource || []).map(function (m) {
+    var modelOverrides = d.modelOverrides || { global: true, path: "~/.opai/models.json", providers: {}, hidden: {}, errors: [] };
+    var modelOptions = (modelSource || []).filter(function (m) {
+      return !ctx.isModelVisible || ctx.isModelVisible(m, modelOverrides);
+    }).map(function (m) {
       return { id: m.id, label: m.label || m.id };
     });
     if (
@@ -900,6 +903,39 @@
     h += selectRow("Task focus", "default_task_mode", focusOptions, ctx.state.focus);
     h += selectRow("Output format", "default_output_format", formatOptions, ctx.state.format);
     h += '<div class="set-note">Changes apply to the composer immediately and persist for this workspace.</div>';
+    h += '<div class="set-head">Your model picker</div>';
+    h += '<div class="set-note">Global · ' + esc(modelOverrides.path || "~/.opai/models.json") + '. Show or hide models everywhere. Availability stays separate: unavailable models keep their reason.</div>';
+    if ((modelOverrides.errors || []).length) {
+      h += '<div class="set-note" role="alert">' + esc(modelOverrides.errors.join(" ")) + "</div>";
+    }
+    h += '<div data-model-override-error class="set-note" hidden></div>';
+    var pickableModels = (modelSource || []).filter(function (m) {
+      return m && m.kind !== "auto" && m.group !== "routing";
+    });
+    pickableModels.forEach(function (m) {
+      var provider = String(m.provider || "").toLowerCase();
+      var rawId = String(m.model || String(m.id || "").split(":").pop() || "");
+      var visible = !ctx.isModelVisible || ctx.isModelVisible(m, modelOverrides);
+      var unavailable = m.available === false
+        ? (m.disabled_reason || "Unavailable")
+        : (m.healthy === false ? (m.health_reason || "Currently unavailable") : "");
+      h += '<label class="set-row"><span class="default-label"><span class="k">' + esc(m.label || m.id) + '</span>' +
+        (unavailable ? '<span class="hint">' + esc(unavailable) + "</span>" : "") +
+        '</span><input type="checkbox" data-model-visibility="' + esc(m.id) + '" data-model-provider="' + esc(provider) + '" data-model-override-id="' + esc(rawId) + '" aria-label="Show ' + esc(m.label || m.id) + '"' + (visible ? " checked" : "") + "></label>";
+    });
+    var providerNames = [];
+    pickableModels.forEach(function (m) {
+      var provider = String(m.provider || "").toLowerCase();
+      if (m.kind === "account" && provider && providerNames.indexOf(provider) < 0) providerNames.push(provider);
+    });
+    h += '<div class="set-row"><span class="default-label"><span class="k">Add a custom model</span><span class="hint">Use a provider already available to this OPai install.</span></span></div>';
+    h += '<div class="set-row"><select data-custom-provider aria-label="Custom model provider">' + providerNames.map(function (provider) { return '<option value="' + esc(provider) + '">' + esc(provider) + "</option>"; }).join("") + '</select><input data-custom-model aria-label="Custom model ID" placeholder="Model ID"><input data-custom-label aria-label="Custom model label" placeholder="Label"><select data-custom-capability aria-label="Custom model capability"><option value="balanced">Balanced</option><option value="fast">Fast</option><option value="best">Best</option></select><button type="button" class="btn" data-add-custom-model>Add model</button></div>';
+    Object.keys(modelOverrides.providers || {}).sort().forEach(function (provider) {
+      ((modelOverrides.providers[provider] || {}).models || []).forEach(function (entry) {
+        h += '<div class="set-row"><span class="k">' + esc(provider + " · " + (entry.display || entry.id)) + '</span><button type="button" class="btn" data-remove-custom-provider="' + esc(provider) + '" data-remove-custom-id="' + esc(entry.id) + '">Remove</button></div>';
+      });
+    });
+    h += '<button type="button" class="btn" data-reset-model-overrides>Reset model picker</button>';
     h += '<div class="set-head">Local-first routing</div>';
     var order = d.firewall && d.firewall.local_first;
     if (order) {
@@ -1212,6 +1248,27 @@
       "</div></div>" +
       (active ? '<div class="mode-hero-summary">' + esc(active.summary) + "</div>" : "") +
       "</div>";
+    // Bypass Permissions is a switch, not a mode -- the same shape as Claude
+    // Code's --dangerously-skip-permissions. It sits above the per-mode rows
+    // because it overrides all of them, and it composes with whichever mode is
+    // selected instead of replacing it, so turning it off returns the user to
+    // the mode they were already working in.
+    var bypassOn = d.prefs.bypass_permissions === true;
+    h += '<div class="set-head">Bypass permissions</div>';
+    h +=
+      '<label class="set-row set-row-toggle"><span class="k">Skip every confirmation' +
+      '<span class="set-note">Applies on top of your current mode (' +
+      esc(activeMode) +
+      '), so edits, commands, pushes and merges all run unattended. ' +
+      "Turn it off to return to that mode's own rules.</span></span>" +
+      '<input type="checkbox" id="setBypassPermissions" aria-label="Bypass permissions"' +
+      (bypassOn ? " checked" : "") +
+      "></label>";
+    if (bypassOn) {
+      h +=
+        '<div class="set-note set-warn">Bypass is on: nothing will stop for your approval, ' +
+        "including force-push and deletes.</div>";
+    }
     h += '<div class="set-head">Tool permissions · ' + esc(activeMode) + "</div>";
     h +=
       '<div class="set-note">What OPai may do this turn under your current run mode. Allow = does it without asking; Ask = pauses for your OK; Blocked = refused.</div>';
@@ -1252,6 +1309,60 @@
       h +=
         '<div class="set-note">In Auto-apply, a message with no explicit read-only wording (no "explain", "review only", "do not edit", etc.) is treated as edit-capable by default, so you don\'t have to phrase every request as a command. This mode also pushes, opens and merges pull requests without stopping to confirm; use Safe Auto or Approve Edits if you want those to ask first.</div>';
     }
+    return h;
+  }
+
+  // Prompt Library and the seven Insights dashboards used to sit in the
+  // sidebar, above the user's own chat history. They are places you visit
+  // occasionally, not while you work, so they live here now -- still one click
+  // away, and still routable from the command palette and deep links.
+  function toolsHtml(d, ctx) {
+    var esc = ctx.esc;
+    var h = heroHtml(
+      esc,
+      "Tools & Insights",
+      "The prompt library and the data-backed views, kept out of the sidebar so the chat list stays yours.",
+      []
+    );
+    var groups = [
+      {
+        head: "Library",
+        items: [
+          { go: "prompts", title: "Prompt Library", sub: "Saved prompts you can reuse and edit" },
+        ],
+      },
+      {
+        head: "Insights",
+        items: [
+          { go: "home", title: "Money Saved", sub: "What local-first routing has avoided spending" },
+          { go: "firewall", title: "Cost Firewall", sub: "Caps, spend and what stopped a run" },
+          { go: "context", title: "Context Waste", sub: "Tokens sent that did not need sending" },
+          { go: "benchmark", title: "Benchmark", sub: "How the models compare on your work" },
+          { go: "agents", title: "Agents", sub: "Background runs and their outcomes" },
+          { go: "proof", title: "Proof Bundle", sub: "Evidence you can hand to someone else" },
+          { go: "workflows", title: "Workflows", sub: "Repeatable multi-step tasks" },
+        ],
+      },
+    ];
+    groups.forEach(function (group) {
+      h += '<div class="set-head">' + esc(group.head) + "</div>";
+      h +=
+        '<div class="quick-grid">' +
+        group.items
+          .map(function (tile) {
+            return (
+              '<button class="quick-tile" type="button" data-go-view="' +
+              esc(tile.go) +
+              '"><span class="quick-body"><span class="quick-title">' +
+              esc(tile.title) +
+              '</span><span class="quick-sub">' +
+              esc(tile.sub) +
+              "</span></span></button>"
+            );
+          })
+          .join("") +
+        "</div>";
+    });
     return h;
   }
 
@@ -1423,15 +1534,25 @@
       unavailable: "Update status unavailable",
     };
     var description = operation.safe_diagnostic || (candidate.version ? "Target OPai " + candidate.version + "." : "");
+    var discovery = u.discovery || {};
+    var summary = discovery.summary || {};
     var devCheckout = (u.installed || {}).install_type === "source_checkout";
+    // Ownership decides whether applying is even possible here, exactly as it
+    // does on the persistent control: an install another tool owns must not be
+    // offered a button that would act on it.
+    var applyAllowed = devCheckout && discovery.self_updatable !== false;
+
     return (
       '<div class="update-card ' + (state === "available" || state === "ready_to_install" ? "available" : "unknown") + '" data-update-status="' + esc(state) + '">' +
       '<div class="update-head"><span class="update-dot"></span><span class="update-title">' +
-      esc(labels[state] || "Update status") +
+      esc(summary.title || labels[state] || "Update status") +
       "</span></div>" +
-      '<div class="update-desc">' + esc(description || "Signed packaged updates are checked after launch and every four hours.") + "</div>" +
+      // One plain sentence, from the backend. No timings, no cache provenance,
+      // no shell commands: those are diagnostics and live in
+      // `opai update doctor`.
+      '<div class="update-desc">' + esc(summary.message || description) + "</div>" +
       '<div class="actions"><button class="btn ghost" id="settingsCheckUpdate">Check now</button>' +
-      (state === "unsupported_install" && devCheckout
+      (state === "unsupported_install" && applyAllowed
         ? ' <button class="btn ghost" id="settingsApplyUpdate">Update now</button>'
         : "") +
       // An update sitting on disk is not running yet, and this card is where
@@ -1618,6 +1739,13 @@
       group: "Spend & safety",
       keywords: "permission tool safety mode approve",
       render: permissionsHtml,
+    },
+    {
+      id: "tools",
+      title: "Tools & Insights",
+      group: "System",
+      keywords: "prompt library insights money saved firewall context benchmark agents proof workflows dashboard",
+      render: toolsHtml,
     },
     {
       id: "privacy",
@@ -1838,6 +1966,14 @@
       });
     });
 
+    // Tools & Insights leaves Settings entirely: these are top-level views, not
+    // settings panes, so they navigate the app rather than the rail.
+    content.querySelectorAll("[data-go-view]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        if (typeof ctx.switchView === "function") ctx.switchView(button.dataset.goView);
+      });
+    });
+
     // Deep link (#settings/<id>) opens that page; otherwise the first page.
     var hash = (global.location && global.location.hash) || "";
     var match = /^#settings\/([\w-]+)$/.exec(hash);
@@ -1855,6 +1991,7 @@
   // ---- wiring (exact handlers moved from app.js), scoped to `page` -------- //
   function wire(page, ctx) {
     var bridge = ctx.bridge;
+    var d = ctx.d || {};
     var esc = ctx.esc;
     var toast = ctx.toast;
     var state = ctx.state;
@@ -1914,10 +2051,7 @@
           if (result.configured && bridge.refreshModels)
             bridge.refreshModels(function (modelsJson) {
               var refreshed = JSON.parse(modelsJson);
-              if (refreshed.models) {
-                state.boot.models = refreshed.models;
-                ctx.renderComposerSelects();
-              }
+              if (ctx.applyModelCatalog) ctx.applyModelCatalog(refreshed);
             });
         });
       };
@@ -1994,6 +2128,7 @@
           status.textContent = result.connected
             ? "Connection verified"
             : detail || "Connection failed";
+          ctx.refreshConnectedModels();
         });
       };
     });
@@ -2012,6 +2147,7 @@
           button.disabled = false;
           button.textContent = "Test " + ctx.providerName(id);
           ctx.updateDoctorCard(id, result);
+          ctx.refreshConnectedModels();
           toast(
             result.connected
               ? "Connection verified"
@@ -2047,6 +2183,7 @@
           // in a vocabulary nothing else used.
           if (status) status.textContent = authStatusLabel(result.authStatus);
           ctx.updateDoctorCard(id, result);
+          ctx.refreshConnectedModels();
           if (live) {
             toast("Connection verified");
             return;
@@ -2091,6 +2228,7 @@
                   (result.disconnected ? "Signed out." : "Could not sign out.")
               );
               if (result.disconnected) {
+                ctx.refreshConnectedModels();
                 var status = q('[data-account-status="' + id + '"]');
                 var dot = q('[data-account-row="' + id + '"] .prov-dot');
                 if (status)
@@ -2378,6 +2516,23 @@
             });
           });
       };
+    // Bypass Permissions: a switch layered over the current mode, persisted
+    // like any other preference. Re-render so the warning line and the mode
+    // rows below reflect the new authority immediately rather than after a
+    // navigation -- a permissions panel that lags is a panel that lies.
+    var bypassToggle = page.querySelector("#setBypassPermissions");
+    if (bypassToggle) {
+      bypassToggle.onchange = function () {
+        var on = bypassToggle.checked === true;
+        bridge.savePref("bypass_permissions", on ? "true" : "false");
+        if (ctx.applyDefaults) ctx.applyDefaults("bypass_permissions", on);
+        toast(
+          on
+            ? "Bypass permissions on — nothing will ask for approval."
+            : "Bypass permissions off — your mode's rules apply again."
+        );
+      };
+    }
     // Editable defaults (#238): persist and reflect in the composer instantly.
     page.querySelectorAll("[data-default-pref]").forEach(function (select) {
       select.onchange = function () {
@@ -2385,6 +2540,90 @@
         if (ctx.applyDefaults) ctx.applyDefaults(select.dataset.defaultPref, select.value);
       };
     });
+    // The override document is deliberately replaced as one validated payload.
+    // Merging a handful of DOM changes into an old browser snapshot would make
+    // global settings race across workspaces.
+    function pickerPayload() {
+      var report = d.modelOverrides || {};
+      var payload = { providers: {} };
+      Object.keys(report.providers || {}).forEach(function (provider) {
+        payload.providers[provider] = {
+          models: ((report.providers[provider] || {}).models || []).map(function (entry) {
+            return Object.assign({}, entry);
+          }),
+        };
+      });
+      Object.keys(report.hidden || {}).forEach(function (provider) {
+        if (!payload.providers[provider]) payload.providers[provider] = {};
+        payload.providers[provider].hide = (report.hidden[provider] || []).slice();
+      });
+      return payload;
+    }
+    function savePicker(payload) {
+      var error = q("[data-model-override-error]");
+      if (!bridge.saveModelOverrides) {
+        if (error) { error.textContent = "Model picker editing is unavailable in this build."; error.hidden = false; }
+        return;
+      }
+      bridge.saveModelOverrides(JSON.stringify(payload), function (json2) {
+        var result = {};
+        try { result = JSON.parse(json2); } catch (_e) { /* keep {} */ }
+        if (!result.ok) {
+          if (error) { error.textContent = result.error || "Could not save the model picker."; error.hidden = false; }
+          return;
+        }
+        if (error) error.hidden = true;
+        if (ctx.applyModelCatalog && result.catalog) ctx.applyModelCatalog(result.catalog);
+        toast("Global model picker saved");
+      });
+    }
+    page.querySelectorAll("[data-model-visibility]").forEach(function (toggle) {
+      toggle.onchange = function () {
+        var payload = pickerPayload();
+        var provider = toggle.dataset.modelProvider;
+        var modelId = toggle.dataset.modelOverrideId;
+        if (!payload.providers[provider]) payload.providers[provider] = {};
+        var hidden = payload.providers[provider].hide || [];
+        var index = hidden.map(function (id) { return String(id).toLowerCase(); }).indexOf(String(modelId).toLowerCase());
+        if (toggle.checked && index >= 0) hidden.splice(index, 1);
+        if (!toggle.checked && index < 0) hidden.push(modelId);
+        if (hidden.length) payload.providers[provider].hide = hidden;
+        else delete payload.providers[provider].hide;
+        savePicker(payload);
+      };
+    });
+    var addCustom = q("[data-add-custom-model]");
+    if (addCustom) addCustom.onclick = function () {
+      var provider = q("[data-custom-provider]").value;
+      var id = q("[data-custom-model]").value.trim();
+      var label = q("[data-custom-label]").value.trim();
+      var capability = q("[data-custom-capability]").value;
+      if (!provider || !id || !label) {
+        var error = q("[data-model-override-error]");
+        if (error) { error.textContent = "Provider, model ID, and label are required."; error.hidden = false; }
+        return;
+      }
+      var payload = pickerPayload();
+      if (!payload.providers[provider]) payload.providers[provider] = {};
+      var models = payload.providers[provider].models || [];
+      models.push({ id: id, display: label, capability: capability });
+      payload.providers[provider].models = models;
+      savePicker(payload);
+    };
+    page.querySelectorAll("[data-remove-custom-id]").forEach(function (button) {
+      button.onclick = function () {
+        var payload = pickerPayload();
+        var provider = button.dataset.removeCustomProvider;
+        var block = payload.providers[provider] || {};
+        block.models = (block.models || []).filter(function (entry) {
+          return entry.id !== button.dataset.removeCustomId;
+        });
+        payload.providers[provider] = block;
+        savePicker(payload);
+      };
+    });
+    var resetPicker = q("[data-reset-model-overrides]");
+    if (resetPicker) resetPicker.onclick = function () { savePicker({ providers: {} }); };
     // Appearance (#241): persist via savePref and apply to the root instantly.
     page.querySelectorAll("[data-appearance-key]").forEach(function (segment) {
       var key = segment.dataset.appearanceKey;

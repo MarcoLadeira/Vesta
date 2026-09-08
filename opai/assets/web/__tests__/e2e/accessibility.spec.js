@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-import { finishRequest, openApp, sendPrompt } from "./helpers/app.js";
+import { finishRequest, openApp, openTurnDetails, sendPrompt } from "./helpers/app.js";
 
 
 test.beforeEach(async ({ page }) => openApp(page));
@@ -49,6 +49,9 @@ test("completed work log disclosure stays keyboard operable and correctly contro
       activity: [{ phase: "test", status: "completed", message: "Focused checks passed" }],
     },
   });
+  // The work log lives behind the turn summary now, so open that first --
+  // this test is about the log's own disclosure, not about finding it.
+  await openTurnDetails(page);
   const toggle = page.locator(".gen-toggle.done");
   const controlledId = await toggle.getAttribute("aria-controls");
   const log = page.locator(`#${controlledId}`);

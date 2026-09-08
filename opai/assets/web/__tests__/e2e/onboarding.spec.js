@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-import { openApp, openNav, finishRequest } from "./helpers/app.js";
+import { finishRequest, openApp, openNav, openTurnDetails } from "./helpers/app.js";
 
 
 // First-run onboarding (#250): a three-step, skippable tour that ends on a
@@ -44,6 +44,7 @@ test("a fresh profile is walked through all three steps and ends on a receipt", 
     answer: "Here is a summary.",
     receipt: { estimated_savings_usd: 0.0123, confidence: "actual" },
   });
+  await openTurnDetails(page);
   await expect(page.locator(".receipt-card")).toBeVisible();
   // The tour is marked seen so it never returns.
   const saved = await page.evaluate(() => window.__mock.savedPrefs);

@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,6 +13,7 @@ from opaihub.accounts import (
     connection_for_account,
     test_account_connection as check_account_connection,
 )
+from opaihub import accounts
 
 
 class _Completed:
@@ -22,6 +24,24 @@ class _Completed:
 
 
 class ProviderConnectionTests(unittest.TestCase):
+    def test_codex_candidates_include_the_windows_desktop_install(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            local_app_data = Path(tmp)
+            desktop_cli = (
+                local_app_data / "OpenAI" / "Codex" / "bin" / "build" / "codex.exe"
+            )
+            desktop_cli.parent.mkdir(parents=True)
+            desktop_cli.write_text("binary", encoding="utf-8")
+            with (
+                mock.patch("opaihub.accounts._which", return_value=None),
+                mock.patch.dict(
+                    "os.environ", {"LOCALAPPDATA": str(local_app_data), "PATH": ""}, clear=False
+                ),
+            ):
+                candidates = accounts._codex_cli_candidates(Path(tmp) / "home")
+
+        self.assertIn(str(desktop_cli.resolve()), candidates)
+
     def test_auth_artifact_is_detected_but_not_verified(self):
         connection = connection_for_account(
             {
@@ -131,7 +151,13 @@ class ProviderConnectionTests(unittest.TestCase):
             home = Path(tmp)
             (home / ".codex").mkdir()
             (home / ".codex" / "auth.json").touch()
-            with mock.patch("opaihub.accounts._which", return_value="/bin/codex"):
+            with (
+                mock.patch("opaihub.accounts._which", return_value="/bin/codex"),
+                mock.patch(
+                    "opaihub.accounts._codex_cli_candidates",
+                    return_value=["/bin/codex"],
+                ),
+            ):
                 connection = check_account_connection(
                     "codex",
                     home=home,
@@ -140,7 +166,52 @@ class ProviderConnectionTests(unittest.TestCase):
 
         self.assertEqual(connection["authStatus"], "connected")
 
-    def test_outdated_codex_cli_is_rejected_during_connection_preflight(self):
+    def test_forced_codex_check_selects_the_best_authenticated_candidate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            first = home / "first-codex.cmd"
+            second = home / "second-codex.cmd"
+            first.write_text("old", encoding="utf-8")
+            second.write_text("current", encoding="utf-8")
+            (home / ".codex").mkdir()
+            (home / ".codex" / "auth.json").touch()
+            calls: list[list[str]] = []
+
+            def run(argv):
+                calls.append(argv)
+                if "--version" in argv:
+                    return _Completed(
+                        0,
+                        "codex-cli 0.151.0"
+                        if argv[0] == str(second)
+                        else "codex-cli 0.128.0",
+                    )
+                return _Completed(0, "Logged in using ChatGPT")
+
+            with (
+                mock.patch("opaihub.accounts._which", return_value=str(first)),
+                mock.patch(
+                    "opaihub.accounts._codex_cli_candidates",
+                    return_value=[str(first), str(second)],
+                ),
+            ):
+                connection = check_account_connection(
+                    "codex", home=home, run=run, force=True
+                )
+            stored = json.loads(
+                (home / ".opai" / "connection_history.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+
+        self.assertEqual(connection["authStatus"], "connected")
+        self.assertEqual(
+            stored["connections"]["codex"]["selectedCliPath"], str(second.resolve())
+        )
+        self.assertIn([str(first), "login", "status"], calls)
+        self.assertIn([str(second), "login", "status"], calls)
+
+    def test_outdated_codex_cli_keeps_its_verified_sign_in(self):
         calls: list[list[str]] = []
 
         def run(argv):
@@ -153,14 +224,19 @@ class ProviderConnectionTests(unittest.TestCase):
             home = Path(tmp)
             (home / ".codex").mkdir()
             (home / ".codex" / "auth.json").touch()
-            with mock.patch("opaihub.accounts._which", return_value="/bin/codex"):
+            with (
+                mock.patch("opaihub.accounts._which", return_value="/bin/codex"),
+                mock.patch(
+                    "opaihub.accounts._codex_cli_candidates",
+                    return_value=["/bin/codex"],
+                ),
+            ):
                 connection = check_account_connection(
                     "codex", home=home, run=run, force=True
                 )
 
-        self.assertEqual(connection["authStatus"], "misconfigured")
-        self.assertEqual(connection["lastErrorCode"], "PROVIDER_CLI_OUTDATED")
-        self.assertIn("@openai/codex", connection["safeDiagnostic"])
+        self.assertEqual(connection["authStatus"], "connected")
+        self.assertIsNone(connection["lastErrorCode"])
         self.assertEqual(
             calls,
             [
@@ -214,7 +290,9 @@ class ProviderConnectionTests(unittest.TestCase):
         api_key = account_models(accounts=[account], account_types={"codex": "api_key"})
 
         self.assertEqual([option["id"] for option in chatgpt], ["account:codex"])
-        self.assertIn("account:codex:gpt-5.6", [option["id"] for option in api_key])
+        self.assertIn(
+            "account:codex:gpt-5.6-sol", [option["id"] for option in api_key]
+        )
 
     def test_codex_picker_disables_a_known_outdated_cli(self):
         account = {
@@ -303,6 +381,72 @@ class ProviderConnectionTests(unittest.TestCase):
             model for model in payload["models"] if model.get("id") == "account:codex"
         )
         self.assertIn("ChatGPT", codex["advanced_label"])
+
+    def test_discovery_publishes_the_signed_in_codex_cli_catalog(self):
+        account = {
+            "id": "codex",
+            "label": "Codex",
+            "vendor": "OpenAI Codex CLI",
+            "cli": "codex",
+            "cli_path": "/bin/codex",
+            "cli_present": True,
+            "authenticated": True,
+            "connected": True,
+            "login_hint": "",
+        }
+        discovered = [
+            ("gpt-5.6-sol", "GPT-5.6 Sol", "best"),
+            ("gpt-5.6-terra", "GPT-5.6 Terra", "balanced"),
+            ("gpt-5.6-luna", "GPT-5.6 Luna", "fast"),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                mock.patch(
+                    "opaihub.accounts.list_connected_accounts", return_value=[account]
+                ),
+                mock.patch("opaihub.local_runner.list_local_models", return_value=[]),
+                mock.patch(
+                    "opaihub.accounts.provider_connection_doctor",
+                    return_value=[
+                        {
+                            "providerId": "codex",
+                            "authStatus": "connected",
+                            "accountType": "chatgpt",
+                        }
+                    ],
+                ),
+                mock.patch(
+                    "opaihub.accounts.test_account_connection",
+                    return_value={
+                        "providerId": "codex",
+                        "authStatus": "connected",
+                        "accountType": "chatgpt",
+                    },
+                ) as connection_probe,
+                mock.patch(
+                    "opaihub.accounts._account_cli_version",
+                    return_value="codex-cli 0.151.0",
+                ),
+                mock.patch(
+                    "opaihub.accounts._codex_cli_models", return_value=discovered
+                ) as catalog_probe,
+            ):
+                payload = available_models(Path(tmp), discover_accounts=True)
+
+        connection_probe.assert_called_once_with("codex", force=True)
+        catalog_probe.assert_called_once()
+        self.assertEqual(
+            [
+                model["id"]
+                for model in payload["models"]
+                if model.get("provider") == "codex"
+            ],
+            [
+                "account:codex:gpt-5.6-sol",
+                "account:codex:gpt-5.6-terra",
+                "account:codex:gpt-5.6-luna",
+            ],
+        )
 
     def test_available_models_is_conservative_until_codex_type_is_verified(self):
         account = {

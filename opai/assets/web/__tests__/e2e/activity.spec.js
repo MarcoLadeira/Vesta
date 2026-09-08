@@ -1,5 +1,7 @@
 import { test, expect } from "@playwright/test";
 
+import { openTurnDetails } from "./helpers/app.js";
+
 const MOCK = "opai/assets/web/__tests__/e2e/mock-bridge.js";
 
 test.beforeEach(async ({ page }) => {
@@ -22,10 +24,10 @@ test("generation shows a compact status row, model, timer and stop", async ({ pa
   await expect(page.locator(".gen-eyebrow")).toBeHidden();
   const surface = await page.locator(".gen-work-surface").boundingBox();
   const workLog = await page.locator(".gen-toggle").boundingBox();
-  expect(surface.height).toBeLessThanOrEqual(80);
+  expect(surface.height).toBeLessThanOrEqual(110);
   expect(workLog.height).toBeGreaterThanOrEqual(32);
   await expect(page.locator(".thinking")).toHaveCount(0);
-  await expect(page.locator(".gen-toggle")).toHaveText("View work log · 0");
+  await expect(page.locator(".gen-toggle")).toHaveText("Hide work log");
   await expect(page.locator(".gen-time")).toHaveText(/0\d:\d\d/);
   await expect(page.locator(".gen-stop")).toBeVisible();
   await expect(page.locator("body")).toHaveClass(/ai-working/);
@@ -36,6 +38,25 @@ test("generation shows a compact status row, model, timer and stop", async ({ pa
   await expect(page.locator(".msg.bot .body")).toContainText("Hi there");
   await expect(page.locator(".gen-stop")).toHaveCount(0);
   await expect(page.locator("body")).not.toHaveClass(/ai-working/);
+});
+
+test("the live work log is open by default and grows the active panel", async ({ page }) => {
+  await sendPrompt(page, "inspect the project");
+  const surface = page.locator(".gen-work-surface");
+  const before = await surface.boundingBox();
+
+  await expect(page.locator(".gen-toggle")).toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator(".gen-toggle")).toHaveText("Hide work log");
+  await expect(page.locator(".timeline")).toBeVisible();
+
+  const id = await reqId(page);
+  await page.evaluate((requestId) => window.__mock.emitActivity(requestId, {
+    id: "read", type: "file_read", status: "success", title: "Reading project files", detail: "app.py",
+  }), id);
+  await expect(page.locator(".timeline .tl-t")).toContainText("Reading project files");
+
+  const after = await surface.boundingBox();
+  expect(after.height).toBeGreaterThan(before.height);
 });
 
 test("a live final response uses its structured evidence and work log", async ({ page }) => {
@@ -58,7 +79,11 @@ test("a live final response uses its structured evidence and work log", async ({
   }), id);
 
   const response = page.locator(".msg.bot").last();
-  await expect(response.locator(".completion-verdict")).toContainText("Completed");
+  // The verdict is the turn summary's own row now, and the evidence sits
+  // behind it. The claim under test is unchanged: the response reports the
+  // structured evidence it was given, and never the 999 it invented in prose.
+  await expect(response.locator(".ts-verdict")).toContainText("Done");
+  await openTurnDetails(page, response);
   await expect(response.locator(".evidence-bar")).toContainText("2 passed");
   await expect(response.locator(".evidence-bar")).not.toContainText("999");
   await expect(response.locator(".gen-toggle.done")).toContainText("Work log (2)");
@@ -75,8 +100,7 @@ test("activity timeline receives events", async ({ page }) => {
   }), id);
   await expect(page.locator(".gen-stage")).toHaveText("Reading project files");
   await expect(page.locator(".gen-detail")).toHaveText("app.py");
-  await expect(page.locator(".gen-toggle")).toHaveText("View work log · 1");
-  await page.click(".gen-toggle");
+  await expect(page.locator(".gen-toggle")).toHaveText("Hide work log");
   await expect(page.locator(".timeline .tl-t")).toContainText("Reading project files");
 });
 
@@ -92,8 +116,6 @@ test("real agent operations update distinct timeline rows without duplicates", a
   await emit({ id: "ci", type: "ci_watch", status: "running", title: "CI checks pending" });
   await emit({ id: "ci", type: "ci_watch", status: "success", title: "CI checks passed" });
   await emit({ id: "merge", type: "command_complete", status: "success", title: "Pull request merged" });
-  await page.click(".gen-toggle");
-
   const rows = page.locator(".timeline .tl-row");
   await expect(rows).toHaveCount(4);
   await expect(rows).toContainText([
@@ -237,7 +259,6 @@ test("timeline rows carry real elapsed offsets, never invented ones", async ({ p
   await page.evaluate((id) => window.__mock.emitActivity(id, {
     id: "t2", type: "command_run", status: "success", title: "Ran command: pytest",
   }), id);
-  await page.click(".gen-toggle");
   const rows = page.locator(".timeline .tl-row");
   await expect(rows.filter({ hasText: "Read file" }).locator(".tl-ts")).toHaveText(/\+\d+(\.\d)?s/);
   await expect(rows.filter({ hasText: "Ran command" }).locator(".tl-ts")).toHaveCount(0);
@@ -250,6 +271,8 @@ test("the receipt strip copies a plaintext receipt on click", async ({ page }) =
     status: "answered", answer: "done",
     receipt: { estimated_actual_usd: 0.0123 },
   }), id);
+  // The cost receipt is a record of the run, so it lives behind the summary.
+  await openTurnDetails(page);
   const strip = page.locator(".footer-note");
   await expect(strip).toBeVisible();
   await expect(strip).toHaveAttribute("aria-label", "Copy receipt");

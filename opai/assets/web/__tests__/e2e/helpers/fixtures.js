@@ -1,29 +1,11 @@
-// Mirrors the production IA (opai/gui_nav.py): a ChatGPT-simple unlabeled top
-// level, one folded Insights group, and Settings living in the sidebar footer
-// (so it is intentionally NOT a nav item here).
-export const FULL_NAV = [
-  {
-    group: "",
-    collapsed: false,
-    items: [
-      { id: "chat", label: "Chat", kind: "view" },
-      { id: "prompts", label: "Prompt Library", kind: "view" },
-    ],
-  },
-  {
-    group: "Insights",
-    collapsed: true,
-    items: [
-      { id: "home", label: "Money Saved", kind: "dashboard", section: "home" },
-      { id: "firewall", label: "Cost Firewall", kind: "dashboard", section: "firewall" },
-      { id: "context", label: "Context Waste", kind: "dashboard", section: "context" },
-      { id: "benchmark", label: "Benchmark", kind: "dashboard", section: "benchmark" },
-      { id: "agents", label: "Agents", kind: "dashboard", section: "agents" },
-      { id: "proof", label: "Proof Bundle", kind: "dashboard", section: "proof" },
-      { id: "workflows", label: "Workflows", kind: "dashboard", section: "workflows" },
-    ],
-  },
-];
+// Mirrors opai.gui_nav.nav_groups(): Chat is the only listed item. Prompt
+// Library and the seven Insights dashboards are routable but not rendered --
+// they live in Settings -> Tools & Insights now, so the sidebar is the
+// conversation and the user's own history.
+// Mirrors opai.gui_nav.nav_groups(): nothing is listed. The sidebar is the
+// chat list -- Chat, Prompt Library and the Insights dashboards are all
+// routable but unlisted, and New chat is a header action.
+export const FULL_NAV = [];
 
 export const MODELS = [
   {

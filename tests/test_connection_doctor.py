@@ -52,6 +52,45 @@ def account(
 
 
 class ConnectionDoctorTests(unittest.TestCase):
+    def test_codex_verified_connection_survives_a_process_restart_safely(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            cli = home / "bin" / "codex.cmd"
+            cli.parent.mkdir()
+            cli.write_text("binary", encoding="utf-8")
+            (home / ".codex").mkdir()
+            (home / ".codex" / "auth.json").write_text(
+                '{"token":"must-never-be-persisted"}', encoding="utf-8"
+            )
+
+            def run(argv):
+                return _Completed(
+                    stdout=(
+                        "codex-cli 0.151.0"
+                        if "--version" in argv
+                        else "Logged in using ChatGPT"
+                    )
+                )
+
+            with mock.patch("opaihub.accounts._which", return_value=str(cli)):
+                check_account_connection("codex", home=home, run=run, force=True)
+                import opaihub.accounts as accounts
+
+                accounts._CONNECTION_HISTORY.clear()
+                entries = provider_connection_doctor(
+                    home=home, version_run=run, credentials=[]
+                )
+
+            codex = next(item for item in entries if item["providerId"] == "codex")
+            stored = (home / ".opai" / "connection_history.json").read_text(
+                encoding="utf-8"
+            )
+
+        self.assertEqual(codex["authStatus"], "connected")
+        self.assertEqual(codex["cliVersion"], "codex-cli 0.151.0")
+        self.assertNotIn("must-never-be-persisted", stored)
+        self.assertNotIn("Logged in using ChatGPT", stored)
+
     def test_stale_codex_capability_history_reverts_to_unknown(self):
         current = {
             "providerId": "codex",
