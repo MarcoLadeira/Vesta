@@ -1033,12 +1033,20 @@ def unevidenced_completions(root: Path) -> dict[str, Any]:
     is a worse lie than an unevidenced completion.
 
     So it counts, and makes the gap addressable. Enforcement is Stage 5's, and
-    it needs this number to be zero first.
+    it needs these numbers to be zero first.
 
-    Evidence means, for a completed run: a ``run.verified`` event, a
-    verification manifest artifact, or a recorded cost. Any one of them is a
-    trace that something actually happened. None of them is a verdict with
-    nothing under it.
+    **Two numbers, because one of them flatters.** ``unevidenced`` is the weak
+    bar: a run with no trace of any kind -- no ``run.verified`` event, no
+    verification manifest, no recorded cost. ``without_verification`` is the
+    bar AC6 actually sets, which names objective, verification and delivery
+    evidence and does not mention cost at all.
+
+    The distinction is not academic. On the journal of the machine this was
+    written on: 21 completed runs, **0** unevidenced, **20** with no
+    verification. Every real turn records a cost, so the weak number reads as
+    a clean bill of health for a criterion that is plainly unmet. Reporting
+    only that would have been this epic's own failure -- a confident answer
+    with the inconvenient half left out.
     """
 
     empty: dict[str, Any] = {
@@ -1046,6 +1054,7 @@ def unevidenced_completions(root: Path) -> dict[str, Any]:
         "unavailable_reason": "",
         "completed": 0,
         "unevidenced": 0,
+        "without_verification": 0,
         "run_ids": [],
     }
     with _store(root) as store:
@@ -1079,13 +1088,24 @@ def unevidenced_completions(root: Path) -> dict[str, Any]:
         for row in rows
         if not (row["verifications"] or row["manifests"] or row["costs"])
     ]
+    # AC6 names objective, verification and delivery evidence. It does not
+    # name cost, and every real turn records one -- so counting cost as
+    # evidence makes the weak number read as zero on a journal where the
+    # criterion is plainly unmet.
+    unverified = [
+        str(row["run_id"])
+        for row in rows
+        if not (row["verifications"] or row["manifests"])
+    ]
     return {
         "available": True,
         "unavailable_reason": "",
         "completed": len(rows),
         "unevidenced": len(bare),
+        "without_verification": len(unverified),
         # Bounded: a report is for acting on, and a thousand ids is a dump.
         "run_ids": bare[:50],
+        "unverified_run_ids": unverified[:50],
     }
 
 

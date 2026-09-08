@@ -609,6 +609,75 @@ class UnevidencedCompletionTests(_JournalledRun):
         self.assertEqual(report["unavailable_reason"], "unreadable")
         self.assertEqual(report["unevidenced"], 0)
 
+    def test_cost_alone_does_not_satisfy_the_criterion_ac6_states(self):
+        """The number that flatters, and the number that does not.
+
+        AC6 names objective, verification and delivery evidence. It does not
+        name cost -- and every real turn records one. Measured on this repo's
+        own journal: 21 completed runs, 0 unevidenced, 20 with no verification.
+        Reporting only the first would be a confident answer with the
+        inconvenient half left out, which is the failure this epic is about.
+        """
+
+        fence = self.complete("run-2", "task-2")
+        journal_runtime.record_run_cost(
+            self.root,
+            run_id="run-2",
+            operation_key="run-2:claude",
+            amount_usd=0.05,
+            measurement_kind="actual",
+            now=NOW,
+            fence=fence,
+        )
+        self.terminate("run-2", fence)
+
+        report = journal_runtime.unevidenced_completions(self.root)
+
+        self.assertEqual(report["unevidenced"], 0, "cost is a trace of something")
+        self.assertEqual(
+            report["without_verification"],
+            1,
+            "a paid run that was never verified still fails AC6",
+        )
+
+    def test_a_verified_run_satisfies_both_numbers(self):
+        fence = self.complete("run-2", "task-2")
+        journal_runtime.record_verification(
+            self.root,
+            run_id="run-2",
+            verdict="verified",
+            policy_digest="policy",
+            manifest_digest="manifest",
+            now=NOW,
+            fence=fence,
+        )
+        self.terminate("run-2", fence)
+
+        report = journal_runtime.unevidenced_completions(self.root)
+
+        self.assertEqual(report["unevidenced"], 0)
+        self.assertEqual(report["without_verification"], 0)
+
+    def test_doctor_reports_the_criterion_number_too(self):
+        from opai import cli
+
+        fence = self.complete("run-2", "task-2")
+        journal_runtime.record_run_cost(
+            self.root,
+            run_id="run-2",
+            operation_key="run-2:claude",
+            amount_usd=0.05,
+            measurement_kind="actual",
+            now=NOW,
+            fence=fence,
+        )
+        self.terminate("run-2", fence)
+
+        facts = cli._journal_migration(self.root)
+
+        self.assertEqual(facts["completed_runs_without_evidence"], 0)
+        self.assertEqual(facts["completed_runs_without_verification"], 1)
+
     def test_the_id_list_is_bounded(self):
         """A report is for acting on; a thousand ids is a dump."""
 

@@ -741,12 +741,29 @@ def cmd_journal(args: argparse.Namespace) -> int:
         # succeeded. What they have not got is anything to show for it.
         if migration.get("completed_runs_known", False):
             bare = int(migration.get("completed_runs_without_evidence", 0))
+            unverified = int(migration.get("completed_runs_without_verification", 0))
             total = int(migration.get("completed_runs", 0))
             if bare:
                 print(
                     f"  unevidenced:    {bare} of {total} completed runs have no"
                     " verification, manifest or cost"
                 )
+            if unverified:
+                print(
+                    f"  unverified:     {unverified} of {total} completed runs have"
+                    " no verification (AC6 asks for this one)"
+                )
+        # Two recordings of one history. Silence when they agree; a count when
+        # they do not; and "could not check" said out loud rather than implied.
+        if not migration.get("event_table_parity_known", True):
+            why = migration.get("event_table_parity_unknown_because") or "unreadable"
+            print(f"  event parity:   unknown ({why})")
+        elif migration.get("event_table_disagreements", 0):
+            count = int(migration["event_table_disagreements"])
+            print(
+                f"  event parity:   {count} run(s) where the events and the runs"
+                " table disagree"
+            )
         print(f"  backups:        {backup.get('backups', 0)}", end="")
         print(f" (latest {backup['latest']})" if backup.get("latest") else "")
         return 0
@@ -1079,6 +1096,26 @@ def _journal_migration(root: Path) -> dict[str, object]:
         facts["completed_runs_known"] = bool(evidence.get("available"))
         facts["completed_runs"] = int(evidence.get("completed", 0))
         facts["completed_runs_without_evidence"] = int(evidence.get("unevidenced", 0))
+        # The number AC6 actually asks about. Reported separately because the
+        # one above flatters: every real turn records a cost, so counting cost
+        # as evidence reads as a clean bill of health for a criterion that is
+        # plainly unmet -- 0 unevidenced and 20 unverified, on this repo.
+        facts["completed_runs_without_verification"] = int(
+            evidence.get("without_verification", 0)
+        )
+
+        # Migration step 2's parity assertion, which finally has something it
+        # can compare. The legacy corpus and the journal's runs come from
+        # different subsystems, so that comparison can never overlap -- this
+        # one checks the journal against itself: the `runs` table and the
+        # `events` table are written by the same calls in the same
+        # transactions, so a disagreement is the store contradicting itself.
+        from opaihub import journal_projections
+
+        parity = journal_projections.run_table_parity(root, now=_iso_now_for_journal())
+        facts["event_table_parity_known"] = bool(parity.get("comparable"))
+        facts["event_table_parity_unknown_because"] = str(parity.get("reason") or "")
+        facts["event_table_disagreements"] = int(parity.get("disagreement_count", 0))
 
         from opaihub import journal_background, journal_retirement
 

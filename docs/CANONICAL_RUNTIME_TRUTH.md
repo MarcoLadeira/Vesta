@@ -473,12 +473,94 @@ processes: window A's user approved a push in one repository, and window B --
 another repository, another run, a question its user was never asked --
 consumed it and was told yes.
 
+## AC6, measured on this repo's own journal
+
+> `completed` is impossible without the required objective/verification/delivery evidence.
+
+It is not. The store accepts whatever verdict a caller hands it:
+
+```
+record_terminal accepted 'completed' -> True
+runs.terminal_verdict               -> completed
+events recorded                     -> ['run.admitted', 'run.completed']
+verification artifacts              -> 0
+```
+
+`unevidenced_completions` counts the gap rather than closing it, and the
+restraint is deliberate. Every mirror in `journal_runtime` records rather than
+re-decides -- the layer that *can* judge a completion is `opaihub.completion`,
+which has the answer, the diff and the policy in front of it. And refusing to
+record a terminal state would leave the run reading as unfinished, which is a
+worse lie than an unevidenced completion. Enforcement is Stage 5's; it needs
+this number to be zero first, and nothing could see it before.
+
+**Two numbers, because the first one flatters.** On the real journal in
+`.opai/source`, 27 runs recorded:
+
+| | |
+| --- | --- |
+| completed | 21 |
+| with no evidence of any kind | **0** |
+| with no verification | **20** |
+
+Every real turn records a cost, so counting cost as evidence reads as a clean
+bill of health for a criterion that is plainly unmet. AC6 names objective,
+verification and delivery evidence and does not mention cost at all. Shipping
+only the zero would have been this epic's own failure in miniature: a
+confident answer with the inconvenient half left out.
+
+`opai journal status` now says so:
+
+```
+unverified:     20 of 21 completed runs have no verification (AC6 asks for this one)
+```
+
+
+## Migration step 2 was not blocked. It was pointed at the wrong pair.
+
+Steps 2 and 4 have both sat at "not started" for the same reason: the legacy
+corpus and the journal's runs come from different subsystems, so their
+populations can never overlap and no amount of waiting produces a comparison.
+
+That is true of the *legacy* comparison. It is not true of parity in general.
+
+`journal_store.rebuild_projection` is a deterministic fold over the event log
+-- and nothing in OPai has ever handed it a reducer. It was exercised only by
+its own tests: the fifth piece of #613 machinery found on this branch with no
+importer, after `journal_reader`, the lease identity columns, the `approvals`
+table and `mirror_from_status`. A fold with no reducer answers nothing, which
+is why "collapse projections into deterministic reducers over canonical
+events" had nothing to collapse into.
+
+`opaihub/journal_projections.py` is that reducer, and the parity check it
+makes possible compares the journal **against itself**. The `runs` table and
+the `events` table are written by the same lifecycle calls, in the same
+transactions -- two recordings of one history. If they disagree, the canonical
+store is contradicting itself, which is the failure #613 opens by describing,
+inside the thing meant to settle it.
+
+It needs no legacy corpus, so unlike the qualification comparison it runs
+today. On this repo's real journal:
+
+```
+comparable        : True
+runs in table     : 27
+runs in projection: 27
+disagreements     : 0
+```
+
+`opai journal status` stays silent when they agree, counts them when they do
+not, and says "unknown" out loud when the projection had to stop at an
+unreadable event -- because a *short* history compared against a complete
+table would report disagreements that are only the part it never read.
+
+
 ## Status
 
 | Migration step (per #818) | State |
 | --- | --- |
 | 1. Inventory every authoritative writer/reader | measured, above; the last unclassified writer (`cancellation_lifecycle`) now has an owner |
-| 2. Parity assertions, legacy vs canonical | partial -- `cancellation_lifecycle` gained the dual read it never had |
+| 2. Parity assertions, legacy vs canonical | partial -- `cancellation_lifecycle` gained its dual read, and the events/`runs` parity check runs today with no legacy corpus |
 | 3. Cut over one local-provider path | not started |
 | 4. Cut over one account-provider path | not started |
 | 5. Cut over cancellation, verification, cost, delivery | not started |
