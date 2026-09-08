@@ -75,8 +75,8 @@ def _strings(value, name, limit=100):
     return [_text(item, name, 2000) for item in value]
 
 
-def _paths(value):
-    paths = _strings(value, "intended_paths")
+def _paths(value, *, limit=100, protected=True):
+    paths = _strings(value, "paths", limit)
     result = []
     for path in paths:
         path = path.replace("\\", "/")
@@ -86,7 +86,7 @@ def _paths(value):
             or ":" in path
             or ".." in parts
             or (not parts and path != ".")
-            or any(
+            or protected and any(
                 part.casefold() in _RESERVED_PATHS
                 or part.casefold().startswith(".opcoding")
                 for part in parts
@@ -630,6 +630,7 @@ class ObjectiveStore:
         with self._db() as db:
             obj = self._load(db, objective_id)
             obj["assignments"] = self._assignments(db, objective_id)
+            obj["revision"] = db.execute("SELECT COALESCE(MAX(sequence),0) FROM events WHERE run_id=?", (obj["run_id"],)).fetchone()[0]
             obj["cost_usd"], obj["cost_complete"] = self._costs(db, objective_id)
             obj["cost_complete"] = (
                 obj["cost_complete"]
@@ -811,6 +812,10 @@ class ObjectiveStore:
             ).isoformat()
             if activity is not None:
                 item["activity"] = _text(activity, "activity", 2000, empty=True)
+                self._event(
+                    db, self._load(db, objective_id), "activity",
+                    {"assignment_id": assignment_id, "activity": item["activity"]},
+                )
             self._save_assignment(db, item)
             return item
 
@@ -849,6 +854,17 @@ class ObjectiveStore:
         return self.heartbeat(
             objective_id, assignment_id, owner, fence, activity=activity
         )
+
+    def observe_route(self, objective_id, assignment_id, owner, fence, *, model=None, provider=None):
+        with self._db(True) as db:
+            item = self._owned(db, objective_id, assignment_id, owner, fence)
+            if model:
+                item["observed_model"] = _text(model, "model", 200)
+            if provider:
+                item["observed_provider"] = _text(provider, "provider", 200)
+            self._save_assignment(db, item)
+            db.execute("UPDATE runs SET model=?,provider=? WHERE run_id=?", (item.get("observed_model", item["model"]), item.get("observed_provider", item["provider"]), item["run_id"]))
+            self._event(db, self._load(db, objective_id), "route-observed", {"assignment_id": assignment_id, "model": item.get("observed_model"), "provider": item.get("observed_provider")})
 
     def _refresh(self, db, obj):
         items = self._assignments(db, obj["objective_id"])
@@ -898,7 +914,7 @@ class ObjectiveStore:
     ):
         if status not in {"completed", "failed", "cancelled", "needs-attention"}:
             raise ValueError("Invalid assignment terminal status")
-        changed_files = _paths(changed_files)
+        changed_files = _paths(changed_files, limit=10000, protected=False)
         if (
             verification is not None
             and not isinstance(verification, dict)
@@ -966,7 +982,17 @@ class ObjectiveStore:
                     return self.snapshot(objective_id)
                 if (
                     tuple(existing)[:2] == evidence[:2]
-                    and existing["amount_usd"] is None
+                    and existing["amount_usd"] is not None
+                    and existing["measurement_kind"] in {"actual", "derived"}
+                    and measurement_kind in {"unavailable", "estimated"}
+                ):
+                    return {
+                        "cost_usd": self._costs(db, objective_id)[0],
+                        "cost_complete": self._costs(db, objective_id)[1],
+                    }
+                if (
+                    tuple(existing)[:2] == evidence[:2]
+                    and existing["measurement_kind"] in {"unavailable", "estimated"}
                     and amount is not None
                     and measurement_kind in {"actual", "derived"}
                 ):

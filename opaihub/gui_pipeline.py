@@ -2617,6 +2617,27 @@ def _handle_gui_message(
     allow_edits = will_edit
 
     while True:
+        from .execution_scope import managed_budget_gate
+
+        managed = managed_budget_gate(
+            root,
+            next_cost_usd=None
+            if selected_model.startswith(("account:", "paid:"))
+            else "0",
+        )
+        if managed["denied"]:
+            return _decorate(
+                {
+                    "status": "blocked",
+                    "answer": "; ".join(managed["reasons"]),
+                    "changed_files": [],
+                    "tool_trace": tool_trace,
+                    "warnings": [],
+                    "next_actions": [
+                        "Choose a local or free model, or revise the objective budget."
+                    ],
+                }
+            )
         if selected_model.startswith("free:"):
             from opai import app_state as A
 

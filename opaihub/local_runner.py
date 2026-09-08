@@ -1125,6 +1125,14 @@ class PaidAPIRunner(FreeAPIRunner):
 
     name = "paid-api"
 
+    def _auth_headers(self) -> dict[str, str]:
+        from .execution_scope import managed_budget_gate
+
+        gate = managed_budget_gate(Path.cwd(), next_cost_usd=None)
+        if gate["denied"]:
+            raise RuntimeError("; ".join(gate["reasons"]))
+        return super()._auth_headers()
+
     def __init__(
         self,
         base_url: str,

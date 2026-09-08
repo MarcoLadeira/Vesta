@@ -95,3 +95,126 @@ def test_managed_pipeline_requires_both_canonical_identifiers(tmp_path):
         with pytest.raises(ValueError):
             gui_pipeline.handle_gui_message(tmp_path, "work", authority_root=tmp_path)
         run.assert_not_called()
+
+
+def _budget_objective(tmp_path, *, objective_cap="10", assignment_cap="1"):
+    from opaihub.agent_objectives import ObjectiveStore
+
+    store = ObjectiveStore(tmp_path)
+    obj = store.create(
+        "Bounded edits",
+        assignments=[
+            {
+                "name": "first",
+                "objective": "First edit",
+                "intended_paths": ["a"],
+                "budget_usd": assignment_cap,
+            },
+            {
+                "name": "second",
+                "objective": "Second edit",
+                "intended_paths": ["b"],
+                "budget_usd": "2",
+            },
+        ],
+        budget_usd=objective_cap,
+    )
+    first = store.claim_next(obj["objective_id"], "owner-first")
+    return store, obj, first
+
+
+def test_assignment_cap_applies_to_each_call_and_counts_failed_attempts(tmp_path):
+    from opaihub.execution_scope import assignment_scope, managed_budget_gate
+
+    store, obj, first = _budget_objective(tmp_path)
+    child = tmp_path / "worker"
+    with assignment_scope(
+        child, tmp_path, task_id=first["task_id"], run_id=first["run_id"]
+    ):
+        ledger.record_event(
+            child,
+            "model_call",
+            task="failed attempt",
+            **{
+                "call_id": "failed-cost",
+                "cost_usd": 0.75,
+                "cost_usd_provenance": "actual",
+                "status": "failed",
+            },
+        )
+        gate = managed_budget_gate(child, next_cost_usd="0.30")
+    assert gate["denied"]
+    assert any("Assignment budget" in reason for reason in gate["reasons"])
+    assert store.snapshot(obj["objective_id"])["cost_usd"] == "0"
+
+
+def test_objective_cap_includes_other_reservations_but_not_own_twice(tmp_path):
+    from opaihub.execution_scope import assignment_scope, managed_budget_gate
+
+    store, obj, first = _budget_objective(
+        tmp_path, objective_cap="3", assignment_cap="1"
+    )
+    second = store.claim_next(obj["objective_id"], "owner-second")
+    assert second is not None
+    child = tmp_path / "worker"
+    with assignment_scope(
+        child, tmp_path, task_id=first["task_id"], run_id=first["run_id"]
+    ):
+        assert managed_budget_gate(child, next_cost_usd="1")["allowed"]
+        store.control(obj["objective_id"], "budget", value="2.9")
+        assert managed_budget_gate(child, next_cost_usd="1")["denied"]
+
+
+def test_unknown_and_estimated_prior_costs_fail_closed_under_assignment_cap(tmp_path):
+    from opaihub.execution_scope import assignment_scope, managed_budget_gate
+
+    _, _, first = _budget_objective(tmp_path)
+    child = tmp_path / "worker"
+    with assignment_scope(
+        child, tmp_path, task_id=first["task_id"], run_id=first["run_id"]
+    ):
+        ledger.record_event(
+            child,
+            "model_call",
+            task="unpriced",
+            **{
+                "call_id": "unknown-cost",
+                "cost_usd": None,
+                "cost_usd_provenance": "unavailable",
+            },
+        )
+        assert managed_budget_gate(child, next_cost_usd="0.01")["denied"]
+
+
+def test_planner_obeys_parent_cap_and_unknown_next_call_fails_closed(tmp_path):
+    from opaihub.execution_scope import assignment_scope, managed_budget_gate
+    from opaihub.agent_objectives import ObjectiveStore
+
+    obj = ObjectiveStore(tmp_path).create("Plan bounded edits", budget_usd="0.5")
+    with assignment_scope(
+        tmp_path / "planner",
+        tmp_path,
+        task_id=obj["task_id"],
+        run_id=obj["run_id"] + "-plan",
+    ):
+        assert managed_budget_gate(tmp_path / "planner", next_cost_usd="0.6")["denied"]
+        assert managed_budget_gate(tmp_path / "planner", next_cost_usd="0.4")["allowed"]
+        assert managed_budget_gate(tmp_path / "planner", next_cost_usd=None)["denied"]
+
+
+def test_paid_transport_refuses_opaque_spend_under_objective_cap(tmp_path):
+    from opaihub.execution_scope import assignment_scope
+    from opaihub.local_runner import PaidAPIRunner
+
+    _, _, first = _budget_objective(tmp_path)
+    runner = PaidAPIRunner(
+        "https://example.invalid",
+        "model",
+        "unused-test-value",
+        pricing_model_id="model",
+    )
+    with assignment_scope(
+        tmp_path / "worker", tmp_path, task_id=first["task_id"], run_id=first["run_id"]
+    ):
+        with pytest.raises(RuntimeError, match="cannot enforce"):
+            runner._auth_headers()

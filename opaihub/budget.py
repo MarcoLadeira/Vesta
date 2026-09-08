@@ -419,6 +419,17 @@ def budget_gate(
             decision = level
         reasons.append(reason)
 
+    from .execution_scope import managed_budget_gate
+
+    managed = managed_budget_gate(
+        project_root,
+        next_cost_usd=next_cost_usd
+        if next_cost_usd > 0 or is_local or provider_type == "free_api"
+        else None,
+    )
+    for reason in managed["reasons"]:
+        escalate("deny", reason)
+
     # 0a. Unreadable budget configuration (#470): the user's caps may be gone,
     # so a paid/cloud route must fail closed instead of proceeding as if no
     # budget were set. A recovered backup is used transparently by load_budget.
