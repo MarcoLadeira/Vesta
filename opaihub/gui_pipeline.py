@@ -1047,7 +1047,12 @@ def _handle_gui_message(
     # most: a refusal recorded by the previous turn must not resurface as this
     # turn's approval card, and a grant the user issued earlier must not
     # authorize a push they were never asked about (Round 5 finding 1).
-    command_consent.begin_turn(command_grant)
+    # `run=turn_id` binds the approval to this turn. The handshake
+    # directory is one fixed per-user path shared by every OPai process on
+    # the machine, so without it a second window -- another repository,
+    # another run, a question its user was never asked -- could spend this
+    # window's push approval (#818 AC8).
+    command_consent.begin_turn(command_grant, run=turn_id)
     # One-shot edit grant from an edit-approval re-send (F26).
     edit_grant = bool(allow_edits_once or allowEditsOnce)
     prefs = load_gui_preferences(root)

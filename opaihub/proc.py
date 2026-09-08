@@ -172,7 +172,7 @@ def provider_child_env(
     grant — which would put pushing back to the dead end it used to be.
     An inherited session id is preserved when no explicit one is given.
     """
-    from .command_consent import consent_dir
+    from .command_consent import RUN_ENV, consent_dir, current_run
 
     source = dict(os.environ if base_env is None else base_env)
     exact = _ENV_DENY_EXACT.get(str(provider or "").lower(), frozenset())
@@ -186,6 +186,20 @@ def provider_child_env(
         env[name] = value
     env[AGENT_SESSION_ENV] = session_id or source.get(AGENT_SESSION_ENV) or "1"
     env[COMMAND_CONSENT_DIR_ENV] = str(consent_dir())
+    # Which run this child is working for, so the hook it launches can prove a
+    # one-shot approval was issued to *this* run before spending it (#818 AC8).
+    # Read from command_consent rather than passed in: the value would
+    # otherwise have to be threaded through AccountRunner and every provider
+    # adapter, and consent_dir is already resolved exactly this way.
+    #
+    # An inherited value is dropped when this process has no run of its own,
+    # for the same reason autonomy is: a stale identity from a parent session
+    # must never let a child spend an approval nobody granted it.
+    this_run = current_run()
+    if this_run:
+        env[RUN_ENV] = this_run
+    else:
+        env.pop(RUN_ENV, None)
     if autonomy is None:
         # Never let a stale value inherited from this process grant a child an
         # autonomy level its caller did not ask for: an unspecified level must

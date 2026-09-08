@@ -48,6 +48,19 @@ CONSENT_TTL_SECONDS = 1800
 _GRANT_NAME = "pending-grant.json"
 _REQUEST_NAME = "pending-request.json"
 
+# Which run a grant belongs to, carried into every provider child so the hook
+# subprocess that spends it can prove it is the run the user actually answered
+# for (#818 AC8). Defined here rather than in ``opaihub.proc`` because proc
+# imports this module and not the other way round -- this one stays
+# dependency-free so a provider CLI's hook can import it on every tool call.
+RUN_ENV = "OPAI_RUN_ID"
+
+# The run this process has armed a grant for. Set by :func:`begin_turn` and
+# read by ``opaihub.proc.provider_child_env`` when it builds a child
+# environment, so the run identity reaches the hook without being threaded
+# through AccountRunner and every provider adapter in between.
+_CURRENT_RUN = ""
+
 # One whole command that is exactly a ``git push``, with no shell chaining,
 # redirection, substitution, or a second command hidden behind an operator.
 # Push-equivalence below applies only to this shape, so an approval can never be
@@ -227,19 +240,55 @@ def _discard_path(target: Path) -> None:
         pass
 
 
-def begin_turn(grant: str | None = None) -> None:
+def _normalize_run(value: Any) -> str:
+    return str(value or "").strip()[:200]
+
+
+def resolve_run(explicit: str | None = None) -> str:
+    """Which run the caller is acting for: argument, then env, then this turn.
+
+    The hook that spends a grant is a *different process* from the one that
+    armed it, so it has no module state to read -- it learns its run from
+    ``OPAI_RUN_ID``, exported by ``provider_child_env``. In-process callers
+    fall back to whatever :func:`begin_turn` recorded.
+    """
+
+    if explicit is not None:
+        return _normalize_run(explicit)
+    from_env = _normalize_run(os.environ.get(RUN_ENV, ""))
+    if from_env:
+        return from_env
+    return _CURRENT_RUN
+
+
+def current_run() -> str:
+    """The run this process armed a grant for, for building a child env."""
+
+    return _CURRENT_RUN
+
+
+def begin_turn(grant: str | None = None, *, run: str | None = None) -> None:
     """Reset the handshake for a new turn, optionally arming one approval.
 
     Called before any provider runs. Clearing first is the important half: a
     refusal recorded by a previous turn must never be re-surfaced, and a grant
     the user issued for an earlier turn must never authorize this one.
+
+    ``run`` binds the grant to the run the user was asked about. Without it the
+    handshake directory is a fixed per-user path shared by every OPai process
+    on the machine, so a second window -- different repository, different run,
+    a question its user was never asked -- could spend the first window's
+    approval. Measured, not theorised: two processes, one grant, both told yes.
     """
+
+    global _CURRENT_RUN
 
     _discard(_REQUEST_NAME)
     _discard(_GRANT_NAME)
+    _CURRENT_RUN = _normalize_run(run)
     command = str(grant or "").strip()[:2_000]
     if command:
-        _write(_GRANT_NAME, {"command": command})
+        _write(_GRANT_NAME, {"command": command, "run": _CURRENT_RUN})
 
 
 def end_turn() -> None:
@@ -249,7 +298,10 @@ def end_turn() -> None:
     the user approved, the grant dies here rather than waiting for the TTL.
     """
 
+    global _CURRENT_RUN
+
     _discard(_GRANT_NAME)
+    _CURRENT_RUN = ""
 
 
 def granted_command() -> str:
@@ -257,6 +309,13 @@ def granted_command() -> str:
 
     payload = _read(_GRANT_NAME)
     return str((payload or {}).get("command") or "")
+
+
+def granted_run() -> str:
+    """Which run the standing grant was issued for, if any (non-consuming)."""
+
+    payload = _read(_GRANT_NAME)
+    return _normalize_run((payload or {}).get("run"))
 
 
 def grant_permits(grant: str, command: str) -> bool:
@@ -280,7 +339,24 @@ def grant_permits(grant: str, command: str) -> bool:
     return is_plain_push(left) and is_plain_push(right)
 
 
-def consume_grant(command: str) -> bool:
+def grant_belongs_to(grant_run: Any, caller_run: Any) -> bool:
+    """Whether a grant issued for ``grant_run`` may be spent by ``caller_run``.
+
+    Strict equality of the normalized values, and absence is a value. So:
+
+    * both absent -- an OPai that does not plumb run identity anywhere -- match,
+      and the handshake keeps working exactly as it did;
+    * both present and equal match;
+    * anything else does not, including a caller that cannot say which run it
+      is trying to spend a run-bound approval. It cannot prove the grant is
+      its own, and an approval nobody can attribute is precisely the thing
+      this check exists to refuse.
+    """
+
+    return _normalize_run(grant_run) == _normalize_run(caller_run)
+
+
+def consume_grant(command: str, *, run: str | None = None) -> bool:
     """Spend the one-shot grant on ``command``. False leaves it untouched.
 
     **Exactly once, across processes.** This used to read the file, check it,
@@ -301,8 +377,16 @@ def consume_grant(command: str) -> bool:
     user's approval quietly evaporating the moment the model attempted
     something else first -- and the window where it is briefly absent can only
     make a concurrent gate say no, which is the safe direction.
+
+    **And it must belong to this run.** The handshake directory is one fixed
+    per-user path, so every OPai window on the machine shares it. A second
+    window -- another repository, another run, a question its user was never
+    asked -- used to be able to spend the first window's push approval. A grant
+    for a different run is put back untouched, exactly like a grant for a
+    different command: it is still the other run's to spend.
     """
 
+    caller = resolve_run(run)
     grant = _path(_GRANT_NAME)
     claim = _path(f"{_GRANT_NAME}.{os.getpid()}.{time.time_ns():x}.claim")
     try:
@@ -312,13 +396,16 @@ def consume_grant(command: str) -> bool:
         # No grant, or another gate claimed it first. Both are "no".
         return False
     payload = _read_path(claim)
-    if payload is not None and grant_permits(
-        str(payload.get("command") or ""), command
+    if (
+        payload is not None
+        and grant_belongs_to(payload.get("run"), caller)
+        and grant_permits(str(payload.get("command") or ""), command)
     ):
         _discard_path(claim)
         return True
     if payload is not None:
-        # Not ours to spend. Return it for the command it was actually for.
+        # Not ours to spend -- wrong command, or wrong run. Put it back for
+        # whoever it was actually issued to.
         try:
             os.replace(claim, grant)
             return False

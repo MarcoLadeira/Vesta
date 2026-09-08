@@ -39,6 +39,13 @@ class _IsolatedConsent(unittest.TestCase):
         )
         patcher.start()
         self.addCleanup(patcher.stop)
+        # Run identity is ambient in two places -- a module global set by
+        # begin_turn, and OPAI_RUN_ID in the environment. Both are cleared, or
+        # one test's run leaks into the next and the isolation this fixture
+        # exists for would only be half true.
+        os.environ.pop(command_consent.RUN_ENV, None)
+        command_consent._CURRENT_RUN = ""
+        self.addCleanup(setattr, command_consent, "_CURRENT_RUN", "")
         self.dir = Path(self._tmp.name)
 
 
@@ -300,3 +307,158 @@ class OneApprovalAuthorisesExactlyOneCommandTests(_IsolatedConsent):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ApprovalsBelongToOneRunTests(_IsolatedConsent):
+    """#818 AC8: stale/foreign approvals cannot authorize a different run.
+
+    ``consent_dir()`` is a fixed per-user path -- deliberately, so a provider
+    CLI's hook subprocess can find it with no argument plumbing. The cost is
+    that every OPai window on the machine shares one handshake directory, and
+    the grant said only *which command* had been approved.
+
+    Measured before the fix, with two real processes: window A's user approved
+    a push in one repository, and window B -- a different repository, a
+    different run, a question its user was never asked -- consumed it and was
+    told yes.
+    """
+
+    def test_a_foreign_run_cannot_spend_the_approval(self):
+        command_consent.begin_turn("git push", run="run-A")
+
+        self.assertFalse(command_consent.consume_grant("git push", run="run-B"))
+
+    def test_the_owning_run_still_can(self):
+        """The refusal must not become the dead end this module removes."""
+
+        command_consent.begin_turn("git push", run="run-A")
+
+        self.assertTrue(command_consent.consume_grant("git push", run="run-A"))
+
+    def test_a_refused_run_leaves_the_grant_for_its_owner(self):
+        command_consent.begin_turn("git push", run="run-A")
+
+        self.assertFalse(command_consent.consume_grant("git push", run="run-B"))
+        self.assertEqual(command_consent.granted_command(), "git push")
+        self.assertTrue(command_consent.consume_grant("git push", run="run-A"))
+
+    def test_a_caller_with_no_run_cannot_spend_a_run_bound_grant(self):
+        """It cannot prove the approval is its own, so it does not get it."""
+
+        command_consent.begin_turn("git push", run="run-A")
+
+        self.assertFalse(command_consent.consume_grant("git push", run=""))
+
+    def test_an_unplumbed_install_keeps_working(self):
+        """Absent on both sides is a match: nothing about today's flow breaks."""
+
+        command_consent.begin_turn("git push")
+
+        self.assertTrue(command_consent.consume_grant("git push"))
+
+    def test_the_grant_records_which_run_it_was_issued_for(self):
+        command_consent.begin_turn("git push", run="run-A")
+
+        self.assertEqual(command_consent.granted_run(), "run-A")
+        payload = json.loads(
+            (self.dir / "pending-grant.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(payload["run"], "run-A")
+
+    def test_ending_a_turn_forgets_the_run(self):
+        command_consent.begin_turn("git push", run="run-A")
+        command_consent.end_turn()
+
+        self.assertEqual(command_consent.current_run(), "")
+
+    def test_run_identity_comes_from_the_environment_in_a_child(self):
+        """The hook that spends a grant is a different process from the one
+        that armed it, so it has no module state to read."""
+
+        command_consent.begin_turn("git push", run="run-A")
+        command_consent._CURRENT_RUN = ""  # as a fresh subprocess would start
+
+        with mock.patch.dict(os.environ, {command_consent.RUN_ENV: "run-B"}):
+            self.assertFalse(command_consent.consume_grant("git push"))
+        with mock.patch.dict(os.environ, {command_consent.RUN_ENV: "run-A"}):
+            self.assertTrue(command_consent.consume_grant("git push"))
+
+    def test_a_second_window_really_is_refused_across_processes(self):
+        """Threads share an interpreter; two OPai windows do not."""
+
+        command_consent.begin_turn("git push", run="run-A")
+        script = (
+            "import sys; sys.path.insert(0, r'{cwd}')\n"
+            "from opaihub import command_consent\n"
+            "print('YES' if command_consent.consume_grant('git push') else 'NO')\n"
+        ).format(cwd=os.getcwd())
+
+        def ask(run: str) -> str:
+            child = subprocess.Popen(  # nosec B603 - fixed argv
+                [sys.executable, "-c", script],
+                stdout=subprocess.PIPE,
+                text=True,
+                env={
+                    **os.environ,
+                    "OPAI_COMMAND_CONSENT_DIR": str(self.dir),
+                    command_consent.RUN_ENV: run,
+                },
+            )
+            return child.communicate(timeout=90)[0].strip()
+
+        self.assertEqual(ask("run-B"), "NO", "a foreign window spent the approval")
+        self.assertEqual(ask("run-A"), "YES", "the owning window was refused")
+
+    def test_run_matching_is_strict_about_absence(self):
+        self.assertTrue(command_consent.grant_belongs_to("", ""))
+        self.assertTrue(command_consent.grant_belongs_to(None, ""))
+        self.assertTrue(command_consent.grant_belongs_to("run-A", "run-A"))
+        self.assertTrue(command_consent.grant_belongs_to(" run-A ", "run-A"))
+        self.assertFalse(command_consent.grant_belongs_to("run-A", ""))
+        self.assertFalse(command_consent.grant_belongs_to("", "run-A"))
+        self.assertFalse(command_consent.grant_belongs_to("run-A", "run-B"))
+
+
+class RunIdentityReachesTheChildTests(_IsolatedConsent):
+    """The plumbing, without which the check above would refuse everything."""
+
+    def test_a_provider_child_is_told_which_run_it_serves(self):
+        from opaihub.proc import provider_child_env
+
+        command_consent.begin_turn("git push", run="turn-42")
+        env, _removed = provider_child_env("claude", autonomy="safe-auto")
+
+        self.assertEqual(env.get(command_consent.RUN_ENV), "turn-42")
+
+    def test_a_stale_inherited_run_is_dropped(self):
+        """Same rule as autonomy: an identity nobody set here is not inherited."""
+
+        from opaihub.proc import provider_child_env
+
+        command_consent.end_turn()
+        env, _removed = provider_child_env(
+            "claude", base_env={command_consent.RUN_ENV: "someone-elses-run"}
+        )
+
+        self.assertIsNone(env.get(command_consent.RUN_ENV))
+
+
+class ThePipelineActuallyBindsTheGrantTests(unittest.TestCase):
+    """The check above is worthless if nothing ever passes a run.
+
+    This branch has already found five pieces of #613 machinery that nothing
+    imported -- a tested reader wired into nothing at all. A run-bound grant
+    with an unbound caller would be the sixth: every test above would pass and
+    every real approval would still be spendable by any window on the machine.
+    """
+
+    def test_handle_gui_message_arms_the_grant_for_its_own_turn(self):
+        from pathlib import Path as _Path
+
+        source = _Path("opaihub/gui_pipeline.py").read_text(encoding="utf-8")
+
+        self.assertIn(
+            "command_consent.begin_turn(command_grant, run=turn_id)",
+            source,
+            "the pipeline must bind the approval to the turn it belongs to",
+        )
