@@ -74,6 +74,29 @@ _OPERATION_STATES = (
     "reconciled",
     "uncertain",
 )
+
+#: How far along an operation each state is. An operation may move forward
+#: through these and never back.
+#:
+#: The `runs` table has forbidden terminal regression since #613 -- re-admitting
+#: a settled run raises rather than clearing its verdict. `operations` had no
+#: such guard: `record_operation` set `state` unconditionally, so any caller
+#: writing an earlier state over a later one would quietly un-reconcile a
+#: settled external effect. Nothing does today, because the two layers that
+#: write operations happen to use disjoint key schemes -- which is luck, not
+#: design, and it is exactly the luck that runs out when those keys are
+#: unified (#818 asks for one operation identity per external effect).
+#:
+#: ``uncertain`` is deliberately absent: it is an escalation, not a position on
+#: the ladder. An outcome that becomes unknowable after it was reconciled is a
+#: real thing to be able to record, and refusing it would be the opposite of
+#: honest.
+_OPERATION_PROGRESS = {
+    "intended": 0,
+    "executing": 1,
+    "observed": 2,
+    "reconciled": 3,
+}
 _COST_KINDS = ("actual", "derived", "estimated", "unavailable")
 
 
@@ -958,6 +981,16 @@ def record_operation(
         existing = connection.execute(
             "SELECT state FROM operations WHERE operation_key = ?", (operation_key,)
         ).fetchone()
+        if existing is not None and _would_regress(str(existing["state"]), state):
+            # Refused rather than ignored. A caller writing an earlier state
+            # over a later one has a real bug -- it believes an effect is still
+            # in flight that this store has already settled -- and swallowing
+            # it would leave the two of them disagreeing silently, which is the
+            # failure mode this journal exists to remove.
+            raise JournalStoreError(
+                f"operation {operation_key!r} is already {existing['state']!r};"
+                f" it cannot go back to {state!r}"
+            )
         if existing is None:
             connection.execute(
                 "INSERT INTO operations(operation_key, kind, target_digest, state,"
@@ -993,6 +1026,22 @@ def record_operation(
             ),
         )
         return False
+
+
+def _would_regress(current: str, proposed: str) -> bool:
+    """True when ``proposed`` is behind ``current`` on the operation ladder.
+
+    Anything off the ladder -- ``uncertain``, or a state a newer OPai wrote
+    that this build does not know -- is never a regression. Refusing a state
+    we cannot rank would turn a forwards-compatibility problem into a hard
+    failure, and this is the wrong place to be strict about that.
+    """
+
+    here = _OPERATION_PROGRESS.get(current)
+    there = _OPERATION_PROGRESS.get(proposed)
+    if here is None or there is None:
+        return False
+    return there < here
 
 
 def record_cost(
