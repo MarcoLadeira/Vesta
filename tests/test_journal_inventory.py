@@ -94,6 +94,14 @@ JOURNAL_OWNED = {
     "opaihub/workflow_runner.py": "runs — run/step transitions",
     "opaihub/background_runs.py": "runs — background run records and notifications",
     "opaihub/agent_runtime.py": "runs — agent process state",
+    # Owns the cancellation phase ladder -- "cancellation and teardown
+    # evidence" in #818's canonical-record list. Its authority is already a
+    # sequenced run_journal rather than a snapshot file, so its dual read
+    # compares that phase log against the cancel-phase events mirrored into
+    # the canonical journal, which is the pair that can actually disagree.
+    "opaihub/cancellation_lifecycle.py": (
+        "events — cancellation phase evidence (requested -> terminated)"
+    ),
     "opaihub/owner_lease.py": "leases — ownership and fencing",
     "opaihub/worktree_leases.py": "leases — worktree ownership",
     "opaihub/session_registry.py": "leases — cross-process active provider sessions",

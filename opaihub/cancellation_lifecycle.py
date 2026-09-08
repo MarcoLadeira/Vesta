@@ -331,3 +331,75 @@ class CancellationTracker:
             "history": list(self.history()),
             "metrics": self.metrics().to_dict(),
         }
+
+
+def cancellation_contradiction_report(
+    project_root: Path,
+    scope_id: str,
+    *,
+    journal_run_id: str,
+) -> dict[str, Any] | None:
+    """``None`` when this scope's phase log and its canonical mirror agree.
+
+    #613 Stage 2 asks every module that owns runtime truth for a *dual read*:
+    a way to ask whether the record it owns and the journal it is migrating
+    into still say the same thing. Without one, a mirror is just a second
+    place for the answer to drift, and the drift is found in Stage 4 -- long
+    after both records started being trusted.
+
+    This module is an unusual case and the shape reflects it. It has no legacy
+    JSON snapshot to compare against a shadow: its authority is already an
+    append-only sequenced log (``run_journal``), and its mirror is the
+    cancellation-phase events in the canonical SQLite journal. So the two
+    sides compared here are those two phase sequences.
+
+    A scope with no ``journal_run_id`` was never mirrored anywhere -- scope
+    ids are namespaced per caller and only some name a journalled run -- so
+    there is nothing to disagree with and that is reported as agreement. A
+    journal that cannot be *read*, though, is not agreement: it comes back as
+    a report saying so, because "I could not look" and "they match" are
+    different answers and only one of them is reassuring.
+    """
+
+    tracker = CancellationTracker(project_root, scope_id, journal_run_id=journal_run_id)
+    authoritative = [str(entry["phase"]) for entry in tracker.history()]
+    run_id = str(journal_run_id or "").strip()
+    if not run_id:
+        return None
+
+    try:
+        from . import journal_runtime, journal_store
+
+        store = journal_store.open_store(project_root)
+        try:
+            mirrored = [
+                str((event.get("payload") or {}).get("phase") or "")
+                for event in journal_store.read_events(store, run_id=run_id)
+                if event.get("event_type") == journal_runtime.EVENT_CANCEL_PHASE
+            ]
+        finally:
+            store.close()
+    except Exception as exc:  # noqa: BLE001 - an unreadable journal is a finding
+        return {
+            "scope_id": tracker.scope_id,
+            "run_id": run_id,
+            "comparable": False,
+            "reason": type(exc).__name__,
+            "authoritative": authoritative,
+            "mirrored": [],
+        }
+
+    if authoritative == mirrored:
+        return None
+    return {
+        "scope_id": tracker.scope_id,
+        "run_id": run_id,
+        "comparable": True,
+        "authoritative": authoritative,
+        "mirrored": mirrored,
+        # The mirror is best-effort by design -- a cancellation must never be
+        # refused by its own bookkeeping -- so "the journal is behind" is the
+        # expected shape of a disagreement, and naming it separately keeps a
+        # dropped event from reading like a reordering.
+        "mirror_is_behind": mirrored == authoritative[: len(mirrored)],
+    }
