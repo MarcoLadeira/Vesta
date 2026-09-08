@@ -1209,6 +1209,8 @@ def pipeline_executor(
             mode=mode,
             cancel=cancel_event,
             allow_cloud=run.allow_cloud,
+            # Nobody is sitting in front of this one (#818 AC2).
+            surface="background",
         )
 
     return _execute

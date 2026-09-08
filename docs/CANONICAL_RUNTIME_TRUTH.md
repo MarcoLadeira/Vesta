@@ -205,9 +205,18 @@ for, in the confident direction:
 | terminal states are earned | did this run die? | "the owning session ended" (it had not) |
 | unknown cost is not zero | what did today cost? | `$0.00` |
 | approvals are consumed once | may I run this? | yes, to all eight racers |
+| approvals bind to a run | is this approval mine? | yes, to a different window's run |
+| the install works | is OPai healthy? | `ready`, with a dead desktop icon |
+| one canonical origin | which surface asked? | `"gui"`, for CLI and background too |
+| a claim is exact-once | did I just create this? | yes, on every retry |
 
 None of these were reported as unknowns. Each was a plausible answer with
 nothing behind it, which is the failure the epic names in its own words.
+
+The last four were found after the first four, by looking for the same shape
+somewhere else. That turned out to be a reliable way to find real defects:
+every place OPai returns a value that *could* be "I do not know" is a place
+worth checking, because the confident answer is usually still there.
 
 ## Also measured, not fixed here
 
@@ -410,12 +419,66 @@ unknowable after it was reconciled is a real thing to record -- and so is any
 state a newer OPai wrote that this build cannot rank, because refusing that
 would turn a forwards-compatibility problem into a hard failure.
 
+
+## The install itself was the loudest instance
+
+Reported as "the app is giving me some error message". It was worse than an
+error message: the desktop icon exited 1 with no window, no dialog, no log
+line and nothing on stderr.
+
+OPai's updater reinstalls OPai with `sys.executable -m pip install -e .`.
+Inside the desktop app that interpreter is `pythonw.exe`, and pip's vendored
+distlib builds a `gui_scripts` launcher by substring substitution --
+`fn.replace("python", "pythonw")` -- so `pythonw.exe` became `pythonww.exe`,
+which is not a file. **Updating OPai from inside OPai killed the way the user
+opens OPai.** The console scripts were damaged more quietly by the same
+install: they inherited `pythonw.exe`, where `sys.stdout` is `None`, so
+`opai --version` in a terminal printed nothing.
+
+Measured on this machine, before any change:
+
+```
+OPai-Desktop.exe  MISSING  C:\Python313\pythonww.exe
+opai-gui.exe      MISSING  C:\Python313\pythonww.exe
+opai.exe          OK       C:\Python313\pythonw.exe
+```
+
+And `opai doctor` said `readiness: ready`, because every other component was
+genuinely clean and nothing had ever read the launchers. `opaihub.proc.console_interpreter`
+fixes the cause; `opaihub.launcher_health` makes the question answerable, and
+an unreadable launcher reports `unreadable` rather than healthy.
+
+## Two identities that were never recorded
+
+**Which surface asked.** `handle_gui_message` is the one turn pipeline, and
+five things call it: the QtWebEngine desktop, the classic desktop host,
+`opai ask`/`opai route`, background automations and `opai build`. Admission
+recorded `surface="gui"` as a literal, so all five were filed as desktop runs.
+`journal_retirement` already groups runs by `origin_surface` to report
+populations -- that report could only ever have had one row. AC2 asks for GUI,
+CLI and background projections built from one canonical state, and the state
+could not tell them apart.
+
+The default now refuses to guess: a caller that does not say is recorded as
+`unknown`, because a sixth surface silently inheriting the desktop's name is
+the same bug in a fresh disguise. The wiring is checked by an AST walk rather
+than a string search, so a *new* call site is caught too -- which immediately
+found one, hidden inside a `**kwargs` dict.
+
+**Which run an approval belongs to.** `consent_dir()` is a fixed per-user path
+so a provider CLI's hook subprocess can find it with no argument plumbing. The
+cost is that every OPai window shares one handshake directory, and the grant
+recorded only *which command* had been approved. Measured with two real
+processes: window A's user approved a push in one repository, and window B --
+another repository, another run, a question its user was never asked --
+consumed it and was told yes.
+
 ## Status
 
 | Migration step (per #818) | State |
 | --- | --- |
-| 1. Inventory every authoritative writer/reader | measured, above |
-| 2. Parity assertions, legacy vs canonical | not started |
+| 1. Inventory every authoritative writer/reader | measured, above; the last unclassified writer (`cancellation_lifecycle`) now has an owner |
+| 2. Parity assertions, legacy vs canonical | partial -- `cancellation_lifecycle` gained the dual read it never had |
 | 3. Cut over one local-provider path | not started |
 | 4. Cut over one account-provider path | not started |
 | 5. Cut over cancellation, verification, cost, delivery | not started |

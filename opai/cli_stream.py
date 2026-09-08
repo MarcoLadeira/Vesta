@@ -272,6 +272,11 @@ def stream_ask(
                     on_event=on_event,
                     on_text=on_text,
                     cancel=cancel,
+                    # This is the terminal, not the desktop. Without it the
+                    # canonical journal recorded every `opai ask` and
+                    # `opai route` as a GUI run, because the pipeline they
+                    # share admits with a hardcoded surface (#818 AC2).
+                    surface="cli",
                 )
             )
         except Exception as exc:  # noqa: BLE001 - degrade to a clean error result

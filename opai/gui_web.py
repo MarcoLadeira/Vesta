@@ -2738,6 +2738,10 @@ def _run_gui(
                     allow_command=str(payload.get("allowCommand") or "") or None,
                     allow_edits_once=bool(payload.get("allowEditsOnce", False)),
                     resume_context=resume_context,
+                    # Named rather than defaulted, so a caller that
+                    # forgets records "unknown" instead of quietly
+                    # claiming to be the desktop (#818 AC2).
+                    surface="gui",
                 )
 
             worker = Worker(job)

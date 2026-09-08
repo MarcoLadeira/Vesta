@@ -867,6 +867,20 @@ def _record_turn_ending(root: Path, status: str, reason: str) -> None:
         )
 
 
+#: Surfaces the canonical journal recognises as an origin. A closed set on
+#: purpose: `origin_surface` is what a projection groups by, so a free-text
+#: value would fragment the very grouping it exists to make possible. Anything
+#: unrecognised is recorded as "unknown", which is honest -- it says the run
+#: came from somewhere this build cannot name, rather than silently filing it
+#: under whichever surface happened to be the default.
+KNOWN_SURFACES = ("gui", "cli", "background", "agent", "automation")
+
+
+def _normalized_surface(surface: Any) -> str:
+    value = str(surface or "").strip().lower()
+    return value if value in KNOWN_SURFACES else "unknown"
+
+
 def _handle_gui_message(
     project_root: Path,
     message: str,
@@ -887,6 +901,17 @@ def _handle_gui_message(
     allow_edits_once: bool = False,
     allowEditsOnce: bool = False,
     defer_checkpoint_finalization: bool = False,
+    # Which surface asked for this turn. The CLI, background automations
+    # and `opai build` all run through this exact pipeline, so an
+    # admission hardcoded to "gui" recorded every one of them as a
+    # desktop run -- and #818 AC2 asks for GUI, CLI and background
+    # projections built from one canonical state, which is impossible
+    # when the state cannot tell them apart.
+    #
+    # The default does not guess. A caller that does not say is recorded
+    # as "unknown", because a new surface silently inheriting the
+    # desktop's name is the same mistake in a fresh disguise.
+    surface: str = "",
 ) -> dict[str, Any]:
     """Run one chat turn. With ``on_event``/``on_text``/``cancel`` supplied it
     emits live activity and streams account output; without them it behaves
@@ -1163,7 +1188,7 @@ def _handle_gui_message(
             run_id=turn_id,
             task=message,
             now=_iso_now(),
-            surface="gui",
+            surface=_normalized_surface(surface),
             session=current_conversation_id(root),
             mode=mode,
             model=model_id,
