@@ -2,13 +2,10 @@
 // Library and the seven Insights dashboards are routable but not rendered --
 // they live in Settings -> Tools & Insights now, so the sidebar is the
 // conversation and the user's own history.
-export const FULL_NAV = [
-  {
-    group: "",
-    collapsed: false,
-    items: [{ id: "chat", label: "Chat", kind: "view" }],
-  },
-];
+// Mirrors opai.gui_nav.nav_groups(): nothing is listed. The sidebar is the
+// chat list -- Chat, Prompt Library and the Insights dashboards are all
+// routable but unlisted, and New chat is a header action.
+export const FULL_NAV = [];
 
 export const MODELS = [
   {

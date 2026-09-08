@@ -447,13 +447,10 @@ class BootPayloadTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
             payload = self._boot(root)
-        # One unlabeled group holding Chat. Prompt Library and the Insights
-        # dashboards render in Settings -> Tools & Insights instead of above
-        # the user's own chat history.
-        self.assertEqual([g["group"] for g in payload["navGroups"]], [""])
-        by_name = {g["group"]: g for g in payload["navGroups"]}
-        self.assertFalse(by_name[""].get("collapsed"))
-        self.assertEqual([i["id"] for i in by_name[""]["items"]], ["chat"])
+        # No nav rows at all: the sidebar is the recents list. Chat, Prompt
+        # Library and the Insights dashboards are routable but unlisted, and
+        # New chat is a header action.
+        self.assertEqual(payload["navGroups"], [])
 
     def test_models_carry_badges_and_auto_present(self):
         with tempfile.TemporaryDirectory() as tmp:

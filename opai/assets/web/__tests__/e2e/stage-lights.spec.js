@@ -107,7 +107,7 @@ test("starting a new chat puts the lights back out", async ({ page }) => {
   await page.locator("#send").click();
   await expect.poll(() => stage(page)).toBe("lit");
 
-  await page.locator("#newChat").click();
+  await page.locator("#headerNewChat").click();
 
   await expect.poll(() => stage(page)).toBe("dark");
 });

@@ -2,42 +2,36 @@ import { test, expect } from "@playwright/test";
 
 import { openApp } from "./helpers/app.js";
 
-// The production first-run contract: a brand-new user sees the conversation and
-// their own history -- Chat, Recents, Settings in the footer -- and nothing
-// else. Prompt Library and the seven Insights pages live in Settings ->
-// Tools & Insights, still routable but not occupying the rail.
+// The production first-run contract: the sidebar is the user's own chat list
+// and nothing else. Chat, Prompt Library and the seven Insights pages are all
+// routable but unlisted -- a "Chat" row above your chats is a link to where you
+// already are -- and New chat is a header action.
 const SIMPLE_BOOT = {
-  boot: {
-    navGroups: [
-      { group: "", items: [{ id: "chat", label: "Chat" }], collapsed: false },
-    ],
-    prefs: { showPanel: false },
-  },
+  boot: { navGroups: [], prefs: { showPanel: false } },
 };
 
-test("first-run sidebar is the conversation and nothing else", async ({ page }) => {
+test("first-run sidebar is the chat list and nothing else", async ({ page }) => {
   await openApp(page, SIMPLE_BOOT);
-  await expect(page.locator(".nav-item:visible")).toHaveCount(1);
-  await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible();
-  // The two things that used to sit above the user's own chat history.
+  await expect(page.locator(".nav-item:visible")).toHaveCount(0);
+  await expect(page.locator(".nav-group-toggle")).toHaveCount(0);
+  // What the rail used to carry above the user's own history.
   await expect(
     page.getByRole("button", { name: "Prompt Library", exact: true })
   ).toHaveCount(0);
-  await expect(page.locator(".nav-group-toggle")).toHaveCount(0);
+  // The recents list is still the point of the rail.
+  await expect(page.locator(".recents-label")).toBeVisible();
 });
 
-test("New chat is offered once, not twice", async ({ page }) => {
-  // The header copy is the fallback for a collapsed sidebar; with the sidebar
-  // showing, two buttons competed for the same click.
+test("New chat is a header action, offered once", async ({ page }) => {
   await openApp(page, SIMPLE_BOOT);
-  await expect(page.locator("#newChat")).toBeVisible();
-  await expect(page.locator("#headerNewChat")).toBeHidden();
-});
-
-test("collapsing the sidebar brings New chat back to the header", async ({ page }) => {
-  await openApp(page, SIMPLE_BOOT);
-  await page.locator("#sidebarToggle").click();
+  await expect(page.locator("#newChat")).toHaveCount(0);
   await expect(page.locator("#headerNewChat")).toBeVisible();
+});
+
+test("New chat still starts a chat from the header", async ({ page }) => {
+  await openApp(page, SIMPLE_BOOT);
+  await page.locator("#headerNewChat").click();
+  await expect(page.locator("#view-chat")).toBeVisible();
 });
 
 test("inspector stays out of the way by default but is one click away", async ({ page }) => {
