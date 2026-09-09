@@ -122,28 +122,72 @@ describe("doctorSummary (#237)", () => {
 describe("section registry (#236)", () => {
   it("exposes the target taxonomy in order", () => {
     expect(OPaiSettings.sections.map((s) => s.id)).toEqual([
-      "overview",
-      "providers",
-      "balance",
+      "general",
       "models",
-      "firewall",
+      "connections",
       "usage",
-      "permissions",
-      // Prompt Library and the Insights dashboards left the sidebar and land
-      // here, so Settings is where you go looking for them now.
-      "tools",
-      "privacy",
+      "safety",
       "appearance",
-      "about",
+      "advanced",
     ]);
   });
 
-  it("every section has a title, keywords, and a render function", () => {
+  it("every section has a unique id, title, keywords, and a render function", () => {
+    expect(new Set(OPaiSettings.sections.map((section) => section.id)).size).toBe(
+      OPaiSettings.sections.length,
+    );
     for (const section of OPaiSettings.sections) {
       expect(section.title).toBeTruthy();
       expect(section.keywords).toBeTruthy();
       expect(typeof section.render).toBe("function");
     }
+  });
+
+  it("keeps historical Settings links mapped to their canonical destination", () => {
+    expect(OPaiSettings.resolveSettingsTarget("overview")).toEqual({
+      sectionId: "general",
+      subsectionId: "defaults",
+    });
+    expect(OPaiSettings.resolveSettingsTarget("providers")).toEqual({
+      sectionId: "connections",
+      subsectionId: "connections",
+    });
+    expect(OPaiSettings.resolveSettingsTarget("balance")).toEqual({
+      sectionId: "usage",
+      subsectionId: "balances",
+    });
+    expect(OPaiSettings.resolveSettingsTarget("firewall")).toEqual({
+      sectionId: "usage",
+      subsectionId: "budgets",
+    });
+    expect(OPaiSettings.resolveSettingsTarget("permissions")).toEqual({
+      sectionId: "safety",
+      subsectionId: "permissions",
+    });
+    expect(OPaiSettings.resolveSettingsTarget("privacy")).toEqual({
+      sectionId: "safety",
+      subsectionId: "privacy",
+    });
+    expect(OPaiSettings.resolveSettingsTarget("tools")).toEqual({
+      sectionId: "advanced",
+      subsectionId: "tools",
+    });
+    expect(OPaiSettings.resolveSettingsTarget("about")).toEqual({
+      sectionId: "advanced",
+      subsectionId: "about",
+    });
+  });
+
+  it("indexes old product language without indexing credential values", () => {
+    const terms = Object.fromEntries(
+      OPaiSettings.sections.map((section) => [section.id, section.keywords]),
+    );
+    expect(terms.connections).toMatch(/provider.*api key|api key.*provider/);
+    expect(terms.usage).toMatch(/balance/);
+    expect(terms.usage).toMatch(/firewall/);
+    expect(terms.safety).toMatch(/permissions/);
+    expect(terms.safety).toMatch(/privacy/);
+    expect(Object.values(terms).join(" ")).not.toMatch(/secret|token value|credential value/i);
   });
 });
 
@@ -160,15 +204,15 @@ describe("Appearance response preferences", () => {
   it("renders a distinct Compact, Balanced, Detailed response density control", () => {
     const html = section().render({ prefs: { response_density: "detailed" } }, ctx);
     expect(html).toContain('data-appearance-key="response_density"');
-    expect(html).toMatch(/data-value="detailed"[^>]*aria-pressed="true"/);
+    expect(html).toMatch(/data-value="detailed"[^>]*aria-checked="true"/);
     expect(html).toContain(">Balanced<");
   });
 
   it("reads composer style from either persisted snake_case or boot camelCase", () => {
     const raw = section().render({ prefs: { composer_style: "single" } }, ctx);
     const boot = section().render({ prefs: { composerStyle: "command" } }, ctx);
-    expect(raw).toMatch(/data-value="single"[^>]*aria-pressed="true"/);
-    expect(boot).toMatch(/data-value="command"[^>]*aria-pressed="true"/);
+    expect(raw).toMatch(/data-value="single"[^>]*aria-checked="true"/);
+    expect(boot).toMatch(/data-value="command"[^>]*aria-checked="true"/);
   });
 });
 
@@ -180,7 +224,7 @@ describe("Credits & Balance section", () => {
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
   const ctx = { esc, state: { boot: {} } };
-  const section = () => OPaiSettings.sections.find((s) => s.id === "balance");
+  const section = () => OPaiSettings.sections.find((s) => s.id === "usage");
   const sample = () => ({
     providerBalances: [
       { provider: "claude", displayName: "Claude", status: "ok", amount: 85, currency: "EUR", percent: 100, source: "manual", supportsLiveBalance: false, checkedAt: null, rechargeHint: "x", configured: true },
@@ -224,8 +268,10 @@ describe("Credits & Balance section", () => {
     expect(html).toContain('id="balanceRefresh"');
   });
 
-  it("renders nothing when the payload has no balances (older backend)", () => {
-    expect(section().render({}, ctx)).toBe("");
+  it("omits balance cards when an older backend has no balance payload", () => {
+    const html = section().render({}, ctx);
+    expect(html).toContain("Usage &amp; Budgets");
+    expect(html).not.toContain("data-balance-provider");
   });
 });
 
@@ -237,7 +283,7 @@ describe("About page: update status (mandatory-update system)", () => {
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
   const ctx = { esc, state: { boot: {} } };
-  const section = () => OPaiSettings.sections.find((s) => s.id === "about");
+  const section = () => OPaiSettings.sections.find((s) => s.id === "advanced");
   const base = {
     version: "0.2.1a1",
     release_stage: "alpha.1",
@@ -441,14 +487,14 @@ describe("Model Usage section", () => {
 
   it("renders a discoverable empty state when nothing is connected", () => {
     const html = section().render({ providerUsage: [] }, ctx);
-    expect(html).toContain("Model Usage");
+    expect(html).toContain("Usage &amp; Budgets");
     expect(html).toContain("No providers connected yet");
     expect(html).not.toContain("undefined");
   });
 
   it("degrades gracefully when the payload predates providerUsage", () => {
     const html = section().render({}, ctx);
-    expect(html).toContain("Model Usage");
+    expect(html).toContain("Usage &amp; Budgets");
     expect(html).not.toContain("undefined");
   });
 });

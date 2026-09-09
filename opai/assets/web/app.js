@@ -390,6 +390,7 @@ function applyModelCatalog(catalog) {
       bridge.savePref("default_model", fallback.id);
     }
   }
+  renderComposerSelects();
 }
 
 function boot() {
@@ -1402,7 +1403,7 @@ function renderComposerContext() {
       if (target === "mode") $("#modeSel").focus();
       else if (target === "model") $("#modelSel").focus();
       else {
-        try { window.history.replaceState(null, "", "#settings/firewall"); } catch (_e) { /* best-effort deep link */ }
+        try { window.history.replaceState(null, "", "#settings/usage"); } catch (_e) { /* best-effort deep link */ }
         switchView("settings");
       }
     };
@@ -2835,8 +2836,8 @@ function openModelPicker() {
   }, 0);
 }
 
-function openSettingsPage(pageId = "overview") {
-  const target = String(pageId || "overview").replace(/[^\w-]/g, "") || "overview";
+function openSettingsPage(pageId = "general") {
+  const target = String(pageId || "general").replace(/[^\w-]/g, "") || "general";
   try { window.history.replaceState(null, "", `#settings/${target}`); } catch (_e) { /* best-effort deep link */ }
   switchView("settings");
 }
@@ -4540,7 +4541,7 @@ function runCommand(id) {
     case "savings": switchView("home"); break;
     case "firewall": switchView("firewall"); break;
     case "settings": switchView("settings"); break;
-    case "doctor": openSettingsPage("providers"); break;
+    case "doctor": openSettingsPage("connections"); break;
     case "connect": switchView("chat"); bridge.runTool("connect"); break;
     case "shortcuts": toast("Ctrl+K palette · Ctrl+N new · Ctrl+L focus · Ctrl+P prompts · Ctrl+I panel · Ctrl+O folder · Ctrl+M model · Ctrl+B sidebar · Esc stop · ? shortcuts"); break;
   }

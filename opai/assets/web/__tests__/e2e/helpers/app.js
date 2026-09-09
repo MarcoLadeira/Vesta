@@ -154,11 +154,25 @@ export async function emitScenarioBatch(page, requestId, events) {
   return events;
 }
 
-// Settings lands on the Overview page (settings redesign); specs that target a
-// specific page open it through the rail, exactly like a user.
+const SETTINGS_TARGETS = {
+  overview: "general",
+  providers: "connections",
+  balance: "usage",
+  firewall: "usage",
+  permissions: "safety",
+  privacy: "safety",
+  tools: "advanced",
+  about: "advanced",
+};
+
+// Specs may still use historical destinations to exercise compatibility, but
+// they click the canonical seven-page navigation a current user sees.
 export async function openSettings(page, id) {
-  await page.locator("#headerSettings").click();
-  if (id) await page.locator(`.settings-rail-item[data-rail-target="${id}"]`).click();
+  await openNav(page, "Settings");
+  if (id) {
+    const target = SETTINGS_TARGETS[id] || id;
+    await page.locator(`.settings-rail-item[data-rail-target="${target}"]`).click();
+  }
 }
 
 export async function openNav(page, label) {
@@ -166,7 +180,13 @@ export async function openNav(page, label) {
   // are reached from the header or from Settings -> Tools & Insights rather
   // than from a nav row.
   if (label === "Settings") {
-    await page.locator("#headerSettings").click();
+    const headerSettings = page.locator("#headerSettings");
+    if (await headerSettings.isVisible().catch(() => false)) {
+      await headerSettings.click();
+    } else {
+      await page.locator("#sidebarToggle").click();
+      await page.locator("#footSettings").click();
+    }
     return;
   }
   if (label === "Chat") {
@@ -178,9 +198,9 @@ export async function openNav(page, label) {
     await target.click();
     return;
   }
-  // Prompt Library and the Insights dashboards live in Settings now.
-  await page.locator("#headerSettings").click();
-  await page.locator('.settings-rail-item[data-rail-target="tools"]').click();
+  // Prompt Library and the Insights dashboards live under Advanced.
+  await openNav(page, "Settings");
+  await page.locator('.settings-rail-item[data-rail-target="advanced"]').click();
   await page.locator(`[data-go-view] >> text=${label}`).first().click();
 }
 

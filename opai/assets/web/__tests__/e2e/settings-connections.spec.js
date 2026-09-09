@@ -178,8 +178,8 @@ test("connect accounts action delegates to the safe native tool", async ({ page 
 test("panic action delegates without performing a provider call", async ({ page }) => {
   await openApp(page);
   await openSettings(page, "providers");
-  await page.locator('.settings-rail-item[data-rail-target="firewall"]').click();
-  await page.getByRole("button", { name: "Enable panic" }).click();
+  await page.locator('.settings-rail-item[data-rail-target="safety"]').click();
+  await page.getByRole("button", { name: "Use local only" }).click();
   expect(await page.evaluate(() => window.__mock.runTools)).toEqual(["panic"]);
   expect(await page.evaluate(() => window.__mock.sendCount)).toBe(0);
 });
@@ -252,8 +252,8 @@ test("settings shows an accessible usage bar and saves a soft limit", async ({ p
     },
   });
   await openSettings(page, "providers");
-  // Usage limits live on the Cost Firewall page (#238).
-  await page.locator('.settings-rail-item[data-rail-target="firewall"]').click();
+  // Usage limits live with budgets and consumption.
+  await page.locator('.settings-rail-item[data-rail-target="usage"]').click();
   const card = page.locator(`[data-model-id="${modelId}"]`);
   await expect(card).toContainText("2,500 / 5,000 tokens");
   await expect(card.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "50");

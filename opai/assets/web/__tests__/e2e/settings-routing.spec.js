@@ -14,8 +14,8 @@ test("defaults are editable and reflect in the composer immediately", async ({ p
   await openApp(page);
   await openNav(page, "Settings");
   await railItem(page, "models").click();
-
   await page.locator('select[data-default-pref="default_model"]').selectOption("account:claude:opus");
+  await railItem(page, "general").click();
   await page.locator('select[data-default-pref="default_mode"]').selectOption("approve-edits");
   const saved = await page.evaluate(() => window.__mock.savedPrefs);
   expect(saved).toContainEqual(["default_model", "account:claude:opus"]);
@@ -89,7 +89,7 @@ test("the run-mode select offers every mode, in order, Auto-apply included", asy
   // gate. There is no rewrite and no gate now.
   await openApp(page);
   await openNav(page, "Settings");
-  await railItem(page, "models").click();
+  await railItem(page, "general").click();
   const options = await page.locator('select[data-default-pref="default_mode"] option').allTextContents();
   expect(options).toEqual([
     "Ask",
@@ -99,7 +99,7 @@ test("the run-mode select offers every mode, in order, Auto-apply included", asy
     "Accept edits",
     "Bypass permissions",
   ]);
-  await expect(page.locator("#settingsPage")).toContainText("what OPai starts in, every time", seen);
+  await expect(page.locator("#settingsPage")).toContainText("approval mode OPai starts with", seen);
 });
 
 test("an Auto-apply default is shown as the selection it is, and stays changeable", async ({ page }) => {
@@ -107,7 +107,7 @@ test("an Auto-apply default is shown as the selection it is, and stays changeabl
     settings: { prefs: { default_model: "auto", default_mode: "full-auto" } },
   });
   await openNav(page, "Settings");
-  await railItem(page, "models").click();
+  await railItem(page, "general").click();
 
   const select = page.locator('select[data-default-pref="default_mode"]');
   await expect(select).toHaveValue("full-auto");
@@ -129,7 +129,7 @@ test("the routing explainer states the honest local-first order", async ({ page 
 test("budgets render caps, spend, and remaining honestly", async ({ page }) => {
   await openApp(page);
   await openNav(page, "Settings");
-  await railItem(page, "firewall").click();
+  await railItem(page, "usage").click();
   const settings = page.locator("#settingsPage");
   await expect(settings).toContainText("Daily cap", seen);
   await expect(settings).toContainText("$2.00 · $1.58 left", seen);
@@ -151,7 +151,7 @@ test("an invalid usage limit shows an inline error and saves nothing", async ({ 
     },
   });
   await openNav(page, "Settings");
-  await railItem(page, "firewall").click();
+  await railItem(page, "usage").click();
   const card = page.locator(`[data-model-id="${modelId}"]`);
   await card.getByLabel("Soft token limit").fill("0");
   await card.getByRole("button", { name: "Save limit" }).click();
@@ -171,7 +171,7 @@ test("a large token total is made legible by the model-call count (#334)", async
     },
   });
   await openNav(page, "Settings");
-  await railItem(page, "firewall").click();
+  await railItem(page, "usage").click();
   const card = page.locator(`[data-model-id="${modelId}"]`);
   // The alarming 700k is now explained: it came from 87 calls across 5 tasks.
   await expect(card).toContainText("87 model calls across 5 tasks", seen);

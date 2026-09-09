@@ -126,7 +126,7 @@ test("Replay tour in Settings -> About re-opens the tour", async ({ page }) => {
   await openApp(page); // returning user: no tour on boot
   await expect(overlay(page)).toHaveCount(0);
   await openNav(page, "Settings");
-  await page.locator('.settings-rail-item[data-rail-target="about"]').click();
+  await page.locator('.settings-rail-item[data-rail-target="advanced"]').click();
   await page.locator("#settingsReplayTour").click();
   await expect(overlay(page)).toBeVisible();
   await expect(overlay(page)).toContainText("Step 1 of 3");

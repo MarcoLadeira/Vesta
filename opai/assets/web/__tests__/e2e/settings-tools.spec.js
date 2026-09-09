@@ -2,14 +2,13 @@ import { test, expect } from "@playwright/test";
 
 import { openApp, openNav } from "./helpers/app.js";
 
-// Prompt Library and the seven Insights dashboards moved off the sidebar. That
-// is only an improvement if they are still reachable -- otherwise the change
-// did not relocate them, it removed them.
+// Prompt Library and the seven Insights dashboards remain reachable from the
+// Advanced destination after the Settings information architecture changed.
 
 async function openTools(page) {
   await openNav(page, "Settings");
-  await page.locator('.settings-rail-item[data-rail-target="tools"]').click();
-  await expect(page.locator("#settingsPage")).toContainText("Tools & Insights");
+  await page.locator('.settings-rail-item[data-rail-target="advanced"]').click();
+  await expect(page.locator("#settingsPage")).toContainText("Library");
 }
 
 test("Settings offers every page that left the sidebar", async ({ page }) => {

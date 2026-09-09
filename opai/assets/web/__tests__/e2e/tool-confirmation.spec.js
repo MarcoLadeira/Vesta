@@ -18,8 +18,8 @@ test("mutating tool renders an approval card — approve applies, exactly once",
   let dialogOpened = false;
   page.on("dialog", async (dialog) => { dialogOpened = true; await dialog.dismiss(); });
   await openNav(page, "Settings");
-  await page.locator('.settings-rail-item[data-rail-target="firewall"]').click();
-  await page.getByRole("button", { name: "Enable panic" }).click();
+  await page.locator('.settings-rail-item[data-rail-target="safety"]').click();
+  await page.getByRole("button", { name: "Use local only" }).click();
 
   // The gate is a real in-chat card, not a native browser dialog.
   const card = page.getByRole("group", { name: "Approval required" });
@@ -44,8 +44,8 @@ test("mutating tool renders an approval card — approve applies, exactly once",
 test("denied approval applies nothing and says so calmly", async ({ page }) => {
   await openApp(page, { toolResponses: { panic: MUTATING_TOOL } });
   await openNav(page, "Settings");
-  await page.locator('.settings-rail-item[data-rail-target="firewall"]').click();
-  await page.getByRole("button", { name: "Enable panic" }).click();
+  await page.locator('.settings-rail-item[data-rail-target="safety"]').click();
+  await page.getByRole("button", { name: "Use local only" }).click();
   const card = page.getByRole("group", { name: "Approval required" });
   await card.getByRole("button", { name: "Deny" }).click();
   await expect(card).toContainText("Denied — nothing was changed.");
@@ -85,8 +85,8 @@ test("approval card is keyboard-operable", async ({ page }) => {
     applyToolResponses: { panic: { text: "Panic mode enabled." } },
   });
   await openNav(page, "Settings");
-  await page.locator('.settings-rail-item[data-rail-target="firewall"]').click();
-  await page.getByRole("button", { name: "Enable panic" }).click();
+  await page.locator('.settings-rail-item[data-rail-target="safety"]').click();
+  await page.getByRole("button", { name: "Use local only" }).click();
   const approve = page.getByRole("button", { name: "Approve once" });
   await approve.focus();
   await page.keyboard.press("Enter");
