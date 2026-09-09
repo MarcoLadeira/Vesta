@@ -562,6 +562,7 @@ class ObjectiveStore:
                 or planning["fence"] != fence
             ):
                 raise StaleWriterError("Planning ownership or fence no longer matches")
+            self._require_terminated(planning)
             if obj["status"] == "stopping":
                 status, validated = "cancelled", []
             if validated:
@@ -686,6 +687,25 @@ class ObjectiveStore:
                         else []
                     )
                 )
+                if (
+                    item.get("pending_approval")
+                    and not item["owner"]
+                    and item["status"] == "needs-attention"
+                    and obj["status"] not in {"completed", "cancelled", "stopping"}
+                ):
+                    item["allowed_actions"].append("approve")
+            if (
+                0 < len(obj["assignments"]) < 32
+                and all(
+                    a["status"] == "completed" and not a["owner"]
+                    for a in obj["assignments"]
+                )
+                and not obj["planning"]["owner"]
+                and not obj["integration"]["owner"]
+                and obj["status"]
+                in {"completed", "ready-to-integrate", "needs-attention"}
+            ):
+                obj["allowed_actions"].append("request_review")
             from .receipt import _content_hash, build_objective_receipts
 
             costs = [
@@ -1040,6 +1060,7 @@ class ObjectiveStore:
             raise ValueError("Worker evidence must be an object")
         with self._db(True) as db:
             item = self._owned(db, objective_id, assignment_id, owner, fence)
+            self._require_terminated(item)
             if item["status"] == "stopping" and status == "completed":
                 status = "cancelled"
             item.update(
@@ -1052,6 +1073,13 @@ class ObjectiveStore:
                 result=result or {},
                 activity="Worker terminated",
             )
+            item.pop("pending_approval", None)
+            item.pop("approval_grant", None)
+            pending = self._pending_approval(result or {})
+            if pending and status != "cancelled":
+                item["status"] = status = "needs-attention"
+                item["pending_approval"] = {**pending, "request_id": _id("approval")}
+                item["blocked_reason"] = "Waiting for approval of this operation"
             self._save_assignment(db, item)
             obj = self._load(db, objective_id)
             self._event(
@@ -1061,6 +1089,188 @@ class ObjectiveStore:
                 {"assignment_id": assignment_id, "status": status, "fence": fence},
             )
             self._refresh(db, obj)
+        return self.snapshot(objective_id)
+
+    @staticmethod
+    def _pending_approval(result):
+        if result.get("scope_violations"):
+            return None
+        status = result.get("status")
+        if status == "needs_command_approval":
+            raw = result.get("command_approval")
+            if isinstance(raw, dict) and isinstance(raw.get("command"), str):
+                command = raw["command"].strip()
+                if command and len(command) <= 8000:
+                    return {
+                        "kind": "command",
+                        "command": command,
+                        "reason": str(raw.get("reason", ""))[:2000],
+                    }
+        if status == "needs_edit_approval":
+            raw = result.get("edit_approval")
+            if isinstance(raw, dict):
+                try:
+                    files = _paths(raw.get("files", []))
+                except ValueError:
+                    return None
+                if files:
+                    return {
+                        "kind": "edits",
+                        "files": files,
+                        "reason": "Allow file edits for one continuation attempt",
+                    }
+        return None
+
+    def approve(self, objective_id, assignment_id, value):
+        if not isinstance(value, dict) or set(value) != {"request_id"}:
+            raise ValueError("Approval requires the current request ID")
+        with self._db(True) as db:
+            obj = self._load(db, objective_id)
+            items = self._assignments(db, objective_id)
+            item = next((a for a in items if a["assignment_id"] == assignment_id), None)
+            pending = (item or {}).get("pending_approval")
+            if (
+                not pending
+                or pending["request_id"] != value["request_id"]
+                or item["owner"]
+                or item["status"] != "needs-attention"
+                or obj["status"] in {"completed", "cancelled", "stopping"}
+                or obj["planning"]["owner"]
+                or obj["integration"]["owner"]
+            ):
+                raise ValueError("Approval is stale or the operation is still active")
+            if len(item.get("attempts", [])) >= 16:
+                raise ValueError("Assignment continuation limit reached")
+            previous = {
+                k: v
+                for k, v in item.items()
+                if k not in {"attempts", "resume_from", "approval_grant"}
+            }
+            item.setdefault("attempts", []).append(previous)
+            item["resume_from"] = previous
+            item["run_id"] = _id("run")
+            self._identity(
+                db, item["task_id"], item["run_id"], item["objective"], item["model"]
+            )
+            db.execute(
+                "UPDATE objective_assignments SET run_id=? WHERE assignment_id=?",
+                (item["run_id"], assignment_id),
+            )
+            item["approval_grant"] = {**pending, "run_id": item["run_id"]}
+            for key in (
+                "pending_approval",
+                "execution",
+                "observed_model",
+                "observed_provider",
+            ):
+                item.pop(key, None)
+            item.update(
+                status="pending",
+                owner="",
+                expires_at=None,
+                worktree="",
+                branch="",
+                lease_id="",
+                base_sha="",
+                result={},
+                changed_files=[],
+                verification={},
+                activity="Approval recorded; continuation queued",
+                blocked_reason="",
+            )
+            self._save_assignment(db, item)
+            for target in items:
+                if (
+                    target["status"] == "blocked"
+                    and target.get("blocked_reason") == "Dependency did not complete"
+                ):
+                    target.update(status="pending", blocked_reason="")
+                    self._save_assignment(db, target)
+            if obj["status"] == "paused":
+                obj["paused_from"] = "ready"
+            else:
+                obj["status"] = "ready"
+            self._save_obj(db, obj)
+            self._event(
+                db,
+                obj,
+                "operation-approved",
+                {
+                    "assignment_id": assignment_id,
+                    "request_id": pending["request_id"],
+                    "run_id": item["run_id"],
+                },
+            )
+            self._refresh(db, obj)
+        return self.snapshot(objective_id)
+
+    def request_review(self, objective_id, value):
+        if (
+            not isinstance(value, dict)
+            or set(value) != {"revision"}
+            or type(value["revision"]) is not int
+        ):
+            raise ValueError("Review requires the current objective revision")
+        with self._db(True) as db:
+            obj = self._load(db, objective_id)
+            items = self._assignments(db, objective_id)
+            revision = db.execute(
+                "SELECT COALESCE(MAX(sequence),0) FROM events WHERE run_id=?",
+                (obj["run_id"],),
+            ).fetchone()[0]
+            if (
+                revision != value["revision"]
+                or not items
+                or len(items) >= 32
+                or any(a["owner"] or a["status"] != "completed" for a in items)
+                or obj["planning"]["owner"]
+                or obj["integration"]["owner"]
+                or obj["status"]
+                not in {"completed", "ready-to-integrate", "needs-attention"}
+            ):
+                raise ValueError("Review is stale or assignments are not ready")
+            raw = [
+                {k: a[k] for k in ("name", "objective", "depends_on")} for a in items
+            ]
+            name = "additional-review-" + uuid4().hex[:12]
+            raw.append(
+                {
+                    "name": name,
+                    "title": "Additional review",
+                    "role": "reviewer",
+                    "objective": "Review the combined assignment changes for correctness, regressions, and missing requirements. Report findings with evidence. Do not modify files.",
+                    "depends_on": [a["name"] for a in items],
+                    "intended_paths": ["."],
+                    "model": obj["model"],
+                    "parallel_eligible": False,
+                }
+            )
+            review = validate_plan(raw)[-1]
+            self._insert_plan(db, obj, [review])
+            db.execute(
+                "UPDATE objective_assignments SET position=? WHERE assignment_id=?",
+                (len(items), review["assignment_id"]),
+            )
+            obj.setdefault("integration_history", []).append(obj["integration"])
+            obj["integration"] = {
+                "status": "pending",
+                "owner": "",
+                "fence": obj["integration"]["fence"],
+                "expires_at": None,
+                "worktree": "",
+                "branch": "",
+                "verification": {},
+                "result": {},
+                "conflicts": [],
+            }
+            obj["status"] = "ready"
+            self._save_obj(db, obj)
+            self._event(
+                db,
+                obj,
+                "additional-review-requested",
+                {"assignment_id": review["assignment_id"]},
+            )
         return self.snapshot(objective_id)
 
     def record_cost(
@@ -1161,6 +1371,12 @@ class ObjectiveStore:
         return self.snapshot(objective_id)
 
     def control(self, objective_id, action, assignment_id=None, value=None):
+        if action == "approve":
+            return self.approve(objective_id, assignment_id, value)
+        if action == "request_review":
+            if assignment_id is not None:
+                raise ValueError("Additional review operates on the whole objective")
+            return self.request_review(objective_id, value)
         if action not in {
             "pause",
             "resume",
@@ -1250,6 +1466,272 @@ class ObjectiveStore:
             )
         return self.snapshot(objective_id)
 
+    @staticmethod
+    def _require_terminated(item):
+        custody = item.get("execution")
+        if custody and not ObjectiveStore._proven_terminated(custody):
+            raise StaleWriterError("Worker process-tree termination is not confirmed")
+
+    @staticmethod
+    def _proven_terminated(custody):
+        proof = custody.get("termination_proof") or {}
+        return proof.get("tree_terminated") is True and all(
+            proof.get(key) == custody.get(key)
+            for key in ("execution_id", "owner", "dispatch_fence", "tree_kind")
+        )
+
+    def _execution_target(
+        self, db, objective_id, owner, fence, assignment_id, phase, *, expired=False
+    ):
+        if (assignment_id is None) == (phase is None) or (
+            phase and phase not in {"planning", "integration"}
+        ):
+            raise ValueError("Specify one execution assignment or phase")
+        obj = self._load(db, objective_id)
+        item = (
+            obj[phase]
+            if phase
+            else next(
+                (
+                    a
+                    for a in self._assignments(db, objective_id)
+                    if a["assignment_id"] == assignment_id
+                ),
+                None,
+            )
+        )
+        valid_fences = {fence, fence + 1} if expired else {fence}
+        if (
+            not item
+            or not owner
+            or item["owner"] != owner
+            or type(fence) is not int
+            or item["fence"] not in valid_fences
+            or (item["fence"] != fence and item["expires_at"] is not None)
+        ):
+            raise StaleWriterError("Execution ownership no longer matches")
+        return obj, item
+
+    def record_execution_custody(
+        self,
+        objective_id,
+        owner,
+        dispatch_fence,
+        execution_id,
+        *,
+        assignment_id=None,
+        phase=None,
+        guardian_pid,
+        worker_pid,
+        tree_kind,
+    ):
+        execution_id = _text(execution_id, "execution_id", 200)
+        if (
+            type(guardian_pid) is not int
+            or guardian_pid <= 0
+            or type(worker_pid) is not int
+            or worker_pid <= 0
+            or tree_kind not in {"windows-job", "posix-group"}
+        ):
+            raise ValueError("Invalid process custody")
+        with self._db(True) as db:
+            obj, item = self._execution_target(
+                db, objective_id, owner, dispatch_fence, assignment_id, phase
+            )
+            if item["status"] != "running" or item.get("execution"):
+                raise StaleWriterError(
+                    "Execution is already bound or no longer running"
+                )
+            item["execution"] = dict(
+                execution_id=execution_id,
+                owner=owner,
+                dispatch_fence=dispatch_fence,
+                guardian_pid=guardian_pid,
+                worker_pid=worker_pid,
+                tree_kind=tree_kind,
+                termination_proof=None,
+            )
+            if not phase:
+                self._save_assignment(db, item)
+            self._save_obj(db, obj)
+            self._event(
+                db,
+                obj,
+                "execution-custody-recorded",
+                {
+                    "execution_id": execution_id,
+                    "assignment_id": assignment_id,
+                    "phase": phase,
+                },
+            )
+
+    def record_execution_termination(
+        self,
+        objective_id,
+        owner,
+        dispatch_fence,
+        execution_id,
+        *,
+        assignment_id=None,
+        phase=None,
+        proof,
+    ):
+        with self._db(True) as db:
+            obj, item = self._execution_target(
+                db,
+                objective_id,
+                owner,
+                dispatch_fence,
+                assignment_id,
+                phase,
+                expired=True,
+            )
+            custody = item.get("execution") or {}
+            if (
+                custody.get("execution_id") != execution_id
+                or custody.get("owner") != owner
+                or custody.get("dispatch_fence") != dispatch_fence
+                or not isinstance(proof, dict)
+                or not self._proven_terminated({**custody, "termination_proof": proof})
+            ):
+                raise StaleWriterError("Termination proof does not match custody")
+            if (
+                custody.get("termination_proof")
+                and custody["termination_proof"] != proof
+            ):
+                raise ValueError("Execution already has different termination evidence")
+            custody["termination_proof"] = dict(proof)
+            if not phase:
+                self._save_assignment(db, item)
+            self._save_obj(db, obj)
+            self._event(
+                db,
+                obj,
+                "execution-termination-confirmed",
+                {
+                    "execution_id": execution_id,
+                    "assignment_id": assignment_id,
+                    "phase": phase,
+                },
+            )
+        self._release_proven_executions(objective_id)
+
+    def interrupt_execution(
+        self, objective_id, owner, dispatch_fence, *, assignment_id=None, phase=None
+    ):
+        with self._db(True) as db:
+            obj, item = self._execution_target(
+                db, objective_id, owner, dispatch_fence, assignment_id, phase
+            )
+            item.update(
+                status="needs-attention",
+                fence=dispatch_fence + 1,
+                expires_at=None,
+                blocked_reason="Worker termination is unconfirmed; capacity is retained",
+            )
+            if not phase:
+                self._save_assignment(db, item)
+            obj["status"] = "needs-attention"
+            self._save_obj(db, obj)
+            self._event(
+                db,
+                obj,
+                "execution-interrupted",
+                {"assignment_id": assignment_id, "phase": phase},
+            )
+        self._release_proven_executions(objective_id)
+
+    def _release_proven_executions(self, objective_id=None):
+        with self._db() as db:
+            objs = [
+                json.loads(row[0])
+                for row in db.execute("SELECT payload FROM agent_objectives")
+            ]
+            targets = []
+            for obj in objs:
+                if objective_id and obj["objective_id"] != objective_id:
+                    continue
+                for phase, item in [
+                    (p, obj[p]) for p in ("planning", "integration")
+                ] + [(None, a) for a in self._assignments(db, obj["objective_id"])]:
+                    custody = item.get("execution") or {}
+                    if (
+                        item["owner"]
+                        and item["expires_at"] is None
+                        and item["fence"] == custody.get("dispatch_fence", -2) + 1
+                        and self._proven_terminated(custody)
+                    ):
+                        targets.append((obj, phase, item, custody))
+        for obj, phase, item, custody in targets:
+            aid = item.get("assignment_id") if not phase else None
+            result = {
+                **item.get("result", {}),
+                "termination_proof": custody["termination_proof"],
+            }
+            paths = item.get("changed_files", [])
+            if not phase and item.get("worktree") and item.get("base_sha"):
+                try:
+                    from .objective_execution import observe_changes
+
+                    observed = observe_changes(Path(item["worktree"]), item["base_sha"])
+                    result["git_evidence"] = observed
+                    paths = observed["changed_files"]
+                except Exception:  # noqa: BLE001 - termination remains proven even if Git inspection fails
+                    result["recovery_error"] = "Retained worktree requires inspection"
+            try:
+                from .execution_scope import assignment_cost_events
+
+                run_id = (
+                    item.get("run_id")
+                    if not phase
+                    else obj["run_id"]
+                    + ("-plan" if phase == "planning" else "-integration")
+                )
+                events = assignment_cost_events(self.root, run_id)
+                for event in events:
+                    self.record_cost(
+                        obj["objective_id"],
+                        aid,
+                        event["operation_key"],
+                        event.get("amount_usd"),
+                        event.get("measurement_kind", "unavailable"),
+                    )
+                if not events:
+                    self.record_cost(
+                        obj["objective_id"],
+                        aid,
+                        run_id + "-provider",
+                        None,
+                        "unavailable",
+                    )
+                self.acknowledge_interrupted(
+                    obj["objective_id"],
+                    custody["owner"],
+                    custody["dispatch_fence"],
+                    assignment_id=aid,
+                    phase=phase,
+                    result=result,
+                    changed_files=paths,
+                )
+            except StaleWriterError:
+                continue
+            from .worktree_leases import WorktreeManager
+
+            manager = WorktreeManager(self.root)
+            run_id = (
+                item.get("run_id")
+                if not phase
+                else obj["run_id"]
+                + ("-plan" if phase == "planning" else "-integration")
+            )
+            for lease in manager.list():
+                if (
+                    lease.run_id == run_id
+                    and lease.owner == custody["owner"]
+                    and lease.state == "active"
+                ):
+                    manager.release(lease.lease_id, owner=custody["owner"])
+
     def recover_expired(self, objective_id=None, *, now=None):
         now = now or _now()
         recovered = []
@@ -1313,6 +1795,7 @@ class ObjectiveStore:
                     self._save_obj(db, obj)
                     self._event(db, obj, "integration-interrupted", {})
                     recovered.append(obj["objective_id"])
+        self._release_proven_executions(objective_id)
         return recovered
 
     def acknowledge_interrupted(
@@ -1351,6 +1834,7 @@ class ObjectiveStore:
                 or item["status"] not in {"needs-attention", "stopping"}
             ):
                 raise StaleWriterError("Interrupted ownership no longer matches")
+            self._require_terminated(item)
             item.update(
                 status="cancelled"
                 if item["status"] == "stopping"

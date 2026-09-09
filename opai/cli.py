@@ -740,13 +740,20 @@ def cmd_objectives(args: argparse.Namespace) -> int:
                 ObjectiveStore(root).control(args.objective_id, "resume")
             result = {"objective": ObjectiveExecutor(root).run(args.objective_id)}
         else:
+            value = args.value
+            if action == "approve":
+                value = {"request_id": args.request_id}
+            elif action == "request-review":
+                value = {"revision": args.revision}
             result = control_objective_payload(
                 root,
                 {
                     "objective_id": args.objective_id,
                     "assignment_id": args.assignment,
-                    "action": action,
-                    "value": args.value,
+                    "action": "request_review"
+                    if action == "request-review"
+                    else action,
+                    "value": value,
                 },
             )
         if args.json:
@@ -4287,12 +4294,18 @@ def build_parser() -> argparse.ArgumentParser:
                 "reroute",
                 "reconcile",
                 "verify",
+                "approve",
+                "request-review",
             ):
                 command = agent_sub.add_parser(action)
                 command.add_argument(
                     "--project", default=argparse.SUPPRESS, help="Project root"
                 )
                 command.add_argument("--json", action="store_true")
+                if action == "approve":
+                    command.add_argument("--request-id", required=True)
+                if action == "request-review":
+                    command.add_argument("--revision", required=True, type=int)
                 if action == "receipt":
                     command.add_argument(
                         "--sign",
