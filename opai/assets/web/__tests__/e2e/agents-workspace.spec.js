@@ -35,6 +35,45 @@ test('objective selection preserves canonical worktree and receipt targets', asy
   expectNoFatalErrors(diagnostics);
 });
 
+test('artifact inspection sends canonical IDs and displays hostile diffs as inert text', async ({ page }) => {
+  const recorded = { ...objective, assignments: [{ ...objective.assignments[0], worktree: '/workers/a', result: { git_evidence: { base_sha: 'a'.repeat(40), head_sha: 'b'.repeat(40) }, url: 'https://evil.invalid' } }] };
+  const diagnostics = await openApp(page, { dashboards: { agents: { objectives: [recorded], cards: [] } } });
+  await page.evaluate(() => {
+    window.__mock.bridge.inspectObjectiveArtifact = (raw, callback) => {
+      const payload = JSON.parse(raw);
+      window.__mock.artifactRequest = payload;
+      callback(JSON.stringify({ ...payload, ok: true, workspaceRoot: '/demo', summary: 'Recorded worker changes', base_sha: 'a'.repeat(40), head_sha: 'b'.repeat(40), text: '<img src=x onerror="window.artifactExecuted=true">\n+new content', truncated: true }));
+    };
+  });
+  await openNav(page, 'Agents');
+  await page.getByRole('button', { name: 'Inspect diff' }).click();
+  expect(await page.evaluate(() => window.__mock.artifactRequest)).toEqual({ objective_id: 'obj-1', assignment_id: 'a-1', kind: 'diff' });
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('<img src=x onerror="window.artifactExecuted=true">');
+  await expect(dialog).toContainText('Preview truncated');
+  await expect(dialog.locator('img')).toHaveCount(0);
+  expect(await page.evaluate(() => window.artifactExecuted)).toBeUndefined();
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await expect(dialog).toHaveCount(0);
+  await page.getByRole('button', { name: 'Find existing PR' }).click();
+  expect(await page.evaluate(() => window.__mock.artifactRequest.kind)).toBe('pr');
+  expectNoFatalErrors(diagnostics);
+});
+
+test('approve once and request review carry canonical request and revision fences', async ({ page }) => {
+  const recorded = { ...objective, revision: 8, allowed_actions: ['request_review'], assignments: [{ ...objective.assignments[0], allowed_actions: ['approve'], pending_approval: { request_id: 'approval-1', kind: 'command', command: ['python', 'check.py'], reason: 'Approval required' } }] };
+  const diagnostics = await openApp(page, { dashboards: { agents: { objectives: [recorded], cards: [] } } });
+  await openNav(page, 'Agents');
+  await expect(page.locator('.agents-detail')).toContainText('check.py');
+  await page.getByRole('button', { name: 'Approve once' }).click();
+  await page.getByRole('button', { name: 'Request review' }).click();
+  expect(await page.evaluate(() => window.__mock.objectiveControls)).toEqual([
+    { objective_id: 'obj-1', assignment_id: 'a-1', action: 'approve', value: { request_id: 'approval-1' } },
+    { objective_id: 'obj-1', action: 'request_review', value: { revision: 8 } },
+  ]);
+  expectNoFatalErrors(diagnostics);
+});
+
 test('multiple agents checkbox preserves permission mode and model, persists, and travels with retry', async ({ page }) => {
   const diagnostics = await openApp(page, { boot: { prefs: { multiAgentEnabled: true } } });
   const selection = await page.evaluate(() => ({ mode: window.__opai.state.mode.id, model: window.__opai.state.model.id }));
@@ -53,6 +92,47 @@ test('multiple agents checkbox preserves permission mode and model, persists, an
   await page.evaluate(() => window.__opai.setMultiAgentEnabled(false));
   await page.evaluate(() => window.__opai.send(window.__opai.state.lastSend));
   expect(await page.evaluate(() => window.__mock.lastRequest.multiAgentEnabled)).toBe(true);
+  expectNoFatalErrors(diagnostics);
+});
+
+test('cloud permission is explicit and applies only to the next objective', async ({ page }) => {
+  const diagnostics = await openApp(page, { boot: { prefs: { multiAgentEnabled: true } } });
+  await page.locator('#modeBtn').click();
+  const cloud = page.getByRole('menuitemcheckbox', { name: /Allow cloud providers for this objective/ });
+  await expect(cloud).toHaveAttribute('aria-checked', 'false');
+  await expect(cloud).toContainText('Sends code and context');
+  await expect(cloud).toContainText('paid or account quota');
+  await cloud.click();
+  await expect(cloud).toHaveAttribute('aria-checked', 'true');
+  await page.keyboard.press('Escape');
+  const first = await sendPrompt(page, 'First objective');
+  expect(await page.evaluate(() => window.__mock.lastRequest)).toMatchObject({ multiAgentEnabled: true, allowCloud: true });
+  expect(await page.evaluate(() => window.__opai.state.agentsAllowCloud)).toBe(false);
+  expect(await page.evaluate(() => window.__mock.savedPrefs)).not.toContainEqual(['agents_allow_cloud', 'true']);
+  await page.evaluate((rid) => window.__mock.emitReply(rid, { status: 'failed', error: 'Temporary failure' }), first);
+  // Consent remembered for one free model cannot authorize all objective routes.
+  await page.evaluate(() => {
+    window.__opai.state.model.kind = 'free';
+    window.__opai.state.freeConsent.add(window.__opai.state.model.id);
+  });
+  await sendPrompt(page, 'Second objective');
+  expect(await page.evaluate(() => window.__mock.lastRequest)).toMatchObject({ multiAgentEnabled: true, allowCloud: false });
+  expectNoFatalErrors(diagnostics);
+});
+
+test('disabling agents or changing workspace clears pending cloud consent', async ({ page }) => {
+  const diagnostics = await openApp(page, { boot: { prefs: { multiAgentEnabled: true } } });
+  await page.locator('#modeBtn').click();
+  const agents = page.getByRole('menuitemcheckbox', { name: /Allow multiple agents mode/ });
+  const cloud = page.getByRole('menuitemcheckbox', { name: /Allow cloud providers for this objective/ });
+  await cloud.click();
+  await agents.click();
+  await expect(cloud).toHaveCount(0);
+  await agents.click();
+  await expect(cloud).toHaveAttribute('aria-checked', 'false');
+  await cloud.click();
+  await page.evaluate(() => window.__opai.applyBootSelection(window.__opai.state.boot));
+  expect(await page.evaluate(() => window.__opai.state.agentsAllowCloud)).toBe(false);
   expectNoFatalErrors(diagnostics);
 });
 

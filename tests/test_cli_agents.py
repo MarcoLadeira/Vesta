@@ -5,6 +5,8 @@ import json
 from contextlib import redirect_stdout
 from unittest import mock
 
+import pytest
+
 from opai import cli
 
 
@@ -55,6 +57,37 @@ def test_agents_budget_parser_keeps_exact_decimal(tmp_path):
         ["agents", "budget", "o", "--value", "0.123456789", "--project", str(tmp_path)]
     )
     assert args.value == "0.123456789"
+
+
+@pytest.mark.parametrize(
+    "action, flags, canonical, value",
+    [
+        (
+            "approve",
+            ["--request-id", "approval-1", "--assignment", "a"],
+            "approve",
+            {"request_id": "approval-1"},
+        ),
+        ("request-review", ["--revision", "8"], "request_review", {"revision": 8}),
+    ],
+)
+def test_agents_approval_and_review_share_desktop_fences(
+    tmp_path, action, flags, canonical, value
+):
+    args = cli.build_parser().parse_args(
+        ["agents", action, "o", *flags, "--project", str(tmp_path), "--json"]
+    )
+    with mock.patch(
+        "opai.agents_bridge.control_objective_payload", return_value={"ok": True}
+    ) as control:
+        with redirect_stdout(io.StringIO()):
+            assert args.func(args) == 0
+    assert control.call_args.args[1] == {
+        "objective_id": "o",
+        "assignment_id": "a" if action == "approve" else None,
+        "action": canonical,
+        "value": value,
+    }
 
 
 def test_agents_create_persists_without_implicitly_dispatching(tmp_path):

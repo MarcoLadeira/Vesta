@@ -265,6 +265,7 @@
         : "") +
       '<div class="cpop-sep" role="separator"></div>' +
       menuRow({ role: "menuitemcheckbox", title: "Allow multiple agents mode", desc: "Coordinate independent assignments within your current permissions", active: st.multiAgentEnabled === true }).replace('class="cpop-row', 'data-multi-agent="true" class="cpop-row') +
+      (st.multiAgentEnabled ? menuRow({ role: "menuitemcheckbox", title: "Allow cloud providers for this objective", desc: "Sends code and context to cloud providers and may use paid or account quota. Applies to the next objective only.", active: st.agentsAllowCloud === true }).replace('class="cpop-row', 'data-agents-cloud="true" class="cpop-row') : "") +
       (editsUnavailable
         ? '<p class="cpop-note cpop-note-warn">Update this provider CLI to enable scoped edits. Plan remains available.</p>'
         : "");
@@ -277,6 +278,14 @@
       if (api.setMultiAgentEnabled) api.setMultiAgentEnabled(!state().multiAgentEnabled);
       buildModePop();
       pop.querySelector("[data-multi-agent]").focus();
+    };
+    var cloudToggle = pop.querySelector("[data-agents-cloud]");
+    if (cloudToggle) cloudToggle.onclick = function (event) {
+      event.stopPropagation();
+      var api = global.__opai || {};
+      if (api.setAgentsAllowCloud) api.setAgentsAllowCloud(!state().agentsAllowCloud);
+      buildModePop();
+      pop.querySelector("[data-agents-cloud]").focus();
     };
     // 1-4 pick a graded mode while the menu is open. Bypass has no number on
     // purpose -- a keystroke is exactly the kind of drift it should not have.

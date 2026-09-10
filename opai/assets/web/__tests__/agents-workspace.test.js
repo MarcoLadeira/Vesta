@@ -16,6 +16,20 @@ const objective = {
 };
 
 describe("Agents workspace projection", () => {
+  it("shows exact one-time approval evidence and revision-fenced review controls", () => {
+    const html = workspace.renderHtml({ objectives: [{ ...objective, revision: 8, allowed_actions: ["request_review"], assignments: [{ ...objective.assignments[0], allowed_actions: ["approve"], pending_approval: { request_id: "pending-1", kind: "command", command: ["python", "check.py"], reason: "Needs approval" } }] }] });
+    expect(html).toContain('data-agent-action="request_review"');
+    expect(html).toContain('data-agent-action="approve"');
+    expect(html).toContain("Approve once");
+    expect(html).toContain("check.py");
+    expect(html).toContain("Starts a new attempt");
+  });
+  it("offers artifact inspection by IDs without following worker-provided URLs", () => {
+    const html = workspace.renderHtml({ objectives: [{ ...objective, assignments: [{ ...objective.assignments[0], worktree: "/canonical", result: { url: "https://evil.invalid", git_evidence: { base_sha: "a".repeat(40), head_sha: "b".repeat(40) } } }] }] });
+    expect(html).toContain('data-agent-artifact="diff"');
+    expect(html).toContain('data-agent-artifact="pr"');
+    expect(html).not.toContain('href="https://evil.invalid');
+  });
   it("renders exact journal decimal strings and canonical stop/budget actions", () => {
     const html = workspace.renderHtml({ objectives: [{ ...objective, cost_usd: "0.000001", budget_usd: "4.50", allowed_actions: ["stop", "budget"] }] });
     expect(html).toContain("$0.000001");

@@ -2689,6 +2689,8 @@ def _run_gui(
                         "sequential",
                         "reroute",
                         "prioritize",
+                        "approve",
+                        "request_review",
                     }:
                         self.objectiveControlReady.emit(json.dumps(result, default=str))
                         result["objective"] = ObjectiveExecutor(
@@ -3228,6 +3230,18 @@ def _run_gui(
             resolved = resolve_openable(self.root, target)
             if resolved is not None:
                 QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(resolved)))
+
+        @QtCore.Slot(str, result=str)
+        def inspectObjectiveArtifact(self, payload_json: str) -> str:
+            from opai.agents_bridge import inspect_objective_artifact
+            from opaihub.worktree_leases import WorktreeLeaseError
+
+            try:
+                return json.dumps(
+                    inspect_objective_artifact(self.root, json.loads(payload_json))
+                )
+            except (OSError, ValueError, KeyError, WorktreeLeaseError) as exc:
+                return json.dumps({"ok": False, "error": safe_detail(exc)})
 
         @QtCore.Slot(str, result=str)
         def openObjectiveWorktree(self, payload_json: str) -> str:

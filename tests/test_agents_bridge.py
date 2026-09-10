@@ -77,3 +77,19 @@ def test_invalid_submission_never_reaches_runtime(tmp_path):
             with pytest.raises(ValueError):
                 create_objective_payload(tmp_path, payload)
         store.assert_not_called()
+
+
+def test_objective_listing_recovers_expired_owners_before_projection(tmp_path):
+    from opai.agents_bridge import objectives_payload
+
+    store = mock.Mock()
+    store.list_objectives.return_value = [
+        {"objective_id": "o", "status": "needs_attention"}
+    ]
+    with mock.patch("opai.agents_bridge.ObjectiveStore", return_value=store):
+        result = objectives_payload(tmp_path)
+    assert store.method_calls == [
+        mock.call.recover_expired(),
+        mock.call.list_objectives(),
+    ]
+    assert result["objectives"] == store.list_objectives.return_value

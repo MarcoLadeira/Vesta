@@ -22,7 +22,7 @@
     const parts = amount.split(".");
     return "$" + parts[0] + "." + (parts[1] || "").padEnd(2, "0");
   }
-  const labels = { run: "Run queued work", pause: "Pause", resume: "Resume", stop: "Stop", cancel: "Stop", sequential: "Run sequentially", budget: "Set budget", set_budget: "Set budget", prioritize: "Move first", reroute: "Reroute", reconcile: "Reconcile", verify: "Verify integration" };
+  const labels = { run: "Run queued work", pause: "Pause", resume: "Resume", stop: "Stop", cancel: "Stop", sequential: "Run sequentially", budget: "Set budget", set_budget: "Set budget", prioritize: "Move first", reroute: "Reroute", reconcile: "Reconcile", verify: "Verify integration", approve: "Approve once", request_review: "Request review" };
   function controls(item, objectiveId, assignmentId) {
     return '<div class="agents-controls">' + list(item.allowed_actions).filter((a) => Object.prototype.hasOwnProperty.call(labels, a)).map((action) => {
       let field = "";
@@ -39,7 +39,8 @@
   }
   function artifacts(item, objectiveId, assignmentId) {
     const ids = ' data-objective-id="' + esc(objectiveId) + '"' + (assignmentId ? ' data-assignment-id="' + esc(assignmentId) + '"' : '');
-    return '<div class="agents-controls">' + (item.worktree ? '<button type="button" class="btn" data-agent-worktree' + ids + '>Open worktree</button>' : '') + (item.receipt ? '<button type="button" class="btn" data-agent-receipt' + ids + '>Copy receipt</button>' : '') + '</div>';
+    const recorded = item.result && (item.result.git_evidence || item.result);
+    return '<div class="agents-controls">' + (item.worktree ? '<button type="button" class="btn" data-agent-worktree' + ids + '>Open worktree</button>' : '') + (item.worktree && recorded && recorded.base_sha && recorded.head_sha ? '<button type="button" class="btn" data-agent-artifact="diff"' + ids + '>Inspect diff</button><button type="button" class="btn" data-agent-artifact="pr"' + ids + '>Find existing PR</button>' : '') + (item.receipt ? '<button type="button" class="btn" data-agent-receipt' + ids + '>Copy receipt</button>' : '') + '</div>';
   }
   function items(label, values, empty) {
     const entries = list(values);
@@ -85,6 +86,7 @@
         if (selected.rationale) html += '<section class="agents-section"><h4>Why this assignment</h4><p>' + esc(selected.rationale) + '</p></section>';
         if (selected.parallel_eligible === false) html += '<p class="agents-note">Runs sequentially by plan</p>';
         html += '<dl class="agents-facts">' + fact("Owner", selected.owner || selected.last_owner) + fact("Model", selected.observed_model || selected.model) + fact("Provider", selected.observed_provider || selected.provider) + fact("Route", typeof selected.route === "string" ? selected.route : selected.route && selected.route.kind) + '</dl>';
+        if (selected.pending_approval) html += '<section class="agents-section"><h4>Operation awaiting approval</h4><p>' + esc(selected.pending_approval.reason) + '</p><pre>' + esc(text(selected.pending_approval.command || selected.pending_approval.files)) + '</pre><p>' + (selected.pending_approval.kind === "edits" ? 'Starts one continuation with file editing enabled within the assignment scope. The listed files are the edits that prompted this request.' : 'Starts a new attempt with permission for this command once.') + '</p></section>';
         html += controls(selected, o.objective_id, selected.assignment_id);
         if (selected.blocked_reason) html += '<p class="agents-note">' + esc(selected.blocked_reason) + '</p>';
         if (selected.admission && selected.admission.reason !== selected.blocked_reason) html += '<p class="agents-note">' + esc(selected.admission.reason) + '</p>';
@@ -106,7 +108,7 @@
       html += '<dl class="agents-facts">' + fact("Integration branch", integration.branch) + fact("Integration worktree", integration.worktree) + '</dl>';
       html += evidence("Integration evidence", integration);
       if (o.receipt) html += evidence("Result receipt", o.receipt);
-      html += artifacts({ worktree: integration.worktree, receipt: o.receipt }, o.objective_id);
+      html += artifacts({ ...integration, receipt: o.receipt }, o.objective_id);
       html += '</section></section>';
     });
     // Provider readiness remains visible even before the first objective.
@@ -128,6 +130,7 @@
     element.querySelectorAll("[data-readiness-action]").forEach((button) => { button.onclick = () => options.onAction && options.onAction(button.dataset.readinessAction, button.dataset.command); });
     element.querySelectorAll("[data-objective-select]").forEach((button) => { button.onclick = () => options.onSelect && options.onSelect({ objectiveId: button.dataset.objectiveSelect }); });
     element.querySelectorAll("[data-agent-worktree]").forEach((button) => { button.onclick = () => options.onOpenWorktree && options.onOpenWorktree({ objective_id: button.dataset.objectiveId, assignment_id: button.dataset.assignmentId }); });
+    element.querySelectorAll("[data-agent-artifact]").forEach((button) => { button.onclick = () => options.onInspectArtifact && options.onInspectArtifact({ objective_id: button.dataset.objectiveId, assignment_id: button.dataset.assignmentId, kind: button.dataset.agentArtifact }); });
     element.querySelectorAll("[data-agent-receipt]").forEach((button) => { button.onclick = () => {
       const objective = list(snapshot.objectives).find((item) => item.objective_id === button.dataset.objectiveId);
       const item = button.dataset.assignmentId ? objective && list(objective.assignments).find((row) => row.assignment_id === button.dataset.assignmentId) : objective;
@@ -137,6 +140,13 @@
     element.querySelectorAll("[data-agent-action]").forEach((button) => { button.onclick = () => {
       const payload = { objective_id: button.dataset.objectiveId, action: button.dataset.agentAction };
       if (button.dataset.assignmentId) payload.assignment_id = button.dataset.assignmentId;
+      const objective = list(snapshot.objectives).find((item) => item.objective_id === payload.objective_id);
+      if (payload.action === "request_review") payload.value = { revision: objective && objective.revision };
+      if (payload.action === "approve") {
+        const assignment = objective && list(objective.assignments).find((item) => item.assignment_id === payload.assignment_id);
+        if (!assignment || !assignment.pending_approval || !assignment.pending_approval.request_id) return;
+        payload.value = { request_id: assignment.pending_approval.request_id };
+      }
       const input = button.parentElement.querySelector("[data-agent-value]");
       if (input) {
         if (!input.reportValidity() || !input.value.trim()) return;

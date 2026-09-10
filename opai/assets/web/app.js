@@ -55,7 +55,7 @@ const state = {
   model: { id: "auto", label: "Auto", kind: "auto" },
   mode: { id: "safe-auto", label: "Safe Auto" },
   focus: "general", format: "normal",
-  multiAgentEnabled: false, agentsSnapshot: null, agentsSelection: null, agentsPollTimer: null, agentsRequests: new Map(),
+  multiAgentEnabled: false, agentsAllowCloud: false, agentsSnapshot: null, agentsSelection: null, agentsPollTimer: null, agentsRequests: new Map(),
   accounts: [], panel: true, message: null, lastFailedRequestId: null,
   responseDensity: "balanced",
   tlNodes: null, activityRenderPending: false, timelineRenders: 0,
@@ -329,6 +329,7 @@ function applyBootSelection(b) {
   state.focus = b.prefs.focus || "general";
   state.format = b.prefs.format || "normal";
   state.multiAgentEnabled = b.prefs.multiAgentEnabled === true;
+  state.agentsAllowCloud = false;
   const m = (b.models || []).find((x) => x.id === b.selectedModel) || (b.models || [])[0];
   if (m) state.model = { ...m, advancedLabel: m.advanced_label };
   const md = (b.modes || []).find((x) => x.id === b.prefs.mode) || (b.modes || [])[0];
@@ -2157,15 +2158,17 @@ function send(retryOf) {
     text, model: state.model.id, mode: state.mode.id, focus: state.focus, format: state.format,
     modelKind: state.model.kind, modelLabel: state.model.label, modelProvider: state.model.provider,
     multiAgentEnabled: state.multiAgentEnabled === true,
+    allowCloud: state.multiAgentEnabled === true && state.agentsAllowCloud === true,
     contextHints: state.contextHints.slice(),
   };
   // Free-tier consent: one confirmation per provider, ever. If the user has
   // already confirmed this free model in the past (persisted per workspace),
   // send with allowCloud=true up front — no card. Otherwise the pipeline
   // returns needs_free_confirmation and the in-chat card handles it.
-  if (sel.modelKind === "free" && sel.allowCloud !== true && state.freeConsent && state.freeConsent.has(sel.model)) {
+  if (!sel.multiAgentEnabled && sel.modelKind === "free" && sel.allowCloud !== true && state.freeConsent && state.freeConsent.has(sel.model)) {
     sel.allowCloud = true;
   }
+  if (!retryOf && sel.multiAgentEnabled) state.agentsAllowCloud = false;
   if (!retryOf) setComposerDraft("");
   state.lastSend = sel;
   if (!retryOf) {
@@ -4195,6 +4198,31 @@ function paintAgentsWorkspace() {
     selection: state.agentsSelection,
     onAction: runAction,
     onCopyReceipt: (receipt) => { copyText(JSON.stringify(receipt, null, 2)); toast("Receipt copied."); },
+    onInspectArtifact: (payload) => {
+      if (!bridge.inspectObjectiveArtifact) { toast("Artifact inspection is unavailable in this host."); return; }
+      const workspaceRoot = (state.boot.workspace || {}).root;
+      bridge.inspectObjectiveArtifact(JSON.stringify(payload), (json) => {
+        let result; try { result = JSON.parse(json); } catch (_) { result = {}; }
+        if (workspaceRoot !== (state.boot.workspace || {}).root) return;
+        if (!result.ok) { toast(safeStateReason(result.error, "No matching artifact is available.")); return; }
+        if (result.workspaceRoot !== workspaceRoot || result.kind !== payload.kind || result.objective_id !== payload.objective_id || (result.assignment_id || "") !== (payload.assignment_id || "")) return;
+        const dialog = document.createElement("dialog");
+        dialog.className = "card agents-artifact-dialog";
+        dialog.style.cssText = "width:min(960px,90vw);max-height:85vh;overflow:auto";
+        const title = document.createElement("h3");
+        title.textContent = result.summary;
+        const close = document.createElement("button");
+        close.className = "btn"; close.textContent = "Close"; close.onclick = () => dialog.close();
+        const description = document.createElement("p");
+        description.textContent = "Base " + result.base_sha + " · Head " + result.head_sha + (result.truncated ? " · Preview truncated; open the worktree for the full diff." : "");
+        const preview = document.createElement("pre");
+        preview.style.cssText = "white-space:pre-wrap;overflow-wrap:anywhere";
+        preview.textContent = result.text || "No changes in this recorded diff.";
+        dialog.append(title, close, description, preview);
+        dialog.onclose = () => dialog.remove();
+        document.body.append(dialog); dialog.showModal(); close.focus();
+      });
+    },
     onOpenWorktree: (payload) => {
       if (!bridge.openObjectiveWorktree) { toast("Worktree access is unavailable in this host."); return; }
       bridge.openObjectiveWorktree(JSON.stringify(payload), (json) => {
@@ -4895,9 +4923,13 @@ if (typeof window !== "undefined") {
     applyBootSelection: (b) => applyBootSelection(b),
     setMultiAgentEnabled: (enabled) => {
       state.multiAgentEnabled = enabled === true;
+      if (!state.multiAgentEnabled) state.agentsAllowCloud = false;
       if (state.boot && state.boot.prefs) state.boot.prefs.multiAgentEnabled = state.multiAgentEnabled;
       if (bridge && bridge.savePref) bridge.savePref("multi_agent_enabled", String(state.multiAgentEnabled));
       if (window.OPaiComposer) window.OPaiComposer.refresh();
+    },
+    setAgentsAllowCloud: (enabled) => {
+      state.agentsAllowCloud = state.multiAgentEnabled && enabled === true;
     },
     derivedAgentMode: () => derivedAgentMode(),
     applyAppearance: (p) => applyAppearance(p),

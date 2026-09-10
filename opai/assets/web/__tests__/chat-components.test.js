@@ -233,7 +233,7 @@ describe("chat presentation components", () => {
     });
 
     for (const html of [restored, live]) {
-      expect(html).toContain('class="completion-verdict completed"');
+      expect(html).toContain('class="turn-summary is-completed"');
       expect(html).toContain('class="evidence-bar"');
       expect(html).toContain('class="gen-toggle done"');
       expect(html).toContain('class="timeline done"');
@@ -243,7 +243,8 @@ describe("chat presentation components", () => {
       expect(html).not.toContain("<script>");
       expect(html.indexOf('class="body"')).toBeLessThan(html.indexOf('class="evidence-bar"'));
       expect(html.indexOf('class="evidence-bar"')).toBeLessThan(html.indexOf('class="gen-toggle done"'));
-      expect(html.indexOf('class="gen-toggle done"')).toBeLessThan(html.indexOf('class="completion-verdict completed"'));
+      expect(html.indexOf('class="turn-summary is-completed"')).toBeLessThan(html.indexOf('class="evidence-bar"'));
+      expect(html).not.toContain('class="completion-verdict');
     }
     expect(restored).not.toContain('data-a="retry"');
     expect(live).not.toContain('data-a="retry"');
@@ -285,26 +286,27 @@ describe("chat presentation components", () => {
     });
     const positions = [
       'class="body"',
-      'class="evidence-bar"',
+      'class="unverified-claim"',
       'class="changeset-card"',
+      'class="turn-summary is-partial"',
+      'class="evidence-bar"',
       'class="gen-toggle done"',
       'class="workflow-card"',
       'class="response-warnings"',
-      'class="unverified-claim"',
-      'class="completion-verdict partial"',
     ].map((needle) => html.indexOf(needle));
     expect(positions.every((position) => position >= 0)).toBe(true);
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
   });
 
-  it("keeps measured live activity and the legacy final fallback when a projection omits them", () => {
+  it("keeps measured live activity and the explicit legacy verdict when a projection omits them", () => {
     const html = components.renderAssistantPresentation({
       proseHtml: '<div class="body">Outcome</div>',
       presentation: { schema_version: 1, evidence: { delivery: { verdict: "delivered" } } },
       legacyWorkHtml: '<button class="gen-toggle done">Activity</button>',
-      legacyFinalHtml: '<section class="completion-verdict partial">Partial</section>',
+      verdict: { state: "partial", label: "Partial" },
     });
     expect(html).toContain('<button class="gen-toggle done">Activity</button>');
-    expect(html).toContain('<section class="completion-verdict partial">Partial</section>');
+    expect(html).toContain('class="turn-summary is-partial"');
+    expect(html).not.toContain('class="completion-verdict');
   });
 });
