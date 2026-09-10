@@ -730,20 +730,59 @@ _JOURNAL_RUN: ContextVar[dict[str, Any] | None] = ContextVar(
     "_opai_journal_run", default=None
 )
 
-#: How a turn's reported status maps onto a terminal journal event.
+#: How a turn's ending maps onto a terminal journal event.
 #:
-#: Anything not listed here is treated as a completion, because a turn that
-#: returned *something* did finish. Guessing "failed" for an unrecognised
-#: status would invent a verdict the run never reached, which is worse than a
-#: coarse one -- Stage 4 compares these against the legacy record, and a
-#: fabricated failure would look exactly like a real contradiction.
+#: This used to hold five entries and default everything else to
+#: ``"completed"``, on the reasoning that a turn which returned *something*
+#: did finish and that guessing "failed" would invent a verdict. The first
+#: half is true. The second half quietly justified the more dangerous guess:
+#: a turn that ended `partial`, `timeout`, `needs_attention` or
+#: `provider_blocked` was recorded in the canonical store as a success.
+#:
+#: Measured on this repository's own journal before the fix: 21 runs recorded
+#: `completed`, against 16 `complete` and 5 `partial` assistant turns in the
+#: saved conversations. Sixteen plus five. The epic's closing evidence has to
+#: show *zero false completion*, and five of twenty-one were false.
+#:
+#: Both vocabularies are listed because both reach here. ``result["status"]``
+#: carries the legacy output strings from `legacy_status.
+#: legacy_status_for_completion_state` ("answered", "incomplete",
+#: "needs_confirmation", ...), while ``completion_verdict.verdict`` carries
+#: canonical `CompletionState` names. Mapping only one of them would leave the
+#: other falling through to the default, which is how this happened.
 _TERMINAL_EVENTS: dict[str, tuple[str, str]] = {
+    # Finished, and did the job.
+    "answered": (journal_runtime.EVENT_FINISHED, "completed"),
+    "completed": (journal_runtime.EVENT_FINISHED, "completed"),
+    # Finished, and did not.
     "cancelled": (journal_runtime.EVENT_CANCELLED, "cancelled"),
     "duplicate_request": (journal_runtime.EVENT_FINISHED, "duplicate"),
     "failed": (journal_runtime.EVENT_FINISHED, "failed"),
     "error": (journal_runtime.EVENT_FINISHED, "failed"),
+    "retryable_provider_error": (journal_runtime.EVENT_FINISHED, "failed"),
+    "timeout": (journal_runtime.EVENT_FINISHED, "timeout"),
     "blocked": (journal_runtime.EVENT_FINISHED, "blocked"),
+    "provider_blocked": (journal_runtime.EVENT_FINISHED, "blocked"),
+    # Finished without finishing the job. These are the five that were being
+    # filed as successes.
+    "partial": (journal_runtime.EVENT_FINISHED, "partial"),
+    "incomplete": (journal_runtime.EVENT_FINISHED, "partial"),
+    "stuck_no_progress": (journal_runtime.EVENT_FINISHED, "partial"),
+    "needs_attention": (journal_runtime.EVENT_FINISHED, "needs_attention"),
+    # Stopped, waiting for the person.
+    "awaiting_input": (journal_runtime.EVENT_FINISHED, "awaiting_input"),
+    "needs_user_input": (journal_runtime.EVENT_FINISHED, "awaiting_input"),
+    "needs_consent": (journal_runtime.EVENT_FINISHED, "awaiting_input"),
+    "needs_confirmation": (journal_runtime.EVENT_FINISHED, "awaiting_input"),
 }
+
+#: What a status nobody has mapped becomes. Not "completed": a name we do not
+#: recognise is not evidence that the work succeeded, and this epic exists to
+#: stop exactly that substitution. Not "failed" either, for the reason the old
+#: comment gave -- that would invent a failure Stage 4 could not tell from a
+#: real contradiction. The run *ended*; how it ended is unknown, and saying so
+#: is the only answer supported by what is actually known.
+_UNKNOWN_TERMINAL = (journal_runtime.EVENT_FINISHED, "unknown")
 
 
 def _journal_beat(root: Path) -> None:
@@ -840,21 +879,29 @@ def _journal_verification(root: Path, manifest_payload: Mapping[str, Any]) -> No
         )
 
 
-def _record_turn_ending(root: Path, status: str, reason: str) -> None:
+def _record_turn_ending(
+    root: Path, status: str, reason: str, *, verdict_state: str = ""
+) -> None:
     """Close out the journalled run for this turn, if there is one.
 
     Best-effort like everything else in Stage 3: a turn that already produced
     its answer must not fail because its bookkeeping did. A run with no
     journal identity -- admission was not mirrored -- simply has nothing to
     close.
+
+    ``verdict_state`` is the run's own completion verdict, and it wins when it
+    is present. The verdict is what the completion machinery decided with the
+    answer, the diff and the policy in front of it; ``status`` is a legacy
+    output string derived *from* it for surfaces that predate the verdict. The
+    ending was being taken from the derived value while the authoritative one
+    sat unread in the same result dict.
     """
 
     identity = _JOURNAL_RUN.get()
     if not identity:
         return
-    event, verdict = _TERMINAL_EVENTS.get(
-        status, (journal_runtime.EVENT_FINISHED, "completed")
-    )
+    key = str(verdict_state or "").strip().lower() or str(status or "").strip().lower()
+    event, verdict = _TERMINAL_EVENTS.get(key, _UNKNOWN_TERMINAL)
     with contextlib.suppress(Exception):  # noqa: BLE001 - never fail a finished turn
         journal_runtime.record_terminal(
             root,
@@ -3511,7 +3558,20 @@ def handle_gui_message(*args: Any, **kwargs: Any) -> dict[str, Any]:
         raise
     else:
         status = str((result or {}).get("status") or "completed")
-        _record_turn_ending(root, status, str((result or {}).get("reason") or ""))
+        # The verdict the completion machinery reached, which outranks the
+        # legacy status string derived from it (#818: zero false completion).
+        completion = (result or {}).get("completion_verdict")
+        verdict_state = (
+            str(completion.get("verdict") or "")
+            if isinstance(completion, Mapping)
+            else ""
+        )
+        _record_turn_ending(
+            root,
+            status,
+            str((result or {}).get("reason") or ""),
+            verdict_state=verdict_state,
+        )
         return result
     finally:
         _JOURNAL_RUN.reset(token)

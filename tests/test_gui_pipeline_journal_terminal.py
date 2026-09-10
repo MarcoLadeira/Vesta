@@ -116,19 +116,40 @@ class EveryExitClosesTheRunTests(_TerminalFixture):
         self.assertEqual(self._events().count(EVENT_FINISHED), 1)
 
 
-class UnknownStatusesAreNotGuessedAsFailuresTests(_TerminalFixture):
+class UnknownStatusesAreNotGuessedTests(_TerminalFixture):
     """A fabricated verdict would look exactly like a real contradiction.
 
     Stage 4 compares journal against legacy. Inventing "failed" for a status
     nobody mapped would produce a difference that is entirely this module's
     fault, and would be indistinguishable from the real divergences the
     comparison exists to surface.
+
+    That reasoning was right and this class used to stop halfway through it.
+    It concluded that the ending should therefore be recorded as *completed* --
+    which is equally fabricated, and fabricated in the direction that matters,
+    because #818's closing evidence has to show zero false completion. Seven
+    of the status strings the pipeline actually emits fell through that
+    default, `timeout` and `provider_blocked` among them.
+
+    ``unknown`` is the answer the argument actually supports: not a success,
+    not a failure, so it cannot invent a contradiction of either kind. The run
+    ended; how it ended is not known.
     """
 
-    def test_an_unrecognised_status_is_treated_as_a_completion(self):
+    def test_an_unrecognised_status_is_recorded_as_unknown(self):
         self._run_wrapper(result={"status": "some_new_status_nobody_mapped"})
 
-        self.assertEqual(self._verdict(), "completed")
+        self.assertEqual(self._verdict(), "unknown")
+
+    def test_an_unrecognised_status_is_not_recorded_as_a_success(self):
+        self._run_wrapper(result={"status": "some_new_status_nobody_mapped"})
+
+        self.assertNotEqual(self._verdict(), "completed")
+
+    def test_an_unrecognised_status_is_not_recorded_as_a_failure(self):
+        self._run_wrapper(result={"status": "some_new_status_nobody_mapped"})
+
+        self.assertNotEqual(self._verdict(), "failed")
 
     def test_a_result_with_no_status_is_treated_as_a_completion(self):
         self._run_wrapper(result={"answer": "done"})
