@@ -705,5 +705,135 @@ class UnevidencedCompletionTests(_JournalledRun):
         self.assertEqual(facts["completed_runs_without_evidence"], 1)
 
 
+class UnconfirmedCancellationTests(_JournalledRun):
+    """#818 AC5: `cancelled` is impossible while owned work is still alive.
+
+    It is not. Measured with two real processes: a process holding no fence
+    for a run can write `cancelled` for it while the owning process is
+    demonstrably still running, and the store accepts it.
+
+    And on this repository's own journal all six cancelled runs carry no
+    cancellation-phase evidence whatsoever -- every one says the run stopped,
+    and not one records that anything did.
+
+    Counting rather than refusing, and here the reason is stronger than
+    consistency with AC6: a Stop that OPai declined to record would be a Stop
+    the user pressed and did not get. Refusing would trade a reporting fault
+    for a blocking one, which is never the right trade.
+    """
+
+    def cancel(self, run_id: str, fence: int | None) -> None:
+        journal_runtime.record_terminal(
+            self.root,
+            run_id=run_id,
+            event_type=journal_runtime.EVENT_CANCELLED,
+            verdict="cancelled",
+            reason="stop clicked",
+            now=LATER,
+            fence=fence,
+        )
+
+    def admit(self, run_id: str) -> int | None:
+        return journal_runtime.record_admission(
+            self.root,
+            task_id=f"task-{run_id}",
+            run_id=run_id,
+            task="a turn",
+            now=NOW,
+            surface="gui",
+        )
+
+    def test_a_cancellation_with_no_phase_evidence_is_counted(self):
+        self.cancel("run-2", self.admit("run-2"))
+
+        report = journal_runtime.unconfirmed_cancellations(self.root)
+
+        self.assertTrue(report["available"])
+        self.assertEqual(report["cancelled"], 1)
+        self.assertEqual(report["unconfirmed"], 1)
+        self.assertIn("run-2", report["run_ids"])
+
+    def test_reaching_terminated_is_what_counts_as_confirmation(self):
+        fence = self.admit("run-2")
+        tracker = CancellationTracker(self.root, "run-2", journal_run_id="run-2")
+        tracker.request()
+        tracker.acknowledge()
+        tracker.mark_terminated()
+        self.cancel("run-2", fence)
+
+        report = journal_runtime.unconfirmed_cancellations(self.root)
+
+        self.assertEqual(report["cancelled"], 1)
+        self.assertEqual(report["unconfirmed"], 0)
+
+    def test_asking_to_stop_is_not_evidence_that_it_stopped(self):
+        """`requested` is the phase that means nobody has confirmed anything."""
+
+        fence = self.admit("run-2")
+        CancellationTracker(self.root, "run-2", journal_run_id="run-2").request()
+        self.cancel("run-2", fence)
+
+        report = journal_runtime.unconfirmed_cancellations(self.root)
+
+        self.assertEqual(report["unconfirmed"], 1)
+
+    def test_a_completed_run_is_not_a_cancellation(self):
+        fence = self.admit("run-2")
+        journal_runtime.record_terminal(
+            self.root,
+            run_id="run-2",
+            event_type=journal_runtime.EVENT_FINISHED,
+            verdict="completed",
+            reason="",
+            now=LATER,
+            fence=fence,
+        )
+
+        report = journal_runtime.unconfirmed_cancellations(self.root)
+
+        self.assertEqual(report["cancelled"], 0)
+        self.assertEqual(report["unconfirmed"], 0)
+
+    def test_an_unreadable_journal_reports_unknown_not_zero(self):
+        with self.failing_disk():
+            report = journal_runtime.unconfirmed_cancellations(self.root)
+
+        self.assertFalse(report["available"])
+        self.assertEqual(report["unavailable_reason"], "unreadable")
+        self.assertEqual(report["unconfirmed"], 0)
+
+    def test_recording_a_stop_is_never_refused(self):
+        """The property that matters more than the count.
+
+        A Stop OPai declined to record is a Stop the user pressed and did not
+        get. Whatever this report says, the write goes through.
+        """
+
+        fence = self.admit("run-2")
+
+        self.assertTrue(
+            journal_runtime.record_terminal(
+                self.root,
+                run_id="run-2",
+                event_type=journal_runtime.EVENT_CANCELLED,
+                verdict="cancelled",
+                reason="stop clicked",
+                now=LATER,
+                fence=fence,
+            )
+        )
+
+    def test_doctor_actually_asks(self):
+        from opai import cli
+
+        self.cancel("run-2", self.admit("run-2"))
+
+        facts = cli._journal_migration(self.root)
+
+        self.assertTrue(facts["cancelled_runs_known"])
+        self.assertEqual(facts["cancelled_runs"], 1)
+        self.assertEqual(facts["cancelled_runs_unconfirmed"], 1)
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

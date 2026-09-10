@@ -35,6 +35,7 @@ and guarantee the drift Stage 4 is meant to detect.
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import sqlite3
 from contextlib import contextmanager
@@ -1109,6 +1110,83 @@ def unevidenced_completions(root: Path) -> dict[str, Any]:
     }
 
 
+def unconfirmed_cancellations(root: Path) -> dict[str, Any]:
+    """Runs recorded as cancelled with nothing showing the work stopped.
+
+    #818 AC5 asks that ``cancelled`` be impossible while owned controllable
+    work is still alive. It is not. Measured with two real processes: a
+    process holding no fence for a run can write ``cancelled`` for it while
+    the owning process is demonstrably still running, and the store accepts it.
+
+    And on this repository's own journal, all six cancelled runs carry no
+    cancellation-phase evidence at all -- every one says the run stopped, and
+    not one records that anything did.
+
+    Evidence here means a ``run.cancel_phase`` event that reached
+    ``terminated``. ``cancellation_lifecycle`` already models the full ladder
+    (requested, acknowledged, draining, force_terminating, terminated), and
+    ``terminated`` is the phase that means *confirmed stopped* rather than
+    *asked to stop*. A terminal ``cancelled`` verdict with no terminated phase
+    behind it is a claim about the world nobody checked.
+
+    Like :func:`unevidenced_completions` this counts rather than refuses, and
+    for a stronger reason than consistency: a Stop that OPai declined to
+    record would be a Stop the user pressed and did not get. Refusing here
+    would trade a reporting fault for a blocking one, which is the wrong
+    trade in every case. So the write stands and the gap is made visible.
+    """
+
+    empty: dict[str, Any] = {
+        "available": False,
+        "unavailable_reason": "",
+        "cancelled": 0,
+        "unconfirmed": 0,
+        "run_ids": [],
+    }
+    with _store(root) as store:
+        if store is None:
+            empty["unavailable_reason"] = (
+                "incompatible" if _written_by_a_newer_opai(root) else "unreadable"
+            )
+            return empty
+        try:
+            rows = store.execute(
+                "SELECT run_id FROM runs WHERE terminal_verdict = 'cancelled'"
+                " ORDER BY run_id"
+            ).fetchall()
+            confirmed: set[str] = set()
+            for event in store.execute(
+                "SELECT run_id, payload FROM events WHERE event_type = ?",
+                (EVENT_CANCEL_PHASE,),
+            ):
+                run_id = str(event["run_id"] or "")
+                if not run_id:
+                    continue
+                # The payload is JSON text and an unreadable one proves
+                # nothing, so it simply does not count as evidence.
+                try:
+                    phase = str(
+                        (json.loads(event["payload"] or "{}") or {}).get("phase") or ""
+                    )
+                except (TypeError, ValueError):
+                    continue
+                if phase == "terminated":
+                    confirmed.add(run_id)
+        except (sqlite3.DatabaseError, JournalStoreError):
+            empty["unavailable_reason"] = "unreadable"
+            return empty
+
+    bare = [str(row["run_id"]) for row in rows if str(row["run_id"]) not in confirmed]
+    return {
+        "available": True,
+        "unavailable_reason": "",
+        "cancelled": len(rows),
+        "unconfirmed": len(bare),
+        # Bounded: a report is for acting on, not for dumping.
+        "run_ids": bare[:50],
+    }
+
+
 __all__ = (
     "EVENT_ADMITTED",
     "EVENT_PRIVACY",
@@ -1123,6 +1201,7 @@ __all__ = (
     "unterminated_runs",
     "unterminated_summary",
     "unevidenced_completions",
+    "unconfirmed_cancellations",
     "record_run_cost",
     "record_verification",
     "record_cancellation_phase",

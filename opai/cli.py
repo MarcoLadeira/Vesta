@@ -753,6 +753,14 @@ def cmd_journal(args: argparse.Namespace) -> int:
                     f"  unverified:     {unverified} of {total} completed runs have"
                     " no verification (AC6 asks for this one)"
                 )
+        if migration.get("cancelled_runs_known", False):
+            unconfirmed = int(migration.get("cancelled_runs_unconfirmed", 0))
+            cancelled = int(migration.get("cancelled_runs", 0))
+            if unconfirmed:
+                print(
+                    f"  unconfirmed:    {unconfirmed} of {cancelled} cancelled runs"
+                    " have no phase reaching 'terminated'"
+                )
         # Two recordings of one history. Silence when they agree; a count when
         # they do not; and "could not check" said out loud rather than implied.
         if not migration.get("event_table_parity_known", True):
@@ -1127,6 +1135,14 @@ def _journal_migration(root: Path) -> dict[str, object]:
         facts["completed_runs_without_verification"] = int(
             evidence.get("without_verification", 0)
         )
+
+        # AC5's counterpart to AC6: a `cancelled` verdict with no phase
+        # reaching `terminated` is a claim that the work stopped, with nothing
+        # showing that it did.
+        stopped = journal_runtime.unconfirmed_cancellations(root)
+        facts["cancelled_runs_known"] = bool(stopped.get("available"))
+        facts["cancelled_runs"] = int(stopped.get("cancelled", 0))
+        facts["cancelled_runs_unconfirmed"] = int(stopped.get("unconfirmed", 0))
 
         # Migration step 2's parity assertion, which finally has something it
         # can compare. The legacy corpus and the journal's runs come from

@@ -206,6 +206,8 @@ for, in the confident direction:
 | unknown cost is not zero | what did today cost? | `$0.00` |
 | approvals are consumed once | may I run this? | yes, to all eight racers |
 | evidence-backed delivery | can I push? | "Ready to push & open PRs", from `bool(token)` |
+| zero false completion | did this turn succeed? | `completed`, for partial, timeout and blocked alike |
+| cancelled means stopped | did the work stop? | `cancelled`, with no phase reaching terminated |
 | approvals bind to a run | is this approval mine? | yes, to a different window's run |
 | the install works | is OPai healthy? | `ready`, with a dead desktop icon |
 | one canonical origin | which surface asked? | `"gui"`, for CLI and background too |
@@ -596,6 +598,76 @@ Recording is a wrapper rather than a call at each return. The implementation
 has five exits and hooking them one by one means a later sixth is silently not
 recorded; one exit by construction is the same reasoning
 `gui_pipeline.handle_gui_message` uses for its terminal event.
+
+
+## AC5, measured the same way
+
+> `cancelled` is impossible while owned controllable work is still alive.
+
+It is not. Measured with two real processes: a process holding no fence for a
+run can write `cancelled` for it while the owning process is demonstrably
+still running, and the store accepts it.
+
+```
+owner pid 11308 alive: True
+journal liveness verdict : 'owner_unverified'
+a foreign process wrote 'cancelled' -> accepted=True
+journal now says                    -> 'cancelled'
+the owning process is still         -> alive
+```
+
+And on this repository's own journal, **all six** cancelled runs carry no
+cancellation-phase evidence at all. Every one says the run stopped; not one
+records that anything did.
+
+`unconfirmed_cancellations` counts them. Evidence means a `run.cancel_phase`
+event that reached `terminated` -- `cancellation_lifecycle` already models the
+whole ladder, and `terminated` is the phase that means *confirmed stopped*
+rather than *asked to stop*.
+
+Counting rather than refusing, and here the reason is stronger than
+consistency with AC6: **a Stop that OPai declined to record would be a Stop the
+user pressed and did not get.** Refusing would trade a reporting fault for a
+blocking one, which is never the right trade.
+
+```
+unconfirmed:    6 of 6 cancelled runs have no phase reaching 'terminated'
+```
+
+## The other direction: none of this may block anybody
+
+Every check in this epic is a place where a bug becomes "OPai refuses to send
+my message" or "the Approve button does nothing". That failure is worse than
+any of the lies being fixed -- a tool that will not do what you asked is not
+more trustworthy than one that occasionally reports it wrong.
+
+An audit found one real risk, and it was introduced by this branch.
+`grant_belongs_to` used strict equality, so a caller that could not name its
+run was refused. The process that spends a grant is the PreToolUse hook, and
+OPai does not launch it: OPai launches the *provider's* CLI, and that launches
+the hook. Whether `OPAI_RUN_ID` survives that hop is a third party's decision,
+so a provider that sanitises its hook environment would have silently refused
+every approved push.
+
+Refusal now needs evidence, like everything else here:
+
+| grant | caller | allowed | |
+| --- | --- | --- | --- |
+| run-A | run-A | yes | the same run |
+| — | — | yes | neither knows |
+| run-A | — | yes | the caller cannot identify itself |
+| — | run-A | yes | the grant predates run binding |
+| run-A | run-B | **no** | two runs naming themselves differently |
+
+The rest of the audit came back clean and is pinned in
+`tests/test_journal_never_blocks_the_user.py`:
+
+- the canonical journal is still **write-only** from the app's perspective --
+  an AST walk over every live surface finds only `beat_lease` and `record_*`,
+  so no journal state can gate a turn, a push, a PR or a merge;
+- doctor's verdict is a report: a broken launcher still exits 0;
+- the CLI's exit code comes from the run's own result, so correcting the
+  terminal verdicts here cannot move what anyone's automation sees.
 
 
 ## Status
