@@ -670,6 +670,81 @@ The rest of the audit came back clean and is pinned in
   terminal verdicts here cannot move what anyone's automation sees.
 
 
+## Can a user feel any of this?
+
+The question OPai has to be able to answer, because it is a coding tool and
+none of this is worth one message somebody could not send. Measured rather
+than argued.
+
+### It costs 24 ms
+
+A whole turn's bookkeeping -- admission, a heartbeat, the terminal record --
+on the drive OPai actually lives on. A turn that calls a model takes seconds,
+so this is under one percent of it.
+
+That number nearly went the other way. The first measurement said **686 ms**
+and I had already switched `synchronous=FULL` to `NORMAL` to fix it. Then the
+drive turned out to be the variable:
+
+| | sqlite `close` |
+| --- | --- |
+| D: (scratch drive the tests use) | 214.73 ms |
+| C: (where the journal lives) | 2.82 ms |
+
+On the real drive `FULL` costs 0.9 ms per commit, so the change bought about
+5 ms per turn in exchange for power-loss durability. Reverted. Every cost test
+is now a **ratio** against a plain durable commit on the same filesystem --
+28 commits' worth on C:, 19 on D: -- so a slow disk moves both numbers and the
+assertion still means the same thing.
+
+### A totally broken journal does not stop a turn
+
+Every entry point raising at once, and the turn still returns its answer byte
+for byte. No journal failure reaches the result as an error, a status or a
+message, and a turn that fails for its own reasons still reports *its* error.
+
+That test passed at first while never calling the journal at all -- the
+wrapper clears its ContextVar on entry, so a stubbed turn published no run
+identity. Its own guard assertion caught it.
+
+### Nothing reads the journal to decide anything
+
+An AST walk over every live surface: the only journal calls are `beat_lease`
+and the `record_*` family. No journal state can gate a turn, a push, a PR or a
+merge. Stage 5 changes that deliberately, and the test says so, so a *read*
+that can refuse work has to be somebody's decision rather than an accident.
+
+The expensive reports -- parity, unevidenced completions, unconfirmed
+cancellations, launcher health -- are `opai doctor`'s and doctor's only,
+checked the same way.
+
+### Exactly one visible string changed
+
+The whole inspector payload, diffed against `main`:
+
+```
+- "github": "Ready to push & open PRs"
++ "github": "Token connected · not verified yet"
+```
+
+Every key and every row label identical, and **zero web assets changed** -- the
+frontend is byte-for-byte `main`. The e2e suite drives a mock bridge with no
+Python in it, so it cannot be affected by any of this.
+
+The added work behind that row is 0.249 ms of a 41.8 ms render, and the render
+already ran in a worker thread on request rather than on a poll or a
+keystroke.
+
+### And the one thing that would have blocked somebody
+
+`grant_belongs_to` used strict equality, so a caller that could not name its
+run was refused. The process that spends a grant is the PreToolUse hook, and
+OPai does not launch it -- the *provider's* CLI does. A provider that
+sanitises its hook environment would have silently refused every approved
+push. Refusal now needs positive evidence: two runs naming themselves
+differently. Verified against the worst case with real subprocesses.
+
+
 ## Status
 
 | Migration step (per #818) | State |
