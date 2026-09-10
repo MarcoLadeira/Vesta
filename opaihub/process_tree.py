@@ -38,6 +38,7 @@ import os
 import signal
 import subprocess  # nosec B404 - argv-only taskkill, never a shell
 import sys
+import time
 import weakref
 from typing import Any, Callable
 
@@ -68,6 +69,10 @@ def isolated_group_kwargs(*, no_window: bool = True) -> dict[str, Any]:
         if no_window:
             flags |= subprocess.CREATE_NO_WINDOW
         return {"creationflags": flags}
+    if os.environ.get("OPAI_OBJECTIVE_TREE_CUSTODY") == "posix-group":
+        # The guardian owns the outer group. Nested provider/check processes
+        # must stay in it so supervisor loss cannot orphan a new session.
+        return {}
     # POSIX: start_new_session=True calls setsid() in the child.
     return {"start_new_session": True}
 
@@ -106,6 +111,14 @@ def _kernel32() -> Any:
         k.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
         k.TerminateJobObject.restype = wintypes.BOOL
         k.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+        k.QueryInformationJobObject.restype = wintypes.BOOL
+        k.QueryInformationJobObject.argtypes = [
+            wintypes.HANDLE,
+            ctypes.c_int,
+            wintypes.LPVOID,
+            wintypes.DWORD,
+            wintypes.LPVOID,
+        ]
         k.CloseHandle.restype = wintypes.BOOL
         k.CloseHandle.argtypes = [wintypes.HANDLE]
         return k
@@ -227,7 +240,12 @@ def adopt(proc: Any) -> Any:
         # later is the point: ``getpgid`` fails once the leader dies, which is
         # exactly the crash case where survivors must still be reachable.
         with contextlib.suppress(Exception):  # noqa: BLE001
-            setattr(proc, _PGID_ATTR, pid)
+            group = (
+                os.getpgid(pid)
+                if os.environ.get("OPAI_OBJECTIVE_TREE_CUSTODY") == "posix-group"
+                else pid
+            )
+            setattr(proc, _PGID_ATTR, group)
         return proc
 
     k = _kernel32()
@@ -284,6 +302,81 @@ def _terminate_job(proc: Any) -> bool:
     with contextlib.suppress(Exception):  # noqa: BLE001
         setattr(proc, _JOB_ATTR, None)
     return True
+
+
+def custody_kind(proc: Any) -> str:
+    """Require a retained tree identity before opening a worker's start gate."""
+    if sys.platform == "win32":
+        job = getattr(proc, _JOB_ATTR, None)
+        if isinstance(job, _Job) and job.handle:
+            return "windows-job"
+    elif getattr(proc, _PGID_ATTR, None) == proc.pid:
+        return "posix-group"
+    raise RuntimeError("Worker tree custody could not be established")
+
+
+def _job_active_processes(job: _Job) -> int:
+    import ctypes
+    from ctypes import wintypes
+
+    class Accounting(ctypes.Structure):
+        _fields_ = [
+            ("TotalUserTime", ctypes.c_int64),
+            ("TotalKernelTime", ctypes.c_int64),
+            ("ThisPeriodTotalUserTime", ctypes.c_int64),
+            ("ThisPeriodTotalKernelTime", ctypes.c_int64),
+            ("TotalPageFaultCount", wintypes.DWORD),
+            ("TotalProcesses", wintypes.DWORD),
+            ("ActiveProcesses", wintypes.DWORD),
+            ("TotalTerminatedProcesses", wintypes.DWORD),
+        ]
+
+    info = Accounting()
+    kernel = _kernel32()
+    if kernel is None or not kernel.QueryInformationJobObject(
+        job.handle, 1, ctypes.byref(info), ctypes.sizeof(info), None
+    ):
+        raise OSError("Unable to query retained worker job")
+    return int(info.ActiveProcesses)
+
+
+def terminate_tree_confirmed(proc: Any, *, timeout: float = 10.0) -> bool:
+    """Kill custody members and prove emptiness before releasing its identity.
+
+    Unlike the legacy best-effort cleanup, root exit and a successful kill
+    request are not proof. On failure the job handle stays open for a retry.
+    """
+    kind = custody_kind(proc)
+    deadline = time.monotonic() + timeout
+    job = getattr(proc, _JOB_ATTR, None)
+    if kind == "windows-job":
+        kernel = _kernel32()
+        if kernel is None or not kernel.TerminateJobObject(job.handle, 1):
+            return False
+    else:
+        group = getattr(proc, _PGID_ATTR)
+        _killpg(group, signal.SIGKILL)
+    while True:
+        proc.poll()  # reap the direct child before checking POSIX group absence
+        try:
+            if kind == "windows-job":
+                empty = _job_active_processes(job) == 0
+            else:
+                try:
+                    os.killpg(group, 0)
+                    empty = False
+                except ProcessLookupError:
+                    empty = True
+            if empty:
+                proc.wait(timeout=max(0.1, deadline - time.monotonic()))
+                if kind == "windows-job":
+                    job.close()
+                return True
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            return False
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.05)
 
 
 # --------------------------------------------------------------------------

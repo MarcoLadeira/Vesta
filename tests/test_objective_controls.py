@@ -91,7 +91,10 @@ def test_review_uses_fenced_revision_and_preserves_previous_receipt(tmp_path):
         store.control(oid, "request_review", value={"revision": previous["revision"]})
 
 
-def test_approval_continuation_transfers_partial_work_before_new_invocation(tmp_path):
+@pytest.mark.parametrize("tamper", [False, True])
+def test_approval_continuation_transfers_partial_work_before_new_invocation(
+    tmp_path, tamper
+):
     root = tmp_path / "repository"
     root.mkdir()
     make_repo(
@@ -120,6 +123,8 @@ def test_approval_continuation_transfers_partial_work_before_new_invocation(tmp_
         root, worker=worker, worktree_root=tmp_path / "workers"
     )
     first = executor.run(oid)["assignments"][0]
+    if tamper:
+        (paths[0] / "a.txt").write_text("changed after approval request")
     store.control(
         oid,
         "approve",
@@ -127,6 +132,14 @@ def test_approval_continuation_transfers_partial_work_before_new_invocation(tmp_
         {"request_id": first["pending_approval"]["request_id"]},
     )
     final = executor.run(oid)
+    if tamper:
+        assert len(paths) == 1
+        assert final["assignments"][0]["status"] == "failed"
+        assert (
+            "Retained changes require review"
+            in final["assignments"][0]["result"]["error"]
+        )
+        return
     assert len(paths) == 2 and paths[0] != paths[1]
     row = final["assignments"][0]
     assert row["status"] == "completed", row["result"]

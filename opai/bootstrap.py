@@ -538,7 +538,12 @@ def _run(
     validate_integrity: bool = True,
 ) -> int:
     try:
-        objective_worker = arguments[:1] == ["--opai-objective-worker"]
+        internal_entries = {
+            "--opai-objective-worker": ("opaihub.objective_worker", "main"),
+            "--opai-objective-guardian": ("opaihub.objective_guardian", "main"),
+            "--opai-objective-child": ("opaihub.objective_guardian", "child_main"),
+        }
+        objective_worker = bool(arguments and arguments[0] in internal_entries)
         if objective_worker and len(arguments) != 3:
             return 2
         needs_desktop = (
@@ -569,8 +574,9 @@ def _run(
                 print(release_version_text(), file=stdout)
             return 0
         if objective_worker:
-            module = importer("opaihub.objective_worker")
-            return int(module.main(arguments[1:]))
+            module_name, entrypoint = internal_entries[arguments[0]]
+            module = importer(module_name)
+            return int(getattr(module, entrypoint)(arguments[1:]))
         module = importer("opai.cli")
         if desktop:
             return int(module.gui_main())  # type: ignore[attr-defined]

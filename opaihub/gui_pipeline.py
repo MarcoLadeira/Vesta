@@ -846,6 +846,7 @@ def _handle_gui_message(
     task_id: str | None = None,
     run_id: str | None = None,
     authority_root: Path | None = None,
+    local_model_endpoint: str | None = None,
 ) -> dict[str, Any]:
     """Run one chat turn. With ``on_event``/``on_text``/``cancel`` supplied it
     emits live activity and streams account output; without them it behaves
@@ -3233,7 +3234,13 @@ def _handle_gui_message(
         # run *that* model, not whatever detect_local_runner finds first. "auto"
         # (and unknown ids) fall through to run_ask's own local-first detection.
         picked_runner = None
-        if selected_model not in {"auto", "", None} and ":" in str(selected_model):
+        if authority_root is not None:
+            from .objective_routing import managed_local_runner
+
+            # The managed router admitted this exact model and endpoint. Never
+            # rebuild it from environment configuration or rediscover a runner.
+            picked_runner = managed_local_runner(selected_model, local_model_endpoint)
+        elif selected_model not in {"auto", "", None} and ":" in str(selected_model):
             picked_runner = runner_for_model(selected_model, root)
         # cancel threads into the local runner too (#107): Stop closes the HTTP
         # connection mid-generation instead of only ignoring the late result.

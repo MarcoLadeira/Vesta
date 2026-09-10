@@ -1028,6 +1028,7 @@ class ObjectiveStore:
             next_status = (
                 "ready-to-integrate"
                 if all(item["status"] == "completed" for item in items)
+                and obj["integration"]["status"] not in {"needs-attention", "failed", "cancelled"}
                 else "needs-attention"
             )
             if obj["status"] == "paused":
@@ -1117,7 +1118,7 @@ class ObjectiveStore:
                     return {
                         "kind": "edits",
                         "files": files,
-                        "reason": "Allow file edits for one continuation attempt",
+                        "reason": "Enable file editing in this assignment's isolated worktree for one continuation. Changes outside the intended scope require review.",
                     }
         return None
 
@@ -1534,6 +1535,24 @@ class ObjectiveStore:
             or tree_kind not in {"windows-job", "posix-group"}
         ):
             raise ValueError("Invalid process custody")
+        phase_lease = None
+        if phase:
+            from .worktree_leases import WorktreeManager
+
+            current = self.snapshot(objective_id)
+            phase_run = current["run_id"] + (
+                "-plan" if phase == "planning" else "-integration"
+            )
+            leases = [
+                lease
+                for lease in WorktreeManager(self.root).list()
+                if lease.run_id == phase_run
+                and lease.task_id == current["task_id"]
+                and lease.owner == owner
+                and lease.state == "active"
+            ]
+            if len(leases) == 1:
+                phase_lease = leases[0]
         with self._db(True) as db:
             obj, item = self._execution_target(
                 db, objective_id, owner, dispatch_fence, assignment_id, phase
@@ -1551,6 +1570,13 @@ class ObjectiveStore:
                 tree_kind=tree_kind,
                 termination_proof=None,
             )
+            if phase_lease:
+                item.update(
+                    worktree=phase_lease.path,
+                    branch=phase_lease.branch,
+                    lease_id=phase_lease.lease_id,
+                    base_sha=phase_lease.base_sha,
+                )
             if not phase:
                 self._save_assignment(db, item)
             self._save_obj(db, obj)
@@ -1696,7 +1722,7 @@ class ObjectiveStore:
                         event.get("amount_usd"),
                         event.get("measurement_kind", "unavailable"),
                     )
-                if not events:
+                if not events and phase != "integration":
                     self.record_cost(
                         obj["objective_id"],
                         aid,
@@ -1879,6 +1905,12 @@ class ObjectiveStore:
             ):
                 return None
             integration = obj["integration"]
+            if integration.get("execution"):
+                self._require_terminated(integration)
+                history = integration.setdefault("execution_history", [])
+                if len(history) >= 32:
+                    raise ValueError("Integration attempt limit reached")
+                history.append(integration.pop("execution"))
             integration.update(
                 status="running",
                 owner=owner,
@@ -1924,6 +1956,7 @@ class ObjectiveStore:
                 raise StaleWriterError(
                     "Integration ownership or fence no longer matches"
                 )
+            self._require_terminated(integration)
             if obj["status"] == "stopping":
                 status = "cancelled"
             if status == "completed":

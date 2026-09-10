@@ -307,7 +307,9 @@ def test_worker_process_validates_real_lease_and_returns_attributable_evidence(
     store = ObjectiveStore(tmp_path)
     oid = store.create("Update", [task("a")], mode="plan")["objective_id"]
     script = (
-        "import sys; from opaihub import gui_pipeline, objective_worker; "
+        "import sys; from opaihub import gui_pipeline, objective_worker, objective_routing; "
+        "objective_routing.select_worker_route=lambda *a,**kw: "
+        "{'allowed':True,'model_id':'fixture:local','provider':'fixture','endpoint':None}; "
         "gui_pipeline.handle_gui_message=lambda root,prompt,**kw: "
         "{'status':'completed','answer':'Local isolated response',"
         "'objective_cost_events':[{'operation_key':kw['run_id']+'-local',"
