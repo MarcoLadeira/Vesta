@@ -764,6 +764,30 @@ def cmd_journal(args: argparse.Namespace) -> int:
                 f"  event parity:   {count} run(s) where the events and the runs"
                 " table disagree"
             )
+        # Across surfaces: the journal versus the saved conversation.
+        if not migration.get("turn_parity_known", True):
+            why = migration.get("turn_parity_unknown_because") or "unreadable"
+            print(f"  turn parity:    unknown ({why})")
+        else:
+            disagreed = int(migration.get("turn_parity_disagreements", 0))
+            joined_runs = int(migration.get("turn_parity_joined", 0))
+            unjoinable = int(migration.get("turn_parity_unjoinable", 0))
+            if disagreed:
+                print(
+                    f"  turn parity:    {disagreed} of {joined_runs} runs disagree"
+                    " with the saved conversation about how the turn ended"
+                )
+            elif joined_runs:
+                print(f"  turn parity:    {joined_runs} runs agree with their chat")
+            if unjoinable:
+                # Not a failure: these ran before the journal recorded which
+                # conversation a task belonged to, so there is no key to join on.
+                print(f"  unjoinable:     {unjoinable} run(s) predate origin_session")
+            journal_shape = migration.get("turn_outcomes_journal") or {}
+            chat_shape = migration.get("turn_outcomes_conversations") or {}
+            if journal_shape and chat_shape and journal_shape != chat_shape:
+                print(f"  outcomes (lead): journal {journal_shape}")
+                print(f"                   chats   {chat_shape}")
         print(f"  backups:        {backup.get('backups', 0)}", end="")
         print(f" (latest {backup['latest']})" if backup.get("latest") else "")
         return 0
@@ -1116,6 +1140,29 @@ def _journal_migration(root: Path) -> dict[str, object]:
         facts["event_table_parity_known"] = bool(parity.get("comparable"))
         facts["event_table_parity_unknown_because"] = str(parity.get("reason") or "")
         facts["event_table_disagreements"] = int(parity.get("disagreement_count", 0))
+
+        # The other parity, across surfaces rather than within the store: does
+        # the journal agree with the saved conversation about how a turn
+        # ended? Comparing those two populations is what found the journal
+        # filing partial turns as completed, so it is a standing check now
+        # rather than something somebody once noticed.
+        from opaihub import journal_conversations
+
+        turns = journal_conversations.turn_parity(root)
+        facts["turn_parity_known"] = bool(turns.get("available"))
+        facts["turn_parity_unknown_because"] = str(turns.get("reason") or "")
+        joined = turns.get("joined") or {}
+        facts["turn_parity_joined"] = int(joined.get("runs", 0))
+        facts["turn_parity_disagreements"] = int(joined.get("disagreement_count", 0))
+        facts["turn_parity_unjoinable"] = int(turns.get("unjoinable_runs", 0))
+        # Reported separately and labelled as a lead: two populations can share
+        # a shape without sharing members, so this is never a join.
+        facts["turn_outcomes_journal"] = dict(
+            (turns.get("aggregate") or {}).get("journal") or {}
+        )
+        facts["turn_outcomes_conversations"] = dict(
+            (turns.get("aggregate") or {}).get("conversations") or {}
+        )
 
         from opaihub import journal_background, journal_retirement
 
