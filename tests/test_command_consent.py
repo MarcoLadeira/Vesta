@@ -342,12 +342,33 @@ class ApprovalsBelongToOneRunTests(_IsolatedConsent):
         self.assertEqual(command_consent.granted_command(), "git push")
         self.assertTrue(command_consent.consume_grant("git push", run="run-A"))
 
-    def test_a_caller_with_no_run_cannot_spend_a_run_bound_grant(self):
-        """It cannot prove the approval is its own, so it does not get it."""
+    def test_a_caller_that_cannot_identify_itself_is_still_allowed(self):
+        """Never block a person from what they just explicitly approved.
+
+        The process that spends a grant is the PreToolUse hook, and OPai does
+        not launch it: OPai launches the *provider's* CLI, and that launches
+        the hook. Whether OPAI_RUN_ID survives that middle hop is a third
+        party's decision.
+
+        So "I cannot say which run I am" must not be a refusal. A provider
+        that sanitises its hook environment would otherwise silently refuse
+        every approved push -- the user presses Approve and nothing happens --
+        which is a far worse failure than the cross-window leak this check
+        exists to close, and OPai must never be the reason someone cannot do
+        the thing they just asked for.
+
+        The refusal needs evidence. "This grant is run B's and I am run A" is
+        evidence; not knowing is not.
+        """
 
         command_consent.begin_turn("git push", run="run-A")
 
-        self.assertFalse(command_consent.consume_grant("git push", run=""))
+        self.assertTrue(command_consent.consume_grant("git push", run=""))
+
+    def test_a_grant_that_predates_run_binding_is_still_spendable(self):
+        command_consent.begin_turn("git push")
+
+        self.assertTrue(command_consent.consume_grant("git push", run="run-A"))
 
     def test_an_unplumbed_install_keeps_working(self):
         """Absent on both sides is a match: nothing about today's flow breaks."""
@@ -409,14 +430,24 @@ class ApprovalsBelongToOneRunTests(_IsolatedConsent):
         self.assertEqual(ask("run-B"), "NO", "a foreign window spent the approval")
         self.assertEqual(ask("run-A"), "YES", "the owning window was refused")
 
-    def test_run_matching_is_strict_about_absence(self):
-        self.assertTrue(command_consent.grant_belongs_to("", ""))
-        self.assertTrue(command_consent.grant_belongs_to(None, ""))
-        self.assertTrue(command_consent.grant_belongs_to("run-A", "run-A"))
-        self.assertTrue(command_consent.grant_belongs_to(" run-A ", "run-A"))
-        self.assertFalse(command_consent.grant_belongs_to("run-A", ""))
-        self.assertFalse(command_consent.grant_belongs_to("", "run-A"))
-        self.assertFalse(command_consent.grant_belongs_to("run-A", "run-B"))
+    def test_only_a_positive_mismatch_is_refused(self):
+        """One refusal, and it is the one backed by evidence."""
+
+        allowed = [
+            ("run-A", "run-A", "the same run"),
+            (" run-A ", "run-A", "the same run, differently spaced"),
+            ("", "", "neither side knows"),
+            ("run-A", "", "the caller cannot identify itself"),
+            (None, "run-A", "the grant predates run binding"),
+        ]
+        for grant, caller, why in allowed:
+            with self.subTest(why=why):
+                self.assertTrue(command_consent.grant_belongs_to(grant, caller), why)
+
+        self.assertFalse(
+            command_consent.grant_belongs_to("run-A", "run-B"),
+            "two runs that name themselves differently is the actual leak",
+        )
 
 
 class RunIdentityReachesTheChildTests(_IsolatedConsent):

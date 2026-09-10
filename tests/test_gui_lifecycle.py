@@ -146,8 +146,14 @@ class BuildChatJobTests(unittest.TestCase):
     def test_cancel_event_reaches_handle_gui_message(self):
         captured: dict = {}
 
-        def fake_handle(root, composed, *, model_id, mode, cancel):
-            captured.update(model_id=model_id, mode=mode, cancel=cancel)
+        # `surface` is named rather than swept into **kwargs on purpose. A stub
+        # that accepts anything cannot notice the host dropping an argument,
+        # and this one exists to check what the host passes (#818 AC2: the
+        # canonical record has to know which surface asked).
+        def fake_handle(root, composed, *, model_id, mode, cancel, surface):
+            captured.update(
+                model_id=model_id, mode=mode, cancel=cancel, surface=surface
+            )
             return {"status": "answered", "answer": "ok"}
 
         with mock.patch(
@@ -164,6 +170,12 @@ class BuildChatJobTests(unittest.TestCase):
             "the event returned to the GUI must be the one the pipeline polls",
         )
         self.assertEqual(captured["model_id"], "auto")
+        self.assertEqual(
+            captured["surface"],
+            "gui",
+            "the classic desktop host must name itself, or its runs are "
+            "recorded as whatever the default happens to be",
+        )
         self.assertEqual(result["status"], "answered")
 
     def test_pre_cancelled_job_records_only_a_terminal_verdict(self):

@@ -342,18 +342,39 @@ def grant_permits(grant: str, command: str) -> bool:
 def grant_belongs_to(grant_run: Any, caller_run: Any) -> bool:
     """Whether a grant issued for ``grant_run`` may be spent by ``caller_run``.
 
-    Strict equality of the normalized values, and absence is a value. So:
+    **Refused only on a positive mismatch**: both sides name a run, and the
+    names differ. Everything else is allowed.
 
-    * both absent -- an OPai that does not plumb run identity anywhere -- match,
-      and the handshake keeps working exactly as it did;
-    * both present and equal match;
-    * anything else does not, including a caller that cannot say which run it
-      is trying to spend a run-bound approval. It cannot prove the grant is
-      its own, and an approval nobody can attribute is precisely the thing
-      this check exists to refuse.
+    An earlier version used strict equality, so a caller that could not say
+    which run it was got refused. That is the wrong failure for this gate, and
+    the reason is the shape of the call chain rather than a preference.
+
+    The process that spends a grant is the PreToolUse hook, and OPai does not
+    launch it. OPai launches the *provider's* CLI, and that CLI launches the
+    hook. Whether ``OPAI_RUN_ID`` survives the middle hop is a third party's
+    decision. Under strict equality, a provider that sanitises the environment
+    it hands its hooks would silently refuse **every** approved push -- the
+    user presses Approve and nothing happens. That is a far worse failure than
+    the one this check exists to prevent. OPai must never be the reason a
+    person cannot do the thing they just explicitly asked for.
+
+    So the refusal needs evidence, exactly like everything else in this epic.
+    "This grant belongs to run B and I am run A" is evidence. "I do not know
+    which run I am" is not, and answering that with a refusal would be the same
+    confident-guess mistake pointing the other way.
+
+    The leak stays closed where it actually happens: two OPai windows on one
+    machine either both carry a run id or neither does, so a real cross-window
+    attempt is a positive mismatch. Where identity does not propagate at all,
+    the behaviour degrades to what it was before this check existed -- no worse
+    than the status quo, and never a block.
     """
 
-    return _normalize_run(grant_run) == _normalize_run(caller_run)
+    left = _normalize_run(grant_run)
+    right = _normalize_run(caller_run)
+    if not left or not right:
+        return True
+    return left == right
 
 
 def consume_grant(command: str, *, run: str | None = None) -> bool:
