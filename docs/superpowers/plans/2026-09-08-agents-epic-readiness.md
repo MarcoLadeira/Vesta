@@ -69,6 +69,8 @@ Validation runs overlap and must not be added as unique tests:
 
 A long-running combined test was interrupted for diagnosis. Its isolated integration cases passed; the subsequent combined run completed. No claim of a production hang fix is based solely on that timing observation.
 
+GitHub Actions attempted validation of `01d78ff`, but every required job failed before starting any steps. GitHub reported failed account payments or an insufficient spending limit; hosted CI is therefore blocked by account billing, not a test result. Required hosted checks must run after that account issue is resolved.
+
 ## Remaining before epic closure
 
 1. Run the required six workload classes with real providers in sequential and concurrent modes, measuring verified outcomes, wall time, cost, conflicts and intervention. Existing synthetic results establish orchestration behavior only. Provider/cloud use needs explicit authorization under the repository's session rules.
