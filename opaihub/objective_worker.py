@@ -121,6 +121,7 @@ def authorize_request(packet, request_path, response_path):
         else None,
         "allow_edits_once": not readonly and grant.get("kind") == "edits",
         "allow_cloud": objective["allow_cloud"] is True,
+        "bypass_permissions": not readonly and objective.get("bypass_permissions") is True,
     }
 
 
@@ -213,6 +214,7 @@ def main(argv=None) -> int:
             allow_cloud=packet.get("allow_cloud", False),
             allow_command=packet.get("allow_command"),
             allow_edits_once=packet.get("allow_edits_once", False),
+            objective_bypass_permissions=packet.get("bypass_permissions", False),
             task_id=packet["task_id"],
             run_id=packet["run_id"],
             authority_root=Path(packet["authority_root"]),

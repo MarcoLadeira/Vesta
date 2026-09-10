@@ -128,7 +128,8 @@ test("the mode menu is Claude Code's, in OPai's rows", async ({ page }) => {
   // separator — it is not the next rung on the ladder.
   await expect(menu.locator(".cpop-meta")).toHaveText(["1", "2", "3", "4"]);
   await expect(menu.locator(".cpop-sep")).toHaveCount(2);
-  await expect(menu.getByRole("menuitemcheckbox")).toHaveAttribute("aria-checked", "false");
+  await expect(menu.locator('[data-bypass]')).toHaveAttribute("aria-checked", "false");
+  await expect(menu.locator('[data-multi-agent]')).toHaveAttribute("aria-checked", "false");
 });
 
 test("the number keys pick a mode, and Bypass has none", async ({ page }) => {
@@ -188,7 +189,10 @@ test("edit modes are disabled when the selected CLI lacks scoped edit controls",
   await expect(menu.locator('[data-id="safe-auto"]')).toBeDisabled();
   await expect(menu.locator('[data-id="approve-edits"]')).toBeDisabled();
   await expect(menu.locator('[data-id="auto-edits"]')).toBeDisabled();
-  await expect(menu.locator('[data-id="full-auto"]')).toBeDisabled();
+  // Bypass is a switch now, not a mode row -- and it is disabled here for the
+  // same reason: skipping the asking cannot grant an ability the CLI lacks.
+  await expect(menu.locator("[data-bypass]")).toBeDisabled();
+  await expect(menu.locator('[data-id="full-auto"]')).toHaveCount(0);
 });
 
 test("model popover shows working models, balances, and explains removals", async ({ page }) => {

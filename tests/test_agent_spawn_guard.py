@@ -904,7 +904,14 @@ class ClaudeFullAutoPostureTests(unittest.TestCase):
         self.assertEqual(cmd[idx + 1], str(claude_hook_settings_path()))
 
     def test_skip_permissions_never_emitted_without_settings(self):
-        for mode in ("ask", "plan", "approve-edits", "safe-auto", "full-auto"):
+        for mode in (
+            "ask",
+            "plan",
+            "approve-edits",
+            "safe-auto",
+            "auto-edits",
+            "full-auto",
+        ):
             with self.subTest(mode=mode):
                 cmd = self._runner().build_command("hi", mode=mode)
                 self.assertEqual(
@@ -912,7 +919,7 @@ class ClaudeFullAutoPostureTests(unittest.TestCase):
                 )
 
     def test_non_full_auto_modes_have_neither_flag(self):
-        for mode in ("ask", "plan", "approve-edits", "safe-auto"):
+        for mode in ("ask", "plan", "approve-edits", "safe-auto", "auto-edits"):
             with self.subTest(mode=mode):
                 cmd = self._runner().build_command("hi", mode=mode)
                 self.assertNotIn("--dangerously-skip-permissions", cmd)
@@ -1242,6 +1249,28 @@ class HookHonoursTheRunModeTests(unittest.TestCase):
                         command,
                     )
 
+    def test_plan_mode_refuses_every_change(self):
+        # Plan mode is read-only by construction. The hook used to fall through
+        # to the risky-command rules, which say nothing about `git commit`, so
+        # plan mode committed -- not what the mode promises, and not what the
+        # same word means in Claude Code.
+        with _hermetic_hub(), _autonomy("plan"):
+            for command in ("git commit -m x", "npm run build", "git push"):
+                with self.subTest(command=command):
+                    result = claude_pre_tool_decision(_hook_payload(command))
+                    self.assertEqual(_decision_of(result), "deny", command)
+                    self.assertIn("plan mode", _reason_of(result))
+
+    def test_plan_mode_still_reads_freely(self):
+        with _hermetic_hub(), _autonomy("plan"):
+            for command in ("git status", "cat README.md", "git log --oneline"):
+                with self.subTest(command=command):
+                    self.assertEqual(
+                        _decision_of(claude_pre_tool_decision(_hook_payload(command))),
+                        "allow",
+                        command,
+                    )
+
     def test_reads_are_allowed_at_every_level(self):
         for level in (None, "ask", "safe-auto", "full-auto"):
             with _hermetic_hub(), _autonomy(level):
@@ -1278,3 +1307,66 @@ class SpawnPublishesTheRunModeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ClaudeCodeModeParitySpawnTests(unittest.TestCase):
+    """The spawned CLI must be told to behave the way the mode promises.
+
+    accept-edits is the mode that broke: it got no permission flag at all, so
+    the one thing it promises -- file edits that do not stop to ask -- simply
+    did not happen, while the permissions panel said ``edit: allow``.
+    """
+
+    def _claude(self) -> AccountRunner:
+        return AccountRunner("claude", _CLAUDE_CLI, model="sonnet")
+
+    def _codex(self) -> AccountRunner:
+        return AccountRunner("codex", _CODEX_CLI, model="gpt-5")
+
+    def test_accept_edits_asks_the_cli_to_accept_edits(self):
+        cmd = self._claude().build_command("do it", mode="auto-edits")
+        index = cmd.index("--permission-mode")
+        self.assertEqual(cmd[index + 1], "acceptEdits")
+
+    def test_accept_edits_needs_no_edit_grant_to_apply_edits(self):
+        # The whole point of the mode: edits proceed without a per-turn card.
+        cmd = self._claude().build_command("do it", mode="auto-edits", edit_grant=False)
+        self.assertIn("acceptEdits", cmd)
+
+    def test_a_granted_edit_applies_in_the_asking_modes(self):
+        for mode in ("safe-auto", "approve-edits"):
+            with self.subTest(mode=mode):
+                cmd = self._claude().build_command("do it", mode=mode, edit_grant=True)
+                self.assertIn("acceptEdits", cmd)
+
+    def test_the_asking_modes_do_not_accept_edits_unasked(self):
+        for mode in ("safe-auto", "approve-edits"):
+            with self.subTest(mode=mode):
+                cmd = self._claude().build_command("do it", mode=mode, edit_grant=False)
+                self.assertNotIn("acceptEdits", cmd)
+
+    def test_only_the_read_only_modes_get_the_read_only_instruction(self):
+        for mode in ("ask", "plan"):
+            with self.subTest(mode=mode):
+                cmd = self._claude().build_command("do it", mode=mode)
+                self.assertIn("Do not modify files", cmd[-1])
+        # approve-edits asks before each edit; it is not read-only, and telling
+        # the model otherwise contradicted the panel's own "edit: ask".
+        for mode in ("approve-edits", "auto-edits", "full-auto"):
+            with self.subTest(mode=mode):
+                cmd = self._claude().build_command("do it", mode=mode)
+                self.assertNotIn("Do not modify files", cmd[-1])
+
+    def test_codex_accept_edits_can_actually_write(self):
+        # auto-edits was absent from the workspace-write set, so the Codex
+        # sandbox ran read-only and the mode could not apply its edits.
+        cmd = self._codex().build_command("do it", mode="auto-edits")
+        index = cmd.index("--sandbox")
+        self.assertEqual(cmd[index + 1], "workspace-write")
+
+    def test_codex_read_only_modes_stay_read_only(self):
+        for mode in ("ask", "plan", "approve-edits"):
+            with self.subTest(mode=mode):
+                cmd = self._codex().build_command("do it", mode=mode)
+                index = cmd.index("--sandbox")
+                self.assertEqual(cmd[index + 1], "read-only")

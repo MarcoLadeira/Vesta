@@ -56,7 +56,11 @@ const state = {
   mode: { id: "safe-auto", label: "Safe Auto" },
   focus: "general", format: "normal",
   multiAgentEnabled: false, agentsAllowCloud: false, agentsSnapshot: null, agentsSelection: null, agentsPollTimer: null, agentsRequests: new Map(),
-  accounts: [], panel: true, message: null, lastFailedRequestId: null,
+  // Hidden until the boot payload (or the user) says otherwise, matching
+  // gui_preferences' documented default. Starting true meant the shell
+  // painted an empty inspector before any preference was known -- and, with
+  // no bridge attached, kept it open forever.
+  accounts: [], panel: false, bypassPermissions: false, message: null, lastFailedRequestId: null,
   responseDensity: "balanced",
   tlNodes: null, activityRenderPending: false, timelineRenders: 0,
   latestActivity: null,
@@ -325,7 +329,12 @@ function onboardingCtx() {
 // identically at first boot and after every workspace switch, so the composer,
 // inspector, and header can never disagree (F16/F4).
 function applyBootSelection(b) {
-  state.panel = b.prefs.showPanel !== false;
+  // Explicit opt-in: an absent preference means hidden, matching the
+  // stored default. `!== false` treated undefined as "show", which is how
+  // a first run ended up with an empty inspector open.
+  state.panel = b.prefs.showPanel === true;
+  // Authority layered over the mode, not a mode of its own.
+  state.bypassPermissions = b.prefs.bypassPermissions === true;
   state.focus = b.prefs.focus || "general";
   state.format = b.prefs.format || "normal";
   state.multiAgentEnabled = b.prefs.multiAgentEnabled === true;
@@ -2158,6 +2167,7 @@ function send(retryOf) {
     text, model: state.model.id, mode: state.mode.id, focus: state.focus, format: state.format,
     modelKind: state.model.kind, modelLabel: state.model.label, modelProvider: state.model.provider,
     multiAgentEnabled: state.multiAgentEnabled === true,
+    bypassPermissions: state.bypassPermissions === true,
     allowCloud: state.multiAgentEnabled === true && state.agentsAllowCloud === true,
     contextHints: state.contextHints.slice(),
   };
@@ -2210,6 +2220,7 @@ function send(retryOf) {
   bridge.send(JSON.stringify({
     requestId, text: requestText, model: sel.model, mode: sel.mode, focus: sel.focus,
     format: sel.format, allowCloud: sel.allowCloud === true, allowLimit: sel.allowLimit === true,
+    bypassPermissions: sel.bypassPermissions === true,
     multiAgentEnabled: sel.multiAgentEnabled === true,
     contextHints,
     // F9/F17: one-time approval for a policy-blocked command — the exact
@@ -2238,8 +2249,8 @@ function buildPending(sel) {
            <span class="gen-detail" hidden></span>
          </div>
          <div class="gen-reassure" aria-live="polite"></div>
-         <button class="gen-toggle" type="button" aria-controls="${activityLogId}" aria-expanded="false">View work log · 0</button>
-         <div class="timeline" id="${activityLogId}" role="log" aria-label="AI activity" hidden></div>
+         <button class="gen-toggle" type="button" aria-controls="${activityLogId}" aria-expanded="true">Hide work log</button>
+         <div class="timeline" id="${activityLogId}" role="log" aria-label="AI activity"></div>
        </div>
        <div class="stream-block-list">
          <details class="stream-earlier" hidden>
@@ -4821,8 +4832,12 @@ function wire() {
     state.followLatest = true;
     scrollBottom(true);
   };
-  $("#newChat").onclick = startNewChat;
+  // New chat is a header action now; the sidebar is purely the chat list.
+  // Guarded because the sidebar button no longer exists in the markup.
+  const sidebarNewChat = $("#newChat");
+  if (sidebarNewChat) sidebarNewChat.onclick = startNewChat;
   $("#headerNewChat").onclick = startNewChat;
+  $("#headerAgents").onclick = () => switchView("agents");
   $("#footSettings").onclick = () => switchView("settings");
   $("#headerSettings").onclick = () => switchView("settings");
   $("#sidebarToggle").onclick = toggleSidebar;
@@ -4935,6 +4950,14 @@ if (typeof window !== "undefined") {
     applyAppearance: (p) => applyAppearance(p),
     // Used by the redesigned composer's overflow menu (Keyboard shortcuts).
     runCommand: (id) => runCommand(id),
+    // The composer's Bypass switch persists through here rather than reaching
+    // for the raw bridge, matching every other composer action on this surface.
+    setBypassPermissions: (on) => {
+      state.bypassPermissions = on === true;
+      bridge.savePref("bypass_permissions", on ? "true" : "false");
+      refreshInspector();
+      refreshStatus();
+    },
     // Context picker actions stay native so Chromium never receives arbitrary
     // host paths. The bridge returns only workspace-relative paths.
     pickContextFiles: (done) => {

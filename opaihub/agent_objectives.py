@@ -390,6 +390,7 @@ class ObjectiveStore:
         model="auto",
         shared_context="",
         allow_cloud=False,
+        bypass_permissions=False,
     ):
         objective = _text(objective, "objective", 16000)
         if (
@@ -401,6 +402,8 @@ class ObjectiveStore:
             raise ValueError("Invalid concurrency limit")
         if type(allow_cloud) is not bool:
             raise ValueError("allow_cloud must be boolean")
+        if type(bypass_permissions) is not bool:
+            raise ValueError("bypass_permissions must be boolean")
         validated = validate_plan(assignments) if assignments else []
         if assignments is None or not isinstance(assignments, (list, tuple)):
             raise ValueError("assignments must be a list")
@@ -414,6 +417,7 @@ class ObjectiveStore:
             mode=_text(mode, "mode", 100),
             model=_text(model, "model", 200),
             allow_cloud=allow_cloud,
+            bypass_permissions=bypass_permissions,
             shared_context=_text(shared_context, "shared_context", 16000, empty=True),
             budget_usd=_money(budget_usd),
             cost_usd="0",
@@ -465,6 +469,8 @@ class ObjectiveStore:
             }
             for item in validated
         ]
+        if bypass_permissions:
+            contract["bypass_permissions"] = True
         obj["request_digest"] = _payload_hash(contract)
         with self._db(True) as db:
             existing = db.execute(
@@ -1028,7 +1034,8 @@ class ObjectiveStore:
             next_status = (
                 "ready-to-integrate"
                 if all(item["status"] == "completed" for item in items)
-                and obj["integration"]["status"] not in {"needs-attention", "failed", "cancelled"}
+                and obj["integration"]["status"]
+                not in {"needs-attention", "failed", "cancelled"}
                 else "needs-attention"
             )
             if obj["status"] == "paused":

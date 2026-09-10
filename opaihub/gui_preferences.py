@@ -22,6 +22,12 @@ DEFAULT_PREFERENCES: dict[str, Any] = {
     # full-auto default is reset to Safe Auto on load unless it is pinned.
     "full_auto_pinned": False,
     "full_auto_acknowledged_at": "",
+    # Bypass Permissions is a *switch*, not a mode -- the same shape as Claude
+    # Code's --dangerously-skip-permissions. It composes with whichever mode is
+    # selected (Plan, Manual, Auto, Accept Edits) instead of replacing it, so
+    # turning it off returns you to the mode you were already working in.
+    # The legacy "full-auto" mode id still resolves to the same authority.
+    "bypass_permissions": False,
     "default_task_mode": "general",
     "default_output_format": "normal",
     # Simple by default: the Inspector is powerful but optional — first-time
@@ -78,6 +84,7 @@ _ALLOWED_KEYS = {
     "default_mode",
     "full_auto_pinned",
     "full_auto_acknowledged_at",
+    "bypass_permissions",
     "default_task_mode",
     "default_output_format",
     "show_control_panel",
@@ -184,6 +191,7 @@ def _sanitize(data: dict[str, Any]) -> dict[str, Any]:
     # The pin fields stay in the schema so an existing preferences file still
     # round-trips, but they no longer decide anything.
     clean["full_auto_pinned"] = clean.get("full_auto_pinned") is True
+    clean["bypass_permissions"] = clean.get("bypass_permissions") is True
     ack = clean.get("full_auto_acknowledged_at")
     clean["full_auto_acknowledged_at"] = str(ack) if isinstance(ack, str) else ""
     clean["schema_version"] = 3

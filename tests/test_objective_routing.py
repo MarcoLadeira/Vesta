@@ -285,6 +285,7 @@ def test_worker_route_uses_canonical_assignment_not_packet_suggestion(tmp_path):
         "allow_cloud": False,
         "capabilities": ["unknown"],
         "routing": {"allowed": True},
+        "bypass_permissions": True,
     }
     lease = SimpleNamespace(
         run_id="assignment-run",
@@ -313,6 +314,7 @@ def test_worker_route_uses_canonical_assignment_not_packet_suggestion(tmp_path):
         )
     assert sanitized["model_id"] == "free:groq:authorized"
     assert sanitized["allow_cloud"] is True
+    assert sanitized["bypass_permissions"] is False
     assert sanitized["routing"]["capabilities"] == ["chat", "repo_editing"]
     assert sanitized["routing"]["eligible_candidates"] == ["free:groq:authorized"]
 

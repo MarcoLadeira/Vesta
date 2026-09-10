@@ -129,6 +129,9 @@ describe("section registry (#236)", () => {
       "firewall",
       "usage",
       "permissions",
+      // Prompt Library and the Insights dashboards left the sidebar and land
+      // here, so Settings is where you go looking for them now.
+      "tools",
       "privacy",
       "appearance",
       "about",

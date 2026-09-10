@@ -9,7 +9,7 @@ import hashlib
 import os
 import re
 import stat
-import subprocess
+import subprocess  # nosec B404
 import threading
 import uuid
 
@@ -44,6 +44,7 @@ def create_objective_payload(root: Path, payload: dict[str, Any]) -> dict[str, A
         budget_usd=payload.get("budgetUsd"),
         shared_context="",
         allow_cloud=payload.get("allowCloud") is True,
+        bypass_permissions=payload.get("bypassPermissions") is True,
     )
 
 
@@ -175,6 +176,7 @@ def objective_worktree_path(root: Path, payload: dict[str, Any]) -> Path:
 
 def _artifact_command(root: Path, command: list[str], *, limit=262144):
     """Fixed read-only argv, with bounded output and execution time."""
+    from opaihub.process_tree import adopt, isolated_group_kwargs, terminate_tree
     if command[0] == "git":
         # Even read-only Git commands can invoke a configured fsmonitor hook.
         # Artifact inspection must never execute repository-provided helpers.
@@ -183,21 +185,23 @@ def _artifact_command(root: Path, command: list[str], *, limit=262144):
         key: value for key, value in os.environ.items() if not key.startswith("GIT_")
     }
     env.update(GIT_OPTIONAL_LOCKS="0", GIT_TERMINAL_PROMPT="0", GH_PROMPT_DISABLED="1")
-    with subprocess.Popen(
+    with subprocess.Popen(  # nosec B603
         command,
         cwd=root,
         env=env,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
+        **isolated_group_kwargs(),
     ) as process:
-        timer = threading.Timer(15, process.kill)
+        adopt(process)
+        timer = threading.Timer(15, terminate_tree, args=(process,))
         timer.start()
         try:
             output = process.stdout.read(limit + 1)
             truncated = len(output) > limit
             if truncated:
-                process.kill()
+                terminate_tree(process)
             code = process.wait()
             if code and not truncated:
                 raise ValueError(
@@ -206,6 +210,8 @@ def _artifact_command(root: Path, command: list[str], *, limit=262144):
             return output[:limit].decode("utf-8", errors="replace"), truncated
         finally:
             timer.cancel()
+            timer.join()
+            terminate_tree(process)
 
 
 def _artifact_git(root: Path, *args: str) -> str:

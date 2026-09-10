@@ -47,6 +47,7 @@ from .atomic_io import (
     interprocess_transaction,
 )
 from .command_runner import redact
+from .command_policy import resolve_autonomy
 from .proc import provider_child_env
 from .progress_evidence import ProgressLedger
 from .process_tree import adopt, isolated_group_kwargs, terminate_tree
@@ -118,11 +119,7 @@ def _safe_auth_evidence(account_id: str, home: Path) -> dict[str, list[str]]:
         except OSError:
             continue
         files.append(f"{rel}:{int(stat.st_size)}:{int(stat.st_mtime_ns)}")
-    env = [
-        str(name)
-        for name in spec.get("auth_env", [])
-        if os.environ.get(str(name))
-    ]
+    env = [str(name) for name in spec.get("auth_env", []) if os.environ.get(str(name))]
     return {"files": sorted(files), "environment": sorted(env)}
 
 
@@ -635,9 +632,7 @@ def _codex_cli_candidates(home: Path | None = None) -> list[str]:
         for extension in extensions:
             raw.append(str(Path(directory) / f"codex{extension}"))
     appdata = Path(os.environ.get("APPDATA") or user_home / "AppData/Roaming")
-    localappdata = Path(
-        os.environ.get("LOCALAPPDATA") or user_home / "AppData/Local"
-    )
+    localappdata = Path(os.environ.get("LOCALAPPDATA") or user_home / "AppData/Local")
     raw.extend(
         str(path)
         for path in (
@@ -840,7 +835,9 @@ def account_connections(home: Path | None = None) -> list[dict[str, Any]]:
         current = _result_with_local_evidence(connection_for_account(account), account)
         provider = str(account.get("id") or "")
         with _CONNECTION_CACHE_LOCK:
-            history = dict(_CONNECTION_HISTORY.get(_connection_key(provider, home)) or {})
+            history = dict(
+                _CONNECTION_HISTORY.get(_connection_key(provider, home)) or {}
+            )
         if not history:
             history = _durable_connection_history(provider, current, home=home)
         merged = _with_connection_history(current, history)
@@ -936,9 +933,7 @@ def test_account_connection(
                 candidate_proc = execute([cli_path, "login", "status"])
             except (OSError, subprocess.SubprocessError):
                 continue
-            candidate_returncode = int(
-                getattr(candidate_proc, "returncode", 0) or 0
-            )
+            candidate_returncode = int(getattr(candidate_proc, "returncode", 0) or 0)
             candidate_detail = "\n".join(
                 part.strip()
                 for part in (
@@ -953,9 +948,7 @@ def test_account_connection(
             authenticated_candidate = candidate_returncode == 0 and (
                 candidate_error["code"] in {"UNKNOWN", "NO_RESPONSE"}
             )
-            version = _account_cli_version(
-                candidate, run=run, home=home, force=True
-            )
+            version = _account_cli_version(candidate, run=run, home=home, force=True)
             current_candidate = _codex_cli_supports_current_default(version)
             rank = (2 if authenticated_candidate else 0) + (
                 1 if current_candidate else 0
@@ -1262,7 +1255,10 @@ def _cached_codex_models(
 ) -> list[tuple[str, str, str]]:
     fingerprint = _cli_fingerprint(cli_path)
     cached = _CODEX_MODEL_CACHE.get(cli_path)
-    if cached is not None and _CODEX_MODEL_FINGERPRINT_CACHE.get(cli_path) == fingerprint:
+    if (
+        cached is not None
+        and _CODEX_MODEL_FINGERPRINT_CACHE.get(cli_path) == fingerprint
+    ):
         return list(cached)
     _CODEX_MODEL_CACHE.pop(cli_path, None)
     _CODEX_MODEL_FINGERPRINT_CACHE.pop(cli_path, None)
@@ -2593,13 +2589,22 @@ class AccountRunner:
                 # skip-permissions; lower modes still stop at it.
                 cmd += ["--dangerously-skip-permissions"]
                 cmd += ["--settings", str(claude_hook_settings_path())]
-            elif selected_mode == "safe-auto" and edit_grant:
+            elif selected_mode == "auto-edits":
+                # Accept-edits IS Claude Code's acceptEdits: file edits apply
+                # without asking, Bash still goes through the CLI's own gate
+                # (denied non-interactively -> surfaced as an approval card).
+                # This mode previously got no flag at all, so the one thing it
+                # promises -- edits that do not stop -- did not happen.
+                cmd += ["--permission-mode", "acceptEdits"]
+            elif selected_mode in {"safe-auto", "approve-edits"} and edit_grant:
                 # F26: the user clicked "Allow edits once" on the approval
                 # card. acceptEdits auto-approves file edits only — Bash and
                 # anything destructive still go through the CLI's own gate
                 # (denied non-interactively → surfaced as approval cards).
+                # approve-edits belongs here too: it asks before each edit, it
+                # is not read-only, so a granted edit must actually apply.
                 cmd += ["--permission-mode", "acceptEdits"]
-            if selected_mode in {"ask", "plan", "approve-edits"}:
+            if selected_mode in {"ask", "plan"}:
                 prompt = (
                     "Do not modify files or run mutating commands. "
                     "Return an answer or patch plan only.\n\n" + prompt
@@ -2607,7 +2612,9 @@ class AccountRunner:
             cmd.append(prompt)
             return cmd
         if self.account_id == "codex":
-            if selected_mode in {"safe-auto", "full-auto"}:
+            if selected_mode in {"safe-auto", "auto-edits", "full-auto"}:
+                # auto-edits was missing here, so accept-edits ran the Codex
+                # sandbox read-only and could not apply the edits it promises.
                 sandbox = "workspace-write"
             else:
                 sandbox = "read-only"
@@ -2689,6 +2696,9 @@ class AccountRunner:
         operation_id: str | None = None,
         deadline_budget: DeadlineBudget | None = None,
         on_timeout: Callable[[dict[str, Any]], Any] | None = None,
+        # Bypass Permissions is a switch that composes with the mode,
+        # not a mode of its own (see command_policy.resolve_autonomy).
+        bypass_permissions: bool = False,
     ) -> dict[str, Any]:
         """Run the task; return ``{"text", "cost", "timed_out"?}``.
 
@@ -2703,7 +2713,11 @@ class AccountRunner:
         # Sanitized child env: parent AI-session variables must never steer
         # this CLI's auth or model selection (see opaihub.proc).
         child_env, _env_removed = provider_child_env(
-            self.account_id, autonomy=mode or ("safe-auto" if allow_edits else "ask")
+            self.account_id,
+            autonomy=resolve_autonomy(
+                mode or ("safe-auto" if allow_edits else "ask"),
+                bypass_permissions=bypass_permissions,
+            ),
         )
 
         if self.account_id == "codex":
@@ -2936,6 +2950,9 @@ class AccountRunner:
         operation_id: str | None = None,
         deadline_budget: DeadlineBudget | None = None,
         on_timeout: Callable[[dict[str, Any]], Any] | None = None,
+        # Bypass Permissions is a switch that composes with the mode,
+        # not a mode of its own (see command_policy.resolve_autonomy).
+        bypass_permissions: bool = False,
     ) -> dict[str, Any]:
         """Run the task with a killable subprocess, emitting live activity.
 
@@ -3005,7 +3022,11 @@ class AccountRunner:
         # Sanitized child env: parent AI-session variables must never steer
         # this CLI's auth or model selection (see opaihub.proc).
         child_env, _env_removed = provider_child_env(
-            self.account_id, autonomy=mode or ("safe-auto" if allow_edits else "ask")
+            self.account_id,
+            autonomy=resolve_autonomy(
+                mode or ("safe-auto" if allow_edits else "ask"),
+                bypass_permissions=bypass_permissions,
+            ),
         )
         try:
             proc = _popen(cmd, cwd=cwd, env=child_env)

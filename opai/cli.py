@@ -1753,11 +1753,23 @@ def claude_pre_tool_decision(
     # push, an account run could never finish "push and open a pull request".
     # Bypass means the user asked for no prompts; honouring that here is what
     # makes the mode mean the same thing on the account path as in-process.
-    from opaihub.command_policy import BYPASS, normalize_autonomy
+    from opaihub.command_policy import BLOCK, BYPASS, decide_command, normalize_autonomy
 
     autonomy = normalize_autonomy(os.environ.get("OPAI_AUTONOMY"))
     if autonomy == BYPASS:
         return _hook_allow()
+    # Plan mode is read-only by construction, so a write is refused outright
+    # rather than offered as a confirmation. Without this the hook fell through
+    # to the risky-command rules, which have nothing to say about `git commit`
+    # -- so plan mode happily committed, which is not what the mode promises
+    # and not what the same word means in Claude Code.
+    policy = decide_command(command, autonomy=autonomy)
+    if policy.action == BLOCK:
+        return _hook_deny(
+            f"OPai is in {autonomy} mode, which cannot change anything: "
+            f"{policy.reason}. Switch to a mode that allows edits, or ask for "
+            "a plan instead. Do not retry this command."
+        )
     # These GitHub commands are outward-facing, but an explicit one-shot
     # approval is the right boundary — a terminal destructive block leaves the
     # requested action impossible to complete through the GUI, which is exactly

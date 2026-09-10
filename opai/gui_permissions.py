@@ -108,7 +108,10 @@ _STATE_NOTE = {
 
 
 def permissions_for(
-    run_mode: str, *, safe_auto: dict[str, Any] | None = None
+    run_mode: str,
+    *,
+    safe_auto: dict[str, Any] | None = None,
+    bypass_permissions: bool = False,
 ) -> list[dict[str, str]]:
     """Return permission rows for ``run_mode`` as ``{id,label,state,note}``.
 
@@ -116,7 +119,14 @@ def permissions_for(
     naming a couple of the allowed commands, so the user sees the concrete
     allow-list rather than a vague label.
     """
-    rules = _MODE_RULES.get(str(run_mode), _MODE_RULES["ask"])
+    # Bypass is a switch layered over the mode, so it decides this panel too.
+    # Reading only the mode meant the panel kept promising "Edit files: ask"
+    # and "Push: ask" while bypass was on and neither would happen -- exactly
+    # the lie every other note in this module exists to prevent.
+    if bypass_permissions:
+        rules = _MODE_RULES["full-auto"]
+    else:
+        rules = _MODE_RULES.get(str(run_mode), _MODE_RULES["ask"])
     allow_cmds = []
     if isinstance(safe_auto, dict):
         allow_cmds = [str(c) for c in (safe_auto.get("allow_commands") or [])][:3]
@@ -158,9 +168,9 @@ def is_read_only(run_mode: str) -> bool:
     return str(run_mode) in READ_ONLY_MODES
 
 
-def permission_summary(run_mode: str) -> str:
+def permission_summary(run_mode: str, *, bypass_permissions: bool = False) -> str:
     """A one-line summary for the header/inspector, e.g. '2 allowed · 3 ask · 3 blocked'."""
-    rows = permissions_for(run_mode)
+    rows = permissions_for(run_mode, bypass_permissions=bypass_permissions)
     counts = {"allow": 0, "ask": 0, "block": 0}
     for row in rows:
         counts[row["state"]] = counts.get(row["state"], 0) + 1

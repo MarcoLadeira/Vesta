@@ -198,8 +198,7 @@ for (const viewport of [{ width: 1440, height: 1080 }, { width: 520, height: 100
       { assignment_id: 'a-2', title: 'Cover response boundaries', role: 'Tester', status: 'pending', model: 'local-coder', intended_paths: ['tests/api/'], depends_on: ['a-1'], cost_usd: null, activity: 'Waiting for the API repair' },
     ] };
     const diagnostics = await openApp(page, { boot: { prefs: { showPanel: false } }, dashboards: { agents: { objectives: [recorded], cards: [] } } });
-    // Drive the same nav button if its mobile rail is currently off canvas.
-    await page.evaluate(() => document.querySelector('.nav-item[data-id="agents"]').click());
+    await page.getByRole('button', { name: 'Agents workspace', exact: true }).click();
     await expect(page.locator('.agents-metrics')).toContainText('$0.125001');
     await expect(page.locator('.agents-detail')).toContainText('Checking API response compatibility');
     await expect(page.locator('.agents-evidence').first()).not.toHaveAttribute('open');

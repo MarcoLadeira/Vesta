@@ -22,14 +22,28 @@ from typing import Any
 # section). ``hidden`` items are routable (find_nav/palette) but not rendered
 # in the nav list.
 NAV_ITEMS: list[dict[str, Any]] = [
-    {"id": "chat", "label": "Chat", "group": "", "kind": "view"},
-    {"id": "prompts", "label": "Prompt Library", "group": "", "kind": "view"},
+    # The sidebar is the chat list. A "Chat" row above your own chats is a
+    # link to where you already are, so it is unlisted -- New chat lives in the
+    # header, and any recent chat returns you here. Still routable.
+    {"id": "chat", "label": "Chat", "group": "", "kind": "view", "hidden": True},
+    # Moved off the sidebar and into Settings -> Tools & insights. The sidebar
+    # is for the conversation and the chats you have had; a library you open
+    # occasionally and seven dashboards do not belong above your own history.
+    # Still routable here, so the command palette and deep links keep working.
+    {
+        "id": "prompts",
+        "label": "Prompt Library",
+        "group": "",
+        "kind": "view",
+        "hidden": True,
+    },
     {
         "id": "home",
         "label": "Money Saved",
         "group": "Insights",
         "kind": "dashboard",
         "section": "home",
+        "hidden": True,
     },
     {
         "id": "firewall",
@@ -37,6 +51,7 @@ NAV_ITEMS: list[dict[str, Any]] = [
         "group": "Insights",
         "kind": "dashboard",
         "section": "firewall",
+        "hidden": True,
     },
     {
         "id": "context",
@@ -44,6 +59,7 @@ NAV_ITEMS: list[dict[str, Any]] = [
         "group": "Insights",
         "kind": "dashboard",
         "section": "context",
+        "hidden": True,
     },
     {
         "id": "benchmark",
@@ -51,6 +67,7 @@ NAV_ITEMS: list[dict[str, Any]] = [
         "group": "Insights",
         "kind": "dashboard",
         "section": "benchmark",
+        "hidden": True,
     },
     {
         "id": "agents",
@@ -58,6 +75,7 @@ NAV_ITEMS: list[dict[str, Any]] = [
         "group": "Insights",
         "kind": "dashboard",
         "section": "agents",
+        "hidden": True,
     },
     {
         "id": "proof",
@@ -65,6 +83,7 @@ NAV_ITEMS: list[dict[str, Any]] = [
         "group": "Insights",
         "kind": "dashboard",
         "section": "proof",
+        "hidden": True,
     },
     {
         "id": "workflows",
@@ -72,6 +91,7 @@ NAV_ITEMS: list[dict[str, Any]] = [
         "group": "Insights",
         "kind": "dashboard",
         "section": "workflows",
+        "hidden": True,
     },
     # Settings renders as the fixed gear row in the sidebar footer, not as a
     # nav item — hidden keeps the list short while staying routable.

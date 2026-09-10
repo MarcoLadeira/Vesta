@@ -14,7 +14,7 @@
   <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
 </head>
 <body>
-  <div class="app" id="app">
+  <div class="app panel-hidden" id="app">
     <header class="app-header" id="appHeader">
       <div class="header-leading">
         <button class="topbar-icon sidebar-toggle" id="sidebarToggle" aria-label="Toggle sidebar" aria-expanded="true" title="Toggle sidebar">
@@ -43,13 +43,16 @@
 
       <div class="header-actions">
         <div class="status-line" id="statusLine"></div>
+        <button class="topbar-action" id="headerAgents" aria-label="Agents workspace" title="Agents workspace">
+          <span class="action-icon" data-icon="workspace" aria-hidden="true"></span><span class="action-label">Agents</span>
+        </button>
         <button class="topbar-action" id="headerNewChat" aria-label="New chat" title="New chat">
           <span class="action-icon" data-icon="plus" aria-hidden="true"></span><span class="action-label">New chat</span>
         </button>
         <button class="topbar-icon" id="headerSettings" aria-label="Settings" title="Settings">
           <span class="tb-icon" data-icon="settings" aria-hidden="true"></span>
         </button>
-        <button class="topbar-icon inspector-toggle on" id="panelToggle" aria-label="Inspector" aria-pressed="true" title="Inspector">
+        <button class="topbar-icon inspector-toggle" id="panelToggle" aria-label="Inspector" aria-pressed="false" title="Inspector">
           <span class="tb-icon" data-icon="panel" aria-hidden="true"></span>
         </button>
         <div class="window-controls" id="windowControls" aria-label="Window controls">
@@ -62,7 +65,6 @@
 
     <!-- sidebar -->
     <aside class="sidebar">
-      <button class="new-chat" id="newChat"><span data-icon="plus" aria-hidden="true"></span> New chat</button>
       <nav class="nav" id="nav"></nav>
       <div class="side-foot">
         <div class="update-shell" id="updateShell" role="status" aria-live="polite" hidden>

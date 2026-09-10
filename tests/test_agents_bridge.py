@@ -93,3 +93,17 @@ def test_objective_listing_recovers_expired_owners_before_projection(tmp_path):
         mock.call.list_objectives(),
     ]
     assert result["objectives"] == store.list_objectives.return_value
+
+
+def test_objective_creation_captures_bypass_authority(tmp_path):
+    from opai.agents_bridge import create_objective_payload
+    from opaihub.agent_objectives import ObjectiveStore
+
+    created = create_objective_payload(
+        tmp_path, {"text": "Update independent modules", "bypassPermissions": True}
+    )
+    assert created["bypass_permissions"] is True
+    assert (
+        ObjectiveStore(tmp_path).snapshot(created["objective_id"])["bypass_permissions"]
+        is True
+    )
