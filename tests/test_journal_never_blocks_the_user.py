@@ -228,5 +228,91 @@ class TheExitCodeComesFromTheRunNotTheJournalTests(unittest.TestCase):
         )
 
 
+#: The reports this epic added. Every one is expensive by design -- they read
+#: the whole event log, fold projections, compare populations -- and every one
+#: belongs to `opai doctor`, which a person runs when they want an answer.
+DIAGNOSTIC_ONLY = (
+    "run_table_parity",
+    "turn_parity",
+    "unevidenced_completions",
+    "unconfirmed_cancellations",
+    "inspect_launchers",
+    "summary",
+)
+
+#: Where a turn and a boot actually happen. None of the above may appear here.
+HOT_PATHS = (
+    "opaihub/gui_pipeline.py",
+    "opai/gui_web.py",
+    "opai/gui_desktop.py",
+    "opai/cli_stream.py",
+    "opai/bootstrap.py",
+)
+
+
+class TheExpensiveChecksStayOutOfTheHotPathTests(unittest.TestCase):
+    """A diagnostic that ran on every turn would be a diagnostic you feel.
+
+    These reports replay the event log and compare populations. That is the
+    right cost for a command someone chose to run, and the wrong cost for
+    something between a person pressing Send and their answer arriving.
+    """
+
+    def test_no_hot_path_runs_a_report(self):
+        offenders = []
+        for module in HOT_PATHS:
+            path = ROOT / module
+            if not path.is_file():
+                continue
+            source = path.read_text(encoding="utf-8")
+            for node in ast.walk(ast.parse(source)):
+                if not isinstance(node, ast.Call):
+                    continue
+                name = getattr(node.func, "attr", "") or getattr(node.func, "id", "")
+                if name in DIAGNOSTIC_ONLY:
+                    offenders.append(f"{module}:{node.lineno} {name}()")
+
+        self.assertEqual(
+            offenders,
+            [],
+            "a diagnostic report is on the path of every turn or boot:\n  "
+            + "\n  ".join(offenders),
+        )
+
+
+class TheInspectorDidNotGetSlowerTests(unittest.TestCase):
+    """The one render path this epic touched, measured as a share.
+
+    `_github_row_value` now cites a stored verification instead of asserting
+    readiness, which costs one small JSON read. Absolute milliseconds would
+    make this a disk benchmark, so it is expressed as a fraction of the
+    function it was added to.
+    """
+
+    def test_reading_the_stored_verdict_is_a_small_part_of_readiness(self):
+        import time
+
+        from opaihub import github_connector
+
+        def cost(fn, samples=100):
+            fn()
+            started = time.monotonic()
+            for _ in range(samples):
+                fn()
+            return (time.monotonic() - started) / samples
+
+        added = cost(github_connector.last_verification)
+        whole = cost(github_connector.github_readiness)
+
+        self.assertGreater(whole, 0, "readiness took no measurable time at all")
+        self.assertLess(
+            added / whole,
+            0.6,
+            f"reading the stored verdict is {added / whole * 100:.0f}% of "
+            "github_readiness; it should be a fraction of work that was "
+            "already happening, not the bulk of it",
+        )
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
