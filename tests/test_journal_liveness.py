@@ -524,3 +524,125 @@ class AnUnconfirmableRunIsNotStrandedForeverTests(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover - convenience
     unittest.main()
+
+
+class TheHeartbeatInvariantIsLoadBearingTests(unittest.TestCase):
+    """A surface that never beats must not read as "stopped responding".
+
+    `_stopped_responding` decides whether anyone was ever tending a lease by
+    asking whether the heartbeat has moved past the acquisition. Most surfaces
+    never beat one -- only the GUI pipeline does -- so that check is the only
+    thing keeping every CLI and background run from being reported as wedged.
+
+    It holds because `acquire_lease` stamps both columns from a *single* value.
+    Two reads of the clock would differ by microseconds, which is enough to
+    make every lease in the database look tended, then stale, then stopped.
+    Flagged in review as working by construction rather than by design, so it
+    is pinned here: this fails loudly if the coupling is ever broken.
+    """
+
+    def test_a_freshly_acquired_lease_reports_no_heartbeat_movement(self):
+        import tempfile
+        from pathlib import Path
+
+        from opaihub import journal_store
+
+        root = Path(tempfile.mkdtemp())
+        store = journal_store.open_store(root)
+        try:
+            store.execute(
+                "INSERT INTO tasks(task_id, origin_surface, origin_session,"
+                " created_at, requested_outcome, schema_version, updated_at)"
+                " VALUES ('t', 'cli', '', ?, 'x', 1, ?)",
+                (ISO_START, ISO_START),
+            )
+            store.execute(
+                "INSERT INTO runs(run_id, task_id, attempt, desired_state,"
+                " observed_state, created_at, updated_at)"
+                " VALUES ('r', 't', 1, 'queued', 'queued', ?, ?)",
+                (ISO_START, ISO_START),
+            )
+            store.commit()
+            journal_store.acquire_lease(
+                store, run_id="r", owner="cli", now=ISO_START, owner_pid=4242
+            )
+            row = store.execute(
+                "SELECT acquired_at, heartbeat_at FROM leases WHERE run_id = 'r'"
+            ).fetchone()
+        finally:
+            store.close()
+
+        self.assertEqual(
+            row["acquired_at"],
+            row["heartbeat_at"],
+            "acquire_lease read the clock twice; every never-beating lease "
+            "will now be reported as having stopped responding",
+        )
+
+    def test_such_a_lease_is_never_called_stale(self):
+        """The consequence, stated as the behaviour rather than the storage."""
+
+        lease = {
+            "owner_pid": 4242,
+            "owner_boot": "another-interpreter",
+            "lease_acquired_at": ISO_START,
+            "lease_heartbeat_at": ISO_START,
+        }
+
+        verdict = owner_liveness(
+            lease,
+            is_pid_running=lambda pid: True,
+            this_pid=-1,
+            now=START + timedelta(days=1),
+        )
+
+        self.assertNotEqual(
+            verdict,
+            OWNER_STALE,
+            "a run whose surface never beats is not a run that stopped",
+        )
+
+
+class AProcessIdMustActuallyBeOneTests(unittest.TestCase):
+    """`_positive_pid` decides what gets probed for liveness.
+
+    Found while fixing a mypy error that a `# type: ignore` was silently not
+    suppressing. `int(True)` is 1, and pid 1 exists on every system OPai runs
+    on -- so a lease carrying a boolean would have been probed as a live
+    process and reported as one. Exactly the meaningless question with a
+    meaningful-looking answer the function's own docstring exists to prevent.
+    """
+
+    def test_a_boolean_is_not_a_process_id(self):
+        from opaihub.journal_store import _positive_pid
+
+        self.assertIsNone(
+            _positive_pid(True),
+            "True converts to pid 1, which exists everywhere and would be "
+            "probed as a live owner",
+        )
+        self.assertIsNone(_positive_pid(False))
+
+    def test_a_float_is_not_truncated_into_a_process_id(self):
+        """Truncating 2.9 to pid 2 invents an identity nobody recorded."""
+
+        from opaihub.journal_store import _positive_pid
+
+        self.assertIsNone(_positive_pid(2.9))
+
+    def test_real_process_ids_still_work(self):
+        from opaihub.journal_store import _positive_pid
+
+        self.assertEqual(_positive_pid(4242), 4242)
+        self.assertEqual(_positive_pid("4242"), 4242)
+
+    def test_impossible_ids_are_absent_rather_than_stored(self):
+        from opaihub.journal_store import _positive_pid
+
+        for value in (0, -1, None, object(), float("inf")):
+            with self.subTest(value=value):
+                self.assertIsNone(_positive_pid(value))
+
+
+if __name__ == "__main__":  # pragma: no cover
+    unittest.main()

@@ -101,6 +101,11 @@ def _stopped_responding(lease: Mapping[str, Any], now: datetime | None) -> bool:
 
     heartbeat = _moment(lease.get("lease_heartbeat_at"))
     acquired = _moment(lease.get("lease_acquired_at"))
+    # `heartbeat <= acquired` is what "nobody has beaten this" looks like, and
+    # it holds because `acquire_lease` stamps both columns from a single value
+    # rather than reading the clock twice. That coupling is load-bearing: two
+    # reads would differ by microseconds and make every never-beating lease
+    # look tended, and then stale, and then reported as stopped responding.
     if heartbeat is None or acquired is None or heartbeat <= acquired:
         return False
     reference = now or datetime.now(timezone.utc)

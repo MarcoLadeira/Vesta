@@ -755,7 +755,7 @@ def append_event(
                 privacy_class,
             ),
         )
-        return int(cursor.lastrowid)
+        return _inserted_row_id(cursor)
 
 
 #: Longest string kept verbatim in an event payload. Payloads describe what
@@ -926,6 +926,19 @@ def acquire_lease(
                 run_id,
                 owner,
                 fence,
+                # `acquired_at` and `heartbeat_at` are deliberately the *same*
+                # value, not two reads of the clock. `journal_liveness` decides
+                # whether anyone was ever tending a lease by asking whether the
+                # heartbeat has moved past the acquisition -- because most
+                # surfaces never beat one, and judging them by a clock they
+                # never wound would report every CLI and background run as
+                # having stopped responding.
+                #
+                # Two `now()` calls here would differ by microseconds, which is
+                # enough to make that check say yes for every lease in the
+                # database. Anything that changes this must change
+                # `_stopped_responding` with it; the test in
+                # tests/test_journal_liveness.py fails loudly if it does not.
                 now,
                 now,
                 _positive_pid(owner_pid),
@@ -939,16 +952,43 @@ def acquire_lease(
         return fence
 
 
+def _inserted_row_id(cursor: sqlite3.Cursor) -> int:
+    """The row id an INSERT just produced.
+
+    ``lastrowid`` is typed ``int | None`` because it is ``None`` before a
+    cursor has inserted anything. After an INSERT it is always set, so this
+    never fires in practice -- but coercing the ``None`` away silently would
+    turn "the insert did not happen" into row 0, which is a worse answer than
+    saying so.
+    """
+
+    row_id = cursor.lastrowid
+    if row_id is None:  # pragma: no cover - an INSERT always reports one
+        raise JournalStoreError("the store did not report a row id for the insert")
+    return int(row_id)
+
+
 def _positive_pid(value: object) -> int | None:
     """A usable process id, or ``None``.
 
     Zero and negatives are not process ids on any platform OPai runs on, and
     storing one would let a liveness probe ask a meaningless question and get
     a meaningful-looking answer. Absent is the honest record.
+
+    The type is narrowed before converting rather than converted and caught,
+    which fixes a real hole as well as a mypy complaint. ``int(True)`` is 1,
+    and pid 1 exists on every system OPai runs on -- so a lease carrying a
+    boolean would have been probed as a live process and reported as one.
+    A float is refused for the same reason: truncating 2.9 to pid 2 invents an
+    identity nobody recorded.
     """
 
+    if isinstance(value, bool):
+        return None
+    if not isinstance(value, (int, str)):
+        return None
     try:
-        pid = int(value)  # type: ignore[arg-type]
+        pid = int(value)
     except (TypeError, ValueError, OverflowError):
         # OverflowError is an ArithmeticError, not a ValueError: int(inf)
         # raises it and would escape this guard entirely.
@@ -1155,7 +1195,7 @@ def record_cost(
             raise JournalStoreError(
                 f"operation {operation_key!r} already has a cost event"
             ) from exc
-        return int(cursor.lastrowid)
+        return _inserted_row_id(cursor)
 
 
 # --------------------------------------------------------------------------
