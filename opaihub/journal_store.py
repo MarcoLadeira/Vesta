@@ -499,12 +499,67 @@ def _stored_version(connection: sqlite3.Connection) -> int:
         return 0
 
 
+def _record_schema_version(connection: sqlite3.Connection, version: int) -> None:
+    """Record the schema version, and never let it go backwards.
+
+    MAX rather than assignment: the version is monotonic, and a write that
+    lowers it is always a mistake rather than an intent. This is the second of
+    two guards against the migration race -- with the first (re-reading under
+    the write lock) in place nothing should reach here with a stale value at
+    all, which is exactly why it is worth keeping: the failure it prevents is
+    a journal nobody can open, permanently.
+
+    CAST because the column is TEXT, where "10" sorts below "2".
+
+    Named rather than inlined so a test can exercise *this* statement instead
+    of writing its own copy -- a test that reimplements the SQL proves SQLite
+    works, not that OPai uses it.
+    """
+
+    connection.execute(
+        "INSERT INTO schema_meta(key, value) VALUES ('schema_version', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = CAST(MAX("
+        "CAST(schema_meta.value AS INTEGER), "
+        "CAST(excluded.value AS INTEGER)) AS TEXT)",
+        (str(version),),
+    )
+
+
 def migrate(connection: sqlite3.Connection) -> int:
     """Apply pending migrations transactionally; return the resulting version.
 
     Resumable by construction: each migration commits its own transaction and
     records the new version in the same transaction, so an interruption leaves
     the database at a version that was fully applied, never half of one.
+
+    **Safe against a second process doing the same thing.** The version is
+    re-read inside each write transaction, not just once at the top, because
+    the gap between deciding and locking is wide enough to lose a whole
+    migration in -- and the failure that produced was permanent rather than
+    transient.
+
+    What happened without it: two processes creating a journal together both
+    read version 0. One migrated fully to 2 and committed. The other, still
+    believing 0, re-ran migration 1 -- every statement `CREATE TABLE IF NOT
+    EXISTS`, so silently fine -- and wrote version **1 over the 2**. Migration
+    2 is `ALTER TABLE leases ADD COLUMN`, which SQLite cannot express
+    idempotently, so it then failed with `duplicate column name` and kept
+    failing: the recorded version claimed it had never been applied while the
+    columns were already there. Every subsequent `open_store` raised, forever,
+    on a journal that was structurally fine.
+
+    Measured before the fix: 2 of 25 rounds of six concurrent processes, and
+    1 of 20 with two real `opai ask` turns on a fresh project. Only fresh
+    creation races -- upgrading an existing journal was never affected --
+    which is exactly the new-install and new-workspace case.
+
+    Two guards, either of which would be sufficient, because the cost of
+    being wrong here is a journal nobody can open:
+
+    1. the version is re-read under the write lock, so a migration another
+       process has already applied is skipped rather than repeated;
+    2. the recorded version can only ever move forward, so a stale writer
+       cannot drag it backwards even if it did somehow re-run.
     """
 
     current = _stored_version(connection)
@@ -516,14 +571,17 @@ def migrate(connection: sqlite3.Connection) -> int:
         if version <= current:
             continue
         with _transaction(connection):
+            # `current` was read before this lock existed. Another process may
+            # have applied this migration in the meantime, and re-running one
+            # that is not idempotent is what bricked the journal.
+            applied = _stored_version(connection)
+            if applied >= version:
+                current = applied
+                continue
             for statement in statements:
                 connection.execute(statement)
-            connection.execute(
-                "INSERT INTO schema_meta(key, value) VALUES ('schema_version', ?) "
-                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                (str(version),),
-            )
-        current = version
+            _record_schema_version(connection, version)
+        current = max(current, version)
     return current
 
 
@@ -1250,24 +1308,58 @@ def drop_projection(
         return cursor.rowcount > 0
 
 
+def _openable(project_root: Path) -> tuple[bool, str]:
+    """Can OPai actually open this journal, or only look at the file?
+
+    ``check_integrity`` reads a raw connection: it answers "is this database
+    structurally sound", which is not the same question as "will OPai be able
+    to use it". A journal whose migration cannot complete passes every
+    structural check and still refuses every write.
+
+    That gap was not theoretical. A migration race left a journal recording
+    schema v1 with v2's columns already present, so ``open_store`` raised
+    ``duplicate column name`` on every attempt -- while ``store_health``
+    reported ``integrity: complete`` and doctor called the project ready.
+    A confident answer with nothing behind it, inside the store this epic
+    exists to make authoritative.
+    """
+
+    try:
+        connection = open_store(project_root)
+    except Exception as exc:  # noqa: BLE001 - health must not become the problem
+        return False, f"{type(exc).__name__}: {redact(str(exc))[:180]}"
+    connection.close()
+    return True, ""
+
+
 def store_health(project_root: Path) -> dict[str, Any]:
-    """Doctor/preflight summary: does the journal exist, and is it trustworthy?"""
+    """Doctor/preflight summary: does the journal exist, and is it usable?
+
+    Two questions, reported separately because they can disagree.
+    ``integrity`` describes the *file*; ``openable`` describes whether OPai can
+    work with it. A journal can be structurally perfect and still unusable.
+    """
 
     path = journal_path(project_root)
     if not path.exists():
         return {
             "present": False,
             "path": str(path),
+            "openable": True,
+            "open_error": "",
             "integrity": IntegrityReport(
                 state=INTEGRITY_COMPLETE, schema_version=0, detail="no journal yet"
             ).to_dict(),
         }
+    openable, open_error = _openable(project_root)
     try:
         connection = _connect(path)
     except sqlite3.DatabaseError as exc:
         return {
             "present": True,
             "path": str(path),
+            "openable": openable,
+            "open_error": open_error,
             "integrity": IntegrityReport(
                 state=INTEGRITY_CORRUPT, schema_version=0, detail=redact(str(exc))[:200]
             ).to_dict(),
@@ -1281,6 +1373,8 @@ def store_health(project_root: Path) -> dict[str, Any]:
             "journal_mode": str(
                 connection.execute("PRAGMA journal_mode").fetchone()[0]
             ),
+            "openable": openable,
+            "open_error": open_error,
             "integrity": report.to_dict(),
         }
     finally:

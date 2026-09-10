@@ -1291,6 +1291,12 @@ def _journal_needs_attention(journal: dict[str, object]) -> bool:
 
     if not journal.get("available") or not journal.get("present"):
         return False
+    # A journal OPai cannot open is the loudest problem there is, and it is
+    # invisible to an integrity check: the file can be structurally perfect
+    # while every write is silently discarded. `openable` is absent on payloads
+    # from older builds, so its default is the non-escalating one.
+    if journal.get("openable") is False:
+        return True
     integrity = journal.get("integrity")
     if not isinstance(integrity, dict):
         return True
