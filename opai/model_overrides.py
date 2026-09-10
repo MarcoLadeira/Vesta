@@ -364,7 +364,9 @@ def save_override_payload(payload: Any, *, path: Path | None = None) -> Path:
         if not _PROVIDER_RE.fullmatch(provider):
             raise ValueError(f"provider {provider!r} contains unsafe characters")
         if provider not in _PICKER_PROVIDERS:
-            raise ValueError(f"provider {provider!r} is not supported by this OPai install")
+            raise ValueError(
+                f"provider {provider!r} is not supported by this OPai install"
+            )
         if not isinstance(block, dict) or set(block) - {"models", "hide"}:
             raise ValueError(f"{provider}: expected models and/or hide")
         entries = block.get("models", [])
@@ -380,7 +382,11 @@ def save_override_payload(payload: Any, *, path: Path | None = None) -> Path:
         seen: set[str] = set()
         for index, entry in enumerate(entries):
             if not isinstance(entry, dict) or set(entry) - {
-                "id", "display", "full", "capability", "aliases"
+                "id",
+                "display",
+                "full",
+                "capability",
+                "aliases",
             }:
                 raise ValueError(f"{provider}[{index}]: unsupported model fields")
             model_id = _safe_text(entry.get("id"), limit=MAX_ID_CHARS, field="model id")
@@ -389,11 +395,17 @@ def save_override_payload(payload: Any, *, path: Path | None = None) -> Path:
                 raise ValueError(f"{provider}: duplicate model id {model_id!r}")
             seen.add(key)
             cleaned: dict[str, Any] = {"id": model_id}
-            for field, limit in (("display", MAX_LABEL_CHARS), ("full", MAX_LABEL_CHARS)):
+            for field, limit in (
+                ("display", MAX_LABEL_CHARS),
+                ("full", MAX_LABEL_CHARS),
+            ):
                 if field in entry:
                     cleaned[field] = _safe_text(entry[field], limit=limit, field=field)
             capability = entry.get("capability", "balanced")
-            if not isinstance(capability, str) or capability.lower() not in CAPABILITIES:
+            if (
+                not isinstance(capability, str)
+                or capability.lower() not in CAPABILITIES
+            ):
                 raise ValueError(f"{provider}[{index}]: invalid capability")
             cleaned["capability"] = capability.lower()
             aliases = entry.get("aliases", [])
@@ -401,7 +413,8 @@ def save_override_payload(payload: Any, *, path: Path | None = None) -> Path:
                 raise ValueError(f"{provider}[{index}]: 'aliases' must be a list")
             if aliases:
                 cleaned["aliases"] = [
-                    _safe_text(alias, limit=MAX_ID_CHARS, field="alias") for alias in aliases
+                    _safe_text(alias, limit=MAX_ID_CHARS, field="alias")
+                    for alias in aliases
                 ]
             cleaned_entries.append(cleaned)
         raw_hidden = block.get("hide", [])

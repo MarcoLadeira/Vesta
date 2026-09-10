@@ -63,7 +63,9 @@ def _interpreter_path() -> str:
     return str(Path(sys.executable).expanduser().resolve(strict=False)).casefold()
 
 
-def describe_ownership(install_type: InstallType, *, management_source: str = "") -> UpdateOwnership:
+def describe_ownership(
+    install_type: InstallType, *, management_source: str = ""
+) -> UpdateOwnership:
     """Detect who owns updates for the running installation."""
 
     if management_source:

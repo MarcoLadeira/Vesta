@@ -37,8 +37,18 @@ class NavModelTests(unittest.TestCase):
         groups = nav_groups()
         self.assertEqual(groups, [])
 
-        routable = {"chat", "settings", "prompts", "home", "firewall", "context",
-                    "benchmark", "agents", "proof", "workflows"}
+        routable = {
+            "chat",
+            "settings",
+            "prompts",
+            "home",
+            "firewall",
+            "context",
+            "benchmark",
+            "agents",
+            "proof",
+            "workflows",
+        }
         self.assertEqual(sorted(routable), sorted(nav_ids()))
         for item_id in sorted(routable):
             with self.subTest(item=item_id):

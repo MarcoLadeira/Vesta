@@ -745,7 +745,9 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
     # lazily, on the first comparison -- would fingerprint whatever happens to
     # be on disk by then and conclude, permanently and wrongly, that this
     # process is current.
-    try:
+    # suppress() rather than try/except/pass: same intent -- a staleness hint
+    # may never break boot -- and the bare form is what bandit's B110 flags.
+    with contextlib.suppress(Exception):  # noqa: BLE001
         from pathlib import Path as _Path
 
         import opai as _opai
@@ -753,8 +755,6 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
         from opai.update.running_build import prime as _prime_running_build
 
         _prime_running_build(_Path(_opai.__file__).parent / "assets")
-    except Exception:  # noqa: BLE001 - a staleness hint may never break boot
-        pass
     root = root.expanduser().resolve()
     prefs = load_gui_preferences(root)
     # Central autonomy decision (#137): boot into the effective mode, which is
