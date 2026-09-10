@@ -68,6 +68,7 @@ def control_objective_payload(root: Path, payload: dict[str, Any]) -> dict[str, 
         "reconcile": "reconcile",
         "verify": "verify",
         "approve": "approve",
+        "retry": "retry",
         "request_review": "request_review",
     }
     if action not in actions:

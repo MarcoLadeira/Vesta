@@ -2705,6 +2705,7 @@ def _run_gui(
                         "reroute",
                         "prioritize",
                         "approve",
+                        "retry",
                         "request_review",
                     }:
                         self.objectiveControlReady.emit(json.dumps(result, default=str))

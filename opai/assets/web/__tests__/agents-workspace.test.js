@@ -16,6 +16,14 @@ const objective = {
 };
 
 describe("Agents workspace projection", () => {
+  it("shows retry and cap removal only when canonically available", () => {
+    const blocked = { ...objective.assignments[0], run_id: "run-blocked", budget_usd: "1", allowed_actions: ["retry", "budget", "reroute"] };
+    const html = workspace.renderHtml({ objectives: [{ ...objective, assignments: [blocked] }] });
+    expect(html).toContain('data-agent-action="retry"');
+    expect(html).toContain("No provider call was dispatched");
+    expect(html).toContain("Remove cap");
+    expect(workspace.renderHtml({ objectives: [{ ...objective, budget_usd: null, assignments: [] }] })).not.toContain("Remove cap");
+  });
   it("shows exact one-time approval evidence and revision-fenced review controls", () => {
     const html = workspace.renderHtml({ objectives: [{ ...objective, revision: 8, allowed_actions: ["request_review"], assignments: [{ ...objective.assignments[0], allowed_actions: ["approve"], pending_approval: { request_id: "pending-1", kind: "command", command: ["python", "check.py"], reason: "Needs approval" } }] }] });
     expect(html).toContain('data-agent-action="request_review"');

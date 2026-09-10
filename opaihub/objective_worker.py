@@ -121,7 +121,8 @@ def authorize_request(packet, request_path, response_path):
         else None,
         "allow_edits_once": not readonly and grant.get("kind") == "edits",
         "allow_cloud": objective["allow_cloud"] is True,
-        "bypass_permissions": not readonly and objective.get("bypass_permissions") is True,
+        "bypass_permissions": not readonly
+        and objective.get("bypass_permissions") is True,
     }
 
 
@@ -145,14 +146,43 @@ def main(argv=None) -> int:
         )
         atomic_write_text(response_path, json.dumps(result, default=str))
         return 0
-    if not packet["routing"]["allowed"]:
-        route = packet["routing"]
+    from .execution_scope import assignment_scope, managed_budget_gate
+
+    route = packet["routing"]
+    blocked_reason = ""
+    if not route["allowed"]:
+        blocked_reason = (
+            route["reason"]
+            + ": "
+            + "; ".join(
+                reason for row in route["blockers"] for reason in row["reasons"]
+            )[:2000]
+        )
+    else:
+        # Establish a retryable denial before entering the pipeline. The pipeline
+        # repeats the gate at dispatch; any later denial remains non-retryable.
+        with assignment_scope(
+            Path(packet["worktree"]),
+            Path(packet["authority_root"]),
+            task_id=packet["task_id"],
+            run_id=packet["run_id"],
+        ):
+            budget = managed_budget_gate(
+                Path(packet["worktree"]),
+                next_cost_usd=None
+                if packet["model_id"].startswith(("account:", "paid:"))
+                else "0",
+            )
+        if budget["denied"]:
+            blocked_reason = "; ".join(budget["reasons"])
+    if blocked_reason:
         atomic_write_text(
             response_path,
             json.dumps(
                 {
                     "status": "blocked",
-                    "error": route["reason"],
+                    "dispatch_state": "not-dispatched",
+                    "error": blocked_reason,
                     "routing": route,
                     "objective_cost_events": [
                         {
@@ -161,10 +191,7 @@ def main(argv=None) -> int:
                             "measurement_kind": "actual",
                         }
                     ],
-                    "answer": "No eligible provider: "
-                    + "; ".join(
-                        reason for row in route["blockers"] for reason in row["reasons"]
-                    )[:2000],
+                    "answer": blocked_reason,
                 }
             ),
         )

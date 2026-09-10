@@ -700,6 +700,12 @@ class ObjectiveStore:
                     and obj["status"] not in {"completed", "cancelled", "stopping"}
                 ):
                     item["allowed_actions"].append("approve")
+                if obj["status"] not in {
+                    "completed",
+                    "cancelled",
+                    "stopping",
+                } and self._retryable(db, item):
+                    item["allowed_actions"].extend(["retry", "reroute", "budget"])
             if (
                 0 < len(obj["assignments"]) < 32
                 and all(
@@ -1212,6 +1218,112 @@ class ObjectiveStore:
             self._refresh(db, obj)
         return self.snapshot(objective_id)
 
+    def _retryable(self, db, item):
+        if (
+            not item
+            or item["owner"]
+            or item["status"] != "needs-attention"
+            or item.get("pending_approval")
+            or item.get("changed_files")
+            or item.get("result", {}).get("scope_violations")
+            or item.get("result", {}).get("status") != "blocked"
+            or item.get("result", {}).get("dispatch_state") != "not-dispatched"
+            or item.get("execution")
+            and not self._proven_terminated(item["execution"])
+        ):
+            return False
+        costs = db.execute(
+            "SELECT c.amount_usd,c.measurement_kind FROM objective_cost_events c JOIN operations o ON o.operation_key=c.operation_key WHERE o.run_id=? AND c.assignment_id=?",
+            (item["run_id"], item["assignment_id"]),
+        ).fetchall()
+        return bool(costs) and all(
+            row["amount_usd"] is not None
+            and Decimal(row["amount_usd"]) == 0
+            and row["measurement_kind"] in {"actual", "derived"}
+            for row in costs
+        )
+
+    def retry(self, objective_id, assignment_id, value):
+        if not isinstance(value, dict) or set(value) != {"run_id"}:
+            raise ValueError("Retry requires the current run ID")
+        with self._db(True) as db:
+            obj = self._load(db, objective_id)
+            items = self._assignments(db, objective_id)
+            item = next((a for a in items if a["assignment_id"] == assignment_id), None)
+            if (
+                not self._retryable(db, item)
+                or item["run_id"] != value["run_id"]
+                or obj["status"] in {"completed", "cancelled", "stopping"}
+                or obj["planning"]["owner"]
+                or obj["integration"]["owner"]
+            ):
+                raise ValueError(
+                    "Retry is stale or pre-dispatch termination is not proven"
+                )
+            if len(item.get("attempts", [])) >= 16:
+                raise ValueError("Assignment continuation limit reached")
+            previous = {
+                k: v
+                for k, v in item.items()
+                if k not in {"attempts", "resume_from", "approval_grant"}
+            }
+            item.setdefault("attempts", []).append(previous)
+            item["run_id"] = _id("run")
+            self._identity(
+                db, item["task_id"], item["run_id"], item["objective"], item["model"]
+            )
+            db.execute(
+                "UPDATE objective_assignments SET run_id=? WHERE assignment_id=?",
+                (item["run_id"], assignment_id),
+            )
+            for key in (
+                "resume_from",
+                "approval_grant",
+                "execution",
+                "observed_model",
+                "observed_provider",
+            ):
+                item.pop(key, None)
+            item.update(
+                status="pending",
+                owner="",
+                expires_at=None,
+                worktree="",
+                branch="",
+                lease_id="",
+                base_sha="",
+                result={},
+                changed_files=[],
+                verification={},
+                activity="Pre-dispatch retry queued",
+                blocked_reason="",
+            )
+            self._save_assignment(db, item)
+            for target in items:
+                if (
+                    target["status"] == "blocked"
+                    and target.get("blocked_reason") == "Dependency did not complete"
+                ):
+                    target.update(status="pending", blocked_reason="")
+                    self._save_assignment(db, target)
+            if obj["status"] == "paused":
+                obj["paused_from"] = "ready"
+            else:
+                obj["status"] = "ready"
+            self._save_obj(db, obj)
+            self._event(
+                db,
+                obj,
+                "pre-dispatch-retry",
+                {
+                    "assignment_id": assignment_id,
+                    "previous_run_id": previous["run_id"],
+                    "run_id": item["run_id"],
+                },
+            )
+            self._refresh(db, obj)
+        return self.snapshot(objective_id)
+
     def request_review(self, objective_id, value):
         if (
             not isinstance(value, dict)
@@ -1379,6 +1491,8 @@ class ObjectiveStore:
         return self.snapshot(objective_id)
 
     def control(self, objective_id, action, assignment_id=None, value=None):
+        if action == "retry":
+            return self.retry(objective_id, assignment_id, value)
         if action == "approve":
             return self.approve(objective_id, assignment_id, value)
         if action == "request_review":
@@ -1454,6 +1568,7 @@ class ObjectiveStore:
                 if (
                     item is None
                     or item["status"] != "pending"
+                    and not self._retryable(db, item)
                     or not isinstance(value, dict)
                     or not value
                     or set(value) - {"route", "provider", "model"}

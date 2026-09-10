@@ -743,6 +743,8 @@ def cmd_objectives(args: argparse.Namespace) -> int:
             value = args.value
             if action == "approve":
                 value = {"request_id": args.request_id}
+            elif action == "retry":
+                value = {"run_id": args.run_id}
             elif action == "request-review":
                 value = {"revision": args.revision}
             result = control_objective_payload(
@@ -4307,6 +4309,7 @@ def build_parser() -> argparse.ArgumentParser:
                 "reconcile",
                 "verify",
                 "approve",
+                "retry",
                 "request-review",
             ):
                 command = agent_sub.add_parser(action)
@@ -4316,6 +4319,8 @@ def build_parser() -> argparse.ArgumentParser:
                 command.add_argument("--json", action="store_true")
                 if action == "approve":
                     command.add_argument("--request-id", required=True)
+                if action == "retry":
+                    command.add_argument("--run-id", required=True)
                 if action == "request-review":
                     command.add_argument("--revision", required=True, type=int)
                 if action == "receipt":

@@ -3,6 +3,19 @@ import { openApp, openNav, sendPrompt, expectNoFatalErrors } from "./helpers/app
 
 const objective = { objective_id: 'obj-1', objective: 'Repair independent regressions', status: 'running', budget_usd: '4', cost_usd: null, cost_complete: false, max_parallel: 2, allowed_actions: ['pause', 'budget'], assignments: [{ assignment_id: 'a-1', title: 'API repair', status: 'blocked', depends_on: ['a-0'], intended_paths: ['api/'], blocked_reason: 'Waiting for contract', allowed_actions: ['stop', 'reroute'], activity: ['Read api/server.py'] }], integration: { status: 'pending' } };
 
+test('blocked retry carries its run fence and removing a cap sends null', async ({ page }) => {
+  const recorded = { ...objective, allowed_actions: [], assignments: [{ ...objective.assignments[0], run_id: 'blocked-run', budget_usd: '1', allowed_actions: ['retry', 'budget', 'reroute'] }] };
+  const diagnostics = await openApp(page, { dashboards: { agents: { objectives: [recorded], cards: [] } } });
+  await openNav(page, 'Agents');
+  await page.getByRole('button', { name: 'Remove cap', exact: true }).click();
+  await page.getByRole('button', { name: 'Retry blocked attempt', exact: true }).click();
+  expect(await page.evaluate(() => window.__mock.objectiveControls)).toEqual([
+    { objective_id: 'obj-1', assignment_id: 'a-1', action: 'budget', value: null },
+    { objective_id: 'obj-1', assignment_id: 'a-1', action: 'retry', value: { run_id: 'blocked-run' } },
+  ]);
+  expectNoFatalErrors(diagnostics);
+});
+
 test('live objective updates continue after acknowledgement and reject older revisions', async ({ page }) => {
   const diagnostics = await openApp(page, { boot: { prefs: { multiAgentEnabled: true } } });
   await expect(page.locator('#modeBtn')).toContainText('Agents');
@@ -145,7 +158,7 @@ test('canonical recovery renders with provider readiness and controls use journa
   await page.locator('[data-agent-action="pause"]').click();
   expect(await page.evaluate(() => window.__mock.objectiveControls)).toEqual([{ objective_id: 'obj-1', action: 'pause' }]);
   await page.getByLabel('Budget in USD').fill('7.5');
-  await page.locator('[data-agent-action="budget"]').click();
+  await page.getByRole('button', { name: 'Set budget', exact: true }).click();
   await page.getByLabel('Assignment model').fill('local-coder');
   await page.locator('[data-agent-action="reroute"]').click();
   expect(await page.evaluate(() => window.__mock.objectiveControls.slice(1))).toEqual([{ objective_id: 'obj-1', action: 'budget', value: '7.5' }, { objective_id: 'obj-1', assignment_id: 'a-1', action: 'reroute', value: 'local-coder' }]);

@@ -69,6 +69,12 @@ def test_agents_budget_parser_keeps_exact_decimal(tmp_path):
             {"request_id": "approval-1"},
         ),
         ("request-review", ["--revision", "8"], "request_review", {"revision": 8}),
+        (
+            "retry",
+            ["--run-id", "run-1", "--assignment", "a"],
+            "retry",
+            {"run_id": "run-1"},
+        ),
     ],
 )
 def test_agents_approval_and_review_share_desktop_fences(
@@ -84,7 +90,7 @@ def test_agents_approval_and_review_share_desktop_fences(
             assert args.func(args) == 0
     assert control.call_args.args[1] == {
         "objective_id": "o",
-        "assignment_id": "a" if action == "approve" else None,
+        "assignment_id": "a" if action in {"approve", "retry"} else None,
         "action": canonical,
         "value": value,
     }

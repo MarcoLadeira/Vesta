@@ -17,6 +17,107 @@ def assignment(name, **extra):
     }
 
 
+def test_predispatch_retry_is_fenced_and_preserves_history(tmp_path):
+    store = ObjectiveStore(tmp_path)
+    oid = store.create("Update", [assignment("a"), assignment("b", depends_on=["a"])])[
+        "objective_id"
+    ]
+    row = store.claim_next(oid, "worker")
+    store.record_cost(oid, row["assignment_id"], row["run_id"] + "-provider", "0")
+    blocked = store.finish_assignment(
+        oid,
+        row["assignment_id"],
+        "worker",
+        row["fence"],
+        status="needs-attention",
+        result={
+            "status": "blocked",
+            "dispatch_state": "not-dispatched",
+            "answer": "No eligible route",
+        },
+    )["assignments"][0]
+    assert {"retry", "reroute", "budget"} <= set(blocked["allowed_actions"])
+    store.control(oid, "reroute", row["assignment_id"], {"model": "free:groq:test"})
+    assert store.claim_next(oid, "other") is None
+    with pytest.raises(ValueError, match="stale"):
+        store.control(oid, "retry", row["assignment_id"], {"run_id": "stale"})
+    retried = store.control(
+        oid, "retry", row["assignment_id"], {"run_id": row["run_id"]}
+    )
+    current = retried["assignments"][0]
+    assert current["run_id"] != row["run_id"]
+    assert current["attempts"][0]["run_id"] == row["run_id"]
+    assert current["attempts"][0]["result"] == blocked["result"]
+    assert current["cost_usd"] == "0"
+    assert current["model"] == "free:groq:test"
+    assert retried["assignments"][1]["status"] == "pending"
+    with pytest.raises(ValueError):
+        store.control(oid, "retry", row["assignment_id"], {"run_id": row["run_id"]})
+
+
+@pytest.mark.parametrize(
+    "marker,amount,changed",
+    [
+        (None, "0", []),
+        ("dispatched", "0", []),
+        ("not-dispatched", None, []),
+        ("not-dispatched", "0.1", []),
+        ("not-dispatched", "0", ["a.txt"]),
+    ],
+)
+def test_retry_rejects_uncertain_dispatched_or_changed_attempts(
+    tmp_path, marker, amount, changed
+):
+    store = ObjectiveStore(tmp_path)
+    oid = store.create("Update", [assignment("a")])["objective_id"]
+    row = store.claim_next(oid, "worker")
+    store.record_cost(oid, row["assignment_id"], row["run_id"] + "-provider", amount)
+    blocked = store.finish_assignment(
+        oid,
+        row["assignment_id"],
+        "worker",
+        row["fence"],
+        status="needs-attention",
+        changed_files=changed,
+        result={"status": "blocked", "dispatch_state": marker},
+    )["assignments"][0]
+    assert "retry" not in blocked["allowed_actions"]
+    with pytest.raises(ValueError):
+        store.control(oid, "retry", row["assignment_id"], {"run_id": row["run_id"]})
+
+
+@pytest.mark.parametrize("route_allowed", [False, True])
+def test_worker_marks_only_preflight_denials_retryable(
+    tmp_path, monkeypatch, route_allowed
+):
+    import json
+    from unittest.mock import Mock
+    from opaihub import objective_worker
+
+    store = ObjectiveStore(tmp_path)
+    obj = store.create("Update", [assignment("a", budget_usd="1")])
+    row = store.claim_next(obj["objective_id"], "worker")
+    packet = {
+        "run_id": row["run_id"],
+        "task_id": row["task_id"],
+        "authority_root": str(tmp_path),
+        "worktree": str(tmp_path / "worker"),
+        "model_id": "account:codex:test",
+        "routing": {"allowed": route_allowed, "reason": "No route", "blockers": []},
+    }
+    request, response = tmp_path / "request.json", tmp_path / "response.json"
+    request.write_text("{}")
+    monkeypatch.setattr(objective_worker, "authorize_request", lambda *args: packet)
+    provider = Mock(side_effect=AssertionError("Provider dispatch is forbidden"))
+    monkeypatch.setattr("opaihub.gui_pipeline.handle_gui_message", provider)
+    assert objective_worker.main([str(request), str(response)]) == 0
+    result = json.loads(response.read_text())
+    assert result["dispatch_state"] == "not-dispatched"
+    assert result["status"] == "blocked"
+    assert result["objective_cost_events"][0]["amount_usd"] == "0"
+    provider.assert_not_called()
+
+
 def block(store, oid, row):
     return store.finish_assignment(
         oid,
@@ -32,6 +133,41 @@ def block(store, oid, row):
             },
         },
     )["assignments"][0]
+
+
+def test_pipeline_cannot_promote_its_blocked_result_to_predispatch_retry(
+    tmp_path, monkeypatch
+):
+    import json
+    from unittest.mock import Mock
+    from opaihub import objective_worker
+
+    store = ObjectiveStore(tmp_path)
+    obj = store.create("Update", [assignment("a")])
+    row = store.claim_next(obj["objective_id"], "worker")
+    packet = {
+        "run_id": row["run_id"],
+        "task_id": row["task_id"],
+        "authority_root": str(tmp_path),
+        "worktree": str(tmp_path / "worker"),
+        "model_id": "account:codex:test",
+        "mode": "safe-auto",
+        "prompt": "Update a",
+        "routing": {"allowed": True},
+    }
+    request, response = tmp_path / "request.json", tmp_path / "response.json"
+    request.write_text("{}")
+    monkeypatch.setattr(objective_worker, "authorize_request", lambda *args: packet)
+    monkeypatch.setattr(objective_worker.sys, "stdin", None)
+    provider = Mock(
+        return_value={"status": "blocked", "dispatch_state": "not-dispatched"}
+    )
+    monkeypatch.setattr("opaihub.gui_pipeline.handle_gui_message", provider)
+    assert objective_worker.main([str(request), str(response)]) == 0
+    result = json.loads(response.read_text())
+    assert result["status"] == "blocked"
+    assert "dispatch_state" not in result
+    provider.assert_called_once()
 
 
 def test_approval_is_request_bound_and_preserves_attempt_costs(tmp_path):

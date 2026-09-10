@@ -22,13 +22,15 @@
     const parts = amount.split(".");
     return "$" + parts[0] + "." + (parts[1] || "").padEnd(2, "0");
   }
-  const labels = { run: "Run queued work", pause: "Pause", resume: "Resume", stop: "Stop", cancel: "Stop", sequential: "Run sequentially", budget: "Set budget", set_budget: "Set budget", prioritize: "Move first", reroute: "Reroute", reconcile: "Reconcile", verify: "Verify integration", approve: "Approve once", request_review: "Request review" };
+  const labels = { run: "Run queued work", pause: "Pause", resume: "Resume", stop: "Stop", cancel: "Stop", sequential: "Run sequentially", budget: "Set budget", set_budget: "Set budget", prioritize: "Move first", reroute: "Reroute", reconcile: "Reconcile", verify: "Verify integration", approve: "Approve once", retry: "Retry blocked attempt", request_review: "Request review" };
   function controls(item, objectiveId, assignmentId) {
     return '<div class="agents-controls">' + list(item.allowed_actions).filter((a) => Object.prototype.hasOwnProperty.call(labels, a)).map((action) => {
       let field = "";
       if (action === "set_budget" || action === "budget") field = '<input aria-label="Budget in USD" data-agent-value type="text" inputmode="decimal" pattern="[0-9]+([.][0-9]+)?" value="' + esc(decimal(item.budget_usd)) + '">';
       if (action === "reroute") field = '<input aria-label="Assignment model" data-agent-value value="' + esc(item.model) + '">';
-      return '<span class="agents-control">' + field + '<button type="button" class="btn" data-agent-action="' + action + '" data-objective-id="' + esc(objectiveId) + '"' + (assignmentId ? ' data-assignment-id="' + esc(assignmentId) + '"' : '') + '>' + labels[action] + '</button></span>';
+      const ids = ' data-objective-id="' + esc(objectiveId) + '"' + (assignmentId ? ' data-assignment-id="' + esc(assignmentId) + '"' : '');
+      const removeCap = (action === "budget" || action === "set_budget") && decimal(item.budget_usd) !== null ? '<button type="button" class="btn" data-agent-action="budget" data-agent-clear-budget' + ids + '>Remove cap</button>' : '';
+      return '<span class="agents-control">' + field + '<button type="button" class="btn" data-agent-action="' + action + '"' + ids + '>' + labels[action] + '</button>' + removeCap + '</span>';
     }).join("") + '</div>';
   }
   function evidence(label, value) {
@@ -88,6 +90,7 @@
         html += '<dl class="agents-facts">' + fact("Owner", selected.owner || selected.last_owner) + fact("Model", selected.observed_model || selected.model) + fact("Provider", selected.observed_provider || selected.provider) + fact("Route", typeof selected.route === "string" ? selected.route : selected.route && selected.route.kind) + '</dl>';
         if (selected.pending_approval) html += '<section class="agents-section"><h4>Operation awaiting approval</h4><p>' + esc(selected.pending_approval.reason) + '</p><pre>' + esc(text(selected.pending_approval.command || selected.pending_approval.files)) + '</pre><p>' + (selected.pending_approval.kind === "edits" ? 'Starts one continuation with file editing enabled within the assignment scope. The listed files are the edits that prompted this request.' : 'Starts a new attempt with permission for this command once.') + '</p></section>';
         html += controls(selected, o.objective_id, selected.assignment_id);
+        if (list(selected.allowed_actions).includes("retry")) html += '<p class="agents-note">No provider call was dispatched. Adjust the model or budget, then retry with a new attempt.</p>';
         if (selected.blocked_reason) html += '<p class="agents-note">' + esc(selected.blocked_reason) + '</p>';
         if (selected.admission && selected.admission.reason !== selected.blocked_reason) html += '<p class="agents-note">' + esc(selected.admission.reason) + '</p>';
         html += activity(selected.activity);
@@ -141,6 +144,11 @@
       const payload = { objective_id: button.dataset.objectiveId, action: button.dataset.agentAction };
       if (button.dataset.assignmentId) payload.assignment_id = button.dataset.assignmentId;
       const objective = list(snapshot.objectives).find((item) => item.objective_id === payload.objective_id);
+      if (payload.action === "retry") {
+        const assignment = objective && list(objective.assignments).find((item) => item.assignment_id === payload.assignment_id);
+        if (!assignment || !assignment.run_id) return;
+        payload.value = { run_id: assignment.run_id };
+      }
       if (payload.action === "request_review") payload.value = { revision: objective && objective.revision };
       if (payload.action === "approve") {
         const assignment = objective && list(objective.assignments).find((item) => item.assignment_id === payload.assignment_id);
@@ -148,7 +156,8 @@
         payload.value = { request_id: assignment.pending_approval.request_id };
       }
       const input = button.parentElement.querySelector("[data-agent-value]");
-      if (input) {
+      if (button.hasAttribute("data-agent-clear-budget")) payload.value = null;
+      else if (input) {
         if (!input.reportValidity() || !input.value.trim()) return;
         payload.value = input.type === "number" ? Number(input.value) : input.value.trim();
       }
