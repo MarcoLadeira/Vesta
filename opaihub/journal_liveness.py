@@ -152,12 +152,61 @@ def owner_liveness(
     return OWNER_UNKNOWN
 
 
+#: How long a lease nobody can confirm stays "maybe alive".
+#:
+#: Without a bound this module strands runs permanently, and that was a real
+#: defect rather than a hypothetical one. ``OWNER_STALE`` and
+#: ``OWNER_UNVERIFIED`` both count as possibly-alive, so a run whose owning pid
+#: was reused by an unrelated process -- ordinary on Windows, where pids cycle
+#: and restart low after a reboot -- reads unverified forever. Recovery skips
+#: it every time, and it sits in ``running`` with no way out: exactly the ghost
+#: state #613 opens by describing, reintroduced by the guard meant to prevent
+#: it.
+#:
+#: Six hours is deliberately far beyond any plausible turn or automation. The
+#: asymmetry the rest of this module states still holds -- writing a terminal
+#: verdict onto live work is worse than leaving a dead run around -- but
+#: "leave it around" has to mean *for a while*, not *for ever*. A run nobody
+#: has heard from since this morning is not being worked on.
+ABANDONED_AFTER_SECONDS = 6 * 60 * 60
+
+
+def _last_sign_of_life(lease: Mapping[str, Any], now: datetime | None) -> float | None:
+    """Seconds since anything was heard from this lease, or ``None``.
+
+    The heartbeat when one was ever stamped, and the acquisition otherwise --
+    background and CLI runs do not beat, and judging them by a clock they never
+    wound is what :func:`_stopped_responding` exists to avoid. Acquisition is
+    still a real signal: it is the moment somebody was demonstrably there.
+    """
+
+    heartbeat = _moment(lease.get("lease_heartbeat_at"))
+    acquired = _moment(lease.get("lease_acquired_at"))
+    latest = max((moment for moment in (heartbeat, acquired) if moment), default=None)
+    if latest is None:
+        return None
+    reference = now or datetime.now(timezone.utc)
+    return (reference - latest).total_seconds()
+
+
+def _long_abandoned(lease: Mapping[str, Any], now: datetime | None) -> bool:
+    """True when nothing has been heard for longer than anyone should wait.
+
+    Absence of any timestamp is not evidence of abandonment -- a lease this
+    cannot date is one it cannot judge, and it stays possibly-alive.
+    """
+
+    silence = _last_sign_of_life(lease, now)
+    return silence is not None and silence > ABANDONED_AFTER_SECONDS
+
+
 def may_be_alive(
     lease: Mapping[str, Any],
     *,
     is_pid_running: Callable[[int], bool | None] = pid_is_running,
     this_pid: int | None = None,
     this_boot: str = "",
+    now: datetime | None = None,
 ) -> bool:
     """True when something might still be tending this run.
 
@@ -179,15 +228,19 @@ def may_be_alive(
 
     if _as_pid(lease.get("owner_pid")) is None:
         return False
-    return (
-        owner_liveness(
-            lease,
-            is_pid_running=is_pid_running,
-            this_pid=this_pid,
-            this_boot=this_boot,
-        )
-        != OWNER_GONE
+    verdict = owner_liveness(
+        lease,
+        is_pid_running=is_pid_running,
+        this_pid=this_pid,
+        this_boot=this_boot,
+        now=now,
     )
+    if verdict == OWNER_GONE:
+        return False
+    if verdict == OWNED_HERE:
+        # This process holds it. No clock beats knowing.
+        return True
+    return not _long_abandoned(lease, now)
 
 
 # `OWNER_STALE` is deliberately absent from `ACTIONABLE` and counts as

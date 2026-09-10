@@ -329,9 +329,18 @@ class AnOwnerThatStoppedRespondingIsNotTheSameAsOneThatLeftTests(unittest.TestCa
                     self._verdict(lease, at=START + timedelta(days=1)), OWNER_STALE
                 )
 
-    def test_a_stale_owner_is_reported_but_never_acted_on(self):
+    def test_a_recently_stale_owner_is_reported_but_never_acted_on(self):
         """A wedged process may be mid-provider-call. Writing a terminal
-        verdict over it is the defect this module exists to stop."""
+        verdict over it is the defect this module exists to stop.
+
+        ``now`` is passed explicitly, and that is the point rather than
+        tidiness. The lease carries fixed dates, so reading the wall clock
+        made the answer depend on how long ago those dates were -- and once
+        `may_be_alive` gained an upper bound on unconfirmable leases, this
+        started failing purely because the fixture had aged past it. The claim
+        being made is about a *recently* stale owner, so the test has to say
+        when "recently" is.
+        """
 
         lease = self._lease(acquired=ISO_START, heartbeat="2026-09-08T10:05:00+00:00")
 
@@ -341,6 +350,25 @@ class AnOwnerThatStoppedRespondingIsNotTheSameAsOneThatLeftTests(unittest.TestCa
                 lease,
                 is_pid_running=lambda pid: True,
                 this_pid=-1,
+                now=START + timedelta(minutes=10),
+            )
+        )
+
+    def test_an_owner_stale_since_this_morning_is_recoverable(self):
+        """The other half, and the reason the bound exists.
+
+        Without it a stale-but-unconfirmable lease was skipped by recovery
+        forever, and the run sat in `running` with no way out.
+        """
+
+        lease = self._lease(acquired=ISO_START, heartbeat="2026-09-08T10:05:00+00:00")
+
+        self.assertFalse(
+            may_be_alive(
+                lease,
+                is_pid_running=lambda pid: True,
+                this_pid=-1,
+                now=START + timedelta(days=1),
             )
         )
 
@@ -371,6 +399,127 @@ class TheVocabularyIsClosedTests(unittest.TestCase):
 
         self.assertNotIn("running now", journal_liveness.describe(OWNER_UNVERIFIED))
         self.assertIn("may", journal_liveness.describe(OWNER_UNVERIFIED))
+
+
+class AnUnconfirmableRunIsNotStrandedForeverTests(unittest.TestCase):
+    """A guard against lying must not become a way to lose work.
+
+    ``may_be_alive`` is the question recovery asks, and both ``OWNER_STALE``
+    and ``OWNER_UNVERIFIED`` counted as possibly-alive with no upper bound. So
+    a run whose owning pid was reused by an unrelated process -- ordinary on
+    Windows, where pids cycle and restart low after a reboot -- read
+    unverified forever, recovery skipped it every single time, and it sat in
+    ``running`` with no way out.
+
+    That is exactly the ghost state #613 opens by describing, reintroduced by
+    the guard written to prevent it. The asymmetry still holds -- writing a
+    terminal verdict onto live work is worse than leaving a dead run around --
+    but "leave it around" has to mean *for a while*, not *for ever*.
+    """
+
+    def lease(self, *, pid: int, boot: str, heard: float) -> dict:
+        moment = (datetime.now(timezone.utc) - timedelta(seconds=heard)).isoformat()
+        return {
+            "owner_pid": pid,
+            "owner_boot": boot,
+            "lease_heartbeat_at": moment,
+            "lease_acquired_at": moment,
+        }
+
+    def test_a_run_heard_from_recently_is_left_alone(self):
+        lease = self.lease(pid=os.getpid(), boot="another-interpreter", heard=60)
+
+        self.assertTrue(journal_liveness.may_be_alive(lease))
+
+    def test_a_run_nobody_has_heard_from_all_day_is_recoverable(self):
+        lease = self.lease(
+            pid=os.getpid(),
+            boot="another-interpreter",
+            heard=journal_liveness.ABANDONED_AFTER_SECONDS + 60,
+        )
+
+        self.assertFalse(
+            journal_liveness.may_be_alive(lease),
+            "an unconfirmable run must not be stranded permanently",
+        )
+
+    def test_the_bound_is_generous_enough_not_to_steal_live_work(self):
+        """Hours, not minutes. A long provider call must survive it."""
+
+        self.assertGreaterEqual(
+            journal_liveness.ABANDONED_AFTER_SECONDS,
+            60 * 60,
+            "a bound this tight would reconcile work that is still running",
+        )
+
+    def test_a_lease_this_process_holds_is_never_reclaimed_by_the_clock(self):
+        """Knowing beats timing out."""
+
+        lease = self.lease(
+            pid=os.getpid(),
+            boot=owner_lease.boot_id(),
+            heard=journal_liveness.ABANDONED_AFTER_SECONDS * 10,
+        )
+
+        self.assertEqual(
+            journal_liveness.owner_liveness(lease), journal_liveness.OWNED_HERE
+        )
+        self.assertTrue(journal_liveness.may_be_alive(lease))
+
+    def test_a_lease_with_no_timestamps_is_not_judged_by_the_clock(self):
+        """Absence of a date is not evidence of abandonment."""
+
+        lease = {"owner_pid": os.getpid(), "owner_boot": "another-interpreter"}
+
+        self.assertTrue(journal_liveness.may_be_alive(lease))
+
+    def test_a_run_that_never_beat_is_dated_by_when_it_was_acquired(self):
+        """The shape recovery actually meets, and the one teeth-testing found.
+
+        Background runs and CLI runs do not stamp a heartbeat -- only the GUI
+        pipeline beats one. So for exactly the runs a recovery pass cares most
+        about there is no heartbeat to age, and dating a lease by the
+        heartbeat alone would leave them unjudgeable forever: the ghost state
+        returning by the back door.
+
+        Acquisition is a real signal. It is the moment somebody was
+        demonstrably there.
+        """
+
+        long_ago = (
+            datetime.now(timezone.utc)
+            - timedelta(seconds=journal_liveness.ABANDONED_AFTER_SECONDS + 60)
+        ).isoformat()
+        lease = {
+            "owner_pid": os.getpid(),
+            "owner_boot": "another-interpreter",
+            "lease_acquired_at": long_ago,
+            # No heartbeat. This surface never stamps one.
+            "lease_heartbeat_at": "",
+        }
+
+        self.assertFalse(
+            journal_liveness.may_be_alive(lease),
+            "a run that never beat must still be datable by its acquisition",
+        )
+
+    def test_a_run_that_never_beat_but_started_recently_is_left_alone(self):
+        recent = (datetime.now(timezone.utc) - timedelta(seconds=120)).isoformat()
+        lease = {
+            "owner_pid": os.getpid(),
+            "owner_boot": "another-interpreter",
+            "lease_acquired_at": recent,
+            "lease_heartbeat_at": "",
+        }
+
+        self.assertTrue(journal_liveness.may_be_alive(lease))
+
+    def test_a_dead_owner_is_still_recovered_immediately(self):
+        """The bound must not delay the case that was already answerable."""
+
+        lease = self.lease(pid=999_999, boot="another-interpreter", heard=1)
+
+        self.assertFalse(journal_liveness.may_be_alive(lease))
 
 
 if __name__ == "__main__":  # pragma: no cover - convenience
