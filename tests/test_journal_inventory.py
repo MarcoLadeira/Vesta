@@ -185,6 +185,13 @@ PROJECTION_OR_EXPORT = {
     # Stage 7's retirement gate. Reads telemetry to answer one question --
     # may the legacy writes go? -- and writes nothing itself.
     "opaihub/journal_retirement.py",
+    # #818's parity checks. Both open the journal to *read* it: one replays
+    # the event log against the `runs` table, the other compares the journal
+    # with the saved conversations. Neither persists anything -- rebuild_runs
+    # had a persist=True default no caller used, removed so a doctor run can
+    # never write to the store it is diagnosing.
+    "opaihub/journal_projections.py",
+    "opaihub/journal_conversations.py",
     # Build-only generated identity written into wheel/sdist staging trees.
     "opai/build_metadata.py",
     "opaihub/dashboard.py",

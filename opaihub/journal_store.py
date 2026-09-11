@@ -473,8 +473,19 @@ def _transaction(connection: sqlite3.Connection) -> Iterator[sqlite3.Connection]
     DEFERRED would let two writers both begin, then fail one at its first
     write with SQLITE_BUSY after it has already done work. IMMEDIATE makes the
     contention visible at the start instead.
+
+    **Re-entrant.** Inside a transaction already open on this connection, the
+    block joins it and commits or rolls back with it. That is what lets one
+    lifecycle moment be one transaction: a run's terminal verdict, its event
+    and the release of its lease used to commit as three, so a crash between
+    them left the `runs` table and the event log telling different stories --
+    the exact contradiction ``journal_projections.run_table_parity`` exists to
+    catch. Nested use raised before, so nothing relied on it being refused.
     """
 
+    if connection.in_transaction:
+        yield connection
+        return
     connection.execute("BEGIN IMMEDIATE")
     try:
         yield connection

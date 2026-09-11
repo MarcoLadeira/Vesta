@@ -92,7 +92,7 @@ EVENT_PRIVACY = {
     EVENT_STARTED: PRIVACY_INTERNAL,
     EVENT_TRANSITIONED: PRIVACY_INTERNAL,
     EVENT_COSTED: PRIVACY_INTERNAL,
-    # These three carry a reason or a detail, which is free-form by design.
+    # These carry a reason or a detail, which is free-form by design.
     EVENT_FINISHED: PRIVACY_SENSITIVE,
     EVENT_CANCELLED: PRIVACY_SENSITIVE,
     EVENT_CANCEL_PHASE: PRIVACY_SENSITIVE,
@@ -104,6 +104,16 @@ def privacy_class_for(event_type: str) -> str:
     """The privacy class of an event, defaulting to the cautious one."""
 
     return EVENT_PRIVACY.get(str(event_type), PRIVACY_SENSITIVE)
+
+
+#: How much of a terminal reason the `runs` row keeps. The event payload keeps
+#: more (``journal_store.MAX_PAYLOAD_STRING``), so anything comparing the two --
+#: ``journal_projections.run_table_parity`` -- has to compare this much.
+TERMINAL_REASON_CHARS = 500
+
+#: Run states that mean a process is *executing* the run, not just describing
+#: it. A process that saves one of these is the run's owner from then on.
+_EXECUTING_STATES = frozenset({"preparing", "running", "verifying"})
 
 
 class _TerminalRunReadmitted(Exception):
@@ -267,7 +277,30 @@ def _admit_on(
             " ON CONFLICT(run_id) DO NOTHING",
             (run_id, task_id, resolved_attempt, route, model, now, now),
         )
-    fence = acquire_lease(
+        # Lease and admitted event inside the same transaction as the rows:
+        # the module docstring promised "together, or none of them", and until
+        # _transaction could be joined these were two more commits after it.
+        fence = _take_lease(store, run_id=run_id, surface=surface, now=now)
+        append_event(
+            store,
+            event_type=EVENT_ADMITTED,
+            payload={"mode": mode, "model": model, "route": route},
+            privacy_class=privacy_class_for(EVENT_ADMITTED),
+            occurred_at=now,
+            recorded_at=now,
+            producer=surface,
+            run_id=run_id,
+            expected_fence=fence,
+        )
+    return fence
+
+
+def _take_lease(
+    store: sqlite3.Connection, *, run_id: str, surface: str, now: str
+) -> int:
+    """Take (or take over) ``run_id``'s lease for *this* process."""
+
+    return acquire_lease(
         store,
         run_id=run_id,
         owner=surface,
@@ -280,18 +313,17 @@ def _admit_on(
         owner_pid=os.getpid(),
         owner_boot=owner_lease.boot_id(),
     )
-    append_event(
-        store,
-        event_type=EVENT_ADMITTED,
-        payload={"mode": mode, "model": model, "route": route},
-        privacy_class=privacy_class_for(EVENT_ADMITTED),
-        occurred_at=now,
-        recorded_at=now,
-        producer=surface,
-        run_id=run_id,
-        expected_fence=fence,
+
+
+def _held_by_this_process(store: sqlite3.Connection, run_id: str) -> bool:
+    row = store.execute(
+        "SELECT owner_pid, owner_boot FROM leases WHERE run_id = ?", (run_id,)
+    ).fetchone()
+    if row is None:
+        return False
+    return row["owner_pid"] == os.getpid() and str(row["owner_boot"] or "") == str(
+        owner_lease.boot_id()
     )
-    return fence
 
 
 def record_event(
@@ -383,7 +415,12 @@ def _terminal_on(
     fence: int | None = None,
     producer: str = "gui",
 ) -> None:
-    """The terminal write on an already-open connection. See :func:`_admit_on`."""
+    """The terminal write on an already-open connection. See :func:`_admit_on`.
+
+    Verdict, event and lease release are one transaction. They were three, so
+    a crash after the first left a run the `runs` table called finished and
+    the event log did not -- and a lease still held on it.
+    """
 
     with journal_store._transaction(store):
         # The fence is checked *before* the update, inside the same
@@ -403,21 +440,27 @@ def _terminal_on(
         store.execute(
             "UPDATE runs SET observed_state = ?, terminal_verdict = ?,"
             " terminal_reason = ?, updated_at = ? WHERE run_id = ?",
-            (verdict, verdict, journal_store.redact(str(reason))[:500], now, run_id),
+            (
+                verdict,
+                verdict,
+                journal_store.redact(str(reason))[:TERMINAL_REASON_CHARS],
+                now,
+                run_id,
+            ),
         )
-    append_event(
-        store,
-        event_type=event_type,
-        payload={"verdict": verdict, "reason": reason},
-        privacy_class=privacy_class_for(event_type),
-        occurred_at=now,
-        recorded_at=now,
-        producer=producer,
-        run_id=run_id,
-        expected_fence=fence,
-    )
-    if fence is not None:
-        journal_store.release_lease(store, run_id=run_id, fence=fence, now=now)
+        append_event(
+            store,
+            event_type=event_type,
+            payload={"verdict": verdict, "reason": reason},
+            privacy_class=privacy_class_for(event_type),
+            occurred_at=now,
+            recorded_at=now,
+            producer=producer,
+            run_id=run_id,
+            expected_fence=fence,
+        )
+        if fence is not None:
+            journal_store.release_lease(store, run_id=run_id, fence=fence, now=now)
 
 
 def live_fence(root: Path, run_id: str) -> int | None:
@@ -511,17 +554,41 @@ def record_run_snapshot(
                     attempt=None,
                 )
             else:
-                append_event(
-                    store,
-                    event_type=EVENT_TRANSITIONED,
-                    payload={"state": state, **details},
-                    privacy_class=privacy_class_for(EVENT_TRANSITIONED),
-                    occurred_at=now,
-                    recorded_at=now,
-                    producer=surface,
-                    run_id=run_id,
-                    expected_fence=fence,
-                )
+                with journal_store._transaction(store):
+                    if state in _EXECUTING_STATES and not _held_by_this_process(
+                        store, run_id
+                    ):
+                        # #818 review finding 1, reproduced: the lease named
+                        # whoever *first* saved the run. For a background run
+                        # that is `automation enqueue`, which exits at once --
+                        # `automation run` executes it in a second process
+                        # that never took the lease over. A concurrent
+                        # `automation recover` then saw the owner gone and
+                        # wrote "the owning session ended" onto a live run,
+                        # the exact false record the liveness check exists
+                        # to prevent. The reverse held too: a GUI that only
+                        # queued a run kept it looking owned for hours after
+                        # the process running it had died.
+                        #
+                        # The process executing a run owns it. Only these
+                        # states transfer ownership: a cancel request or a
+                        # recovery sweep from another process describes the
+                        # run without running it, and must not fence out the
+                        # process that is.
+                        fence = _take_lease(
+                            store, run_id=run_id, surface=surface, now=now
+                        )
+                    append_event(
+                        store,
+                        event_type=EVENT_TRANSITIONED,
+                        payload={"state": state, **details},
+                        privacy_class=privacy_class_for(EVENT_TRANSITIONED),
+                        occurred_at=now,
+                        recorded_at=now,
+                        producer=surface,
+                        run_id=run_id,
+                        expected_fence=fence,
+                    )
 
             if verdict:
                 _terminal_on(

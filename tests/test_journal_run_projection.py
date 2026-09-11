@@ -27,6 +27,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from opaihub import journal_projections, journal_runtime, journal_store
 
@@ -273,11 +274,17 @@ class ParityTests(unittest.TestCase):
         self.assertFalse(report["comparable"])
         self.assertIn("stopped at sequence", report["reason"])
 
-    def test_the_projection_persists_and_reloads(self):
+    def test_checking_writes_nothing(self):
+        """Doctor runs this; a diagnostic must not write to what it diagnoses."""
+
         self.finish("run-1", self.admit("run-1", "task-1"))
 
-        journal_projections.rebuild_runs(self.root, now=LATER)
+        rebuilt = journal_projections.rebuild_runs(self.root, now=LATER)
+        journal_projections.run_table_parity(self.root, now=LATER)
 
+        self.assertEqual(
+            rebuilt.payload["runs"]["run-1"]["terminal_verdict"], "completed"
+        )
         store = journal_store.open_store(self.root)
         try:
             loaded = journal_store.load_projection(
@@ -287,12 +294,114 @@ class ParityTests(unittest.TestCase):
             )
         finally:
             store.close()
+        self.assertIsNone(loaded)
 
-        self.assertIsNotNone(loaded)
-        self.assertTrue(loaded["readable"])
-        self.assertEqual(
-            loaded["payload"]["runs"]["run-1"]["terminal_verdict"], "completed"
+    def test_a_long_reason_is_not_a_contradiction(self):
+        """#12: the row keeps 500 characters of a reason, the event 1024."""
+
+        fence = self.admit("run-1", "task-1")
+        journal_runtime.record_terminal(
+            self.root,
+            run_id="run-1",
+            event_type=journal_runtime.EVENT_FINISHED,
+            verdict="failed",
+            reason="provider said: " + "x" * 900,
+            now=LATER,
+            fence=fence,
         )
+
+        report = journal_projections.run_table_parity(self.root, now=LATER)
+
+        self.assertTrue(report["comparable"], report["reason"])
+        self.assertEqual(report["disagreements"], [])
+
+    def test_a_reason_that_really_differs_is_still_caught(self):
+        """The width fix must not make the reason comparison blind."""
+
+        self.finish("run-1", self.admit("run-1", "task-1"))
+        store = journal_store.open_store(self.root)
+        try:
+            store.execute(
+                "UPDATE runs SET terminal_reason = 'rewritten' WHERE run_id = 'run-1'"
+            )
+        finally:
+            store.close()
+
+        report = journal_projections.run_table_parity(self.root, now=LATER)
+
+        self.assertEqual(
+            [d["field"] for d in report["disagreements"]], ["terminal_reason"]
+        )
+
+    def test_a_run_admitted_mid_check_is_not_a_contradiction(self):
+        """#13: the replay and the table are read in one snapshot.
+
+        On two connections, a turn starting between them -- ordinary while the
+        app is open -- appeared in the table and not the replay.
+        """
+
+        self.finish("run-1", self.admit("run-1", "task-1"))
+        real_fold = journal_projections._fold_on
+
+        def fold_then_a_turn_starts(store, *, now):
+            result = real_fold(store, now=now)
+            self.admit("run-2", "task-2")
+            return result
+
+        with mock.patch.object(
+            journal_projections, "_fold_on", side_effect=fold_then_a_turn_starts
+        ):
+            report = journal_projections.run_table_parity(self.root, now=LATER)
+
+        self.assertTrue(report["comparable"], report["reason"])
+        self.assertEqual(report["disagreements"], [])
+
+    def test_the_check_folds_in_place(self):
+        """#18: the parity check uses the constant-cost accumulator."""
+
+        self.finish("run-1", self.admit("run-1", "task-1"))
+        with mock.patch.object(
+            journal_store,
+            "rebuild_projection",
+            wraps=journal_store.rebuild_projection,
+        ) as fold:
+            journal_projections.run_table_parity(self.root, now=LATER)
+
+        self.assertIs(
+            fold.call_args.kwargs["reduce"], journal_projections._fold_in_place
+        )
+        self.assertFalse(fold.call_args.kwargs["persist"])
+
+    def test_the_in_place_fold_agrees_with_the_pure_one(self):
+        events = []
+        for index in range(5):
+            run_id = f"run-{index}"
+            events.append(
+                {"run_id": run_id, "event_type": journal_runtime.EVENT_ADMITTED}
+            )
+            events.append(
+                {
+                    "run_id": run_id,
+                    "event_type": journal_runtime.EVENT_COSTED,
+                    "payload": {"amount_usd": 0.25},
+                }
+            )
+            events.append(
+                {
+                    "run_id": run_id,
+                    "event_type": journal_runtime.EVENT_FINISHED,
+                    "payload": {"verdict": "completed", "reason": str(index)},
+                }
+            )
+        events.append({"run_id": "", "event_type": "journal.backup"})
+
+        pure = journal_projections.empty_runs()
+        accumulated = journal_projections.empty_runs()
+        for event in events:
+            pure = journal_projections.reduce_runs(pure, event)
+            accumulated = journal_projections._fold_in_place(accumulated, event)
+
+        self.assertEqual(pure, accumulated)
 
 
 class DoctorActuallyAsksTests(unittest.TestCase):
