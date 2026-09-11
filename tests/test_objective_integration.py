@@ -67,6 +67,42 @@ def completed():
     return {"status": "completed", "cost_usd": "0", "measurement_kind": "actual"}
 
 
+@pytest.mark.parametrize("conflicting_edit", [False, True])
+def test_integration_accepts_checkout_eol_conversion_but_preserves_user_edits(
+    tmp_path, conflicting_edit
+):
+    from opaihub.objective_execution import _git, observe_changes
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    make_repo(
+        root,
+        files={"a.txt": "old\n", ".gitattributes": "*.txt text eol=crlf\n"},
+        commit=True,
+    )
+    base = _git(root, "rev-parse", "HEAD").decode().strip()
+    source, target = tmp_path / "source", tmp_path / "target"
+    _git(root, "worktree", "add", "--detach", str(source), base)
+    _git(root, "worktree", "add", "--detach", str(target), base)
+    assert (target / "a.txt").read_bytes() == b"old\r\n"
+    (source / "a.txt").write_bytes(b"worker\r\n")
+    if conflicting_edit:
+        (target / "a.txt").write_bytes(b"user\r\n")
+    row = {
+        "assignment_id": "a",
+        "name": "a",
+        "depends_on": [],
+        "worktree": str(source),
+        "base_sha": base,
+        "result": {"git_evidence": observe_changes(source, base)},
+    }
+    conflicts = ObjectiveExecutor(root)._merge_rows(target, [row], threading.Event())
+    assert bool(conflicts) is conflicting_edit
+    assert (target / "a.txt").read_bytes() == (
+        b"user\r\n" if conflicting_edit else b"worker\r\n"
+    )
+
+
 def test_dependency_receives_observed_changes_and_only_owns_its_delta(tmp_path):
     root, store, oid = fixture(
         tmp_path,

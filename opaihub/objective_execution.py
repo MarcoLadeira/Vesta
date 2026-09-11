@@ -1031,7 +1031,24 @@ class ObjectiveExecutor:
                     base_digest = hashlib.sha256(base_bytes).hexdigest()
                 except subprocess.CalledProcessError:
                     base_digest = "deleted"
-                if current["digest"] not in {base_digest, content["digest"]}:
+                matches_base = current["digest"] == base_digest
+                if (
+                    not matches_base
+                    and base_digest != "deleted"
+                    and not current["deleted"]
+                ):
+                    matches_base = not _git(
+                        target,
+                        "--literal-pathspecs",
+                        "diff",
+                        "--name-only",
+                        "--no-ext-diff",
+                        "--no-textconv",
+                        row["base_sha"],
+                        "--",
+                        relative,
+                    ).strip()
+                if not matches_base and current["digest"] != content["digest"]:
                     conflicts.append(
                         {
                             "path": relative,
