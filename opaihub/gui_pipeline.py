@@ -77,6 +77,7 @@ from .repository_safety import (
     capture_repository_handle,
     save_repository_handle,
 )
+from .generated_lifecycle import LEGACY_STATUS_MAP, TERMINAL_STATE_IDS
 from .run_state import RunState, is_awaiting_input, run_state_for_verdict
 from .run_summary import build_run_summary
 from .task_packet import build_task_packet
@@ -762,59 +763,82 @@ _JOURNAL_RUN: ContextVar[dict[str, Any] | None] = ContextVar(
     "_opai_journal_run", default=None
 )
 
-#: How a turn's ending maps onto a terminal journal event.
+#: What a turn's ending is recorded as in the journal.
 #:
-#: This used to hold five entries and default everything else to
-#: ``"completed"``, on the reasoning that a turn which returned *something*
-#: did finish and that guessing "failed" would invent a verdict. The first
-#: half is true. The second half quietly justified the more dangerous guess:
-#: a turn that ended `partial`, `timeout`, `needs_attention` or
-#: `provider_blocked` was recorded in the canonical store as a success.
+#: The first version mapped five statuses and defaulted everything else to
+#: "completed" -- measured on this repository's own journal, five of twenty-one
+#: runs recorded as completed were partial turns. The second version was a
+#: hand-written table of legacy status strings and verdict names, and it
+#: drifted the moment it was written: 10 of the 13 statuses the lifecycle calls
+#: AWAITING_INPUT were missing from it, and for every approval card the verdict
+#: it preferred says BLOCKED, so "shall I push?" was filed as a permanent
+#: `blocked` -- the thing #379's own comment at the `run_state` field warns
+#: against.
 #:
-#: Measured on this repository's own journal before the fix: 21 runs recorded
-#: `completed`, against 16 `complete` and 5 `partial` assistant turns in the
-#: saved conversations. Sixteen plus five. The epic's closing evidence has to
-#: show *zero false completion*, and five of twenty-one were false.
-#:
-#: Both vocabularies are listed because both reach here. ``result["status"]``
-#: carries the legacy output strings from `legacy_status.
-#: legacy_status_for_completion_state` ("answered", "incomplete",
-#: "needs_confirmation", ...), while ``completion_verdict.verdict`` carries
-#: canonical `CompletionState` names. Mapping only one of them would leave the
-#: other falling through to the default, which is how this happened.
-_TERMINAL_EVENTS: dict[str, tuple[str, str]] = {
-    # Finished, and did the job.
-    "answered": (journal_runtime.EVENT_FINISHED, "completed"),
-    "completed": (journal_runtime.EVENT_FINISHED, "completed"),
-    # Finished, and did not.
-    "cancelled": (journal_runtime.EVENT_CANCELLED, "cancelled"),
-    "duplicate_request": (journal_runtime.EVENT_FINISHED, "duplicate"),
-    "failed": (journal_runtime.EVENT_FINISHED, "failed"),
-    "error": (journal_runtime.EVENT_FINISHED, "failed"),
-    "retryable_provider_error": (journal_runtime.EVENT_FINISHED, "failed"),
-    "timeout": (journal_runtime.EVENT_FINISHED, "timeout"),
-    "blocked": (journal_runtime.EVENT_FINISHED, "blocked"),
-    "provider_blocked": (journal_runtime.EVENT_FINISHED, "blocked"),
-    # Finished without finishing the job. These are the five that were being
-    # filed as successes.
-    "partial": (journal_runtime.EVENT_FINISHED, "partial"),
-    "incomplete": (journal_runtime.EVENT_FINISHED, "partial"),
-    "stuck_no_progress": (journal_runtime.EVENT_FINISHED, "partial"),
-    "needs_attention": (journal_runtime.EVENT_FINISHED, "needs_attention"),
-    # Stopped, waiting for the person.
-    "awaiting_input": (journal_runtime.EVENT_FINISHED, "awaiting_input"),
-    "needs_user_input": (journal_runtime.EVENT_FINISHED, "awaiting_input"),
-    "needs_consent": (journal_runtime.EVENT_FINISHED, "awaiting_input"),
-    "needs_confirmation": (journal_runtime.EVENT_FINISHED, "awaiting_input"),
-}
+#: Neither was necessary. Every decorated result already carries the engine's
+#: canonical `run_state` (#379), computed once from the verdict with the one
+#: exception only the status knows about: a turn that handed control back to
+#: the user is AWAITING_INPUT. That field is what every surface is meant to
+#: read, so it is what the journal records. A result without it -- the
+#: exception path, a result from an older build -- is derived the same way,
+#: through the one generated status map every surface shares.
+_JOURNAL_ENDINGS = frozenset(TERMINAL_STATE_IDS) | {RunState.AWAITING_INPUT.value}
 
-#: What a status nobody has mapped becomes. Not "completed": a name we do not
+#: Statuses with no lifecycle state that are still not an unknown ending.
+_JOURNAL_ONLY_STATUSES = {"duplicate_request": "duplicate"}
+
+#: What an ending nobody can name becomes. Not "completed": a name we do not
 #: recognise is not evidence that the work succeeded, and this epic exists to
-#: stop exactly that substitution. Not "failed" either, for the reason the old
-#: comment gave -- that would invent a failure Stage 4 could not tell from a
-#: real contradiction. The run *ended*; how it ended is unknown, and saying so
-#: is the only answer supported by what is actually known.
-_UNKNOWN_TERMINAL = (journal_runtime.EVENT_FINISHED, "unknown")
+#: stop exactly that substitution. Not "failed" either -- that would invent a
+#: failure Stage 4 could not tell from a real contradiction. The run *ended*;
+#: how it ended is unknown, and saying so is the only answer supported by what
+#: is actually known.
+_UNKNOWN_ENDING = "unknown"
+
+
+def _journal_ending(result: Any) -> tuple[str, str]:
+    """``(event type, verdict)`` for how this turn ended."""
+
+    payload = result if isinstance(result, Mapping) else {}
+    status = str(payload.get("status") or "").strip().lower()
+    state = str(payload.get("run_state") or "").strip().lower()
+    if state:
+        ending = state if state in _JOURNAL_ENDINGS else _UNKNOWN_ENDING
+    elif is_awaiting_input(status):
+        ending = RunState.AWAITING_INPUT.value
+    elif status in _JOURNAL_ONLY_STATUSES:
+        ending = _JOURNAL_ONLY_STATUSES[status]
+    else:
+        completion = payload.get("completion_verdict")
+        verdict = (
+            str(completion.get("verdict") or "").strip().lower()
+            if isinstance(completion, Mapping)
+            else ""
+        )
+        if verdict:
+            # The verdict outranks the status derived from it. One this build
+            # cannot name is unknown -- not an excuse to fall back to a stale
+            # "answered".
+            ending = verdict if verdict in _JOURNAL_ENDINGS else _UNKNOWN_ENDING
+        else:
+            canonical = LEGACY_STATUS_MAP.get(status) or (
+                status if status in _JOURNAL_ENDINGS else ""
+            )
+            if canonical == RunState.COMPLETED.value:
+                # #618's rule, which the saved conversation already follows: a
+                # bare "the provider answered" is transport, not completion.
+                # With no verdict behind it, it cannot claim more than "this
+                # could not be verified" -- and the conversation records the
+                # same turn that way, so the two records agree.
+                ending = RunState.NEEDS_ATTENTION.value
+            else:
+                ending = canonical or _UNKNOWN_ENDING
+    event = (
+        journal_runtime.EVENT_CANCELLED
+        if ending == RunState.CANCELLED.value
+        else journal_runtime.EVENT_FINISHED
+    )
+    return event, ending
 
 
 def _journal_beat(root: Path) -> None:
@@ -911,36 +935,27 @@ def _journal_verification(root: Path, manifest_payload: Mapping[str, Any]) -> No
         )
 
 
-def _record_turn_ending(
-    root: Path, status: str, reason: str, *, verdict_state: str = ""
-) -> None:
+def _record_turn_ending(root: Path, result: Any) -> None:
     """Close out the journalled run for this turn, if there is one.
 
     Best-effort like everything else in Stage 3: a turn that already produced
     its answer must not fail because its bookkeeping did. A run with no
     journal identity -- admission was not mirrored -- simply has nothing to
-    close.
-
-    ``verdict_state`` is the run's own completion verdict, and it wins when it
-    is present. The verdict is what the completion machinery decided with the
-    answer, the diff and the policy in front of it; ``status`` is a legacy
-    output string derived *from* it for surfaces that predate the verdict. The
-    ending was being taken from the derived value while the authoritative one
-    sat unread in the same result dict.
+    close. See :func:`_journal_ending` for what the ending is.
     """
 
     identity = _JOURNAL_RUN.get()
     if not identity:
         return
-    key = str(verdict_state or "").strip().lower() or str(status or "").strip().lower()
-    event, verdict = _TERMINAL_EVENTS.get(key, _UNKNOWN_TERMINAL)
+    payload = result if isinstance(result, Mapping) else {}
     with contextlib.suppress(Exception):  # noqa: BLE001 - never fail a finished turn
+        event, verdict = _journal_ending(payload)
         journal_runtime.record_terminal(
             root,
             run_id=str(identity["run_id"]),
             event_type=event,
             verdict=verdict,
-            reason=reason or status,
+            reason=str(payload.get("reason") or payload.get("status") or ""),
             now=_iso_now(),
             fence=identity.get("fence"),
         )
@@ -3597,24 +3612,13 @@ def handle_gui_message(*args: Any, **kwargs: Any) -> dict[str, Any]:
     try:
         result = _handle_gui_message(*args, **kwargs)
     except BaseException as exc:  # noqa: BLE001 - re-raised immediately below
-        _record_turn_ending(root, "failed", type(exc).__name__)
+        _record_turn_ending(root, {"status": "failed", "reason": type(exc).__name__})
         raise
     else:
-        status = str((result or {}).get("status") or "completed")
-        # The verdict the completion machinery reached, which outranks the
-        # legacy status string derived from it (#818: zero false completion).
-        completion = (result or {}).get("completion_verdict")
-        verdict_state = (
-            str(completion.get("verdict") or "")
-            if isinstance(completion, Mapping)
-            else ""
-        )
-        _record_turn_ending(
-            root,
-            status,
-            str((result or {}).get("reason") or ""),
-            verdict_state=verdict_state,
-        )
+        # The whole result, not a status defaulted to "completed" when absent:
+        # a turn that returned no status did not thereby succeed (#818: zero
+        # false completion). _journal_ending reads the engine's run_state.
+        _record_turn_ending(root, result)
         return result
     finally:
         _JOURNAL_RUN.reset(token)

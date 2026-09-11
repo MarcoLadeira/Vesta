@@ -221,12 +221,14 @@ class TheEndingTheGateProducesIsRecordedHonestlyTests(_RealTurn):
 
         status              needs_auto_confirmation
         completion_verdict  blocked
-        journal             blocked
+        run_state           awaiting_input
+        journal             awaiting_input
 
-    `needs_auto_confirmation` is not in the terminal map, so the old code --
-    which looked up the *status* and defaulted to "completed" -- would have
-    recorded this as a success. A turn that stopped to ask the user for
-    permission would have been journalled as having finished the job.
+    The first recorder looked up the *status* and defaulted to "completed", so
+    this would have been journalled as a success. The second preferred the
+    verdict and filed it as `blocked` -- an immutable terminal for a turn whose
+    user's next click resumes the same work (#818 review finding 2). The engine
+    already says what this is, in ``run_state``, and that is what is recorded.
     """
 
     def test_the_gate_is_not_recorded_as_a_completion(self):
@@ -249,20 +251,25 @@ class TheEndingTheGateProducesIsRecordedHonestlyTests(_RealTurn):
             "an ending that is not a success has to say why",
         )
 
-    def test_the_completion_verdict_is_what_reached_the_journal(self):
-        """The verdict outranks the status, and this is where it shows."""
+    def test_the_engines_run_state_is_what_reached_the_journal(self):
+        """The engine's canonical state, not a re-derivation of it."""
 
         result = self.turn()
-        verdict = str((result.get("completion_verdict") or {}).get("verdict") or "")
+        state = str(result.get("run_state") or "")
         recorded = str(self.runs()[0]["terminal_verdict"] or "")
 
-        self.assertTrue(verdict, "the turn produced no verdict to check")
-        self.assertEqual(
-            recorded,
-            verdict,
-            "the journal recorded something other than the verdict the "
-            "completion machinery reached",
-        )
+        self.assertTrue(state, "the turn carried no run_state to check")
+        self.assertEqual(recorded, state)
+        self.assertEqual(recorded, "awaiting_input")
+
+    def test_a_turn_that_stopped_to_ask_is_not_filed_as_blocked(self):
+        result = self.turn()
+        verdict = str((result.get("completion_verdict") or {}).get("verdict") or "")
+
+        # The verdict really does say blocked -- which is why preferring it
+        # was wrong for this kind of ending.
+        self.assertEqual(verdict, "blocked")
+        self.assertNotEqual(self.runs()[0]["terminal_verdict"], "blocked")
 
     def test_the_run_still_counts_as_finished(self):
         """Asking a question ends the turn. It does not leave it running."""

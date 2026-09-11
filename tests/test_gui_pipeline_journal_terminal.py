@@ -77,7 +77,10 @@ class _TerminalFixture(unittest.TestCase):
 
 class EveryExitClosesTheRunTests(_TerminalFixture):
     def test_a_completed_turn_records_a_finish(self):
-        self._run_wrapper(result={"status": "completed", "answer": "done"})
+        # The engine's own canonical state, as every decorated result carries.
+        self._run_wrapper(
+            result={"status": "completed", "run_state": "completed", "answer": "done"}
+        )
 
         self.assertEqual(self._events(), [EVENT_ADMITTED, EVENT_FINISHED])
         self.assertEqual(self._verdict(), "completed")
@@ -151,15 +154,20 @@ class UnknownStatusesAreNotGuessedTests(_TerminalFixture):
 
         self.assertNotEqual(self._verdict(), "failed")
 
-    def test_a_result_with_no_status_is_treated_as_a_completion(self):
+    def test_a_result_with_no_status_is_not_a_completion(self):
+        """#818 review finding 15: the wrapper defaulted a missing status to
+        "completed". A turn that says nothing about how it ended did not
+        thereby succeed."""
+
         self._run_wrapper(result={"answer": "done"})
 
-        self.assertEqual(self._verdict(), "completed")
+        self.assertEqual(self._verdict(), "unknown")
 
     def test_a_none_result_does_not_crash_the_wrapper(self):
         self._run_wrapper(result=None)
 
-        self.assertEqual(self._verdict(), "completed")
+        # Ended, unnamed -- never a success, and never left running.
+        self.assertEqual(self._verdict(), "unknown")
 
     def test_a_duplicate_request_is_recorded_as_such(self):
         """Not an error and not a fresh run: it attached to one in flight."""

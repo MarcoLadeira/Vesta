@@ -41,7 +41,7 @@ from . import journal_store
 
 #: What an assistant message's status means in the journal's vocabulary. The
 #: left side is what `gui_recents` persists; the right is what
-#: `gui_pipeline._TERMINAL_EVENTS` records for the same ending.
+#: `gui_pipeline._journal_ending` records for the same ending.
 STATUS_TO_VERDICT = {
     "complete": "completed",
     "partial": "partial",

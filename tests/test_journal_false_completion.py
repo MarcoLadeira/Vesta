@@ -23,10 +23,13 @@ status strings the pipeline actually emits fell through that default,
 including `timeout` and `provider_blocked`: outright failures recorded as
 successes.
 
-Two things were wrong and both are fixed here. The map now covers both
-vocabularies -- the legacy output strings in ``result["status"]`` and the
-canonical `CompletionState` names in ``completion_verdict`` -- and an ending
-nobody has mapped becomes ``unknown`` rather than a success.
+The first fix replaced it with a hand-written table of both vocabularies,
+and that drifted too (#818 review finding 2): it missed 10 of the 13 statuses
+the lifecycle calls AWAITING_INPUT, and it let the verdict -- BLOCKED for every
+approval card -- turn "shall I push?" into a permanent `blocked`. The journal
+now records the engine's own canonical ``run_state`` (#379), and derives a
+result without one through the one generated status map every surface shares.
+An ending nobody can name is ``unknown``, never a success.
 """
 
 from __future__ import annotations
@@ -37,6 +40,7 @@ from pathlib import Path
 
 import opaihub.gui_pipeline as gui_pipeline
 from opaihub import journal_runtime, journal_store
+from opaihub.run_state import AWAITING_INPUT_STATUSES
 
 NOW = "2026-09-10T10:00:00+00:00"
 
@@ -48,7 +52,14 @@ class _EndedTurn(unittest.TestCase):
         self.root = Path(self._tmp.name)
         self._next = 0
 
-    def end(self, status: str, *, verdict_state: str = "", reason: str = "") -> str:
+    def end(
+        self,
+        status: str,
+        *,
+        verdict_state: str = "",
+        reason: str = "",
+        run_state: str = "",
+    ) -> str:
         """Run one turn's ending through the real recorder; return the verdict."""
 
         self._next += 1
@@ -62,10 +73,13 @@ class _EndedTurn(unittest.TestCase):
             surface="gui",
         )
         token = gui_pipeline._JOURNAL_RUN.set({"run_id": run_id, "fence": fence})
+        result: dict = {"status": status, "reason": reason}
+        if verdict_state:
+            result["completion_verdict"] = {"verdict": verdict_state}
+        if run_state:
+            result["run_state"] = run_state
         try:
-            gui_pipeline._record_turn_ending(
-                self.root, status, reason, verdict_state=verdict_state
-            )
+            gui_pipeline._record_turn_ending(self.root, result)
         finally:
             gui_pipeline._JOURNAL_RUN.reset(token)
 
@@ -108,7 +122,7 @@ class UnfinishedTurnsAreNotSuccessesTests(_EndedTurn):
         self.assertEqual(self.end("retryable_provider_error"), "failed")
 
     def test_the_endings_that_were_already_right_still_are(self):
-        self.assertEqual(self.end("answered"), "completed")
+        self.assertEqual(self.end("answered", run_state="completed"), "completed")
         self.assertEqual(self.end("cancelled"), "cancelled")
         self.assertEqual(self.end("failed"), "failed")
         self.assertEqual(self.end("error"), "failed")
@@ -161,8 +175,27 @@ class TheVerdictOutranksTheDerivedStatusTests(_EndedTurn):
     def test_a_blocked_verdict_beats_an_answered_status(self):
         self.assertEqual(self.end("answered", verdict_state="blocked"), "blocked")
 
-    def test_the_status_is_used_when_there_is_no_verdict(self):
-        self.assertEqual(self.end("answered", verdict_state=""), "completed")
+    def test_a_bare_answered_status_cannot_claim_completion(self):
+        """#618's rule, which the saved conversation already follows.
+
+        "The provider answered" is transport, not completion. With no verdict
+        and no run state behind it, the most it supports is "could not be
+        verified" -- and the conversation records the same turn that way.
+        """
+
+        self.assertEqual(self.end("answered"), "needs_attention")
+        self.assertEqual(self.end("answered_by_account"), "needs_attention")
+
+    def test_other_statuses_come_from_the_shared_map(self):
+        # #15: from generated_lifecycle.LEGACY_STATUS_MAP, not a local copy.
+        self.assertEqual(self.end("model_unavailable"), "failed")
+        self.assertEqual(self.end("stuck"), "partial")
+        self.assertEqual(self.end("blocked_panic"), "blocked")
+        self.assertEqual(self.end("timed_out"), "timeout")
+
+    def test_a_turn_with_no_status_at_all_is_unknown(self):
+        # The wrapper used to default a missing status to "completed".
+        self.assertEqual(self.end(""), "unknown")
 
     def test_an_unrecognised_verdict_does_not_fall_back_to_the_status(self):
         """Falling back would let a stale "answered" override a real verdict.
@@ -177,6 +210,42 @@ class TheVerdictOutranksTheDerivedStatusTests(_EndedTurn):
         )
 
 
+class ATurnThatStoppedToAskIsNotBlockedTests(_EndedTurn):
+    """#818 review finding 2: approval cards were filed as permanent `blocked`.
+
+    For every needs_* status the completion verdict is BLOCKED, and the old
+    recorder preferred the verdict. The lifecycle calls these AWAITING_INPUT --
+    non-terminal, because the user's answer resumes the same work -- and says
+    so in the engine's own ``run_state``.
+    """
+
+    def test_every_awaiting_status_is_recorded_as_awaiting(self):
+        for status in sorted(AWAITING_INPUT_STATUSES):
+            with self.subTest(status=status):
+                self.assertEqual(
+                    self.end(status, verdict_state="blocked"), "awaiting_input"
+                )
+
+    def test_the_engine_state_is_what_is_recorded(self):
+        self.assertEqual(
+            self.end(
+                "needs_command_approval",
+                verdict_state="blocked",
+                run_state="awaiting_input",
+            ),
+            "awaiting_input",
+        )
+
+    def test_the_engine_state_outranks_a_contradicting_status(self):
+        self.assertEqual(
+            self.end("answered", verdict_state="completed", run_state="partial"),
+            "partial",
+        )
+
+    def test_a_state_this_build_cannot_name_is_unknown(self):
+        self.assertEqual(self.end("answered", run_state="a_later_state"), "unknown")
+
+
 class ThePipelineActuallyPassesTheVerdictTests(unittest.TestCase):
     """A recorder that reads a verdict nobody passes it changes nothing.
 
@@ -184,11 +253,12 @@ class ThePipelineActuallyPassesTheVerdictTests(unittest.TestCase):
     called correctly. The wiring is checked rather than assumed.
     """
 
-    def test_handle_gui_message_reads_the_completion_verdict(self):
+    def test_handle_gui_message_hands_over_the_whole_result(self):
         source = Path("opaihub/gui_pipeline.py").read_text(encoding="utf-8")
 
-        self.assertIn('completion = (result or {}).get("completion_verdict")', source)
-        self.assertIn("verdict_state=verdict_state", source)
+        self.assertIn("_record_turn_ending(root, result)", source)
+        self.assertIn('payload.get("run_state")', source)
+        self.assertNotIn('get("status") or "completed"', source)
 
     def test_the_map_has_no_completing_default_left(self):
         """The literal shape of the defect, pinned so it cannot come back."""
@@ -200,7 +270,7 @@ class ThePipelineActuallyPassesTheVerdictTests(unittest.TestCase):
             source,
             "an unmapped ending must not default to a success again",
         )
-        self.assertIn("_UNKNOWN_TERMINAL", source)
+        self.assertIn("_UNKNOWN_ENDING", source)
 
 
 if __name__ == "__main__":  # pragma: no cover
