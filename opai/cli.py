@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import contextlib
 from hashlib import sha256
 import json
 import os
@@ -717,13 +716,18 @@ def cmd_journal(args: argparse.Namespace) -> int:
         migration = journal.get("migration", {})
         backup = journal.get("backup", {})
         print(f"runtime journal: {integrity.get('state', 'unknown')}")
-        print(f"  runs recorded:  {migration.get('runs_recorded', 0)}")
+        if migration.get("runs_recorded_known", False):
+            print(f"  runs recorded:  {migration.get('runs_recorded', 0)}")
+        else:
+            why = migration.get("runs_recorded_unknown_because") or "unreadable"
+            print(f"  runs recorded:  unknown ({why})")
         print(f"  legacy runs:    {migration.get('legacy_runs', 0)}")
         print(f"  compared:       {migration.get('compared_runs', 0)}")
         print(f"  retirement:     {migration.get('retirement', 'unknown')}")
         for blocker in migration.get("blockers", []) or []:
             print(f"    - {blocker}")
-        if not migration.get("unterminated_runs_known", True):
+        # A missing key is "not checked", never a reassuring default.
+        if not migration.get("unterminated_runs_known", False):
             why = migration.get("unterminated_runs_unknown_because") or "unreadable"
             print(f"  unfinished:     unknown ({why})")
         else:
@@ -763,7 +767,7 @@ def cmd_journal(args: argparse.Namespace) -> int:
                 )
         # Two recordings of one history. Silence when they agree; a count when
         # they do not; and "could not check" said out loud rather than implied.
-        if not migration.get("event_table_parity_known", True):
+        if not migration.get("event_table_parity_known", False):
             why = migration.get("event_table_parity_unknown_because") or "unreadable"
             print(f"  event parity:   unknown ({why})")
         elif migration.get("event_table_disagreements", 0):
@@ -773,7 +777,7 @@ def cmd_journal(args: argparse.Namespace) -> int:
                 " table disagree"
             )
         # Across surfaces: the journal versus the saved conversation.
-        if not migration.get("turn_parity_known", True):
+        if not migration.get("turn_parity_known", False):
             why = migration.get("turn_parity_unknown_because") or "unreadable"
             print(f"  turn parity:    unknown ({why})")
         else:
@@ -782,15 +786,15 @@ def cmd_journal(args: argparse.Namespace) -> int:
             unjoinable = int(migration.get("turn_parity_unjoinable", 0))
             if disagreed:
                 print(
-                    f"  turn parity:    {disagreed} of {joined_runs} runs disagree"
-                    " with the saved conversation about how the turn ended"
+                    f"  turn parity:    {disagreed} of {joined_runs} turns disagree"
+                    " with the journal about how they ended"
                 )
             elif joined_runs:
-                print(f"  turn parity:    {joined_runs} runs agree with their chat")
+                print(f"  turn parity:    {joined_runs} turns agree with the journal")
             if unjoinable:
-                # Not a failure: these ran before the journal recorded which
-                # conversation a task belonged to, so there is no key to join on.
-                print(f"  unjoinable:     {unjoinable} run(s) predate origin_session")
+                # Not a failure: these were saved before a turn recorded the
+                # journal run that produced it, so there is no key to join on.
+                print(f"  unjoinable:     {unjoinable} saved turn(s) predate run ids")
             journal_shape = migration.get("turn_outcomes_journal") or {}
             chat_shape = migration.get("turn_outcomes_conversations") or {}
             if journal_shape and chat_shape and journal_shape != chat_shape:
@@ -1082,27 +1086,61 @@ def _journal_migration(root: Path) -> dict[str, object]:
     permission.
     """
 
+    # Every fact starts as "not checked". They used to share one suppress
+    # block, so when the store refused to open -- a journal written by a newer
+    # OPai -- nothing after that point was ever set, `opai journal status` fell
+    # back to its defaults, and it printed "unfinished: 0" over a real
+    # unfinished run (#818 review finding 5). Now each report stands alone and
+    # a report that cannot look says so.
     facts: dict[str, object] = {
         "runs_recorded": 0,
+        "runs_recorded_known": False,
+        "runs_recorded_unknown_because": "not checked",
         "unreconciled_operations": 0,
         "retirement": "unknown",
+        "unterminated_runs_known": False,
+        "unterminated_runs_unknown_because": "not checked",
+        "completed_runs_known": False,
+        "cancelled_runs_known": False,
+        "event_table_parity_known": False,
+        "event_table_parity_unknown_because": "not checked",
+        "turn_parity_known": False,
+        "turn_parity_unknown_because": "not checked",
     }
-    with contextlib.suppress(Exception):  # noqa: BLE001 - doctor never raises
-        from opaihub import journal_operations, journal_store
+    try:
+        from opaihub import journal_store
+    except Exception:  # noqa: BLE001 - doctor never raises
+        return facts
+    if not journal_store.journal_path(root).exists():
+        facts["retirement"] = "not_started"
+        return facts
 
-        if not journal_store.journal_path(root).exists():
-            facts["retirement"] = "not_started"
-            return facts
-        connection = journal_store.open_store(root)
+    def count_runs() -> None:
+        try:
+            connection = journal_store.open_store(root)
+        except Exception as exc:  # noqa: BLE001
+            facts["runs_recorded_unknown_because"] = (
+                "incompatible"
+                if journal_store.written_by_a_newer_opai(root)
+                else type(exc).__name__
+            )
+            return
         try:
             facts["runs_recorded"] = int(
                 connection.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
             )
+            facts["runs_recorded_known"] = True
+            facts["runs_recorded_unknown_because"] = ""
         finally:
             connection.close()
+
+    def operations() -> None:
+        from opaihub import journal_operations
+
         summary = journal_operations.operation_summary(root)
         facts["unreconciled_operations"] = int(summary.get("unreconciled", 0))
 
+    def unfinished() -> None:
         # The other half of "what did not finish". #613 opens by describing a
         # run that "may appear active with no worker"; operations had an answer
         # for that and runs did not.
@@ -1119,11 +1157,13 @@ def _journal_migration(root: Path) -> dict[str, object]:
             pending.get("unavailable_reason") or ""
         )
 
+    def completions() -> None:
         # #818 AC6 asks that `completed` be impossible without the required
         # evidence. It is not yet -- the store records whatever verdict a
         # caller hands it -- so the honest intermediate step is to count the
-        # completions that have nothing behind them. Enforcement needs this
-        # number to be zero first, and nothing could see it before.
+        # completions that have nothing behind them.
+        from opaihub import journal_runtime
+
         evidence = journal_runtime.unevidenced_completions(root)
         facts["completed_runs_known"] = bool(evidence.get("available"))
         facts["completed_runs"] = int(evidence.get("completed", 0))
@@ -1131,25 +1171,27 @@ def _journal_migration(root: Path) -> dict[str, object]:
         # The number AC6 actually asks about. Reported separately because the
         # one above flatters: every real turn records a cost, so counting cost
         # as evidence reads as a clean bill of health for a criterion that is
-        # plainly unmet -- 0 unevidenced and 20 unverified, on this repo.
+        # plainly unmet.
         facts["completed_runs_without_verification"] = int(
             evidence.get("without_verification", 0)
         )
 
+    def cancellations() -> None:
         # AC5's counterpart to AC6: a `cancelled` verdict with no phase
         # reaching `terminated` is a claim that the work stopped, with nothing
         # showing that it did.
+        from opaihub import journal_runtime
+
         stopped = journal_runtime.unconfirmed_cancellations(root)
         facts["cancelled_runs_known"] = bool(stopped.get("available"))
         facts["cancelled_runs"] = int(stopped.get("cancelled", 0))
         facts["cancelled_runs_unconfirmed"] = int(stopped.get("unconfirmed", 0))
 
-        # Migration step 2's parity assertion, which finally has something it
-        # can compare. The legacy corpus and the journal's runs come from
-        # different subsystems, so that comparison can never overlap -- this
-        # one checks the journal against itself: the `runs` table and the
-        # `events` table are written by the same calls in the same
-        # transactions, so a disagreement is the store contradicting itself.
+    def event_parity() -> None:
+        # Migration step 2's parity assertion: the journal against itself.
+        # The `runs` table and the `events` table are written by the same
+        # calls in the same transactions, so a disagreement is the store
+        # contradicting itself.
         from opaihub import journal_projections
 
         parity = journal_projections.run_table_parity(root, now=_iso_now_for_journal())
@@ -1157,11 +1199,10 @@ def _journal_migration(root: Path) -> dict[str, object]:
         facts["event_table_parity_unknown_because"] = str(parity.get("reason") or "")
         facts["event_table_disagreements"] = int(parity.get("disagreement_count", 0))
 
-        # The other parity, across surfaces rather than within the store: does
-        # the journal agree with the saved conversation about how a turn
-        # ended? Comparing those two populations is what found the journal
-        # filing partial turns as completed, so it is a standing check now
-        # rather than something somebody once noticed.
+    def turn_parity() -> None:
+        # Across surfaces: does the journal agree with the saved conversation
+        # about how each turn ended? Comparing those two records is what found
+        # the journal filing partial turns as completed.
         from opaihub import journal_conversations
 
         turns = journal_conversations.turn_parity(root)
@@ -1170,7 +1211,8 @@ def _journal_migration(root: Path) -> dict[str, object]:
         joined = turns.get("joined") or {}
         facts["turn_parity_joined"] = int(joined.get("runs", 0))
         facts["turn_parity_disagreements"] = int(joined.get("disagreement_count", 0))
-        facts["turn_parity_unjoinable"] = int(turns.get("unjoinable_runs", 0))
+        facts["turn_parity_unjoinable"] = int(turns.get("unjoinable_turns", 0))
+        facts["turn_parity_in_progress"] = int(turns.get("in_progress", 0))
         # Reported separately and labelled as a lead: two populations can share
         # a shape without sharing members, so this is never a join.
         facts["turn_outcomes_journal"] = dict(
@@ -1180,6 +1222,7 @@ def _journal_migration(root: Path) -> dict[str, object]:
             (turns.get("aggregate") or {}).get("conversations") or {}
         )
 
+    def retirement() -> None:
         from opaihub import journal_background, journal_retirement
 
         corpus = journal_background.legacy_runs(root)
@@ -1191,6 +1234,23 @@ def _journal_migration(root: Path) -> dict[str, object]:
         facts["journal_reads"] = report.journal_reads
         facts["legacy_reads"] = report.legacy_reads
         facts["detail"] = report.detail
+
+    for name, report in (
+        ("runs", count_runs),
+        ("operations", operations),
+        ("unfinished", unfinished),
+        ("completions", completions),
+        ("cancellations", cancellations),
+        ("event_parity", event_parity),
+        ("turn_parity", turn_parity),
+        ("retirement", retirement),
+    ):
+        try:
+            report()
+        except Exception as exc:  # noqa: BLE001 - doctor never raises
+            errors = facts.setdefault("report_errors", {})
+            if isinstance(errors, dict):
+                errors[name] = type(exc).__name__
     return facts
 
 

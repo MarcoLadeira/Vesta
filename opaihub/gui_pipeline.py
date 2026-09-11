@@ -935,6 +935,16 @@ def _journal_verification(root: Path, manifest_payload: Mapping[str, Any]) -> No
         )
 
 
+def _tell_journal_run(listener: Any) -> None:
+    """Hand this turn's journal run id to a caller that asked for it."""
+
+    identity = _JOURNAL_RUN.get()
+    if not identity or not callable(listener):
+        return
+    with contextlib.suppress(Exception):  # noqa: BLE001 - never fail a finished turn
+        listener(str(identity.get("run_id") or ""))
+
+
 def _record_turn_ending(root: Path, result: Any) -> None:
     """Close out the journalled run for this turn, if there is one.
 
@@ -1006,6 +1016,12 @@ def _handle_gui_message(
     # as "unknown", because a new surface silently inheriting the
     # desktop's name is the same mistake in a fresh disguise.
     surface: str = "",
+    # Which saved conversation this turn belongs to, from the caller that
+    # recorded the turn in it. Not looked up here: the workspace's thread
+    # file names whichever chat the GUI last had open, so every CLI,
+    # background and build turn used to be filed under it (#818 review
+    # finding 10). A turn nobody recorded in a conversation belongs to none.
+    conversation_id: str = "",
 ) -> dict[str, Any]:
     """Run one chat turn. With ``on_event``/``on_text``/``cancel`` supplied it
     emits live activity and streams account output; without them it behaves
@@ -1273,8 +1289,6 @@ def _handle_gui_message(
         # Deliberately not used as `task_id`: turns in a conversation are not
         # retries of one objective, and making them attempts of one task would
         # redefine `attempt` rather than record a fact.
-        from opai.gui_recents import current_conversation_id
-
         _journal_fence = record_admission(
             root,
             task_id=runtime.task_id,
@@ -1282,7 +1296,7 @@ def _handle_gui_message(
             task=message,
             now=_iso_now(),
             surface=_normalized_surface(surface),
-            session=current_conversation_id(root),
+            session=str(conversation_id or "").strip()[:200],
             mode=mode,
             model=model_id,
         )
@@ -3607,6 +3621,12 @@ def handle_gui_message(*args: Any, **kwargs: Any) -> dict[str, Any]:
     next on this thread.
     """
 
+    # Out of band on purpose. The journal's id for this turn is what lets the
+    # surface that saves the turn keep it -- the key turn parity joins on
+    # (#818 review finding 4) -- but putting it in the result would change
+    # what the user receives, and the journal is background-only: a turn's
+    # result is byte for byte what the turn produced, journal or no journal.
+    on_journal_run = kwargs.pop("on_journal_run", None)
     token = _JOURNAL_RUN.set(None)
     root = Path(args[0] if args else kwargs["project_root"])
     try:
@@ -3619,6 +3639,7 @@ def handle_gui_message(*args: Any, **kwargs: Any) -> dict[str, Any]:
         # a turn that returned no status did not thereby succeed (#818: zero
         # false completion). _journal_ending reads the engine's run_state.
         _record_turn_ending(root, result)
+        _tell_journal_run(on_journal_run)
         return result
     finally:
         _JOURNAL_RUN.reset(token)

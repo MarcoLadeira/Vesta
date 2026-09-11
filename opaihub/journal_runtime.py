@@ -967,28 +967,18 @@ def unterminated_runs(
     return pending
 
 
-def _written_by_a_newer_opai(root: Path) -> bool:
-    """Whether the store's schema is ahead of what this build understands.
+def _why_unopenable(root: Path) -> str:
+    """The word for a journal that would not open.
 
-    Read with a bare connection on purpose. ``open_store`` migrates, and
-    migration is exactly what refuses here -- so asking it would be asking the
-    thing that already said no.
+    ``_store`` swallows every open failure alike, and the two that matter need
+    different words: "a newer OPai wrote this" points at an upgrade;
+    "unreadable" points at a corrupt file, and sending someone to the wrong
+    one of those wastes their evening.
     """
 
-    try:
-        connection = sqlite3.connect(journal_store.journal_path(root))
-    except (sqlite3.DatabaseError, OSError):
-        return False
-    try:
-        row = connection.execute(
-            "SELECT value FROM schema_meta WHERE key = 'schema_version'"
-        ).fetchone()
-        return bool(row) and int(row[0]) > journal_store.SCHEMA_VERSION
-    except (sqlite3.DatabaseError, TypeError, ValueError):
-        return False
-    finally:
-        with contextlib.suppress(Exception):  # noqa: BLE001
-            connection.close()
+    return (
+        "incompatible" if journal_store.written_by_a_newer_opai(root) else "unreadable"
+    )
 
 
 def unterminated_summary(
@@ -1031,13 +1021,7 @@ def unterminated_summary(
     # `store_health` said "incompatible" loudly and this said zero.
     with _store(root) as store:
         if store is None:
-            # `_store` swallows every open failure alike, and the two that
-            # matter here need different words. "A newer OPai wrote this"
-            # points at an upgrade; "unreadable" points at a corrupt file, and
-            # sending someone to the wrong one of those wastes their evening.
-            facts["unavailable_reason"] = (
-                "incompatible" if _written_by_a_newer_opai(root) else "unreadable"
-            )
+            facts["unavailable_reason"] = _why_unopenable(root)
             return facts
         try:
             report = journal_store.check_integrity(store)
@@ -1117,6 +1101,8 @@ def unevidenced_completions(root: Path) -> dict[str, Any]:
     with the inconvenient half left out.
     """
 
+    # Every key present on every path: a caller must not have to know which
+    # branch produced a report to read it.
     empty: dict[str, Any] = {
         "available": False,
         "unavailable_reason": "",
@@ -1124,15 +1110,11 @@ def unevidenced_completions(root: Path) -> dict[str, Any]:
         "unevidenced": 0,
         "without_verification": 0,
         "run_ids": [],
+        "unverified_run_ids": [],
     }
     with _store(root) as store:
         if store is None:
-            # The same two words the pending summary uses, for the same
-            # reason: "a newer OPai wrote this" points at an upgrade and
-            # "unreadable" points at a corrupt file.
-            empty["unavailable_reason"] = (
-                "incompatible" if _written_by_a_newer_opai(root) else "unreadable"
-            )
+            empty["unavailable_reason"] = _why_unopenable(root)
             return empty
         try:
             rows = store.execute(
@@ -1212,9 +1194,7 @@ def unconfirmed_cancellations(root: Path) -> dict[str, Any]:
     }
     with _store(root) as store:
         if store is None:
-            empty["unavailable_reason"] = (
-                "incompatible" if _written_by_a_newer_opai(root) else "unreadable"
-            )
+            empty["unavailable_reason"] = _why_unopenable(root)
             return empty
         try:
             rows = store.execute(

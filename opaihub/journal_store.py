@@ -1359,28 +1359,75 @@ def drop_projection(
         return cursor.rowcount > 0
 
 
+def written_by_a_newer_opai(project_root: Path) -> bool:
+    """Whether the journal's schema is ahead of what this build understands.
+
+    Read-only and without migrating, on purpose: :func:`open_store` migrates,
+    and a newer schema is exactly what makes migration refuse -- asking it
+    would be asking the thing that already said no.
+    """
+
+    path = journal_path(project_root)
+    if not path.exists():
+        return False
+    try:
+        connection = sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True)
+    except (sqlite3.DatabaseError, OSError):
+        return False
+    try:
+        connection.row_factory = sqlite3.Row
+        return _stored_version(connection) > SCHEMA_VERSION
+    finally:
+        connection.close()
+
+
 def _openable(project_root: Path) -> tuple[bool, str]:
-    """Can OPai actually open this journal, or only look at the file?
+    """Would OPai be able to open this journal -- asked without changing it.
 
     ``check_integrity`` reads a raw connection: it answers "is this database
     structurally sound", which is not the same question as "will OPai be able
     to use it". A journal whose migration cannot complete passes every
-    structural check and still refuses every write.
+    structural check and still refuses every write. That gap was not
+    theoretical: a migration race left a journal recording schema v1 with v2's
+    columns already present, so ``open_store`` raised ``duplicate column
+    name`` on every attempt while doctor called the project ready.
 
-    That gap was not theoretical. A migration race left a journal recording
-    schema v1 with v2's columns already present, so ``open_store`` raised
-    ``duplicate column name`` on every attempt -- while ``store_health``
-    reported ``integrity: complete`` and doctor called the project ready.
-    A confident answer with nothing behind it, inside the store this epic
-    exists to make authoritative.
+    The first answer to that called ``open_store`` -- which *migrates*, so
+    running doctor upgraded the journal as a side effect (#818 review finding
+    16). Now the pending migrations are applied inside a transaction that is
+    always rolled back: the same statements, failing exactly as a real open
+    would, and nothing kept.
     """
 
     try:
-        connection = open_store(project_root)
+        connection = _connect(journal_path(project_root))
     except Exception as exc:  # noqa: BLE001 - health must not become the problem
         return False, f"{type(exc).__name__}: {redact(str(exc))[:180]}"
-    connection.close()
-    return True, ""
+    try:
+        current = _stored_version(connection)
+        if current > SCHEMA_VERSION:
+            return False, (
+                f"IncompatibleSchemaError: journal schema v{current} is newer"
+                f" than this OPai (v{SCHEMA_VERSION})"
+            )
+        pending = [
+            statement
+            for version, statements in _MIGRATIONS
+            if version > current
+            for statement in statements
+        ]
+        if pending:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                for statement in pending:
+                    connection.execute(statement)
+            finally:
+                connection.execute("ROLLBACK")
+        return True, ""
+    except Exception as exc:  # noqa: BLE001
+        return False, f"{type(exc).__name__}: {redact(str(exc))[:180]}"
+    finally:
+        connection.close()
 
 
 def store_health(project_root: Path) -> dict[str, Any]:
@@ -1447,6 +1494,7 @@ __all__: Sequence[str] = (
     "append_event",
     "canonical_bytes",
     "check_integrity",
+    "written_by_a_newer_opai",
     "drop_projection",
     "journal_path",
     "load_projection",

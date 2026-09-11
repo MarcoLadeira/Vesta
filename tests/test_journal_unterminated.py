@@ -519,12 +519,19 @@ class ATaskNamesTheConversationItCameFromTests(_PendingFixture):
         kept hitting -- correct machinery nobody reaches.
         """
 
-        source = (
-            Path(__file__).resolve().parent.parent / "opaihub" / "gui_pipeline.py"
-        ).read_text(encoding="utf-8")
+        repo = Path(__file__).resolve().parent.parent
+        pipeline = (repo / "opaihub" / "gui_pipeline.py").read_text(encoding="utf-8")
+        gui = (repo / "opai" / "gui_web.py").read_text(encoding="utf-8")
+        cli = (repo / "opai" / "cli_stream.py").read_text(encoding="utf-8")
 
-        self.assertIn("from opai.gui_recents import current_conversation_id", source)
-        self.assertIn("session=current_conversation_id(root)", source)
+        # The conversation comes from the caller that recorded the turn in it.
+        # Reading the workspace thread file instead filed every CLI, background
+        # and build turn under whichever chat the GUI last had open (#818
+        # review finding 10).
+        self.assertIn('session=str(conversation_id or "")', pipeline)
+        self.assertNotIn("current_conversation_id(root)", pipeline)
+        self.assertIn("conversation_id=conversation_id", gui)
+        self.assertIn("conversation_id=conversation_id", cli)
 
     def test_no_session_is_stored_as_empty_rather_than_invented(self):
         record_admission(

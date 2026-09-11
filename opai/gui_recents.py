@@ -603,6 +603,12 @@ def _clean_messages(
             "status": status,
             "timestamp": timestamp,
         }
+        # The journal run that produced this turn, when the surface knew it:
+        # what lets the saved conversation and the journal be compared turn by
+        # turn (#818). Kept only when it is a well-formed id.
+        run_id = _clean_id(item.get("run_id")) if role == "assistant" else ""
+        if run_id:
+            candidate["run_id"] = run_id
         if include_presentation and role == "assistant":
             presentation = _clean_presentation(
                 item.get("presentation"), workspace_root=workspace_root
@@ -1108,6 +1114,7 @@ def finish_thread_turn(
     plan: Any = (),
     changed_files: Any = (),
     presentation: Any = None,
+    run_id: str = "",
 ) -> dict[str, Any]:
     """Finalize only the active request, preventing stale replies from winning."""
 
@@ -1125,6 +1132,8 @@ def finish_thread_turn(
         }
         if presentation is not None:
             assistant_message["presentation"] = presentation
+        if run_id:
+            assistant_message["run_id"] = run_id
         messages.append(assistant_message)
         payload = _thread_payload(
             root,

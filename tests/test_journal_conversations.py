@@ -17,9 +17,10 @@ Comparing those two is how the false-completion defect was found:
     saved conversations  16 complete, 5 partial, 5 needs_attention
 
 These tests pin the comparison, and -- more carefully -- pin what it refuses
-to claim. An aggregate that lines up is a lead, not a join; two populations
-can share a shape without sharing members. It pointed at the defect and the
-defect was confirmed by reproducing it, not by the arithmetic.
+to claim. It joins turn by turn through the ``run_id`` each saved turn now
+carries; a turn without one is unjoinable, never a disagreement. And an
+aggregate that lines up is a lead, not a join: two populations can share a
+shape without sharing members.
 """
 
 from __future__ import annotations
@@ -49,6 +50,26 @@ class _Workspace(unittest.TestCase):
             messages.append({"role": "user", "text": "?", "status": "complete"})
             messages.append(
                 {"role": "assistant", "text": "!", "status": status, "timestamp": NOW}
+            )
+        (self.conversations / f"{conversation_id}.json").write_text(
+            json.dumps({"id": conversation_id, "messages": messages}),
+            encoding="utf-8",
+        )
+
+    def write_turns(self, conversation_id: str, *turns: tuple[str, str]) -> None:
+        """A conversation whose assistant turns are ``(status, run_id)``."""
+
+        messages: list[dict[str, object]] = []
+        for status, run_id in turns:
+            messages.append({"role": "user", "text": "?", "status": "complete"})
+            messages.append(
+                {
+                    "role": "assistant",
+                    "text": "!",
+                    "status": status,
+                    "timestamp": NOW,
+                    "run_id": run_id,
+                }
             )
         (self.conversations / f"{conversation_id}.json").write_text(
             json.dumps({"id": conversation_id, "messages": messages}),
@@ -111,11 +132,11 @@ class ReadingTheConversationsTests(_Workspace):
 
 
 class TheJoinTests(_Workspace):
-    """Run-by-run, for runs whose task names a conversation."""
+    """Turn by turn, through the run id each saved turn carries."""
 
     def test_agreement_is_reported_as_agreement(self):
-        self.write_conversation("conv-1", "complete")
-        self.record_run("run-1", "completed", session="conv-1")
+        self.write_turns("conv-1", ("complete", "run-1"))
+        self.record_run("run-1", "completed")
 
         report = journal_conversations.turn_parity(self.root)
 
@@ -127,61 +148,65 @@ class TheJoinTests(_Workspace):
     def test_the_defect_this_module_was_written_to_catch(self):
         """A partial chat turn against a completed journal run."""
 
-        self.write_conversation("conv-1", "partial")
-        self.record_run("run-1", "completed", session="conv-1")
+        self.write_turns("conv-1", ("partial", "run-1"))
+        self.record_run("run-1", "completed")
 
         report = journal_conversations.turn_parity(self.root)
 
         self.assertEqual(report["joined"]["disagreement_count"], 1)
         found = report["joined"]["disagreements"][0]
         self.assertEqual(found["journal"], "completed")
-        self.assertEqual(found["conversation"], "partial")
+        self.assertEqual(found["saved"], "partial")
+        self.assertEqual(found["conversation"], "conv-1")
 
-    def test_a_run_with_no_session_is_unjoinable_not_disagreeing(self):
-        """Older runs predate origin_session. That is missing, not wrong."""
+    def test_a_turn_saved_without_a_run_id_is_unjoinable_not_disagreeing(self):
+        """Older turns predate the key. That is missing, not wrong."""
 
         self.write_conversation("conv-1", "partial")
-        self.record_run("run-1", "completed", session="")
+        self.record_run("run-1", "completed")
 
         report = journal_conversations.turn_parity(self.root)
 
-        self.assertEqual(report["unjoinable_runs"], 1)
+        self.assertEqual(report["unjoinable_turns"], 1)
         self.assertEqual(report["joined"]["runs"], 0)
         self.assertEqual(report["joined"]["disagreement_count"], 0)
 
-    def test_a_session_naming_no_conversation_is_unjoinable_too(self):
-        self.record_run("run-1", "completed", session="conv-that-was-deleted")
+    def test_a_turn_naming_a_run_the_journal_lacks_is_counted(self):
+        self.write_turns("conv-1", ("complete", "run-never-admitted"))
+        self.record_run("run-1", "completed")
 
         report = journal_conversations.turn_parity(self.root)
 
-        self.assertEqual(report["unjoinable_runs"], 1)
+        self.assertEqual(report["turns_without_a_run"], 1)
+        self.assertEqual(report["joined"]["disagreement_count"], 0)
 
-    def test_a_mixed_conversation_is_reported_rather_than_guessed_at(self):
-        """One run, several turns, and no per-turn run id to pick between them.
+    def test_a_mixed_conversation_is_joined_turn_by_turn(self):
+        """#818 review finding 4: this was "2 of 2 runs disagree".
 
-        Attributing the run to one of them would be inventing the join this
-        module exists to make honestly.
+        With no per-turn key, every run was matched against the whole
+        conversation, so a chat with one complete and one partial turn could
+        only ever disagree with itself.
         """
 
-        self.write_conversation("conv-1", "complete", "partial")
-        self.record_run("run-1", "completed", session="conv-1")
+        self.write_turns("conv-1", ("complete", "run-1"), ("partial", "run-2"))
+        self.record_run("run-1", "completed")
+        self.record_run("run-2", "partial")
 
         report = journal_conversations.turn_parity(self.root)
 
-        self.assertEqual(report["joined"]["disagreement_count"], 1)
-        found = report["joined"]["disagreements"][0]
-        self.assertIn("cannot attribute", found["note"])
-        self.assertEqual(found["conversation"], ["completed", "partial"])
+        self.assertEqual(report["joined"]["runs"], 2)
+        self.assertEqual(report["joined"]["agreements"], 2)
+        self.assertEqual(report["joined"]["disagreement_count"], 0)
 
-    def test_only_gui_runs_are_compared(self):
-        """A CLI or background run has no chat to disagree with."""
+    def test_a_run_no_saved_turn_names_is_not_compared(self):
+        """A background run has no chat to disagree with."""
 
-        self.record_run("run-1", "completed", session="", surface="background")
+        self.record_run("run-1", "completed", surface="background")
 
         report = journal_conversations.turn_parity(self.root)
 
-        self.assertEqual(report["unjoinable_runs"], 0)
         self.assertEqual(report["joined"]["runs"], 0)
+        self.assertEqual(report["joined"]["disagreement_count"], 0)
 
 
 class TheAggregateIsALeadNotAProofTests(_Workspace):
@@ -200,7 +225,7 @@ class TheAggregateIsALeadNotAProofTests(_Workspace):
     def test_a_matching_aggregate_is_not_counted_as_agreement(self):
         """The whole point. Shape is not membership.
 
-        Without a session these runs cannot be joined to anything, and a
+        Without a run id these turns cannot be joined to anything, and a
         report that turned a matching distribution into "1 agreement" would be
         manufacturing the evidence this epic is about not manufacturing.
         """
@@ -213,7 +238,7 @@ class TheAggregateIsALeadNotAProofTests(_Workspace):
         self.assertEqual(report["aggregate"]["journal"], {"completed": 1})
         self.assertEqual(report["aggregate"]["conversations"], {"completed": 1})
         self.assertEqual(report["joined"]["agreements"], 0)
-        self.assertEqual(report["unjoinable_runs"], 1)
+        self.assertEqual(report["unjoinable_turns"], 1)
 
 
 class AnUnreadableJournalIsNotAgreementTests(_Workspace):
@@ -235,8 +260,8 @@ class DoctorActuallyAsksTests(_Workspace):
     def test_journal_doctor_reports_the_cross_surface_parity(self):
         from opai import cli
 
-        self.write_conversation("conv-1", "partial")
-        self.record_run("run-1", "completed", session="conv-1")
+        self.write_turns("conv-1", ("partial", "run-1"))
+        self.record_run("run-1", "completed")
 
         facts = cli._journal_migration(self.root)
 
@@ -247,7 +272,8 @@ class DoctorActuallyAsksTests(_Workspace):
     def test_doctor_reports_the_unjoinable_count(self):
         from opai import cli
 
-        self.record_run("run-1", "completed", session="")
+        self.write_conversation("conv-1", "complete")
+        self.record_run("run-1", "completed")
 
         facts = cli._journal_migration(self.root)
 

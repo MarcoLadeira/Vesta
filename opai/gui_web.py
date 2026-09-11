@@ -957,15 +957,21 @@ def _beat_lease(root: Path, request_id: str) -> None:
         pass
 
 
-def _persist_turn_start(root: Path, request_id: str, text: str, mode: str) -> None:
-    """Best-effort durability must never prevent the actual user request."""
+def _persist_turn_start(root: Path, request_id: str, text: str, mode: str) -> str:
+    """Best-effort durability must never prevent the actual user request.
+
+    Returns the conversation the turn was recorded in, or ``""`` when it could
+    not be recorded -- which is what the journal is then told, rather than a
+    guess read back from the thread file (#818 review finding 10).
+    """
 
     from opai.gui_recents import begin_thread_turn
 
     try:
-        begin_thread_turn(root, request_id=request_id, text=text, mode=mode)
+        started = begin_thread_turn(root, request_id=request_id, text=text, mode=mode)
     except (OSError, TypeError, ValueError):
-        pass
+        return ""
+    return str((started or {}).get("conversation_id") or "")
 
 
 def _safe_result_path(value: Any) -> str:
@@ -1331,8 +1337,14 @@ def _persist_turn_result(
     *,
     mode: str,
     build: bool = False,
+    run_id: str = "",
 ) -> None:
-    """Persist the user-visible outcome, excluding provider/tool internals."""
+    """Persist the user-visible outcome, excluding provider/tool internals.
+
+    ``run_id`` is the journal run that produced the turn, when the pipeline
+    reported one; it is saved with the turn so the two records can be compared
+    turn by turn.
+    """
 
     from opai.gui_recents import finish_thread_turn, thread_status_for_result
 
@@ -1412,6 +1424,7 @@ def _persist_turn_result(
             plan=plan,
             changed_files=changed_files,
             presentation=presentation or None,
+            run_id=run_id,
         )
     except (OSError, TypeError, ValueError):
         pass
@@ -2687,7 +2700,9 @@ def _run_gui(
             )
             cancel = threading.Event()
             self._cancels[request_id] = cancel
-            _persist_turn_start(turn_root, request_id, text, str(mode))
+            conversation_id = _persist_turn_start(
+                turn_root, request_id, text, str(mode)
+            )
 
             # Activity batching (#226): worker threads append events to a
             # lock-guarded buffer; a GUI-thread QTimer drains it into ONE
@@ -2729,6 +2744,9 @@ def _run_gui(
                 )
 
             setattr(emit_text, "accepts_block_start", True)
+            # Filled by the pipeline on the worker thread, read by _done after
+            # the worker finishes. Out of band so the reply is untouched.
+            reported_run: dict[str, str] = {}
 
             def job() -> dict[str, Any]:
                 return handle_gui_message(
@@ -2755,6 +2773,8 @@ def _run_gui(
                     # forgets records "unknown" instead of quietly
                     # claiming to be the desktop (#818 AC2).
                     surface="gui",
+                    conversation_id=conversation_id,
+                    on_journal_run=lambda run: reported_run.update(run_id=run),
                 )
 
             worker = Worker(job)
@@ -2780,6 +2800,7 @@ def _run_gui(
                         result,
                         mode=str(mode),
                         build=False,
+                        run_id=reported_run.get("run_id", ""),
                     ),
                 )
                 self.replyReady.emit(
