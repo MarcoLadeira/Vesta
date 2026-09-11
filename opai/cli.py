@@ -851,25 +851,18 @@ def cmd_journal(args: argparse.Namespace) -> int:
                 f"operation {entry['operation_key']}  {entry['kind']}  "
                 f"since {entry['created_at']}"
             )
-        # Still reported rather than concluded, but the reporting is no longer
-        # empty. A pid that is gone is conclusive; a pid that is running is not,
-        # because pids get reused -- so only the first is offered as a fact, and
-        # the closing line is printed only when there is genuinely nothing more
-        # to say.
-        # Two different reasons a run is not actionable, and they call for
-        # different things from the reader, so they are counted separately
-        # rather than lumped under one "cannot verify".
-        stale = [
-            entry
-            for entry in runs
-            if entry["owner_liveness"] == journal_liveness.OWNER_STALE
-        ]
-        unverified = [
-            entry
-            for entry in runs
-            if entry["owner_liveness"] not in journal_liveness.ACTIONABLE
-            and entry["owner_liveness"] != journal_liveness.OWNER_STALE
-        ]
+
+        # Reported rather than concluded. A pid that is gone is conclusive; the
+        # rest are not, and they are not-conclusive for different reasons that
+        # ask different things of the reader -- so each is counted and
+        # explained on its own, never lumped under one "cannot verify" whose
+        # explanation is only true of some of them (#818 review finding 14).
+        def owners(verdict: str) -> list[dict[str, object]]:
+            return [entry for entry in runs if entry["owner_liveness"] == verdict]
+
+        stale = owners(journal_liveness.OWNER_STALE)
+        unverified = owners(journal_liveness.OWNER_UNVERIFIED)
+        unrecorded = owners(journal_liveness.OWNER_UNKNOWN)
         if stale:
             print(
                 f"\n{len(stale)} run(s) had an owner that stopped responding. "
@@ -880,8 +873,16 @@ def cmd_journal(args: argparse.Namespace) -> int:
         if unverified:
             print(
                 f"\n{len(unverified)} run(s) have an owner OPai cannot verify. "
-                "A process id that is still in use may belong to something else "
-                "entirely, so OPai will not call that work finished or abandoned."
+                "Their process id is still in use, but ids get reused, so it may "
+                "belong to something else entirely; OPai will not call that work "
+                "finished or abandoned."
+            )
+        if unrecorded:
+            print(
+                f"\n{len(unrecorded)} run(s) never recorded which process owned "
+                "them (they predate that record, or this system would not say). "
+                "With nothing to check, OPai will not call them finished or "
+                "abandoned."
             )
         return 0
 

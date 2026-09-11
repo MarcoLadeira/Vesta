@@ -476,6 +476,28 @@ class PendingTests(_JournalCommandFixture):
         self.assertIn("stopped responding", output)
         self.assertNotIn("cannot verify", output)
 
+    def test_a_run_with_no_recorded_process_is_not_explained_as_pid_reuse(self):
+        """#818 review finding 14.
+
+        A run that never recorded its process has no pid to be reused. It was
+        told "a process id that is still in use may belong to something else",
+        which is the explanation for a different situation entirely.
+        """
+
+        from opaihub import journal_liveness
+
+        self._unfinished_run()
+
+        with mock.patch.object(
+            journal_liveness,
+            "owner_liveness",
+            return_value=journal_liveness.OWNER_UNKNOWN,
+        ):
+            _, output = self._run("pending")
+
+        self.assertIn("never recorded which process owned", output)
+        self.assertNotIn("may belong to something else", output)
+
     def test_the_caveat_is_absent_when_every_owner_is_resolved(self):
         """Printed only when it is true, so it keeps meaning something."""
 
