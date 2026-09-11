@@ -1096,7 +1096,10 @@ def runs_owned_by_a_live_process(project_root: Path) -> frozenset[str]:
 
 
 def recover_interrupted_runs(
-    project_root: Path, *, active_run_ids: tuple[str, ...] = ()
+    project_root: Path,
+    *,
+    active_run_ids: tuple[str, ...] = (),
+    left_alone: list[str] | None = None,
 ) -> list[AutomationRun]:
     """Reconcile orphaned 'running' runs (e.g. after a crash).
 
@@ -1122,7 +1125,9 @@ def recover_interrupted_runs(
     finished" -- was simply untrue when the owning session was still there.
     Runs whose owner the journal says may be alive are left exactly as they
     are; ``opai journal pending`` reports them, and they recover on a later
-    sweep once their owner is genuinely gone.
+    sweep once their owner is genuinely gone. Their ids are appended to
+    ``left_alone`` when the caller passes a list -- exactly the runs this
+    sweep skipped, and nothing else the journal happens to know about.
     """
 
     recovered = []
@@ -1133,7 +1138,11 @@ def recover_interrupted_runs(
     # own work, and the CLI passes none.
     owned_elsewhere = runs_owned_by_a_live_process(project_root)
     for run in list_runs(project_root, status="running"):
-        if run.run_id in active_run_ids or run.run_id in owned_elsewhere:
+        if run.run_id in active_run_ids:
+            continue
+        if run.run_id in owned_elsewhere:
+            if left_alone is not None:
+                left_alone.append(run.run_id)
             continue
         if _is_terminal_run(run):
             continue

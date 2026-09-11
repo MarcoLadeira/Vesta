@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -344,7 +345,6 @@ def cmd_automation(args: argparse.Namespace) -> int:
         pipeline_executor,
         read_notifications,
         recover_interrupted_runs,
-        runs_owned_by_a_live_process,
         request_cancel,
         schedule_automation,
         tick_automations,
@@ -388,18 +388,24 @@ def cmd_automation(args: argparse.Namespace) -> int:
         elif args.automation_command == "schedules":
             print_json(list_automation_schedules(root))
         elif args.automation_command == "recover":
-            # Both halves, because a sweep that reconciles nothing is
-            # ambiguous otherwise: "everything was already fine" and "somebody
-            # else is still working on all of it" look identical from an empty
-            # list, and they call for opposite reactions.
-            deferred = sorted(runs_owned_by_a_live_process(root))
-            recovered = [run.to_dict() for run in recover_interrupted_runs(root)]
-            print_json(
-                {
-                    "recovered": recovered,
-                    "left_to_their_owner": deferred,
-                }
-            )
+            left_alone: list[str] = []
+            recovered = recover_interrupted_runs(root, left_alone=left_alone)
+            # stdout keeps the shape it has always had -- a JSON list of the
+            # runs this sweep reconciled -- because scripts parse it. An object
+            # here broke every one of them (#818 review finding 11).
+            print_json([run.to_dict() for run in recovered])
+            if left_alone:
+                # The other half, because an empty list is ambiguous: "all was
+                # well" and "someone is still running all of it" look the same
+                # and call for opposite reactions. On stderr, so it cannot
+                # break a parser -- and only the runs this sweep skipped, where
+                # the first version listed every live journal run, chat turns
+                # included.
+                print(
+                    f"left {len(left_alone)} running run(s) to the process still"
+                    f" running them: {', '.join(sorted(left_alone))}",
+                    file=sys.stderr,
+                )
     except (ValueError, FileExistsError, FileNotFoundError, RuntimeError) as exc:
         print_json({"status": "error", "message": safe_detail(exc)})
         return 2
