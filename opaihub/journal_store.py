@@ -332,10 +332,17 @@ _MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
 )
 
 
-def _connect(path: Path) -> sqlite3.Connection:
+#: How long a statement waits for another writer before giving up. Long
+#: enough for an ordinary commit anywhere in OPai to finish.
+BUSY_TIMEOUT_SECONDS = 10.0
+
+
+def _connect(
+    path: Path, *, timeout: float = BUSY_TIMEOUT_SECONDS
+) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     fresh = not path.exists()
-    connection = sqlite3.connect(path, timeout=10.0, isolation_level=None)
+    connection = sqlite3.connect(path, timeout=timeout, isolation_level=None)
     try:
         # WAL is the reason this is SQLite: readers do not block the writer.
         # It is set before anything else so a partially-initialised database is
@@ -596,10 +603,17 @@ def migrate(connection: sqlite3.Connection) -> int:
     return current
 
 
-def open_store(project_root: Path) -> sqlite3.Connection:
-    """Open (creating if needed) and migrate this project's journal."""
+def open_store(
+    project_root: Path, *, timeout: float = BUSY_TIMEOUT_SECONDS
+) -> sqlite3.Connection:
+    """Open (creating if needed) and migrate this project's journal.
 
-    connection = _connect(journal_path(project_root))
+    ``timeout`` is how long any statement on the connection may wait for
+    another writer. The default suits a write that must land; a caller that
+    would rather skip than wait -- a heartbeat -- passes something tiny.
+    """
+
+    connection = _connect(journal_path(project_root), timeout=timeout)
     try:
         migrate(connection)
     except BaseException:

@@ -120,8 +120,14 @@ class _TerminalRunReadmitted(Exception):
     """Internal: a finished run was admitted again. Rolls the transaction back."""
 
 
+#: A heartbeat's patience for the write lock. See :func:`beat_lease`.
+HEARTBEAT_BUSY_TIMEOUT_SECONDS = 0.05
+
+
 @contextmanager
-def _store(root: Path) -> Iterator[sqlite3.Connection | None]:
+def _store(
+    root: Path, *, timeout: float = journal_store.BUSY_TIMEOUT_SECONDS
+) -> Iterator[sqlite3.Connection | None]:
     """Open the journal, yielding ``None`` when it cannot be opened.
 
     Callers treat ``None`` as "skip the mirror", which is the whole
@@ -130,7 +136,7 @@ def _store(root: Path) -> Iterator[sqlite3.Connection | None]:
 
     connection = None
     try:
-        connection = open_store(root)
+        connection = open_store(root, timeout=timeout)
     except (sqlite3.DatabaseError, JournalStoreError, OSError, ValueError):
         yield None
         return
@@ -805,13 +811,21 @@ def beat_lease(root: Path, *, run_id: str, now: str) -> bool:
 
     Best-effort, like every other mirror on this path: a heartbeat that cannot
     be written costs evidence, never the turn it describes.
+
+    **It never waits for the write lock.** It runs on the turn's own thread,
+    between streamed chunks, and it used to open the store with the ordinary
+    ten-second busy timeout -- so a backup, compaction or migration holding
+    the lock froze a streaming answer for about eleven seconds (#818 review
+    finding 8, reproduced). A beat that finds the lock taken is skipped; the
+    next one comes a heartbeat interval later, and a missed beat is exactly as
+    harmless as the docstring above says a failed one is.
     """
 
     if not str(run_id).strip():
         return False
     if not journal_store.journal_path(root).exists():
         return False
-    with _store(root) as store:
+    with _store(root, timeout=HEARTBEAT_BUSY_TIMEOUT_SECONDS) as store:
         if store is None:
             return False
         try:
