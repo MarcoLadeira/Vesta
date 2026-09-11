@@ -38,6 +38,7 @@ import os
 import re
 import tempfile
 import time
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
@@ -55,11 +56,18 @@ _REQUEST_NAME = "pending-request.json"
 # dependency-free so a provider CLI's hook can import it on every tool call.
 RUN_ENV = "OPAI_RUN_ID"
 
-# The run this process has armed a grant for. Set by :func:`begin_turn` and
-# read by ``opaihub.proc.provider_child_env`` when it builds a child
-# environment, so the run identity reaches the hook without being threaded
-# through AccountRunner and every provider adapter in between.
-_CURRENT_RUN = ""
+# The run this turn has armed a grant for. Set by :func:`begin_turn` and read
+# by ``opaihub.proc.provider_child_env`` when it builds a child environment, so
+# the run identity reaches the hook without being threaded through
+# AccountRunner and every provider adapter in between.
+#
+# A ContextVar, not a module global. A global is shared by every turn in the
+# process, so two turns running at once in one GUI overwrote -- and on ending,
+# cleared -- each other's run id; and a cleared id makes the ownership check
+# below fall back to "allow". Same reason, same shape as gui_pipeline's
+# _JOURNAL_RUN. A turn sets and reads it on its own thread, which is where the
+# provider child is launched.
+_CURRENT_RUN: ContextVar[str] = ContextVar("opai_command_consent_run", default="")
 
 # One whole command that is exactly a ``git push``, with no shell chaining,
 # redirection, substitution, or a second command hidden behind an operator.
@@ -258,13 +266,39 @@ def resolve_run(explicit: str | None = None) -> str:
     from_env = _normalize_run(os.environ.get(RUN_ENV, ""))
     if from_env:
         return from_env
-    return _CURRENT_RUN
+    return _CURRENT_RUN.get()
 
 
 def current_run() -> str:
-    """The run this process armed a grant for, for building a child env."""
+    """The run this turn armed a grant for, for building a child env."""
 
-    return _CURRENT_RUN
+    return _CURRENT_RUN.get()
+
+
+def _sweep_orphaned_claims() -> None:
+    """Remove claims a gate took and then died holding.
+
+    A claim is a renamed grant, so a process killed between claiming and
+    discarding leaves one behind. It cannot authorize anything -- nothing ever
+    looks for a grant under that name -- but it is litter in a shared per-user
+    directory, and nothing else would ever remove it.
+
+    Only claims past the grant TTL go. Renaming keeps the grant's mtime, so an
+    old claim holds an expired grant that :func:`consume_grant` would refuse
+    anyway, and a gate in the middle of a claim right now is never disturbed.
+    """
+
+    cutoff = time.time() - CONSENT_TTL_SECONDS
+    try:
+        leftovers = list(consent_dir().glob(f"{_GRANT_NAME}.*.claim"))
+    except OSError:
+        return
+    for leftover in leftovers:
+        try:
+            if leftover.stat().st_mtime < cutoff:
+                leftover.unlink()
+        except OSError:
+            continue
 
 
 def begin_turn(grant: str | None = None, *, run: str | None = None) -> None:
@@ -281,14 +315,14 @@ def begin_turn(grant: str | None = None, *, run: str | None = None) -> None:
     approval. Measured, not theorised: two processes, one grant, both told yes.
     """
 
-    global _CURRENT_RUN
-
     _discard(_REQUEST_NAME)
     _discard(_GRANT_NAME)
-    _CURRENT_RUN = _normalize_run(run)
+    _sweep_orphaned_claims()
+    armed = _normalize_run(run)
+    _CURRENT_RUN.set(armed)
     command = str(grant or "").strip()[:2_000]
     if command:
-        _write(_GRANT_NAME, {"command": command, "run": _CURRENT_RUN})
+        _write(_GRANT_NAME, {"command": command, "run": armed})
 
 
 def end_turn() -> None:
@@ -298,10 +332,8 @@ def end_turn() -> None:
     the user approved, the grant dies here rather than waiting for the TTL.
     """
 
-    global _CURRENT_RUN
-
     _discard(_GRANT_NAME)
-    _CURRENT_RUN = ""
+    _CURRENT_RUN.set("")
 
 
 def granted_command() -> str:
@@ -309,13 +341,6 @@ def granted_command() -> str:
 
     payload = _read(_GRANT_NAME)
     return str((payload or {}).get("command") or "")
-
-
-def granted_run() -> str:
-    """Which run the standing grant was issued for, if any (non-consuming)."""
-
-    payload = _read(_GRANT_NAME)
-    return _normalize_run((payload or {}).get("run"))
 
 
 def grant_permits(grant: str, command: str) -> bool:
@@ -377,6 +402,14 @@ def grant_belongs_to(grant_run: Any, caller_run: Any) -> bool:
     return left == right
 
 
+def _spendable(payload: dict[str, Any] | None, command: str, caller: str) -> bool:
+    return (
+        payload is not None
+        and grant_belongs_to(payload.get("run"), caller)
+        and grant_permits(str(payload.get("command") or ""), command)
+    )
+
+
 def consume_grant(command: str, *, run: str | None = None) -> bool:
     """Spend the one-shot grant on ``command``. False leaves it untouched.
 
@@ -388,52 +421,39 @@ def consume_grant(command: str, *, run: str | None = None) -> bool:
     to reach that, not an exotic one.
 
     The claim is a rename. Whoever renames the grant out of the way owns it;
-    everybody else gets ``FileNotFoundError`` and is told no. Rename is the
-    right primitive here rather than a lock file: it needs no cleanup after a
-    crash, and this module is deliberately dependency-free because a provider
-    CLI's hook subprocess imports it on every tool call.
+    everybody else gets ``FileNotFoundError`` and is told no.
 
-    A grant that does not permit ``command`` is put back, because it was
-    issued for a command the model has not tried yet. Losing it would mean the
-    user's approval quietly evaporating the moment the model attempted
-    something else first -- and the window where it is briefly absent can only
-    make a concurrent gate say no, which is the safe direction.
+    **A grant this caller cannot spend is never moved.** A grant for another
+    command is still the user's approval for a command the model has not tried
+    yet, and a grant for another run is still that run's; both must survive the
+    attempt. The first version got there by claiming first and putting the
+    grant back afterwards -- and the put-back was a hole. It could land after
+    ``end_turn`` had run, or on top of the next turn's grant, restoring an
+    approval whose turn was over; and a hook that cannot name its run is allowed
+    to spend a grant (see :func:`grant_belongs_to`), so the revived approval was
+    spendable. Reproduced by forcing the interleaving.
 
-    **And it must belong to this run.** The handshake directory is one fixed
-    per-user path, so every OPai window on the machine shares it. A second
-    window -- another repository, another run, a question its user was never
-    asked -- used to be able to spend the first window's push approval. A grant
-    for a different run is put back untouched, exactly like a grant for a
-    different command: it is still the other run's to spend.
+    So the check comes first and the claim second, and nothing is ever put back.
+    The file can still change between the two -- a new turn arming a different
+    approval -- so what was claimed is checked again, and if it is not what was
+    looked at, it is dropped rather than restored. That costs the user one more
+    click in a race between two turns; restoring it could cost a push nobody
+    approved.
     """
 
     caller = resolve_run(run)
     grant = _path(_GRANT_NAME)
+    if not _spendable(_read_path(grant), command, caller):
+        return False
     claim = _path(f"{_GRANT_NAME}.{os.getpid()}.{time.time_ns():x}.claim")
     try:
-        claim.parent.mkdir(parents=True, exist_ok=True)
         os.rename(grant, claim)
     except OSError:
-        # No grant, or another gate claimed it first. Both are "no".
+        # Another gate claimed it first, or the turn ended. Both are "no".
         return False
-    payload = _read_path(claim)
-    if (
-        payload is not None
-        and grant_belongs_to(payload.get("run"), caller)
-        and grant_permits(str(payload.get("command") or ""), command)
-    ):
-        _discard_path(claim)
-        return True
-    if payload is not None:
-        # Not ours to spend -- wrong command, or wrong run. Put it back for
-        # whoever it was actually issued to.
-        try:
-            os.replace(claim, grant)
-            return False
-        except OSError:
-            pass
+    claimed = _read_path(claim)
     _discard_path(claim)
-    return False
+    return _spendable(claimed, command, caller)
 
 
 def record_pending(command: str, reason: str) -> bool:

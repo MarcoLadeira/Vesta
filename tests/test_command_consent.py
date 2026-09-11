@@ -39,13 +39,13 @@ class _IsolatedConsent(unittest.TestCase):
         )
         patcher.start()
         self.addCleanup(patcher.stop)
-        # Run identity is ambient in two places -- a module global set by
+        # Run identity is ambient in two places -- the per-turn context set by
         # begin_turn, and OPAI_RUN_ID in the environment. Both are cleared, or
         # one test's run leaks into the next and the isolation this fixture
         # exists for would only be half true.
         os.environ.pop(command_consent.RUN_ENV, None)
-        command_consent._CURRENT_RUN = ""
-        self.addCleanup(setattr, command_consent, "_CURRENT_RUN", "")
+        command_consent._CURRENT_RUN.set("")
+        self.addCleanup(command_consent._CURRENT_RUN.set, "")
         self.dir = Path(self._tmp.name)
 
 
@@ -248,8 +248,7 @@ class OneApprovalAuthorisesExactlyOneCommandTests(_IsolatedConsent):
     def test_a_grant_for_another_command_is_not_destroyed_by_the_attempt(self):
         """The user approved a push; the model tried something else first.
 
-        Claiming by rename means a failed check has already taken the file, so
-        it has to be put back -- otherwise the approval evaporates the moment
+        The approval must survive that -- otherwise it evaporates the moment
         the model reaches for a different command, and the user is asked again
         for something they already allowed.
         """
@@ -274,14 +273,8 @@ class OneApprovalAuthorisesExactlyOneCommandTests(_IsolatedConsent):
         self.assertEqual([p.name for p in self.dir.glob("*.claim")], [])
 
     def test_an_unreadable_grant_is_refused_and_not_left_lying_around(self):
-        """The claim is taken before the payload can be checked.
-
-        So a grant that turns out to be corrupt or expired has already been
-        renamed by the time it is rejected, and the only thing that can clean
-        it up is this path. A sabotage removing that cleanup survived every
-        other test here, because they all reach either the success branch or
-        the put-back branch.
-        """
+        """A corrupt grant is refused without being claimed, so no claim file
+        is left behind for it."""
 
         command_consent.begin_turn("git push")
         (self.dir / command_consent._GRANT_NAME).write_text(
@@ -305,8 +298,114 @@ class OneApprovalAuthorisesExactlyOneCommandTests(_IsolatedConsent):
         self.assertEqual([p.name for p in self.dir.glob("*.claim")], [])
 
 
-if __name__ == "__main__":
-    unittest.main()
+class NothingIsEverPutBackTests(_IsolatedConsent):
+    """#6: a put-back could restore an approval after its turn had ended.
+
+    ``consume_grant`` used to claim the grant first and put it back when it
+    could not spend it. The put-back could land after ``end_turn``, or on top of
+    the next turn's grant, and a hook that cannot name its run may spend any
+    grant -- so a revived approval was a push nobody had approved.
+    """
+
+    def test_an_attempt_that_cannot_spend_the_grant_never_moves_it(self):
+        command_consent.begin_turn("git push", run="run-A")
+
+        with (
+            mock.patch.object(command_consent.os, "rename", wraps=os.rename) as rename,
+            mock.patch.object(
+                command_consent.os, "replace", wraps=os.replace
+            ) as replace,
+        ):
+            self.assertFalse(command_consent.consume_grant("gh pr create", run="run-A"))
+            self.assertFalse(command_consent.consume_grant("git push", run="run-B"))
+
+        rename.assert_not_called()
+        replace.assert_not_called()
+        self.assertEqual(command_consent.granted_command(), "git push")
+
+    def test_a_grant_swapped_in_mid_claim_is_dropped_not_restored(self):
+        """A new turn arms a different approval between the look and the claim.
+
+        The claimed grant is not the one that was checked, so it is neither
+        spent nor put back -- and nothing from the old turn reappears.
+        """
+
+        command_consent.begin_turn("git push", run="run-A")
+        real_rename = os.rename
+
+        def next_turn_arrives_first(src, dst):
+            command_consent.end_turn()
+            command_consent.begin_turn("gh pr create", run="run-B")
+            return real_rename(src, dst)
+
+        with mock.patch.object(
+            command_consent.os, "rename", side_effect=next_turn_arrives_first
+        ):
+            self.assertFalse(command_consent.consume_grant("git push", run="run-A"))
+
+        self.assertEqual(command_consent.granted_command(), "")
+        self.assertEqual([p.name for p in self.dir.glob("*.claim")], [])
+
+    def test_a_grant_is_gone_once_its_turn_ends(self):
+        command_consent.begin_turn("git push", run="run-A")
+        self.assertFalse(command_consent.consume_grant("gh pr create", run="run-A"))
+        command_consent.end_turn()
+
+        self.assertFalse(command_consent.consume_grant("git push", run=""))
+        self.assertFalse((self.dir / command_consent._GRANT_NAME).exists())
+
+
+class RunIdentityIsPerTurnTests(_IsolatedConsent):
+    """#7: two turns in one process must not share one run id."""
+
+    def test_concurrent_turns_keep_their_own_run(self):
+        seen: dict[str, str] = {}
+        armed = threading.Barrier(2, timeout=30)
+        ended = threading.Barrier(2, timeout=30)
+
+        def turn(run: str, ends_first: bool) -> None:
+            command_consent.begin_turn(None, run=run)
+            armed.wait()
+            if ends_first:
+                command_consent.end_turn()
+            ended.wait()
+            seen[run] = command_consent.current_run()
+
+        first = threading.Thread(target=turn, args=("turn-1", True))
+        second = threading.Thread(target=turn, args=("turn-2", False))
+        for thread in (first, second):
+            thread.start()
+        for thread in (first, second):
+            thread.join(timeout=30)
+
+        # A module global would read "" for both: turn-1's end_turn cleared the
+        # one value they shared, taking turn-2's identity with it.
+        self.assertEqual(seen, {"turn-1": "", "turn-2": "turn-2"})
+
+
+class OrphanedClaimTests(_IsolatedConsent):
+    """#21: a gate killed mid-claim left a renamed grant behind forever."""
+
+    def _claim_file(self, age_seconds: float) -> Path:
+        leftover = self.dir / f"{command_consent._GRANT_NAME}.4242.abc.claim"
+        leftover.write_text('{"command": "git push"}', encoding="utf-8")
+        stamp = time.time() - age_seconds
+        os.utime(leftover, (stamp, stamp))
+        return leftover
+
+    def test_an_expired_claim_is_swept_when_a_turn_begins(self):
+        leftover = self._claim_file(command_consent.CONSENT_TTL_SECONDS + 60)
+
+        command_consent.begin_turn(None, run="run-A")
+
+        self.assertFalse(leftover.exists())
+
+    def test_a_fresh_claim_is_left_for_the_gate_holding_it(self):
+        leftover = self._claim_file(1)
+
+        command_consent.begin_turn(None, run="run-A")
+
+        self.assertTrue(leftover.exists())
 
 
 class ApprovalsBelongToOneRunTests(_IsolatedConsent):
@@ -380,7 +479,6 @@ class ApprovalsBelongToOneRunTests(_IsolatedConsent):
     def test_the_grant_records_which_run_it_was_issued_for(self):
         command_consent.begin_turn("git push", run="run-A")
 
-        self.assertEqual(command_consent.granted_run(), "run-A")
         payload = json.loads(
             (self.dir / "pending-grant.json").read_text(encoding="utf-8")
         )
@@ -397,7 +495,7 @@ class ApprovalsBelongToOneRunTests(_IsolatedConsent):
         that armed it, so it has no module state to read."""
 
         command_consent.begin_turn("git push", run="run-A")
-        command_consent._CURRENT_RUN = ""  # as a fresh subprocess would start
+        command_consent._CURRENT_RUN.set("")  # as a fresh subprocess would start
 
         with mock.patch.dict(os.environ, {command_consent.RUN_ENV: "run-B"}):
             self.assertFalse(command_consent.consume_grant("git push"))
@@ -493,3 +591,7 @@ class ThePipelineActuallyBindsTheGrantTests(unittest.TestCase):
             source,
             "the pipeline must bind the approval to the turn it belongs to",
         )
+
+
+if __name__ == "__main__":
+    unittest.main()
