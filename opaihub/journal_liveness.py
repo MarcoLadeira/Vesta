@@ -40,7 +40,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Mapping, Sequence
 
 from . import owner_lease
-from .call_reconciliation import pid_is_running
+from .call_reconciliation import pid_is_running, positive_pid
 
 #: This process, provably. Pid *and* boot id match, so no reuse can fake it.
 OWNED_HERE = "owned_here"
@@ -128,7 +128,7 @@ def owner_liveness(
     was free, which is not a test.
     """
 
-    pid = _as_pid(lease.get("owner_pid"))
+    pid = positive_pid(lease.get("owner_pid"))
     boot = str(lease.get("owner_boot") or "")
     if pid is None:
         # Includes every lease written before the identity columns existed.
@@ -231,7 +231,7 @@ def may_be_alive(
     writing a terminal verdict onto a live one is a lie.
     """
 
-    if _as_pid(lease.get("owner_pid")) is None:
+    if positive_pid(lease.get("owner_pid")) is None:
         return False
     verdict = owner_liveness(
         lease,
@@ -273,24 +273,6 @@ _SENTENCES = {
     OWNER_UNVERIFIED: "Another OPai may still be working on it.",
     OWNER_UNKNOWN: "OPai cannot tell whether this is still running.",
 }
-
-
-def _as_pid(value: Any) -> int | None:
-    """A usable process id, or ``None`` for anything that is not one.
-
-    ``OverflowError`` is caught explicitly because it is an ``ArithmeticError``
-    rather than a ``ValueError``: ``int(float("inf"))`` raises it and would
-    otherwise escape a function documented never to raise. ``call_reconciliation``
-    was bitten by the same gap on the same kind of value.
-    """
-
-    if isinstance(value, bool):
-        return None
-    try:
-        pid = int(value)
-    except (TypeError, ValueError, OverflowError):
-        return None
-    return pid if pid > 0 else None
 
 
 __all__: Sequence[str] = (

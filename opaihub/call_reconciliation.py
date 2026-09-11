@@ -142,6 +142,32 @@ def _windows_pid_is_running(pid: int) -> bool | None:
         return None
 
 
+def positive_pid(value: object) -> int | None:
+    """A usable process id, or ``None``. The one place OPai decides this.
+
+    There were three -- here, in ``journal_store`` and in ``journal_liveness``
+    -- and they disagreed: one truncated ``2.9`` to pid 2, and this one read
+    ``True`` as pid 1, which exists on every system and so would be probed as
+    a live owner (#818 review). Zero and negatives are not process ids on any
+    platform OPai runs on, and a probe of one asks a meaningless question and
+    gets a meaningful-looking answer.
+
+    The type is narrowed before converting rather than converted and caught: a
+    bool and a float are refused outright, because each converts to an id
+    nobody recorded. ``OverflowError`` is caught explicitly -- it is an
+    ``ArithmeticError``, not a ``ValueError``, and ``int(float("inf"))``
+    raises it.
+    """
+
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        return None
+    try:
+        pid = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return pid if pid > 0 else None
+
+
 def pid_is_running(pid: int) -> bool | None:
     """``True``/``False`` if known, ``None`` if the platform will not say.
 
@@ -149,12 +175,10 @@ def pid_is_running(pid: int) -> bool | None:
     back to the age bound rather than guessing. Guessing "dead" would retire a
     running call; guessing "alive" would hold an orphan open.
     """
-    try:
-        pid = int(pid)
-    except (TypeError, ValueError):
+    checked = positive_pid(pid)
+    if checked is None:
         return None
-    if pid <= 0:
-        return None
+    pid = checked
     if sys.platform == "win32":
         return _windows_pid_is_running(pid)
     try:

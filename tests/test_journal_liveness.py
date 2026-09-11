@@ -604,7 +604,7 @@ class TheHeartbeatInvariantIsLoadBearingTests(unittest.TestCase):
 
 
 class AProcessIdMustActuallyBeOneTests(unittest.TestCase):
-    """`_positive_pid` decides what gets probed for liveness.
+    """`positive_pid` decides what gets probed for liveness.
 
     Found while fixing a mypy error that a `# type: ignore` was silently not
     suppressing. `int(True)` is 1, and pid 1 exists on every system OPai runs
@@ -614,7 +614,7 @@ class AProcessIdMustActuallyBeOneTests(unittest.TestCase):
     """
 
     def test_a_boolean_is_not_a_process_id(self):
-        from opaihub.journal_store import _positive_pid
+        from opaihub.call_reconciliation import positive_pid as _positive_pid
 
         self.assertIsNone(
             _positive_pid(True),
@@ -626,22 +626,42 @@ class AProcessIdMustActuallyBeOneTests(unittest.TestCase):
     def test_a_float_is_not_truncated_into_a_process_id(self):
         """Truncating 2.9 to pid 2 invents an identity nobody recorded."""
 
-        from opaihub.journal_store import _positive_pid
+        from opaihub.call_reconciliation import positive_pid as _positive_pid
 
         self.assertIsNone(_positive_pid(2.9))
 
     def test_real_process_ids_still_work(self):
-        from opaihub.journal_store import _positive_pid
+        from opaihub.call_reconciliation import positive_pid as _positive_pid
 
         self.assertEqual(_positive_pid(4242), 4242)
         self.assertEqual(_positive_pid("4242"), 4242)
 
     def test_impossible_ids_are_absent_rather_than_stored(self):
-        from opaihub.journal_store import _positive_pid
+        from opaihub.call_reconciliation import positive_pid as _positive_pid
 
         for value in (0, -1, None, object(), float("inf")):
             with self.subTest(value=value):
                 self.assertIsNone(_positive_pid(value))
+
+    def test_every_caller_agrees_on_what_a_process_id_is(self):
+        """There were three validators and they disagreed.
+
+        ``pid_is_running(True)`` probed pid 1, which always exists, and
+        ``journal_liveness`` truncated 2.9 to pid 2. Now there is one, and
+        every place that asks gets its answer.
+        """
+
+        from opaihub import call_reconciliation, journal_liveness
+        from opaihub.call_reconciliation import positive_pid as _positive_pid
+
+        for value in (True, False, 2.9, 0, -1, None, float("inf"), "x"):
+            with self.subTest(value=value):
+                self.assertIsNone(_positive_pid(value))
+                self.assertIsNone(call_reconciliation.pid_is_running(value))
+                self.assertEqual(
+                    journal_liveness.owner_liveness({"owner_pid": value}),
+                    journal_liveness.OWNER_UNKNOWN,
+                )
 
 
 if __name__ == "__main__":  # pragma: no cover

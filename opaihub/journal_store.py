@@ -52,6 +52,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterator, Mapping, Sequence
 
+from .call_reconciliation import positive_pid
 from .command_runner import redact
 from .state import state_dir
 
@@ -966,7 +967,7 @@ def acquire_lease(
                 # tests/test_journal_liveness.py fails loudly if it does not.
                 now,
                 now,
-                _positive_pid(owner_pid),
+                positive_pid(owner_pid),
                 str(owner_boot or ""),
             ),
         )
@@ -991,34 +992,6 @@ def _inserted_row_id(cursor: sqlite3.Cursor) -> int:
     if row_id is None:  # pragma: no cover - an INSERT always reports one
         raise JournalStoreError("the store did not report a row id for the insert")
     return int(row_id)
-
-
-def _positive_pid(value: object) -> int | None:
-    """A usable process id, or ``None``.
-
-    Zero and negatives are not process ids on any platform OPai runs on, and
-    storing one would let a liveness probe ask a meaningless question and get
-    a meaningful-looking answer. Absent is the honest record.
-
-    The type is narrowed before converting rather than converted and caught,
-    which fixes a real hole as well as a mypy complaint. ``int(True)`` is 1,
-    and pid 1 exists on every system OPai runs on -- so a lease carrying a
-    boolean would have been probed as a live process and reported as one.
-    A float is refused for the same reason: truncating 2.9 to pid 2 invents an
-    identity nobody recorded.
-    """
-
-    if isinstance(value, bool):
-        return None
-    if not isinstance(value, (int, str)):
-        return None
-    try:
-        pid = int(value)
-    except (TypeError, ValueError, OverflowError):
-        # OverflowError is an ArithmeticError, not a ValueError: int(inf)
-        # raises it and would escape this guard entirely.
-        return None
-    return pid if pid > 0 else None
 
 
 def release_lease(
