@@ -96,7 +96,34 @@ from .workflow_state import WorkflowState, load_workflow_state, save_workflow_st
 from .boundary_errors import safe_detail
 
 
-_EDITING_MODES = {"safe-auto", "full-auto"}
+# Every run mode that may change the repository, however it asks first
+# (40d6dc0's contract): Manual asks before each edit, Auto asks through the
+# provider's gate, Accept Edits and Bypass Permissions apply edits directly.
+# Plan and Ask are read-only. This used to list only Auto and Bypass, so a
+# Manual or Accept Edits turn that asked for a fix ran read-only -- the mode
+# the user picked could not do the one thing it is named after.
+_EDIT_CAPABLE_MODES = frozenset(
+    {"safe-auto", "approve-edits", "auto-edits", "full-auto"}
+)
+
+# The mode that asks before *each* edit rather than once per mode.
+_ASKS_BEFORE_EACH_EDIT = "approve-edits"
+
+
+def _tool_loop_may_edit(
+    selected_mode: str, *, may_edit: bool, edit_grant: bool
+) -> bool:
+    """May OPai's own tool loop (free and local models) edit on this turn?
+
+    The account CLIs can ask before an edit: Claude refuses it, and the
+    pipeline turns that refusal into an "Allow edits once" card. OPai's own
+    tool loop cannot stop at an edit and ask, so in Manual it edits only once
+    the user has granted it -- never by default. Every other edit-capable
+    mode keeps exactly the authority it had.
+    """
+
+    return may_edit and (selected_mode != _ASKS_BEFORE_EACH_EDIT or edit_grant)
+
 
 # Terminal statuses where the turn ended because a *model* could not serve it.
 # These earn a named "continue with <other model>" offer, so no provider failure
@@ -334,6 +361,7 @@ def request_tool_authority(
     repo_root: Path,
     focus_hint: str | None = None,
     github_public_read: bool = False,
+    edit_grant: bool = False,
 ) -> RequestToolAuthority:
     """Resolve which tools a request may call, and whether it may mutate.
 
@@ -356,7 +384,11 @@ def request_tool_authority(
 
     discovery = is_discovery_request(message)
     smalltalk = is_smalltalk_request(message)
-    allow_edits = (selected_mode in _EDITING_MODES) and not discovery
+    allow_edits = _tool_loop_may_edit(
+        selected_mode,
+        may_edit=selected_mode in _EDIT_CAPABLE_MODES and not discovery,
+        edit_grant=edit_grant,
+    )
     allow_github_public_read = True if (discovery or github_public_read) else None
     tool_names = (
         ()
@@ -1188,13 +1220,12 @@ def _handle_gui_message(
     # Auto's fallback chain and the dead-end fallback offer need it *before* a
     # provider is picked — a provider OPai cannot hand bounded edit tools is a
     # guaranteed refusal on an editing turn and a perfectly good choice on a
-    # read-only one. Plan / Ask / Approve-Edits are read-only; Safe Auto / Full
-    # Auto may edit, except for a discovery request ("find me an issue to
-    # solve"), which locates work rather than changing the repository.
-    will_edit = selected_mode in {
-        "safe-auto",
-        "full-auto",
-    } and not is_discovery_request(message)
+    # read-only one. Plan / Ask are read-only; every other mode may edit
+    # (Manual asking first), except for a discovery request ("find me an issue
+    # to solve"), which locates work rather than changing the repository.
+    will_edit = selected_mode in _EDIT_CAPABLE_MODES and not is_discovery_request(
+        message
+    )
     repo_context = resolve_repo_context(root)
     save_active_repo(root, repo_context)
     previous_workflow = load_workflow_state(root)
@@ -2754,11 +2785,16 @@ def _handle_gui_message(
             }
         )
 
-    # Plan / Ask / Approve-Edits are read-only; Safe Auto / Full Auto may edit.
-    # A discovery request ("find me an issue to solve") stays read-only even in
-    # an editing mode — it locates work, it does not change the repository.
-    # Same decision Auto's chain was built from, so routing and execution agree.
+    # Plan / Ask are read-only; every other mode may edit. A discovery request
+    # ("find me an issue to solve") stays read-only even in an editing mode — it
+    # locates work, it does not change the repository. Same decision Auto's
+    # chain was built from, so routing and execution agree.
     allow_edits = will_edit
+    # OPai's own tool loop cannot ask mid-run, so Manual edits there only with
+    # the user's one-shot grant (see _tool_loop_may_edit).
+    loop_allow_edits = _tool_loop_may_edit(
+        selected_mode, may_edit=will_edit, edit_grant=edit_grant
+    )
 
     while True:
         if selected_model.startswith("free:"):
@@ -2799,13 +2835,14 @@ def _handle_gui_message(
                 selected_mode=selected_mode,
                 repo_root=root,
                 focus_hint=focus_hint,
+                edit_grant=edit_grant,
             )
             result = A.ask(
                 root,
-                _tool_aware_message(allow_edits),
+                _tool_aware_message(loop_allow_edits),
                 selected_model,
                 allow_cloud=free_allow_cloud,
-                allow_edits=allow_edits,
+                allow_edits=loop_allow_edits,
                 tool_calling_enabled=authority.tool_calling_enabled,
                 allow_command=command_grant,
                 mode=selected_mode,
@@ -3169,10 +3206,16 @@ def _handle_gui_message(
                     }
                 )
             denied_edits = _edit_denials(result)
-            if denied_edits and selected_mode == "safe-auto" and not edit_grant:
+            if (
+                denied_edits
+                and selected_mode in {"safe-auto", _ASKS_BEFORE_EACH_EDIT}
+                and not edit_grant
+            ):
                 # F26: Safe Auto gates edits at the provider CLI, which cannot ask
                 # interactively. Surface an actionable in-context approval card —
-                # never a prose "should I proceed?" that ends the run.
+                # never a prose "should I proceed?" that ends the run. Manual
+                # gates edits the same way, and without this card it had no
+                # way to ask at all: the CLI refused the edit and the run ended.
                 _phase_close("warning", "Awaiting your approval")
                 _emit(
                     "file_edit",
@@ -3367,7 +3410,7 @@ def _handle_gui_message(
             cancel=cancel,
             runner=picked_runner,
             selected_model_id=selected_model if picked_runner is not None else None,
-            allow_edits=allow_edits,
+            allow_edits=loop_allow_edits,
         )
         if result.get("status") == "cancelled":
             _phase_close("cancelled", "Stopped by you")
