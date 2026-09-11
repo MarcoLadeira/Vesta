@@ -29,6 +29,7 @@ from __future__ import annotations
 import ast
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from opaihub import command_consent
 
@@ -294,15 +295,29 @@ class TheInspectorDidNotGetSlowerTests(unittest.TestCase):
 
         from opaihub import github_connector
 
-        def cost(fn, samples=100):
-            fn()
-            started = time.monotonic()
+        def one_round(fn, samples=30):
+            started = time.perf_counter()
             for _ in range(samples):
                 fn()
-            return (time.monotonic() - started) / samples
+            return (time.perf_counter() - started) / samples
 
-        added = cost(github_connector.last_verification)
-        whole = cost(github_connector.github_readiness)
+        # The best of several interleaved rounds, not one average: a load
+        # spike during either measurement moved the ratio past the bound when
+        # the whole suite ran in parallel. A minimum is what the code costs;
+        # an average is what the machine happened to be doing.
+        token = "t0ken"
+        with mock.patch.object(
+            github_connector, "stored_github_token", lambda: (token, "env")
+        ):
+            github_connector.github_readiness()
+            added_rounds, whole_rounds = [], []
+            for _ in range(7):
+                added_rounds.append(
+                    one_round(lambda: github_connector.last_verification(token))
+                )
+                whole_rounds.append(one_round(github_connector.github_readiness))
+        added = min(added_rounds)
+        whole = min(whole_rounds)
 
         self.assertGreater(whole, 0, "readiness took no measurable time at all")
         self.assertLess(

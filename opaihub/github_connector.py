@@ -17,6 +17,7 @@ implement flow. Three rules keep it inside OPai's safety contract:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -116,20 +117,38 @@ def _verification_status_from(result: "Mapping[str, Any]") -> str:
     return VERIFICATION_UNKNOWN
 
 
-def record_verification(result: "Mapping[str, Any]") -> None:
+def _fingerprint(token: str) -> str:
+    """A short one-way name for a token, so a check can say which it checked.
+
+    Twelve hex characters of SHA-256: enough to tell one of a person's tokens
+    from the next, and nothing that can be turned back into the token -- a PAT
+    is a long random string, so there is no dictionary to try. The token itself
+    is only ever in the keychain or the environment.
+    """
+
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()[:12] if token else ""
+
+
+def record_verification(result: "Mapping[str, Any]", *, token: str = "") -> None:
     """Persist what a live check found, so a later claim can cite it.
 
-    Only the verdict, the login and the time -- never the token. The config's
-    shadow journal refuses any key that looks credential-bearing, and these
-    deliberately do not.
+    The verdict, the login, the time, and *which token* was checked -- never
+    the token. The config's shadow journal refuses any key that looks
+    credential-bearing, and these deliberately do not.
+
+    Which token matters (#818 review finding 9). A verdict with nothing tying
+    it to a token outlived the token: a stale "rejected" survived reconnecting
+    with a good one, and a "valid" would have survived swapping in a bad one.
     """
 
     status = _verification_status_from(result)
     login = str(result.get("login") or "")
+    fingerprint = _fingerprint(str(token or ""))
 
     def mutate(config: dict[str, Any]) -> None:
         config["verification_status"] = status
         config["verified_at"] = int(time.time())
+        config["verified_fingerprint"] = fingerprint
         if login:
             config["verification_login"] = login
 
@@ -139,10 +158,20 @@ def record_verification(result: "Mapping[str, Any]") -> None:
         return
 
 
-def last_verification() -> dict[str, Any]:
-    """What the last live check found, or that there has never been one."""
+def last_verification(token: str | None = None) -> dict[str, Any]:
+    """What the last live check found *about the token stored now*.
 
+    A check of a different token -- or one recorded before checks named their
+    token -- says nothing about this one, so it reads as unknown. ``token`` is
+    the current token when the caller already has it; otherwise it is looked
+    up.
+    """
+
+    if token is None:
+        token, _source = stored_github_token()
     config = _load_config()
+    recorded = str(config.get("verified_fingerprint") or "")
+    about_this_token = bool(token) and recorded == _fingerprint(str(token))
     status = str(config.get("verification_status") or VERIFICATION_UNKNOWN)
     try:
         checked_at = int(config.get("verified_at") or 0)
@@ -154,13 +183,15 @@ def last_verification() -> dict[str, Any]:
         VERIFICATION_UNREACHABLE,
     ):
         status = VERIFICATION_UNKNOWN
+    if not about_this_token:
+        checked_at = 0
     age = int(time.time()) - checked_at if checked_at else None
     return {
         "status": status if checked_at else VERIFICATION_UNKNOWN,
         "checked_at": checked_at,
         "age_seconds": age,
         "fresh": bool(age is not None and age <= VERIFICATION_FRESH_SECONDS),
-        "login": str(config.get("verification_login") or ""),
+        "login": str(config.get("verification_login") or "") if checked_at else "",
     }
 
 
@@ -303,6 +334,11 @@ def connect_github(token: str, *, http: HttpFn = _default_http) -> dict[str, Any
         config.setdefault("allow_public_read", False)
 
     config = _update_config(_apply)
+    # Connecting *is* a live check -- GitHub just answered /user for this
+    # token -- so it is recorded as one. Before, a fresh connect read "not
+    # verified yet", and an old "rejected" stayed on the row after the user
+    # replaced the bad token with a good one.
+    record_verification({"authStatus": "connected", "login": login}, token=cleaned)
     return {
         "connected": True,
         "login": login,
@@ -327,6 +363,14 @@ def disconnect_github() -> dict[str, Any]:
         config.pop("login", None)
         config["allow_push"] = False
         config["allow_public_read"] = False
+        # A verdict about a token that is gone describes nothing.
+        for stale in (
+            "verification_status",
+            "verified_at",
+            "verified_fingerprint",
+            "verification_login",
+        ):
+            config.pop(stale, None)
 
     _update_config(_apply)
     env_token = any(os.environ.get(name) for name in _TOKEN_ENV_VARS)
@@ -421,7 +465,7 @@ def github_readiness() -> dict[str, Any]:
     # break the flow this gate exists to enable. What changes is that callers
     # can no longer render "ready" as "verified" without saying which they
     # mean.
-    verification = last_verification()
+    verification = last_verification(token)
     return {
         "connected": connected,
         "token_source": source,
@@ -464,8 +508,9 @@ def verify_github_connection(*, http: HttpFn = _default_http) -> dict[str, Any]:
     `gui_pipeline.handle_gui_message` uses for its terminal event.
     """
 
+    token, _source = stored_github_token()
     result = _verify_github_connection(http=http)
-    record_verification(result)
+    record_verification(result, token=token)
     return result
 
 

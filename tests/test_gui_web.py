@@ -613,7 +613,9 @@ class BootPayloadTests(unittest.TestCase):
         # done all the work. The promise is now only made when a live check
         # actually said so.
         self.assertEqual(
-            _github_row_value({"ready": True, "verification": "valid"}),
+            _github_row_value(
+                {"ready": True, "verification": "valid", "verification_fresh": True}
+            ),
             "Ready to push & open PRs",
         )
         self.assertIn(
@@ -1537,6 +1539,81 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class AVerdictIsAboutOneTokenTests(unittest.TestCase):
+    """#818 review finding 9: a verdict outlived the token it was about."""
+
+    def setUp(self) -> None:
+        from opaihub import github_connector
+
+        self.gc = github_connector
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        patcher = mock.patch.object(
+            github_connector, "_config_path", lambda: Path(self._tmp.name) / "g.json"
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_a_check_of_another_token_says_nothing_about_this_one(self):
+        self.gc.record_verification({"authStatus": "connected"}, token="old")
+
+        found = self.gc.last_verification("new")
+
+        self.assertEqual(found["status"], self.gc.VERIFICATION_UNKNOWN)
+        self.assertFalse(found["fresh"])
+
+    def test_reconnecting_with_a_good_token_clears_a_stale_rejection(self):
+        self.gc.record_verification({"authStatus": "invalid"}, token="bad")
+        with mock.patch.object(self.gc, "CredentialStore") as store:
+            store.return_value.set.return_value = None
+            result = self.gc.connect_github(
+                "good", http=lambda *a, **k: (200, {"login": "someone"})
+            )
+
+        self.assertTrue(result["connected"])
+        found = self.gc.last_verification("good")
+        self.assertEqual(found["status"], self.gc.VERIFICATION_VALID)
+
+    def test_a_rejected_connect_does_not_touch_the_stored_verdict(self):
+        self.gc.record_verification({"authStatus": "connected"}, token="good")
+
+        self.gc.connect_github("typo", http=lambda *a, **k: (401, {}))
+
+        self.assertEqual(
+            self.gc.last_verification("good")["status"], self.gc.VERIFICATION_VALID
+        )
+
+    def test_disconnecting_forgets_the_verdict(self):
+        self.gc.record_verification({"authStatus": "connected"}, token="good")
+        with mock.patch.object(self.gc, "CredentialStore"):
+            self.gc.disconnect_github()
+
+        self.assertEqual(
+            self.gc.last_verification("good")["status"], self.gc.VERIFICATION_UNKNOWN
+        )
+
+    def test_a_verdict_from_before_checks_named_their_token_is_unknown(self):
+        path = Path(self._tmp.name) / "g.json"
+        path.write_text(
+            json.dumps({"verification_status": "valid", "verified_at": 1}),
+            encoding="utf-8",
+        )
+
+        self.assertEqual(
+            self.gc.last_verification("any")["status"], self.gc.VERIFICATION_UNKNOWN
+        )
+
+    def test_an_old_valid_check_is_not_rendered_as_ready(self):
+        from opai.gui_web import _github_row_value
+
+        row = _github_row_value(
+            {"ready": True, "verification": "valid", "verification_fresh": False}
+        )
+
+        self.assertNotIn("Ready", row)
+        self.assertIn("over a day ago", row)
+
+
 class GithubReadinessCitesACheckTests(unittest.TestCase):
     """#818: a claim about the future needs something behind it.
 
@@ -1559,9 +1636,9 @@ class GithubReadinessCitesACheckTests(unittest.TestCase):
                 github_connector, "_config_path", lambda: Path(tmp) / "github.json"
             ):
                 github_connector.record_verification(
-                    {"authStatus": "connected", "login": "someone"}
+                    {"authStatus": "connected", "login": "someone"}, token="t0ken"
                 )
-                found = github_connector.last_verification()
+                found = github_connector.last_verification("t0ken")
 
         self.assertEqual(found["status"], github_connector.VERIFICATION_VALID)
         self.assertEqual(found["login"], "someone")
@@ -1574,8 +1651,10 @@ class GithubReadinessCitesACheckTests(unittest.TestCase):
             with mock.patch.object(
                 github_connector, "_config_path", lambda: Path(tmp) / "github.json"
             ):
-                github_connector.record_verification({"authStatus": "invalid"})
-                found = github_connector.last_verification()
+                github_connector.record_verification(
+                    {"authStatus": "invalid"}, token="t0ken"
+                )
+                found = github_connector.last_verification("t0ken")
 
         self.assertEqual(found["status"], github_connector.VERIFICATION_REJECTED)
 
@@ -1586,7 +1665,7 @@ class GithubReadinessCitesACheckTests(unittest.TestCase):
             with mock.patch.object(
                 github_connector, "_config_path", lambda: Path(tmp) / "github.json"
             ):
-                found = github_connector.last_verification()
+                found = github_connector.last_verification("t0ken")
 
         self.assertEqual(found["status"], github_connector.VERIFICATION_UNKNOWN)
         self.assertFalse(found["fresh"])
@@ -1606,11 +1685,13 @@ class GithubReadinessCitesACheckTests(unittest.TestCase):
             path = Path(tmp) / "github.json"
             with mock.patch.object(github_connector, "_config_path", lambda: path):
                 github_connector.record_verification(
-                    {"authStatus": "connected", "login": "someone"}
+                    {"authStatus": "connected", "login": "someone"},
+                    token="ghp_" + "a" * 36,
                 )
                 stored = json.loads(path.read_text(encoding="utf-8"))
 
         self.assertTrue(stored)
+        self.assertNotIn("a" * 36, json.dumps(stored), "the token itself was stored")
         for key in stored:
             self.assertFalse(
                 github_connector._looks_like_a_credential(key),
@@ -1649,7 +1730,7 @@ class GithubReadinessCitesACheckTests(unittest.TestCase):
                         github_connector.verify_github_connection(
                             http=lambda *a, **k: (status_code, body)
                         )
-                        found = github_connector.last_verification()
+                        found = github_connector.last_verification("t0ken")
 
                 self.assertEqual(found["status"], expected)
 
@@ -1667,8 +1748,11 @@ class GithubReadinessCitesACheckTests(unittest.TestCase):
                     lambda: ("t0ken", "keychain"),
                 ),
             ):
-                github_connector.record_verification({"authStatus": "connected"})
+                github_connector.record_verification(
+                    {"authStatus": "connected"}, token="t0ken"
+                )
                 readiness = github_connector.github_readiness()
 
         self.assertIn("verification", readiness)
         self.assertEqual(readiness["verification"], github_connector.VERIFICATION_VALID)
+        self.assertTrue(readiness["verification_fresh"])

@@ -545,8 +545,12 @@ def _github_row_value(readiness: dict[str, Any]) -> str:
     """
     if readiness.get("ready"):
         verification = str(readiness.get("verification") or "unknown")
-        if verification == "valid":
+        if verification == "valid" and readiness.get("verification_fresh"):
             return "Ready to push & open PRs"
+        if verification == "valid":
+            # Checked, but not recently: a token can be revoked a second after
+            # it was verified, so an old check is cited as old, not as ready.
+            return "Token connected \u00b7 last verified over a day ago"
         if verification == "rejected":
             return "GitHub rejected this token \u2014 reconnect in Settings"
         if verification == "unreachable":
