@@ -314,6 +314,57 @@ class GithubDeliveryTimeoutTests(_JournalledRun):
 
         self.assertIn("cannot go back", str(caught.exception))
 
+    def _write(self, store, state: str, now: str = LATER) -> None:
+        journal_store.record_operation(
+            store,
+            operation_key=self.KEY,
+            kind="github",
+            target_digest="d",
+            state=state,
+            now=now,
+        )
+
+    def test_uncertain_is_not_a_way_back_down_the_ladder(self):
+        """#818 review finding 19: reconciled -> uncertain -> intended passed.
+
+        `uncertain` has no rank, so nothing looked like going backwards.
+        """
+
+        store = journal_store.open_store(self.root)
+        self.addCleanup(store.close)
+        self._write(store, "reconciled", now=NOW)
+        self._write(store, "uncertain")
+
+        for earlier in ("intended", "executing", "observed"):
+            with self.subTest(state=earlier):
+                with self.assertRaises(journal_store.JournalStoreError):
+                    self._write(store, earlier)
+
+    def test_uncertainty_is_resolved_by_finding_out_not_by_rerunning(self):
+        """Back to executing would mean re-running an effect of unknown outcome."""
+
+        store = journal_store.open_store(self.root)
+        self.addCleanup(store.close)
+        self._write(store, "executing", now=NOW)
+        self._write(store, "uncertain")
+
+        with self.assertRaises(journal_store.JournalStoreError):
+            self._write(store, "intended")
+        with self.assertRaises(journal_store.JournalStoreError):
+            self._write(store, "executing")
+        self._write(store, "observed")
+        self._write(store, "reconciled")
+
+    def test_an_outcome_can_still_become_uncertain(self):
+        """Recording that something became unknowable is never refused."""
+
+        store = journal_store.open_store(self.root)
+        self.addCleanup(store.close)
+        self._write(store, "reconciled", now=NOW)
+
+        self._write(store, "uncertain")
+        self._write(store, "reconciled")
+
 
 class CancellationRaceTests(_JournalledRun):
     """Two stops at once: they converge, and nothing moves backwards."""

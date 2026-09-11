@@ -1102,9 +1102,14 @@ def record_operation(
         raise ValueError(f"unknown operation state: {state!r}")
     with _transaction(connection):
         existing = connection.execute(
-            "SELECT state FROM operations WHERE operation_key = ?", (operation_key,)
+            "SELECT state, reconciled_at FROM operations WHERE operation_key = ?",
+            (operation_key,),
         ).fetchone()
-        if existing is not None and _would_regress(str(existing["state"]), state):
+        if existing is not None and _would_regress(
+            str(existing["state"]),
+            state,
+            reconciled_before=existing["reconciled_at"] is not None,
+        ):
             # Refused rather than ignored. A caller writing an earlier state
             # over a later one has a real bug -- it believes an effect is still
             # in flight that this store has already settled -- and swallowing
@@ -1115,10 +1120,14 @@ def record_operation(
                 f" it cannot go back to {state!r}"
             )
         if existing is None:
+            # `reconciled_at` on creation too. Only the update below set it, so
+            # an operation first recorded as reconciled never said when -- and
+            # the regression guard reads it as the mark of having got there.
             connection.execute(
                 "INSERT INTO operations(operation_key, kind, target_digest, state,"
                 " run_id, provider_ref, process_ref, external_ref, attempts,"
-                " created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
+                " created_at, updated_at, reconciled_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)",
                 (
                     operation_key,
                     kind,
@@ -1130,6 +1139,7 @@ def record_operation(
                     external_ref,
                     now,
                     now,
+                    now if state == "reconciled" else None,
                 ),
             )
             return True
@@ -1151,18 +1161,37 @@ def record_operation(
         return False
 
 
-def _would_regress(current: str, proposed: str) -> bool:
-    """True when ``proposed`` is behind ``current`` on the operation ladder.
+def _would_regress(
+    current: str, proposed: str, *, reconciled_before: bool = False
+) -> bool:
+    """True when ``proposed`` would walk an operation back down the ladder.
 
-    Anything off the ladder -- ``uncertain``, or a state a newer OPai wrote
-    that this build does not know -- is never a regression. Refusing a state
-    we cannot rank would turn a forwards-compatibility problem into a hard
-    failure, and this is the wrong place to be strict about that.
+    Moving *to* a state off the ladder -- ``uncertain``, or one a newer OPai
+    wrote that this build does not know -- is never a regression: refusing a
+    state we cannot rank would turn a forwards-compatibility problem into a
+    hard failure, and an outcome that becomes unknowable is a real thing to be
+    able to record.
+
+    Moving *from* ``uncertain`` is where the first version had a hole (#818
+    review finding 19): ``reconciled -> uncertain -> intended`` passed, because
+    ``uncertain`` has no rank and so nothing looked like going backwards. Two
+    rules close it. An operation that was ever reconciled cannot be walked
+    back below reconciled by any route. And uncertainty is resolved by finding
+    out what happened -- observing or reconciling -- not by moving back to
+    ``intended`` or ``executing``, which would mean re-running an external
+    effect whose outcome nobody knows: the double push the idempotency key
+    exists to prevent.
     """
 
-    here = _OPERATION_PROGRESS.get(current)
     there = _OPERATION_PROGRESS.get(proposed)
-    if here is None or there is None:
+    if there is None:
+        return False
+    if reconciled_before and there < _OPERATION_PROGRESS["reconciled"]:
+        return True
+    if current == "uncertain":
+        return there < _OPERATION_PROGRESS["observed"]
+    here = _OPERATION_PROGRESS.get(current)
+    if here is None:
         return False
     return there < here
 

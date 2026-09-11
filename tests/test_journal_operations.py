@@ -331,9 +331,21 @@ class AnOperationNeverGoesBackwardsTests(unittest.TestCase):
 
     def test_a_state_this_build_cannot_rank_is_not_refused(self):
         """Forwards compatibility: a newer OPai's state must not become a hard
-        failure in an older one."""
+        failure in an older one.
 
-        self._write("uncertain")
+        This used `uncertain` as its example, and so pinned a hole: uncertain
+        is a state this build *knows*, and allowing uncertain -> executing let
+        an operation walk back down the ladder (#818 review finding 19). The
+        property is about a state this build cannot name, so that is what is
+        planted -- directly, the way a newer build would have left it.
+        """
+
+        self._write("executing")
+        self.store.execute(
+            "UPDATE operations SET state = 'a_state_from_a_later_build'"
+            " WHERE operation_key = 'op-1'"
+        )
+
         self._write("executing")
 
         self.assertEqual(self._state(), "executing")
