@@ -23,6 +23,7 @@ import os
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest import mock
 
 from opaihub import launcher_health, proc
 
@@ -196,6 +197,53 @@ class ReadInterpreterTests(unittest.TestCase):
             path.write_bytes(b"\x00" * 500)
 
             self.assertEqual(launcher_health.read_interpreter(path), "")
+
+
+def _read_posix(blob: bytes) -> str:
+    with TemporaryDirectory() as raw:
+        path = Path(raw) / "opai"
+        path.write_bytes(blob)
+        return launcher_health.read_interpreter(path)
+
+
+class AShebangIsACommandLineTests(unittest.TestCase):
+    """#818 review finding 17: the first word of a shebang is not always it."""
+
+    def test_arguments_are_not_part_of_the_path(self) -> None:
+        # Checked whole, a good interpreter was reported missing.
+        self.assertEqual(_read_posix(b"#!/usr/bin/python3 -E\n"), "/usr/bin/python3")
+
+    def test_env_means_whatever_is_on_path(self) -> None:
+        with mock.patch.object(
+            launcher_health.shutil, "which", return_value="/usr/local/bin/python3"
+        ):
+            found = _read_posix(b"#!/usr/bin/env python3\n")
+
+        self.assertEqual(found, "/usr/local/bin/python3")
+
+    def test_env_that_finds_nothing_is_not_healthy(self) -> None:
+        with mock.patch.object(launcher_health.shutil, "which", return_value=None):
+            found = _read_posix(b"#!/usr/bin/env python3\n")
+
+        # The bare name, which then fails the existence check -- env would not
+        # find it either.
+        self.assertEqual(found, "python3")
+        self.assertFalse(os.path.exists(found))
+
+    def test_a_trampoline_reports_the_interpreter_it_execs(self) -> None:
+        # pip's launcher for interpreter paths too long for a shebang line.
+        blob = (
+            b"#!/bin/sh\n"
+            b'\'\'\'exec\' "/opt/very long/venv/bin/python" "$0" "$@"\n'
+            b"' '''\n"
+            b"from opai.cli import main\n"
+        )
+
+        self.assertEqual(_read_posix(blob), "/opt/very long/venv/bin/python")
+
+    def test_a_shell_launcher_with_no_exec_line_is_unreadable(self) -> None:
+        # /bin/sh always exists; reporting it would call this healthy.
+        self.assertEqual(_read_posix(b"#!/bin/sh\necho hello\n"), "")
 
 
 class InspectLauncherTests(unittest.TestCase):

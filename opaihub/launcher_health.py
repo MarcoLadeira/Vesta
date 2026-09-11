@@ -23,6 +23,8 @@ report health it did not verify.
 from __future__ import annotations
 
 import os
+import re
+import shutil
 import sys
 import sysconfig
 from dataclasses import dataclass
@@ -110,7 +112,7 @@ def scripts_directories() -> list[Path]:
 
 
 def read_interpreter(path: Path) -> str:
-    """Return the interpreter path baked into a launcher, or "" if unreadable."""
+    """Return the interpreter a launcher will really run, or "" if unreadable."""
 
     try:
         blob = path.read_bytes()
@@ -120,8 +122,8 @@ def read_interpreter(path: Path) -> str:
         return ""
     if blob[:2] == b"#!":
         # A plain POSIX console script: the shebang is the first line.
-        line = blob.split(b"\n", 1)[0]
-        return _clean(line[2:])
+        first, _, rest = blob.partition(b"\n")
+        return _interpreter(_text(first[2:]), following=rest)
     zip_at = blob.find(_ZIP_MAGIC)
     if zip_at < 0:
         return ""
@@ -129,15 +131,69 @@ def read_interpreter(path: Path) -> str:
     mark = window.rfind(b"#!")
     if mark < 0:
         return ""
-    return _clean(window[mark + 2 :].split(b"\n", 1)[0])
+    return _interpreter(_text(window[mark + 2 :].split(b"\n", 1)[0]))
 
 
-def _clean(raw: bytes) -> str:
-    text = raw.decode("utf-8", "replace").strip()
-    # pip quotes interpreter paths that contain spaces.
-    if len(text) >= 2 and text[0] == '"' and text[-1] == '"':
-        text = text[1:-1]
-    return text
+def _text(raw: bytes) -> str:
+    return raw.decode("utf-8", "replace").strip()
+
+
+def _program_and_arguments(command: str) -> tuple[str, list[str]]:
+    """Split a shebang into what it runs and what it passes.
+
+    Not ``shlex``: in POSIX mode it reads a Windows path's backslashes as
+    escapes. pip quotes a path with spaces, so a leading quote is honoured and
+    anything else splits on whitespace.
+    """
+
+    text = command.strip()
+    if text.startswith('"'):
+        end = text.find('"', 1)
+        if end > 0:
+            return text[1:end], text[end + 1 :].split()
+    parts = text.split()
+    return (parts[0], parts[1:]) if parts else ("", [])
+
+
+#: pip's trampoline for interpreter paths too long for a shebang line: a
+#: ``/bin/sh`` script whose second line ``exec``s the real interpreter.
+_TRAMPOLINE_EXEC = re.compile(r"^'{3}exec' (?:\"([^\"]+)\"|(\S+))")
+
+
+def _interpreter(command: str, *, following: bytes = b"") -> str:
+    """The interpreter a shebang's command line will actually run.
+
+    Three shapes, and reading the first word of each got two of them wrong
+    (#818 review finding 17):
+
+    * ``/usr/bin/python3 -E`` -- arguments are not part of the path. Checked
+      whole, a perfectly good interpreter was reported missing.
+    * ``/usr/bin/env python3`` -- the interpreter is whatever ``env`` finds on
+      PATH, not ``env`` itself.
+    * pip's ``/bin/sh`` trampoline -- the shell always exists, so checking it
+      called any such launcher healthy whatever it really runs. The real
+      interpreter is on the ``exec`` line; a shell launcher that line cannot
+      be read from is unreadable, never healthy.
+    """
+
+    program, arguments = _program_and_arguments(command)
+    if not program:
+        return ""
+    name = Path(program).name.lower()
+    if name == "env":
+        target = next((arg for arg in arguments if not arg.startswith("-")), "")
+        if not target:
+            return ""
+        # Unresolvable on PATH is returned as the bare name, which then fails
+        # the existence check: env would not find it either.
+        return shutil.which(target) or target
+    if name in ("sh", "bash", "dash") and following:
+        second = _text(following.split(b"\n", 1)[0])
+        match = _TRAMPOLINE_EXEC.match(second)
+        if match is None:
+            return ""
+        return match.group(1) or match.group(2)
+    return program
 
 
 def _launcher_path(directory: Path, name: str) -> Path | None:
@@ -221,7 +277,7 @@ def summary(reports: list[LauncherReport] | None = None) -> dict[str, object]:
             "broken": [],
             "note": "no installed launchers found to check",
         }
-    bad = [report for report in checked if report.status == MISSING_INTERPRETER]
+    bad = broken_launchers(checked)
     unreadable = [report for report in checked if report.status == UNREADABLE]
     return {
         "checked": len(checked),
