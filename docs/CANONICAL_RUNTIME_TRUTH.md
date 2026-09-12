@@ -746,12 +746,115 @@ push. Refusal now needs positive evidence: two runs naming themselves
 differently. Verified against the worst case with real subprocesses.
 
 
+## A second review, and what it found
+
+An independent review of this branch ran the suites, reproduced defects with
+real processes, and reported twenty-one findings. Five were reproduced against
+running code, which is the standard the rest of this document holds itself to,
+so they are recorded here with what each one cost and what closed it.
+
+### 1. The lease named whoever first saved the run, not whoever ran it
+
+`opai automation enqueue` writes the run file and exits. `opai automation run`
+executes it in a **second process** that never took the lease over. So the
+journal's owner was a pid that had been gone for milliseconds, and a
+concurrent `opai automation recover` did exactly what the liveness check was
+added to prevent:
+
+```
+failed: the owning session ended before it finished   <- on a run that was running
+```
+
+The reverse held too: a GUI that only queued a run kept it looking owned for
+six hours after the process actually running it had died.
+
+A process that saves an *executing* state (preparing / running / verifying)
+now takes the lease over. A cancel request or a recovery sweep describes a run
+without running it, and must not fence out the process that is -- so those do
+not. Reproduced end to end with three real processes, and pinned by
+`tests/test_journal_executor_owns_the_run.py`.
+
+### 2. A turn that stopped to ask was filed as permanently blocked
+
+`evaluate_completion` returns BLOCKED for every `needs_*` status, and the
+recorder preferred the verdict over the status. So "shall I push?" was written
+into the canonical record as `blocked` -- an immutable terminal -- for a turn
+whose user's next click resumes the same work. Measured on a real turn:
+
+```
+status              needs_auto_confirmation
+completion_verdict  blocked
+run_state           awaiting_input
+journal             blocked          <- before
+journal             awaiting_input   <- after
+```
+
+The engine already computes the right answer once, in `run_state` (#379), with
+the one exception only the status knows about. The journal records that field
+now instead of re-deriving a worse version of it, and a result without one is
+derived through `generated_lifecycle.LEGACY_STATUS_MAP` -- the map every
+surface shares -- rather than a hand-written copy that had already drifted by
+ten of the thirteen awaiting statuses.
+
+### 3. The parity check reported disagreements that were not there
+
+`turn_parity` matched a whole conversation against each run, because no saved
+turn recorded which run produced it. An ordinary chat with one complete and
+one partial turn read as "2 of 2 runs disagree".
+
+Each saved assistant turn now carries the journal run id, reported by the
+pipeline to its caller *out of band* -- the result a surface hands the user is
+still byte for byte what the turn produced -- and the check joins turn by
+turn. Turns saved before the key are counted as unjoinable, never as
+disagreements. The two records also name endings differently (`awaiting_input`
+against the saved verdict `blocked`), so what is compared is the question
+#818 asks of both: did this turn finish the work, was it cancelled, or
+neither.
+
+### 4. `journal status` said "unfinished: 0" over a real unfinished run
+
+Every report in the doctor shared one `suppress(Exception)`. On a journal
+written by a newer OPai the first report raised, nothing after it was set, and
+the CLI filled the gaps with its own reassuring defaults. Every fact now
+starts as "not checked", each report stands alone and records why it could not
+look, and a missing key reads as unknown rather than fine.
+
+### 5. The heartbeat could freeze a streaming answer
+
+`beat_lease` runs on the turn's own thread, between streamed chunks, and
+opened the store with the ordinary ten-second busy timeout. A backup,
+compaction or migration holding the write lock froze the answer for about
+eleven seconds -- against a docstring promising "never block a turn".
+Heartbeats now wait 50 ms and skip; every other write keeps the full timeout,
+because a verdict must still land.
+
+### The rest
+
+Also fixed, each with a test: an approval could be revived after its turn
+ended by the put-back in `consume_grant`; the armed run was a process-wide
+global two concurrent turns overwrote; `uncertain` was a way back down the
+operation ladder (`reconciled -> uncertain -> intended`); a GitHub verification
+outlived the token it was about; the launcher doctor read `/usr/bin/env
+python3` as `env` and called pip's `/bin/sh` trampoline healthy whatever it
+ran; `automation recover` changed its stdout shape and listed chat turns;
+`journal pending` explained a run with no recorded process as a reused pid;
+parity compared a reason the row truncates against one the event does not, and
+read the two tables in separate snapshots; the run reducer claimed constant
+cost while copying every run per event; and the PR's own inventory test was
+failing because two new modules were unclassified.
+
+Three findings were about the same shape of mistake rather than a defect: one
+validator for process ids instead of three that disagreed, one reading of the
+clock per budget report instead of four, and one place that says "at least "
+instead of three. Each disagreement was real: `pid_is_running(True)` probed
+pid 1, which exists everywhere.
+
 ## Status
 
 | Migration step (per #818) | State |
 | --- | --- |
 | 1. Inventory every authoritative writer/reader | measured, above; the last unclassified writer (`cancellation_lifecycle`) now has an owner |
-| 2. Parity assertions, legacy vs canonical | partial -- `cancellation_lifecycle` gained its dual read, and the events/`runs` parity check runs today with no legacy corpus |
+| 2. Parity assertions, legacy vs canonical | partial -- `cancellation_lifecycle` gained its dual read; the events/`runs` parity check runs today with no legacy corpus; and the cross-surface check joins turn by turn, on the run id each saved turn now carries |
 | 3. Cut over one local-provider path | not started |
 | 4. Cut over one account-provider path | not started |
 | 5. Cut over cancellation, verification, cost, delivery | not started |
