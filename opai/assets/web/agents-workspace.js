@@ -23,15 +23,31 @@
     return "$" + parts[0] + "." + (parts[1] || "").padEnd(2, "0");
   }
   const labels = { run: "Run queued work", pause: "Pause", resume: "Resume", stop: "Stop", cancel: "Stop", sequential: "Run sequentially", budget: "Set budget", set_budget: "Set budget", prioritize: "Move first", reroute: "Reroute", reconcile: "Reconcile", verify: "Verify integration", approve: "Approve once", retry: "Retry blocked attempt", request_review: "Request review" };
+  const secondaryActions = new Set(["budget", "set_budget", "reroute", "prioritize", "sequential", "request_review"]);
+  function disclosure(label, content, key) {
+    return '<details class="agents-disclosure" data-disclosure="' + esc(key || label) + '"><summary>' + esc(label) + '</summary><div class="agents-disclosure-body">' + content + '</div></details>';
+  }
+  function stateBadge(value) {
+    const tone = { running: "active", completed: "success", failed: "attention", blocked: "attention", "needs-attention": "attention", cancelled: "muted", paused: "muted" }[value] || "muted";
+    return '<span class="agents-state agents-state-' + tone + '"><i aria-hidden="true"></i>' + status(value) + '</span>';
+  }
+  function progress(objective) {
+    const assignments = list(objective.assignments);
+    if (!assignments.length) return '<p class="agents-muted">Assignments will appear here when the plan is ready.</p>';
+    const completed = assignments.filter((a) => a.status === "completed").length;
+    return '<div class="agents-progress"><span>' + completed + ' of ' + assignments.length + ' assignments completed</span><div class="agents-progress-track" aria-hidden="true">' + assignments.map((a) => '<span class="' + (a.status === "completed" ? 'done' : a.status === "running" ? 'active' : '') + '"></span>').join("") + '</div></div>';
+  }
   function controls(item, objectiveId, assignmentId) {
-    return '<div class="agents-controls">' + list(item.allowed_actions).filter((a) => Object.prototype.hasOwnProperty.call(labels, a)).map((action) => {
+    const primary = [], secondary = [];
+    list(item.allowed_actions).filter((a) => Object.prototype.hasOwnProperty.call(labels, a)).forEach((action) => {
       let field = "";
-      if (action === "set_budget" || action === "budget") field = '<input aria-label="Budget in USD" data-agent-value type="text" inputmode="decimal" pattern="[0-9]+([.][0-9]+)?" value="' + esc(decimal(item.budget_usd)) + '">';
-      if (action === "reroute") field = '<input aria-label="Assignment model" data-agent-value value="' + esc(item.model) + '">';
+      if (action === "set_budget" || action === "budget") field = '<label>Budget in USD<input aria-label="Budget in USD" data-agent-value type="text" inputmode="decimal" pattern="[0-9]+([.][0-9]+)?" value="' + esc(decimal(item.budget_usd)) + '"></label>';
+      if (action === "reroute") field = '<label>Assignment model<input aria-label="Assignment model" data-agent-value value="' + esc(item.model) + '"></label>';
       const ids = ' data-objective-id="' + esc(objectiveId) + '"' + (assignmentId ? ' data-assignment-id="' + esc(assignmentId) + '"' : '');
       const removeCap = (action === "budget" || action === "set_budget") && decimal(item.budget_usd) !== null ? '<button type="button" class="btn" data-agent-action="budget" data-agent-clear-budget' + ids + '>Remove cap</button>' : '';
-      return '<span class="agents-control">' + field + '<button type="button" class="btn" data-agent-action="' + action + '"' + ids + '>' + labels[action] + '</button>' + removeCap + '</span>';
-    }).join("") + '</div>';
+      (secondaryActions.has(action) ? secondary : primary).push('<div class="agents-control">' + field + '<button type="button" class="btn" data-agent-action="' + action + '"' + ids + '>' + labels[action] + '</button>' + removeCap + '</div>');
+    });
+    return (primary.length ? '<div class="agents-controls">' + primary.join("") + '</div>' : '') + (secondary.length ? disclosure(assignmentId ? "Assignment settings" : "Objective settings", '<div class="agents-settings">' + secondary.join("") + '</div>', "settings:" + objectiveId + ":" + (assignmentId || "")) : '');
   }
   function evidence(label, value) {
     return '<details class="agents-evidence"><summary>' + label + '</summary><pre>' + esc(text(value)) + '</pre></details>';
@@ -65,57 +81,67 @@
   function renderHtml(snapshot, selection) {
     selection = selection || {};
     const objectives = list(snapshot && snapshot.objectives);
-    let html = '<div class="agents-workspace"><div class="page-title">Agents</div><p class="page-sub">Supervise assignments, inspect evidence, and verify the integrated result.</p>';
+    let html = '<div class="agents-workspace"><div class="agents-page-heading"><div class="page-title">Agents</div><p class="page-sub">One objective. A coordinated team.</p></div>';
     if (!objectives.length) html += '<div class="card"><div class="ct">No objectives yet</div><p>Enable “Allow multiple agents mode” in the composer’s Mode menu, then send an objective.</p></div>';
     const activeObjective = objectives.find((o) => o.objective_id === selection.objectiveId) || objectives[0];
     if (objectives.length > 1) html += '<nav class="agents-objective-nav" aria-label="Engineering objectives">' + objectives.map((o) => '<button type="button" class="agents-assignment" data-objective-select="' + esc(o.objective_id) + '" aria-pressed="' + (o === activeObjective) + '"><strong>' + esc(o.objective) + '</strong><span>' + status(o.status) + ' · ' + cost(o.cost_usd) + '</span></button>').join("") + '</nav>';
     (activeObjective ? [activeObjective] : []).forEach((o) => {
       const assignments = list(o.assignments);
       const selected = assignments.find((a) => a.assignment_id === selection.assignmentId && (!selection.objectiveId || selection.objectiveId === o.objective_id)) || assignments[0];
-      html += '<section class="agents-objective card" data-objective-id="' + esc(o.objective_id) + '"><header><div><p class="agents-eyebrow">Engineering objective</p><h2>' + esc(o.objective) + '</h2></div><span class="pill neutral">' + status(o.status) + '</span></header>';
-      html += '<div class="agents-metrics"><span>Cost <strong>' + cost(o.cost_usd) + '</strong></span><span>Budget <strong>' + cost(o.budget_usd) + '</strong></span><span>Parallel limit <strong>' + esc(text(o.max_parallel)) + '</strong></span></div>';
+      html += '<section class="agents-objective card" data-objective-id="' + esc(o.objective_id) + '"><header><div><p class="agents-eyebrow">Objective</p><h2>' + esc(o.objective) + '</h2></div>' + stateBadge(o.status) + '</header>';
+      html += '<div class="agents-metrics"><span>Cost <strong>' + cost(o.cost_usd) + '</strong></span><span>Budget <strong>' + (o.budget_usd === null ? 'No cap' : cost(o.budget_usd)) + '</strong></span><span>Parallel limit <strong>' + esc(text(o.max_parallel)) + '</strong></span></div>';
+      html += progress(o);
       if (o.cost_complete !== true) html += '<p class="agents-note">Cost reporting incomplete</p>';
       if (o.planning && o.planning.status !== "pending") html += '<section class="agents-section"><h3>Planning · ' + status(o.planning.status) + '</h3>' + (o.planning.result && o.planning.result.error ? '<p class="agents-note">' + esc(o.planning.result.error) + '</p>' : '') + '</section>';
-      html += controls(o, o.objective_id) + '<div class="agents-split"><div class="agents-assignments"><h3>Assignments</h3>';
-      if (!assignments.length) html += '<p>No assignments recorded.</p>';
-      assignments.forEach((a) => {
-        html += '<button type="button" class="agents-assignment" aria-pressed="' + (a === selected) + '" data-agent-select="' + esc(a.assignment_id) + '" data-objective-id="' + esc(o.objective_id) + '"><strong>' + esc(a.title || a.assignment_id) + '</strong><span>' + status(a.status) + (a.role ? ' · ' + esc(a.role) : '') + '</span><span>' + esc(a.observed_model || a.model || "Model not reported") + ' · ' + cost(a.cost_usd) + (a.cost_complete === false ? ' (incomplete)' : '') + '</span></button>';
-      });
-      html += '</div><section class="agents-detail" aria-label="Selected assignment">';
-      if (selected) {
-        html += '<p class="agents-eyebrow">Selected assignment</p><h3>' + esc(selected.title || selected.assignment_id) + '</h3>';
-        if (selected.objective) html += '<p>' + esc(selected.objective) + '</p>';
-        if (selected.rationale) html += '<section class="agents-section"><h4>Why this assignment</h4><p>' + esc(selected.rationale) + '</p></section>';
-        if (selected.parallel_eligible === false) html += '<p class="agents-note">Runs sequentially by plan</p>';
-        html += '<dl class="agents-facts">' + fact("Owner", selected.owner || selected.last_owner) + fact("Model", selected.observed_model || selected.model) + fact("Provider", selected.observed_provider || selected.provider) + fact("Route", typeof selected.route === "string" ? selected.route : selected.route && selected.route.kind) + '</dl>';
-        if (selected.pending_approval) html += '<section class="agents-section"><h4>Operation awaiting approval</h4><p>' + esc(selected.pending_approval.reason) + '</p><pre>' + esc(text(selected.pending_approval.command || selected.pending_approval.files)) + '</pre><p>' + (selected.pending_approval.kind === "edits" ? 'Starts one continuation with file editing enabled within the assignment scope. The listed files are the edits that prompted this request.' : 'Starts a new attempt with permission for this command once.') + '</p></section>';
-        html += controls(selected, o.objective_id, selected.assignment_id);
-        if (list(selected.allowed_actions).includes("retry")) html += '<p class="agents-note">No provider call was dispatched. Adjust the model or budget, then retry with a new attempt.</p>';
-        if (selected.blocked_reason) html += '<p class="agents-note">' + esc(selected.blocked_reason) + '</p>';
-        if (selected.admission && selected.admission.reason !== selected.blocked_reason) html += '<p class="agents-note">' + esc(selected.admission.reason) + '</p>';
-        html += activity(selected.activity);
-        html += '<div class="agents-detail-grid">' + items("Intended paths", selected.intended_paths, "Scope not recorded") + items("Dependencies", list(selected.depends_on).map((id) => { const dependency = assignments.find((a) => (a.assignment_id === id || a.name === id)); return dependency ? (dependency.title || id) + " · " + id : id; }), "No dependencies recorded") + '</div>';
-        html += items("Changed files", selected.changed_files, "No changed files recorded") + verification(selected.verification);
-        html += '<dl class="agents-facts">' + fact("Worktree", selected.worktree) + fact("Branch", selected.branch) + '</dl>';
-        html += artifacts(selected, o.objective_id, selected.assignment_id);
-        if (selected.result && selected.result.handoff && selected.result.handoff.summary) html += '<section class="agents-section"><h4>Reported findings</h4><p>' + esc(selected.result.handoff.summary) + '</p></section>';
-        if (selected.receipt) html += evidence("Agent receipt", selected.receipt);
-        html += evidence("Assignment evidence", selected);
+      html += controls(o, o.objective_id);
+      if (assignments.length) {
+        html += '<div class="agents-split"><nav class="agents-assignments" aria-label="Assignments"><h3>Assignments</h3>';
+        assignments.forEach((a) => {
+          html += '<button type="button" class="agents-assignment" aria-pressed="' + (a === selected) + '" data-agent-select="' + esc(a.assignment_id) + '" data-objective-id="' + esc(o.objective_id) + '"><strong>' + esc(a.title || a.assignment_id) + '</strong><span>' + status(a.status) + (a.role ? ' · ' + esc(a.role) : '') + '</span><span>' + esc(a.observed_model || a.model || "Model not reported") + ' · ' + cost(a.cost_usd) + (a.cost_complete === false ? ' (incomplete)' : '') + '</span></button>';
+        });
+        html += '</nav><section class="agents-detail" data-assignment-id="' + esc(selected && selected.assignment_id || '') + '" aria-label="Selected assignment">';
+        if (selected) {
+          html += '<div class="agents-detail-heading"><p class="agents-eyebrow">Selected assignment</p>' + stateBadge(selected.status) + '</div><h3>' + esc(selected.title || selected.assignment_id) + '</h3>';
+          if (selected.objective) html += '<p>' + esc(selected.objective) + '</p>';
+          if (selected.parallel_eligible === false) html += '<p class="agents-note">Runs sequentially by plan</p>';
+          if (selected.pending_approval) html += '<section class="agents-section"><h4>Operation awaiting approval</h4><p>' + esc(selected.pending_approval.reason) + '</p><pre>' + esc(text(selected.pending_approval.command || selected.pending_approval.files)) + '</pre><p>' + (selected.pending_approval.kind === "edits" ? 'Starts one continuation with file editing enabled within the assignment scope. The listed files are the edits that prompted this request.' : 'Starts a new attempt with permission for this command once.') + '</p></section>';
+          html += controls(selected, o.objective_id, selected.assignment_id);
+          if (list(selected.allowed_actions).includes("retry")) html += '<p class="agents-note">No provider call was dispatched. Adjust the model or budget, then retry with a new attempt.</p>';
+          if (selected.blocked_reason) html += '<p class="agents-note">' + esc(selected.blocked_reason) + '</p>';
+          if (selected.admission && selected.admission.reason !== selected.blocked_reason) html += '<p class="agents-note">' + esc(selected.admission.reason) + '</p>';
+          html += activity(selected.activity);
+          if (selected.result && selected.result.handoff && selected.result.handoff.summary) html += '<section class="agents-section"><h4>Reported findings</h4><p>' + esc(selected.result.handoff.summary) + '</p></section>';
+          html += items("Changed files", selected.changed_files);
+          if (selected.verification) html += verification(selected.verification);
+          html += artifacts(selected, o.objective_id, selected.assignment_id);
+          html += '<details class="agents-disclosure" data-disclosure="details:' + esc(o.objective_id) + ':' + esc(selected.assignment_id) + '"><summary>Assignment details &amp; evidence</summary><div class="agents-disclosure-body">';
+          if (selected.rationale) html += '<section class="agents-section"><h4>Why this assignment</h4><p>' + esc(selected.rationale) + '</p></section>';
+          html += '<dl class="agents-facts">' + fact("Owner", selected.owner || selected.last_owner) + fact("Model", selected.observed_model || selected.model) + fact("Provider", selected.observed_provider || selected.provider) + fact("Route", typeof selected.route === "string" ? selected.route : selected.route && selected.route.kind) + '</dl>';
+          html += '<div class="agents-detail-grid">' + items("Intended paths", selected.intended_paths, "Scope not recorded") + items("Dependencies", list(selected.depends_on).map((id) => { const dependency = assignments.find((a) => (a.assignment_id === id || a.name === id)); return dependency ? (dependency.title || id) + " · " + id : id; }), "No dependencies recorded") + '</div>';
+          html += '<dl class="agents-facts">' + fact("Worktree", selected.worktree) + fact("Branch", selected.branch) + '</dl>';
+          if (selected.receipt) html += evidence("Agent receipt", selected.receipt);
+          html += evidence("Assignment evidence", selected);
+          html += '</div></details>';
+        }
+        html += '</section></div>';
       }
       const integration = o.integration || {};
-      html += '</section></div><section class="agents-integration"><header><h3>Integration</h3><span class="pill neutral">' + status(integration.status) + '</span></header>';
+      html += '<section class="agents-integration"><header><h3>Integration</h3>' + stateBadge(integration.status) + '</header>';
       if (integration.result && (integration.result.summary || integration.result.error)) html += '<p>' + esc(integration.result.summary || integration.result.error) + '</p>';
-      html += '<div class="agents-detail-grid">' + verification(integration.verification) + items("Conflicts", integration.conflicts) + '</div>';
+      html += items("Conflicts", integration.conflicts);
+      html += '<details class="agents-disclosure" data-disclosure="integration:' + esc(o.objective_id) + '"><summary>Integration details &amp; verification</summary><div class="agents-disclosure-body">';
+      html += verification(integration.verification);
       html += items("Integrated files", integration.result && integration.result.changed_files);
       html += '<dl class="agents-facts">' + fact("Integrated commit", integration.result && integration.result.head_sha) + '</dl>';
       html += '<dl class="agents-facts">' + fact("Integration branch", integration.branch) + fact("Integration worktree", integration.worktree) + '</dl>';
       html += evidence("Integration evidence", integration);
       if (o.receipt) html += evidence("Result receipt", o.receipt);
+      html += '</div></details>';
       html += artifacts({ ...integration, receipt: o.receipt }, o.objective_id);
       html += '</section></section>';
     });
     // Provider readiness remains visible even before the first objective.
-    if (list(snapshot && snapshot.cards).length) html += '<h2>' + esc(snapshot.title || "Provider readiness") + '</h2>';
+    if (list(snapshot && snapshot.cards).length) html += '<details class="agents-disclosure" data-disclosure="providers"' + (!objectives.length ? ' open' : '') + '><summary>Provider readiness</summary><div class="agents-disclosure-body">';
     list(snapshot && snapshot.cards).forEach((card) => {
       html += '<section class="card"><header><h3>' + esc(card.title) + '</h3><span class="pill neutral">' + esc(card.status) + '</span></header><p>' + esc(card.body) + '</p>' + list(card.items).map((v) => '<p>' + esc(text(v)) + '</p>').join("");
       html += '<div class="card-metrics">' + list(card.metrics).map((m) => '<div class="card-metric"><span>' + esc(m.label) + '</span><strong>' + esc(m.value) + '</strong></div>').join("") + '</div>';
@@ -123,13 +149,35 @@
       html += '</section>';
     });
     html += '<div class="actions">' + list(snapshot && snapshot.actions).map((a) => '<button type="button" class="btn" data-readiness-action="' + esc(a.id) + '" data-command="' + esc(a.command || "") + '">' + esc(a.label) + '</button>').join("") + '</div>';
+    if (list(snapshot && snapshot.cards).length) html += '</div></details>';
     return html + '</div>';
+  }
+  function renderCompact(objective) {
+    return '<section class="agents-chat-card"><header><span class="agents-eyebrow">Agent team</span>' + stateBadge(objective.status) + '</header><h3>' + esc(objective.objective) + '</h3>' + progress(objective) + '<div class="agents-chat-footer"><span>Cost ' + cost(objective.cost_usd) + (objective.cost_complete !== true ? ' · incomplete' : '') + '</span><button type="button" class="btn" data-open-agent-objective="' + esc(objective.objective_id) + '">Open in Agents</button></div></section>';
   }
   function mount(element, snapshot, options) {
     options = options || {};
-    const openEvidence = new Set(Array.from(element.querySelectorAll(".agents-evidence[open]")).map((detail) => (detail.closest("[data-objective-id]") || {}).dataset?.objectiveId + ":" + detail.querySelector("summary").textContent));
-    element.innerHTML = renderHtml(snapshot, options.selection);
-    element.querySelectorAll(".agents-evidence").forEach((detail) => { detail.open = openEvidence.has((detail.closest("[data-objective-id]") || {}).dataset?.objectiveId + ":" + detail.querySelector("summary").textContent); });
+    const projection = JSON.stringify([snapshot, options.selection]);
+    const html = renderHtml(snapshot, options.selection);
+    if (element._agentsProjection === projection && element.querySelector('.agents-workspace')) return;
+    const detailKey = (detail) => detail.dataset.disclosure || JSON.stringify([
+      detail.closest("[data-objective-id]")?.dataset.objectiveId,
+      detail.closest("[data-assignment-id]")?.dataset.assignmentId,
+      detail.querySelector("summary").textContent,
+    ]);
+    const expanded = element._agentsExpanded || new Map();
+    element.querySelectorAll("details").forEach((detail) => expanded.set(detailKey(detail), detail.open));
+    const identity = (node) => JSON.stringify([node.tagName, node.textContent, { ...node.dataset }, node.closest("[data-disclosure]")?.dataset.disclosure]);
+    const active = element.contains(document.activeElement) ? identity(document.activeElement) : null;
+    element.innerHTML = html;
+    element._agentsProjection = projection;
+    element._agentsExpanded = expanded;
+    const detail = element.querySelector('.agents-detail');
+    const selectedKey = detail ? JSON.stringify([detail.closest('[data-objective-id]').dataset.objectiveId, detail.dataset.assignmentId]) : null;
+    if (detail && selectedKey !== element._agentsSelected) detail.classList.add('agents-selection-enter');
+    element._agentsSelected = selectedKey;
+    element.querySelectorAll("details").forEach((detail) => { if (expanded.has(detailKey(detail))) detail.open = expanded.get(detailKey(detail)); });
+    if (active) Array.from(element.querySelectorAll("button, summary")).find((node) => identity(node) === active)?.focus({ preventScroll: true });
     element.querySelectorAll("[data-readiness-action]").forEach((button) => { button.onclick = () => options.onAction && options.onAction(button.dataset.readinessAction, button.dataset.command); });
     element.querySelectorAll("[data-objective-select]").forEach((button) => { button.onclick = () => options.onSelect && options.onSelect({ objectiveId: button.dataset.objectiveSelect }); });
     element.querySelectorAll("[data-agent-worktree]").forEach((button) => { button.onclick = () => options.onOpenWorktree && options.onOpenWorktree({ objective_id: button.dataset.objectiveId, assignment_id: button.dataset.assignmentId }); });
@@ -164,5 +212,5 @@
       if (options.onControl) options.onControl(payload);
     }; });
   }
-  global.OPaiAgentsWorkspace = { renderHtml, mount };
+  global.OPaiAgentsWorkspace = { renderHtml, renderCompact, mount };
 })(typeof window !== "undefined" ? window : globalThis);

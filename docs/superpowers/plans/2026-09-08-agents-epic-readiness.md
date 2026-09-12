@@ -108,6 +108,14 @@ The user explicitly deferred extended testing and provider benchmarks again. Fin
 - Show queue reasons, an enabled-state indicator, queued-work execution and canonical worktree-opening controls.
 - Surface executor failures after the initial objective acknowledgement and bound international-text worker packets by encoded size.
 
+## September 13 UI refinement
+
+- Give artifact previews an opaque, centered dialog with a dimmed backdrop, a fixed header, scrollable diff, accessible name and restored focus on close.
+- Wrap both multi-agent picker descriptions, including the complete paid/account quota consent, and bound the picker to the available viewport.
+- Keep status, cost, live activity and immediate actions visible. Move budget/routing controls and technical evidence into named disclosures; preserve their state and keyboard focus across journal refreshes.
+- Keep new objectives in chat with a compact live card linking to the full workspace. Add responsive assignment navigation, quiet state indicators and reduced-motion-aware transitions. Refreshes do not replay entrance animations.
+- Verification: 17 focused Chromium checks passed, followed by 5 targeted checks after the final layout/animation refinements; 9 JavaScript unit checks and syntax/design-token/diff checks passed. Browser checks cover opaque centered dialogs, hostile diff text, narrow layout, complete consent, disclosure/focus retention, current revision fences and live chat updates. Extended backend, packaging and provider qualification remains deferred.
+
 ## Activation
 
 Use a build containing PR #842. The header's **Agents** button opens existing objectives. Open the composer's **Mode** picker (the button showing Auto, Manual or the current permission mode), enable **Allow multiple agents mode**, then send an objective. The mode button includes **Agents** while enabled. The toggle persists; permission mode and model selection remain separate. Existing objectives are managed from the Agents workspace.

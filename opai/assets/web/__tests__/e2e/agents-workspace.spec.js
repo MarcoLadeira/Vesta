@@ -7,6 +7,7 @@ test('blocked retry carries its run fence and removing a cap sends null', async 
   const recorded = { ...objective, allowed_actions: [], assignments: [{ ...objective.assignments[0], run_id: 'blocked-run', budget_usd: '1', allowed_actions: ['retry', 'budget', 'reroute'] }] };
   const diagnostics = await openApp(page, { dashboards: { agents: { objectives: [recorded], cards: [] } } });
   await openNav(page, 'Agents');
+  await page.getByText('Assignment settings', { exact: true }).click();
   await page.getByRole('button', { name: 'Remove cap', exact: true }).click();
   await page.getByRole('button', { name: 'Retry blocked attempt', exact: true }).click();
   expect(await page.evaluate(() => window.__mock.objectiveControls)).toEqual([
@@ -21,12 +22,12 @@ test('live objective updates continue after acknowledgement and reject older rev
   await expect(page.locator('#modeBtn')).toContainText('Agents');
   const id = await sendPrompt(page);
   await page.evaluate(({ o, id }) => window.__mock.emitObjective({ requestId: id, workspaceRoot: '/demo', objective: { ...o, revision: 1 } }), { o: objective, id });
-  await expect(page.locator('.agents-objective')).toContainText(objective.objective);
+  await expect(page.locator('.agents-chat-card')).toContainText(objective.objective);
   await page.evaluate(({ o, id }) => {
     window.__mock.emitObjective({ requestId: id, workspaceRoot: '/demo', objective: { ...o, revision: 3, cost_usd: '0.42' } });
     window.__mock.emitObjective({ requestId: id, workspaceRoot: '/demo', objective: { ...o, revision: 2, cost_usd: '0.01' } });
   }, { o: objective, id });
-  await expect(page.locator('.agents-metrics')).toContainText('$0.42');
+  await expect(page.locator('.agents-chat-card')).toContainText('$0.42');
   expect(await page.evaluate(() => window.__opai.state.busy)).toBe(false);
   expectNoFatalErrors(diagnostics);
 });
@@ -48,7 +49,7 @@ test('objective selection preserves canonical worktree and receipt targets', asy
   expectNoFatalErrors(diagnostics);
 });
 
-test('artifact inspection sends canonical IDs and displays hostile diffs as inert text', async ({ page }) => {
+test('artifact inspection is opaque, centered, keyboard accessible and keeps hostile diffs inert', async ({ page }, testInfo) => {
   const recorded = { ...objective, assignments: [{ ...objective.assignments[0], worktree: '/workers/a', result: { git_evidence: { base_sha: 'a'.repeat(40), head_sha: 'b'.repeat(40) }, url: 'https://evil.invalid' } }] };
   const diagnostics = await openApp(page, { dashboards: { agents: { objectives: [recorded], cards: [] } } });
   await page.evaluate(() => {
@@ -62,16 +63,87 @@ test('artifact inspection sends canonical IDs and displays hostile diffs as iner
   await page.getByRole('button', { name: 'Inspect diff' }).click();
   expect(await page.evaluate(() => window.__mock.artifactRequest)).toEqual({ objective_id: 'obj-1', assignment_id: 'a-1', kind: 'diff' });
   const dialog = page.getByRole('dialog');
+  await expect(dialog).toHaveAccessibleName('Recorded worker changes');
+  const surface = await dialog.evaluate((node) => {
+    const bounds = node.getBoundingClientRect();
+    return { background: getComputedStyle(node).backgroundColor, left: bounds.left, right: bounds.right, top: bounds.top, bottom: bounds.bottom, width: innerWidth, height: innerHeight };
+  });
+  expect(surface.background).toMatch(/^rgb\(/);
+  expect(surface.left).toBeGreaterThan(0);
+  expect(surface.top).toBeGreaterThan(0);
+  expect(surface.right).toBeLessThan(surface.width);
+  expect(surface.bottom).toBeLessThan(surface.height);
+  expect(Math.abs(surface.left - (surface.width - surface.right))).toBeLessThan(2);
   await expect(dialog).toContainText('<img src=x onerror="window.artifactExecuted=true">');
   await expect(dialog).toContainText('Preview truncated');
   await expect(dialog.locator('img')).toHaveCount(0);
   expect(await page.evaluate(() => window.artifactExecuted)).toBeUndefined();
-  await dialog.getByRole('button', { name: 'Close' }).click();
+  await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('agents-diff.png') });
+  await page.setViewportSize({ width: 520, height: 720 });
+  const narrow = await dialog.boundingBox();
+  expect(narrow.x).toBeGreaterThanOrEqual(0);
+  expect(narrow.x + narrow.width).toBeLessThanOrEqual(520);
+  await expect(dialog.getByRole('button', { name: 'Close' })).toBeVisible();
+  await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Inspect diff' })).toBeFocused();
   await page.getByRole('button', { name: 'Find existing PR' }).click();
   expect(await page.evaluate(() => window.__mock.artifactRequest.kind)).toBe('pr');
   expectNoFatalErrors(diagnostics);
 });
+
+test('settings stay collapsed until needed and preserve focus and revision fences on refresh', async ({ page }) => {
+  const recorded = { ...objective, revision: 1, allowed_actions: ['pause', 'budget', 'request_review'] };
+  await openApp(page, { dashboards: { agents: { objectives: [recorded], cards: [] } } });
+  await openNav(page, 'Agents');
+  await expect(page.getByLabel('Budget in USD')).toBeHidden();
+  const settings = page.getByText('Objective settings', { exact: true });
+  await settings.click();
+  await settings.focus();
+  await page.evaluate((o) => window.__mock.emitObjectiveControl({ ok: true, objective: { ...o, revision: 2 }, workspaceRoot: '/demo' }), recorded);
+  await expect(settings).toBeFocused();
+  await expect(page.getByLabel('Budget in USD')).toBeVisible();
+  await page.getByRole('button', { name: 'Request review' }).click();
+  expect(await page.evaluate(() => window.__mock.objectiveControls.at(-1))).toEqual({ objective_id: 'obj-1', action: 'request_review', value: { revision: 2 } });
+});
+
+test('chat keeps a compact live summary linked to the canonical objective', async ({ page }, testInfo) => {
+  await openApp(page, { boot: { prefs: { multiAgentEnabled: true } }, dashboards: { agents: { objectives: [objective], cards: [] } } });
+  const id = await sendPrompt(page);
+  await page.evaluate(({ o, id }) => window.__mock.emitObjective({ requestId: id, objective: { ...o, revision: 1 }, workspaceRoot: '/demo' }), { o: objective, id });
+  expect(await page.evaluate(() => window.__opai.state.view)).toBe('chat');
+  const card = page.locator('.agents-chat-card');
+  await expect(card).toBeVisible();
+  await expect(card.locator('input, .agents-split')).toHaveCount(0);
+  await page.evaluate(({ o, id }) => window.__mock.emitObjective({ requestId: id, objective: { ...o, revision: 2, cost_usd: '0.42', status: 'paused' }, workspaceRoot: '/demo' }), { o: objective, id });
+  await expect(card).toContainText('Paused');
+  await expect(card).toContainText('$0.42');
+  expect(await card.evaluate((node) => getComputedStyle(node).animationName)).toBe('none');
+  await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('agents-chat.png') });
+  await card.getByRole('button', { name: 'Open in Agents' }).click();
+  await expect(page.locator('.agents-objective h2')).toHaveText(objective.objective);
+});
+
+for (const width of [1440, 520]) {
+  test(`agent picker exposes complete consent at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 1000 });
+    await openApp(page, { boot: { prefs: { multiAgentEnabled: true, showPanel: false } } });
+    await page.locator('#modeBtn').click();
+    for (const selector of ['[data-multi-agent]', '[data-agents-cloud]']) {
+      const row = page.locator('#modePop ' + selector);
+      await row.scrollIntoViewIfNeeded();
+      const desc = row.locator('.cpop-desc');
+      const layout = await desc.evaluate((node) => ({ width: node.clientWidth, contentWidth: node.scrollWidth, height: node.clientHeight, contentHeight: node.scrollHeight, wrap: getComputedStyle(node).whiteSpace }));
+      expect(layout.wrap).toBe('normal');
+      expect(layout.contentWidth).toBeLessThanOrEqual(layout.width + 1);
+      expect(layout.contentHeight).toBeLessThanOrEqual(layout.height + 1);
+    }
+    await expect(page.locator('[data-agents-cloud]')).toContainText('paid or account quota. Applies to the next objective only.');
+    const bounds = await page.locator('#modePop').boundingBox();
+    expect(bounds.y).toBeGreaterThanOrEqual(0);
+    await page.screenshot({ animations: 'disabled', path: testInfo.outputPath(`agents-picker-${width}.png`) });
+  });
+}
 
 test('approve once and request review carry canonical request and revision fences', async ({ page }) => {
   const recorded = { ...objective, revision: 8, allowed_actions: ['request_review'], assignments: [{ ...objective.assignments[0], allowed_actions: ['approve'], pending_approval: { request_id: 'approval-1', kind: 'command', command: ['python', 'check.py'], reason: 'Approval required' } }] };
@@ -79,6 +151,7 @@ test('approve once and request review carry canonical request and revision fence
   await openNav(page, 'Agents');
   await expect(page.locator('.agents-detail')).toContainText('check.py');
   await page.getByRole('button', { name: 'Approve once' }).click();
+  await page.getByText('Objective settings', { exact: true }).click();
   await page.getByRole('button', { name: 'Request review' }).click();
   expect(await page.evaluate(() => window.__mock.objectiveControls)).toEqual([
     { objective_id: 'obj-1', assignment_id: 'a-1', action: 'approve', value: { request_id: 'approval-1' } },
@@ -157,8 +230,10 @@ test('canonical recovery renders with provider readiness and controls use journa
   await expect(page.locator('#dashPage')).toContainText('Not reported');
   await page.locator('[data-agent-action="pause"]').click();
   expect(await page.evaluate(() => window.__mock.objectiveControls)).toEqual([{ objective_id: 'obj-1', action: 'pause' }]);
+  await page.getByText('Objective settings', { exact: true }).click();
   await page.getByLabel('Budget in USD').fill('7.5');
   await page.getByRole('button', { name: 'Set budget', exact: true }).click();
+  await page.getByText('Assignment settings', { exact: true }).click();
   await page.getByLabel('Assignment model').fill('local-coder');
   await page.locator('[data-agent-action="reroute"]').click();
   expect(await page.evaluate(() => window.__mock.objectiveControls.slice(1))).toEqual([{ objective_id: 'obj-1', action: 'budget', value: '7.5' }, { objective_id: 'obj-1', assignment_id: 'a-1', action: 'reroute', value: 'local-coder' }]);
@@ -178,8 +253,8 @@ test('objective signal releases chat only for the active request and workspace',
   await page.evaluate(({ o, id }) => window.__mock.emitObjective({ requestId: id, objective: o, workspaceRoot: '/other' }), { o: objective, id });
   expect(await page.evaluate(() => window.__opai.state.busy)).toBe(true);
   await page.evaluate(({ o, id }) => window.__mock.emitObjective({ requestId: id, objective: o, workspaceRoot: '/demo' }), { o: objective, id });
-  await expect(page.locator('#dashPage')).toContainText('Repair independent regressions');
-  expect(await page.evaluate(() => ({ busy: window.__opai.state.busy, view: window.__opai.state.view }))).toEqual({ busy: false, view: 'agents' });
+  await expect(page.locator('.agents-chat-card')).toContainText('Repair independent regressions');
+  expect(await page.evaluate(() => ({ busy: window.__opai.state.busy, view: window.__opai.state.view }))).toEqual({ busy: false, view: 'chat' });
   await page.evaluate(() => window.__mock.switchWorkspace('/other'));
   await expect.poll(() => page.evaluate(() => window.__opai.state.boot.workspace.root)).toBe('/other');
   expect(await page.evaluate(() => window.__opai.state.multiAgentEnabled)).toBe(false);
@@ -190,6 +265,7 @@ test('older objective and dashboard responses cannot replace a newer request or 
   await openApp(page, { boot: { prefs: { multiAgentEnabled: true } }, dashboards: { agents: { objectives: [objective] } } });
   const oldId = await sendPrompt(page, 'First objective');
   await page.evaluate(({ o, id }) => window.__mock.emitObjective({ requestId: id, objective: o, workspaceRoot: '/demo' }), { o: objective, id: oldId });
+  await openNav(page, 'Agents');
   await expect(page.locator('#dashPage')).toContainText(objective.objective);
   const oldPoll = await page.evaluate(() => window.__mock.dashboardRequests.at(-1).requestId);
   await openNav(page, 'Chat');
@@ -216,7 +292,7 @@ for (const viewport of [{ width: 1440, height: 1080 }, { width: 520, height: 100
     await expect(page.locator('.agents-detail')).toContainText('Checking API response compatibility');
     await expect(page.locator('.agents-evidence').first()).not.toHaveAttribute('open');
     expect(await page.locator('.agents-workspace').evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
-    await page.screenshot({ path: testInfo.outputPath(`agents-${viewport.width}.png`), fullPage: true });
+    await page.screenshot({ animations: 'disabled', path: testInfo.outputPath(`agents-${viewport.width}.png`), fullPage: true });
     await page.locator('[data-agent-select="a-2"]').click();
     await expect(page.locator('.agents-detail h3')).toHaveText('Cover response boundaries');
     await expect(page.locator('.agents-detail')).toContainText('API repair · a-1');

@@ -4202,7 +4202,9 @@ function onDashboardReady(json) {
   state.dashPaint(JSON.stringify(d.data));
 }
 function paintAgentsWorkspace() {
+  paintAgentChatCards();
   if (state.view !== "agents" || !state.agentsSnapshot) return;
+  if (document.querySelector('.agents-artifact-dialog[open]')) return;
   // Keep a draft control value and keyboard focus stable during polling.
   if (document.activeElement && document.activeElement.matches("[data-agent-value]") && $("#dashPage").contains(document.activeElement)) return;
   window.OPaiAgentsWorkspace.mount($("#dashPage"), state.agentsSnapshot, {
@@ -4218,19 +4220,27 @@ function paintAgentsWorkspace() {
         if (!result.ok) { toast(safeStateReason(result.error, "No matching artifact is available.")); return; }
         if (result.workspaceRoot !== workspaceRoot || result.kind !== payload.kind || result.objective_id !== payload.objective_id || (result.assignment_id || "") !== (payload.assignment_id || "")) return;
         const dialog = document.createElement("dialog");
-        dialog.className = "card agents-artifact-dialog";
-        dialog.style.cssText = "width:min(960px,90vw);max-height:85vh;overflow:auto";
+        dialog.className = "agents-artifact-dialog";
+        const returnFocus = document.activeElement;
+        const header = document.createElement("header");
         const title = document.createElement("h3");
-        title.textContent = result.summary;
+        title.id = "agents-artifact-title";
+        title.textContent = result.summary || "Recorded changes";
+        dialog.setAttribute("aria-labelledby", title.id);
         const close = document.createElement("button");
-        close.className = "btn"; close.textContent = "Close"; close.onclick = () => dialog.close();
+        close.type = "button"; close.className = "btn"; close.textContent = "Close"; close.onclick = () => dialog.close();
         const description = document.createElement("p");
         description.textContent = "Base " + result.base_sha + " · Head " + result.head_sha + (result.truncated ? " · Preview truncated; open the worktree for the full diff." : "");
         const preview = document.createElement("pre");
-        preview.style.cssText = "white-space:pre-wrap;overflow-wrap:anywhere";
+        preview.tabIndex = 0;
+        preview.setAttribute("aria-label", "Recorded diff");
         preview.textContent = result.text || "No changes in this recorded diff.";
-        dialog.append(title, close, description, preview);
-        dialog.onclose = () => dialog.remove();
+        header.append(title, close);
+        dialog.append(header, description, preview);
+        dialog.onclose = () => {
+          dialog.remove();
+          if (returnFocus && returnFocus.isConnected) returnFocus.focus({ preventScroll: true });
+        };
         document.body.append(dialog); dialog.showModal(); close.focus();
       });
     },
@@ -4246,6 +4256,25 @@ function paintAgentsWorkspace() {
       if (bridge.controlObjective) bridge.controlObjective(JSON.stringify(payload));
       else toast("Objective controls are unavailable in this host.");
     },
+  });
+}
+function paintAgentChatCards() {
+  if (!window.OPaiAgentsWorkspace) return;
+  document.querySelectorAll("[data-agent-chat-objective]").forEach((element) => {
+    const objective = ((state.agentsSnapshot || {}).objectives || []).find((o) => o.objective_id === element.dataset.agentChatObjective);
+    if (!objective) return;
+    const html = window.OPaiAgentsWorkspace.renderCompact(objective);
+    if (element._agentsHtml === html) return;
+    const focused = element.contains(document.activeElement);
+    element.innerHTML = html;
+    element._agentsHtml = html;
+    const open = element.querySelector("[data-open-agent-objective]");
+    open.onclick = () => {
+      state.agentsSelection = { objectiveId: objective.objective_id };
+      switchView("agents");
+      paintAgentsWorkspace();
+    };
+    if (focused) open.focus({ preventScroll: true });
   });
 }
 function objectiveRevision(objective) {
@@ -4275,10 +4304,13 @@ function onObjectiveReady(json) {
   state.currentRequest = null;
   state.message = null;
   $("#statusStrip").hidden = true;
-  if (state.pending) state.pending.innerHTML = '<div class="card">Objective opened in Agents.</div>';
+  if (state.pending) {
+    state.pending.innerHTML = '';
+    state.pending.dataset.agentChatObjective = d.objective.objective_id;
+    paintAgentChatCards();
+  }
   state.pending = null;
   setBusy(false);
-  switchView("agents");
   paintAgentsWorkspace();
 }
 function onObjectiveControlReady(json) {
