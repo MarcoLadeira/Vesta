@@ -29,9 +29,9 @@ Architecture: extend the existing SQLite runtime journal with objective and assi
 
 Current issue-by-issue coverage and remaining product work: [2026-09-08 assessment](2026-09-08-agents-epic-readiness.md).
 
-Testing resumed at the user's subsequent request on 2026-09-08. Local runtime, desktop, packaging-contract and synthetic benchmark evidence is recorded in the assessment above. Provider-backed benchmarks, native packaged execution, remaining product controls and supervisor-loss recovery still block closure. Keep PR #842 draft and #821 open.
+Testing resumed at the user's subsequent request on 2026-09-08. Local runtime, desktop, packaging-contract and synthetic benchmark evidence is recorded in the assessment above. Provider-backed benchmarks and platform qualification still gate closure. Keep PR #842 draft and #821 open until the current readiness assessment records passing evidence.
 
-Expired owners are fenced and surfaced as needing attention. A returning original owner can acknowledge termination against the interrupted fence, retain its evidence and release capacity without claiming success. If the owner never returns, capacity remains reserved; automatic orphan release and provider-operation replay are unavailable. Recovery after complete supervisor loss still needs a proven-termination path before that part of the epic is complete.
+Expired owners are fenced and surfaced as needing attention. Independent guardians retain process custody and host capacity after supervisor loss. Restart consumes matching durable termination proof, preserves interrupted work and releases the matching lease without replaying a provider operation. Missing or insufficient proof retains ownership. Platform-specific descendant containment must be qualified before its proof is accepted.
 
 ## Validation and delivery constraints
 

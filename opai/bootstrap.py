@@ -110,6 +110,16 @@ def _packaged_runtime() -> bool:
     return bool(getattr(sys, "frozen", False) or "__compiled__" in globals())
 
 
+def _runtime_executable() -> str:
+    """Resolve the executable which understands OPai's internal entry points."""
+    # Nuitka standalone sets sys.executable to an unshipped python.exe unless
+    # its multiprocessing plugin changes it. Its argv[0] is the native entry.
+    # Normal Python and PyInstaller retain their interpreter/bootloader path.
+    if "__compiled__" in globals():
+        return str(Path(sys.argv[0]).resolve())
+    return sys.executable
+
+
 def _embedded_build_exists(root: Path) -> bool:
     return any(
         candidate.is_file() and not candidate.is_symlink()

@@ -2,7 +2,7 @@
 
 Scope: source review and local qualification against the complete issue, updated 2026-09-10. Testing resumed at the user's request. No provider calls were made.
 
-Overall judgment: approximately 90% toward epic closure. This is an engineering estimate, not a measured completion score or release approval. The PR remains draft until the required provider-backed comparisons and platform qualification are complete.
+Merge readiness: pending the provider-backed comparisons, platform qualification and required hosted checks listed below. The PR remains draft; implementation coverage alone does not close the epic.
 
 ## Local qualification
 
@@ -71,10 +71,31 @@ A long-running combined test was interrupted for diagnosis. Its isolated integra
 
 GitHub Actions attempted validation of `01d78ff`, but every required job failed before starting any steps. GitHub reported failed account payments or an insufficient spending limit; hosted CI is therefore blocked by account billing, not a test result. Required hosted checks must run after that account issue is resolved.
 
+## September 11 merge qualification
+
+- Pre-dispatch routing/budget denials now expose model/budget adjustment and a run-fenced retry. Only known-zero, unchanged attempts with sufficient termination evidence qualify. A retry preserves history and creates a fresh run; pipeline output cannot promote itself to pre-dispatch authority. Desktop and CLI share the control. The UI can explicitly remove a dollar cap.
+- Integration now distinguishes Git checkout line-ending normalization from actual conflicting edits. A CRLF checkout is accepted; an independent user edit still blocks integration.
+- Provider qualification now has six behavioral fixture classes, paired identical assignments at concurrency one and two, counterbalanced order, retained worktrees and canonical verification/cost/conflict evidence. Static, whitespace and independent behavioral checks run on the integrated result. Baselines must fail and reference implementations must pass. The harness discovered the CRLF integration defect during local validation.
+- Provider benchmarks remain unexecuted pending explicit account/cloud authorization. The prepared Claude Sonnet plan permits 12 objective runs, up to 30 assignment attempts, two concurrent agents and a five-minute timeout per objective. Account-quota mode has no enforceable dollar cap, preserves unknown costs and cannot support dollar-savings claims. Capped runs stop if cost coverage becomes unknown. Use a short retained workspace path on Windows; the report can live separately.
+- Recovery/backend/routing/bridge/CLI plus initial benchmark validation: 77 passed. Agents JavaScript: 9 passed. Agents Chromium: 13 passed after updating the budget selector to distinguish Set budget from Remove cap. Dedicated real Git CRLF/conflict regressions: 2 passed. These runs overlap prior coverage.
+- Hosted checks for `6b3b367` again failed before any job steps: GitHub reports failed account payments or an insufficient spending limit. This needs an account-side resolution before required CI can provide evidence.
+
+## September 12 implementation priority
+
+The user explicitly deferred extended testing and provider benchmarks again. Finish implementation and retain qualification artifacts for a later pass; do not interpret this deferral as passing release evidence.
+
+- Linux guardian custody now uses a dedicated child subreaper. It drains adopted descendants across setsid/double-fork boundaries and requires kernel child exhaustion before releasing capacity. Historical process-group proofs remain visible but cannot authorize recovery. Windows continues using retained job objects. Other POSIX platforms, including macOS, cannot start managed workers until equivalent containment is implemented.
+- A real Alpine/Linux guest reproduced the old defect: termination was reported while a setsid descendant remained alive. The replacement implementation's final Linux qualification is deferred.
+- Guardians and their gated children now start from the trusted runtime directory with a pinned Python import path. Repository modules cannot replace startup imports before custody is established. Actual assignment commands retain their intended worktree.
+- Guardian setup failures before any child is spawned now return execution-bound, known-zero pre-dispatch failure evidence. This permits the existing explicit retry flow without trapping capacity for a process that never existed. Failure to confirm custody after dispatch still retains ownership.
+- The native build now uses explicit output handles and closed stdin, exposes compiler options, converts the Windows icon through pinned Qt, and checks expected executable outputs. Nuitka's actual packaged executable is used for internal child launches instead of its nonexistent Python path.
+- A native GUI/CLI bundle was produced with the pinned toolchain, but child-launch smoke exposed the Nuitka executable bug. Source fixes are present; the rebuilt native smoke, GUI smoke and latest platform regression pass remain deferred. The produced bundle is an untagged dirty-tree rehearsal, not a release artifact or exact-current-commit qualification.
+- Provider benchmark harness validation completed with 16 local checks before the testing pause; provider calls remain unexecuted. The final implementation batch receives static checks only under the latest instruction.
+
 ## Remaining before epic closure
 
 1. Run the required six workload classes with real providers in sequential and concurrent modes, measuring verified outcomes, wall time, cost, conflicts and intervention. Existing synthetic results establish orchestration behavior only. Provider/cloud use needs explicit authorization under the repository's session rules.
-2. Rehearse a native packaged executable and validate POSIX process-tree behavior on that platform. Windows subprocess tests and frozen-entry contract tests do not substitute for these runs. The current interpreter lacks the pinned Nuitka native build toolchain.
+2. Rehearse a native packaged executable and validate POSIX process-tree behavior on that platform. Windows subprocess tests and frozen-entry contract tests do not substitute for these runs. A pinned isolated PySide6/Nuitka toolchain is now installed for the native rehearsal; qualification results must be recorded before closing this gate.
 3. Resolve any findings from those runs and obtain release evidence before marking the epic complete. Simultaneous guardian loss without durable proof intentionally retains ownership; it never fabricates termination. Direct paid API and tool-less local adapters are visibly excluded where the underlying dispatch adapter cannot support the assignment.
 
 ## Improvements in this pass

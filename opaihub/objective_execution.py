@@ -217,10 +217,10 @@ def scope_violations(changed: list[str], intended: list[str]) -> list[str]:
 
 
 def worker_command(request: Path, response: Path) -> list[str]:
-    from opai.bootstrap import _packaged_runtime
+    from opai.bootstrap import _packaged_runtime, _runtime_executable
 
     command = (
-        [sys.executable, "--opai-objective-worker"]
+        [_runtime_executable(), "--opai-objective-worker"]
         if _packaged_runtime()
         else [sys.executable, "-m", "opaihub.objective_worker"]
     )
@@ -256,13 +256,13 @@ def run_worker_process(
     env = dict(os.environ)
     env["OPAI_COMMAND_CONSENT_DIR"] = str(directory / "consent")
     source_root = str(Path(__file__).resolve().parents[1])
-    env["PYTHONPATH"] = source_root + os.pathsep + env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = source_root
     command = guardian_command(request, response)
     tracker = CancellationTracker(Path(packet["authority_root"]), packet["run_id"])
     with (directory / "worker.log").open("wb") as log:
         proc = subprocess.Popen(
             command,
-            cwd=packet["worktree"],
+            cwd=source_root,
             env=env,
             stdin=subprocess.PIPE,
             stdout=log,
@@ -320,7 +320,12 @@ def run_worker_process(
         if guardian.get("tree_terminated") is not True:
             raise UnconfirmedTerminationError("Worker tree termination is unconfirmed")
         proof_path = directory / "termination.json"
-        if guardian.get("reason") != "cancelled-before-spawn":
+        if guardian.get("reason") in {"cancelled-before-spawn", "failed-before-spawn"}:
+            if guardian.get("execution_id") != execution_id:
+                raise UnconfirmedTerminationError(
+                    "Worker startup evidence does not match execution"
+                )
+        else:
             try:
                 proof = json.loads(proof_path.read_text(encoding="utf-8"))
             except (OSError, ValueError) as exc:

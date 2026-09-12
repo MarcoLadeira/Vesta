@@ -1598,9 +1598,15 @@ class ObjectiveStore:
     @staticmethod
     def _proven_terminated(custody):
         proof = custody.get("termination_proof") or {}
-        return proof.get("tree_terminated") is True and all(
-            proof.get(key) == custody.get(key)
-            for key in ("execution_id", "owner", "dispatch_fence", "tree_kind")
+        # Historical process-group proofs cannot account for setsid descendants.
+        # Preserve that evidence, but never use it to release ownership/retry.
+        return (
+            custody.get("tree_kind") in {"windows-job", "linux-subreaper"}
+            and proof.get("tree_terminated") is True
+            and all(
+                proof.get(key) == custody.get(key)
+                for key in ("execution_id", "owner", "dispatch_fence", "tree_kind")
+            )
         )
 
     def _execution_target(
@@ -1654,7 +1660,7 @@ class ObjectiveStore:
             or guardian_pid <= 0
             or type(worker_pid) is not int
             or worker_pid <= 0
-            or tree_kind not in {"windows-job", "posix-group"}
+            or tree_kind not in {"windows-job", "linux-subreaper"}
         ):
             raise ValueError("Invalid process custody")
         phase_lease = None

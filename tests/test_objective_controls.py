@@ -341,13 +341,13 @@ def test_proof_before_expiration_is_consumed_only_after_owner_loss(tmp_path):
         **identity,
         guardian_pid=100,
         worker_pid=101,
-        tree_kind="posix-group",
+        tree_kind="linux-subreaper",
     )
     proof = {
         "execution_id": "execution",
         "owner": "worker",
         "dispatch_fence": row["fence"],
-        "tree_kind": "posix-group",
+        "tree_kind": "linux-subreaper",
         "tree_terminated": True,
     }
     store.record_execution_termination(
@@ -356,3 +356,18 @@ def test_proof_before_expiration_is_consumed_only_after_owner_loss(tmp_path):
     assert store.snapshot(oid)["assignments"][0]["owner"] == "worker"
     store.recover_expired(oid, now="9999-01-01T00:00:00+00:00")
     assert store.snapshot(oid)["assignments"][0]["owner"] == ""
+
+
+def test_legacy_process_group_proof_cannot_release_custody():
+    from opaihub.agent_objectives import StaleWriterError
+
+    custody = {
+        "execution_id": "old-execution",
+        "owner": "old-worker",
+        "dispatch_fence": 1,
+        "tree_kind": "posix-group",
+    }
+    custody["termination_proof"] = {**custody, "tree_terminated": True}
+    assert not ObjectiveStore._proven_terminated(custody)
+    with pytest.raises(StaleWriterError):
+        ObjectiveStore._require_terminated({"execution": custody})

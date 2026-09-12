@@ -66,11 +66,16 @@ def fixture_home(tmp_path, monkeypatch):
     return home
 
 
-def fixture_tree(tmp_path, *, root_exits=False):
+def fixture_tree(tmp_path, *, root_exits=False, escape=None):
     leaf = tmp_path / "leaf.py"
     leaf.write_text(
         "import os,time\nfrom pathlib import Path\n"
-        f"p=Path({str(tmp_path / 'leaf.pid')!r}); p.write_text(str(os.getpid()))\n"
+        + (
+            "if os.fork(): os._exit(0)\nos.setsid()\nif os.fork(): os._exit(0)\n"
+            if escape == "double-fork"
+            else ""
+        )
+        + f"p=Path({str(tmp_path / 'leaf.pid')!r}); p.write_text(str(os.getpid()))\n"
         f"beat=Path({str(tmp_path / 'leaf.beat')!r})\n"
         "while True:\n with beat.open('a') as f: f.write('.')\n time.sleep(.02)\n"
     )
@@ -79,7 +84,13 @@ def fixture_tree(tmp_path, *, root_exits=False):
         "import os,subprocess,sys,time\nfrom pathlib import Path\n"
         "from opaihub.process_tree import isolated_group_kwargs\n"
         f"Path({str(tmp_path / 'provider.pid')!r}).write_text(str(os.getpid()))\n"
-        f"p=subprocess.Popen([sys.executable,{str(leaf)!r}], **isolated_group_kwargs())\n"
+        f"p=subprocess.Popen([sys.executable,{str(leaf)!r}], **"
+        + (
+            "{'start_new_session':True}"
+            if escape == "setsid"
+            else "isolated_group_kwargs()"
+        )
+        + ")\n"
         f"while not Path({str(tmp_path / 'leaf.beat')!r}).exists(): time.sleep(.02)\n"
         + ("" if root_exits else "time.sleep(120)\n")
     )
@@ -95,8 +106,46 @@ def packet_for(tmp_path):
     }
 
 
-def test_normal_exit_kills_descendants_before_return(tmp_path, fixture_home):
-    argv = fixture_tree(tmp_path, root_exits=True)
+def test_guardian_reports_failed_setup_without_claiming_child_custody(
+    tmp_path, monkeypatch
+):
+    from contextlib import nullcontext
+    from opaihub import objective_guardian
+
+    request, response = tmp_path / "request.json", tmp_path / "response.json"
+    request.write_text(json.dumps(packet_for(tmp_path)))
+    (tmp_path / "launch.json").write_text(
+        json.dumps({"execution_id": "setup-failure", "argv": None})
+    )
+    monkeypatch.setattr(objective_guardian, "host_slot", lambda *_: nullcontext())
+    monkeypatch.setattr(objective_guardian.sys, "stdin", None)
+    monkeypatch.setattr(
+        objective_guardian,
+        "prepare_guardian_custody",
+        lambda: (_ for _ in ()).throw(RuntimeError("Unsupported custody")),
+    )
+    monkeypatch.setattr(
+        objective_guardian.subprocess,
+        "Popen",
+        lambda *_a, **_k: pytest.fail("No child may spawn after failed setup"),
+    )
+    assert objective_guardian.main([str(request), str(response)]) == 0
+    result = json.loads(response.read_text())
+    assert (
+        result["status"] == "blocked" and result["dispatch_state"] == "not-dispatched"
+    )
+    assert result["objective_cost_events"][0]["amount_usd"] == "0"
+    guardian = json.loads((tmp_path / "guardian.json").read_text())
+    assert guardian["reason"] == "failed-before-spawn"
+    assert guardian["execution_id"] == "setup-failure"
+    assert not (tmp_path / "termination.json").exists()
+
+
+@pytest.mark.parametrize("escape", [None, "setsid", "double-fork"])
+def test_normal_exit_kills_descendants_before_return(tmp_path, fixture_home, escape):
+    if escape and sys.platform != "linux":
+        pytest.skip("Linux subreaper qualification requires a real Linux kernel")
+    argv = fixture_tree(tmp_path, root_exits=True, escape=escape)
     result = run_worker_process(
         packet_for(tmp_path), tmp_path / "worker", threading.Event(), argv=argv
     )
@@ -107,8 +156,13 @@ def test_normal_exit_kills_descendants_before_return(tmp_path, fixture_home):
     assert not process_alive(int((tmp_path / "leaf.pid").read_text()))
 
 
-def test_cancel_kills_descendants_before_terminal_evidence(tmp_path, fixture_home):
-    argv = fixture_tree(tmp_path)
+@pytest.mark.parametrize("escape", [None, "setsid", "double-fork"])
+def test_cancel_kills_descendants_before_terminal_evidence(
+    tmp_path, fixture_home, escape
+):
+    if escape and sys.platform != "linux":
+        pytest.skip("Linux subreaper qualification requires a real Linux kernel")
+    argv = fixture_tree(tmp_path, escape=escape)
     cancel = threading.Event()
 
     def stop():
@@ -131,9 +185,12 @@ def test_cancel_kills_descendants_before_terminal_evidence(tmp_path, fixture_hom
         assert not process_alive(int((tmp_path / (name + ".pid")).read_text()))
 
 
+@pytest.mark.parametrize("escape", [None, "setsid", "double-fork"])
 def test_supervisor_loss_retains_slot_until_canonical_tree_proof(
-    tmp_path, fixture_home
+    tmp_path, fixture_home, escape
 ):
+    if escape and sys.platform != "linux":
+        pytest.skip("Linux subreaper qualification requires a real Linux kernel")
     root = tmp_path / "repo"
     root.mkdir()
     make_repo(root, files={"a.txt": "old"}, commit=True)
@@ -153,7 +210,7 @@ def test_supervisor_loss_retains_slot_until_canonical_tree_proof(
         "assignment": assignment,
         "run_id": assignment["run_id"],
     }
-    argv = fixture_tree(tmp_path)
+    argv = fixture_tree(tmp_path, escape=escape)
     evidence = tmp_path / "worker"
     draining, release = tmp_path / "draining", tmp_path / "release"
     wrapper = tmp_path / "guardian_fixture.py"
@@ -308,6 +365,56 @@ def test_failed_job_query_retains_custody(monkeypatch):
     )
     assert process_tree.terminate_tree_confirmed(proc, timeout=0) is False
     assert job.handle == 123
+
+
+def test_unreadable_linux_children_never_prove_termination(monkeypatch):
+    from opaihub import process_tree
+
+    custody = object.__new__(process_tree._LinuxSubreaper)
+    custody.drained = False
+    monkeypatch.setattr(
+        process_tree, "_linux_children", mock.Mock(side_effect=OSError("no procfs"))
+    )
+    assert custody.terminate(SimpleNamespace(poll=lambda: 0), timeout=0) is False
+    assert custody.drained is False
+
+
+def test_non_linux_posix_refuses_unproven_group_custody(monkeypatch):
+    from opaihub import process_tree
+
+    monkeypatch.setattr(process_tree.sys, "platform", "darwin")
+    with pytest.raises(RuntimeError, match="unavailable"):
+        process_tree.prepare_guardian_custody()
+    with pytest.raises(RuntimeError, match="could not be established"):
+        process_tree.custody_kind(SimpleNamespace(pid=123, _opai_pgid=123))
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Real Linux subreaper API")
+def test_failed_subreaper_setup_never_opens_start_gate(monkeypatch):
+    from opaihub import process_tree
+
+    monkeypatch.setattr(process_tree, "_linux_children", lambda: set())
+    monkeypatch.setattr(process_tree, "_child_subreaper", lambda **kwargs: False)
+    with pytest.raises(RuntimeError, match="could not be established"):
+        process_tree.prepare_guardian_custody()
+
+
+def test_guardian_bootstrap_ignores_worktree_python_modules(tmp_path, fixture_home):
+    marker = tmp_path / "untrusted-import"
+    (tmp_path / "json.py").write_text(
+        f"from pathlib import Path; Path({str(marker)!r}).touch(); raise RuntimeError('untrusted json')"
+    )
+    result = run_worker_process(
+        packet_for(tmp_path),
+        tmp_path / "worker",
+        threading.Event(),
+        argv=[sys.executable, "-c", "pass"],
+    )
+    assert result["status"] == "failed"
+    assert not marker.exists()
+    assert json.loads((tmp_path / "worker" / "termination.json").read_text())[
+        "tree_terminated"
+    ]
 
 
 def test_supervisor_loss_during_integration_retains_artifact_and_stops_check(

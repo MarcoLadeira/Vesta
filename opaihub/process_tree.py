@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+from pathlib import Path
 import signal
 import subprocess  # nosec B404 - argv-only taskkill, never a shell
 import sys
@@ -49,6 +50,7 @@ from .proc import no_window_kwargs
 #: handle's lifetime is the process's lifetime, with no registry to leak.
 _JOB_ATTR = "_opai_job_handle"  # Windows: a job object
 _PGID_ATTR = "_opai_pgid"  # POSIX: the process group the child leads
+_SUBREAPER_ATTR = "_opai_subreaper"  # Linux: exclusive guardian child custody
 
 # Win32 constants (winnt.h / jobapi2.h).
 _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
@@ -304,14 +306,121 @@ def _terminate_job(proc: Any) -> bool:
     return True
 
 
+def _linux_children() -> set[int]:
+    """Read our kernel child lists; an unreadable list is never emptiness."""
+    children = set()
+    tasks = list(Path("/proc/self/task").iterdir())
+    if not tasks:
+        raise OSError("Guardian task list is unavailable")
+    for task in tasks:
+        children.update(int(pid) for pid in (task / "children").read_text().split())
+    return children
+
+
+def _child_subreaper(*, enable: bool = False) -> bool:
+    import ctypes
+
+    libc = ctypes.CDLL(None, use_errno=True)
+    if enable and libc.prctl(36, 1, 0, 0, 0) != 0:  # PR_SET_CHILD_SUBREAPER
+        raise OSError(ctypes.get_errno(), "Unable to establish child subreaper")
+    value = ctypes.c_int()
+    if libc.prctl(37, ctypes.byref(value), 0, 0, 0) != 0:
+        raise OSError(ctypes.get_errno(), "Unable to verify child subreaper")
+    return value.value == 1
+
+
+class _LinuxSubreaper:
+    """Custody for one dedicated guardian, including setsid/double-fork children.
+
+    The guardian must spawn only its gated worker. Linux reparents every orphan
+    descendant to this subreaper, even when it leaves the original process group.
+    No child is reaped between enumerating and signalling it, so its PID cannot
+    be reused during that interval. This is not a sandbox against hostile code
+    with permission to kill the guardian or change the guardian's credentials.
+    """
+
+    def __init__(self):
+        if _linux_children():
+            raise RuntimeError("Guardian already has unrelated children")
+        if signal.getsignal(signal.SIGCHLD) != signal.SIG_DFL:
+            raise RuntimeError("Guardian requires exclusive child reaping")
+        if not _child_subreaper(enable=True):
+            raise RuntimeError("Child subreaper could not be established")
+        self.owner_pid = os.getpid()
+        self.root_pid = None
+        self.drained = False
+
+    def terminate(self, proc: Any, *, timeout: float) -> bool:
+        if self.drained:
+            return True
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                # Reap the direct Popen child through Popen before waitpid(-1).
+                # Killing each generation causes even escaped descendants to
+                # become direct children, which the next iteration can reach.
+                proc.poll()
+                children = _linux_children()
+                for pid in children:
+                    os.kill(pid, signal.SIGKILL)
+                if proc.poll() is not None:
+                    while True:
+                        try:
+                            pid, _ = os.waitpid(-1, os.WNOHANG)
+                        except ChildProcessError:
+                            # ECHILD accounts for live children and unreaped
+                            # zombies. Confirm /proc access still works too.
+                            if _linux_children():
+                                return False
+                            self.drained = True
+                            return True
+                        if pid == 0:
+                            break
+            except (OSError, ValueError):
+                return False
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.05)
+
+
+def prepare_guardian_custody() -> _LinuxSubreaper | None:
+    """Establish full descendant custody before spawning a gated worker.
+
+    Process groups alone do not contain setsid() children. Other POSIX hosts
+    therefore fail closed until an equivalent descendant custody API exists.
+    """
+    if sys.platform == "win32":
+        return None
+    if sys.platform != "linux":
+        raise RuntimeError("Full worker tree custody is unavailable on this platform")
+    return _LinuxSubreaper()
+
+
+def adopt_guardian(proc: Any, custody: _LinuxSubreaper | None) -> Any:
+    adopt(proc)
+    if custody is not None:
+        if custody.owner_pid != os.getpid() or custody.root_pid is not None:
+            raise RuntimeError("Guardian custody cannot be shared or reused")
+        custody.root_pid = proc.pid
+        setattr(proc, _SUBREAPER_ATTR, custody)
+    return proc
+
+
 def custody_kind(proc: Any) -> str:
     """Require a retained tree identity before opening a worker's start gate."""
     if sys.platform == "win32":
         job = getattr(proc, _JOB_ATTR, None)
         if isinstance(job, _Job) and job.handle:
             return "windows-job"
-    elif getattr(proc, _PGID_ATTR, None) == proc.pid:
-        return "posix-group"
+    elif sys.platform == "linux":
+        custody = getattr(proc, _SUBREAPER_ATTR, None)
+        if (
+            isinstance(custody, _LinuxSubreaper)
+            and custody.owner_pid == os.getpid()
+            and custody.root_pid == proc.pid
+            and _child_subreaper()
+        ):
+            return "linux-subreaper"
     raise RuntimeError("Worker tree custody could not be established")
 
 
@@ -346,31 +455,24 @@ def terminate_tree_confirmed(proc: Any, *, timeout: float = 10.0) -> bool:
     Unlike the legacy best-effort cleanup, root exit and a successful kill
     request are not proof. On failure the job handle stays open for a retry.
     """
-    kind = custody_kind(proc)
+    try:
+        kind = custody_kind(proc)
+    except (OSError, RuntimeError, ValueError):
+        return False
+    if kind == "linux-subreaper":
+        return getattr(proc, _SUBREAPER_ATTR).terminate(proc, timeout=timeout)
     deadline = time.monotonic() + timeout
     job = getattr(proc, _JOB_ATTR, None)
-    if kind == "windows-job":
-        kernel = _kernel32()
-        if kernel is None or not kernel.TerminateJobObject(job.handle, 1):
-            return False
-    else:
-        group = getattr(proc, _PGID_ATTR)
-        _killpg(group, signal.SIGKILL)
+    kernel = _kernel32()
+    if kernel is None or not kernel.TerminateJobObject(job.handle, 1):
+        return False
     while True:
-        proc.poll()  # reap the direct child before checking POSIX group absence
+        proc.poll()
         try:
-            if kind == "windows-job":
-                empty = _job_active_processes(job) == 0
-            else:
-                try:
-                    os.killpg(group, 0)
-                    empty = False
-                except ProcessLookupError:
-                    empty = True
+            empty = _job_active_processes(job) == 0
             if empty:
                 proc.wait(timeout=max(0.1, deadline - time.monotonic()))
-                if kind == "windows-job":
-                    job.close()
+                job.close()
                 return True
         except (OSError, ValueError, subprocess.TimeoutExpired):
             return False

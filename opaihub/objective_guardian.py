@@ -12,17 +12,24 @@ import threading
 import time
 
 from .atomic_io import atomic_write_text
+from .boundary_errors import safe_detail
 from .objective_capacity import host_slot
-from .process_tree import adopt, custody_kind, isolated_group_kwargs, terminate_tree
+from .process_tree import (
+    adopt_guardian,
+    custody_kind,
+    isolated_group_kwargs,
+    terminate_tree,
+)
+from .process_tree import prepare_guardian_custody
 from .process_tree import terminate_tree_confirmed
 
 
 def guardian_command(request: Path, response: Path, *, child=False) -> list[str]:
-    from opai.bootstrap import _packaged_runtime
+    from opai.bootstrap import _packaged_runtime, _runtime_executable
 
     flag = "--opai-objective-child" if child else "--opai-objective-guardian"
     command = (
-        [sys.executable, flag]
+        [_runtime_executable(), flag]
         if _packaged_runtime()
         else [
             sys.executable,
@@ -47,7 +54,8 @@ def child_main(argv=None) -> int:
     launch = json.loads(config.read_text(encoding="utf-8"))
     if launch.get("argv"):
         # A test fixture command inherits the already-custodied group/job.
-        return subprocess.call(launch["argv"])  # nosec B603
+        packet = json.loads(Path(args[0]).read_text(encoding="utf-8"))
+        return subprocess.call(launch["argv"], cwd=packet["worktree"])  # nosec B603
     from .objective_worker import main as worker_main
 
     return worker_main(args)
@@ -101,14 +109,15 @@ def main(argv=None) -> int:
     returncode = None
     try:
         with host_slot(lost_parent):
+            custody = prepare_guardian_custody()
             proc = subprocess.Popen(
                 guardian_command(request, response, child=True),
-                cwd=packet["worktree"],
+                cwd=Path(__file__).resolve().parents[1],
                 stdin=subprocess.PIPE,
                 **isolated_group_kwargs(),
             )  # nosec B603
             try:
-                adopt(proc)
+                adopt_guardian(proc, custody)
                 kind = custody_kind(proc)
                 if store:
                     store.record_execution_custody(
@@ -180,8 +189,42 @@ def main(argv=None) -> int:
             request.parent / "guardian.json",
             json.dumps(
                 {
+                    "execution_id": launch["execution_id"],
                     "returncode": None,
                     "reason": "cancelled-before-spawn",
+                    "tree_terminated": True,
+                }
+            ),
+        )
+    except Exception as exc:
+        if proc is not None:
+            raise
+        atomic_write_text(
+            response,
+            json.dumps(
+                {
+                    "status": "blocked",
+                    "dispatch_state": "not-dispatched",
+                    "error": safe_detail(exc, limit=500),
+                    "answer": "The worker could not start. "
+                    + safe_detail(exc, limit=500),
+                    "objective_cost_events": [
+                        {
+                            "operation_key": str(packet["run_id"]) + "-startup",
+                            "amount_usd": "0",
+                            "measurement_kind": "actual",
+                        }
+                    ],
+                }
+            ),
+        )
+        atomic_write_text(
+            request.parent / "guardian.json",
+            json.dumps(
+                {
+                    "execution_id": launch["execution_id"],
+                    "returncode": None,
+                    "reason": "failed-before-spawn",
                     "tree_terminated": True,
                 }
             ),
