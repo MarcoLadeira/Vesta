@@ -53,6 +53,32 @@ from opaihub.journal_store import journal_path, open_store
 NOW = "2026-08-27T12:00:00+00:00"
 
 
+#: The child program: admit a run, then die where nothing can clean up.
+_ADMIT_THEN_DIE = """import sys
+sys.path.insert(0, r'{cwd}')
+from opaihub.journal_runtime import record_admission
+record_admission(r'{root}', task_id='{task_id}', run_id='{run_id}', task='x', now='{now}')
+import os
+os._exit(9)
+"""
+
+
+def _admit_then_die(root, *, run_id: str, task_id: str = "t") -> None:
+    """Admit a run in a real process, then kill it without releasing anything.
+
+    The condition #613 opens by describing, produced the only honest way: a
+    lease whose owner is genuinely gone, not one a test asserted about.
+    ``os._exit`` skips every cleanup path, which is the point.
+    """
+
+    script = _ADMIT_THEN_DIE.format(
+        cwd=os.getcwd(), root=root, task_id=task_id, run_id=run_id, now=NOW
+    )
+    subprocess.run(  # nosec B603 - fixed argv, throwaway project
+        [sys.executable, "-c", script], capture_output=True, check=False
+    )
+
+
 class _PendingFixture(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
@@ -190,17 +216,7 @@ class ARunAbandonedByADeadProcessIsVisibleTests(_PendingFixture):
     """The case the issue actually describes, produced by a real death."""
 
     def test_a_run_admitted_by_a_process_that_died_is_listed(self):
-        script = (
-            "import sys; sys.path.insert(0, r'{cwd}')\n"
-            "from opaihub.journal_runtime import record_admission\n"
-            "record_admission(r'{root}', task_id='t', run_id='orphan',"
-            " task='x', now='{now}')\n"
-            "import os; os._exit(9)\n"
-        ).format(cwd=os.getcwd(), root=self.root, now=NOW)
-
-        subprocess.run(  # nosec B603 - fixed argv, throwaway project
-            [sys.executable, "-c", script], capture_output=True, check=False
-        )
+        _admit_then_die(self.root, run_id="orphan", task_id="t")
 
         entries = unterminated_runs(self.root)
         self.assertEqual([entry["run_id"] for entry in entries], ["orphan"])
@@ -228,16 +244,7 @@ class ItReportsRatherThanConcludesTests(_PendingFixture):
         """The case #613 opens with, produced by a real process death."""
 
         self._admit("live")
-        script = (
-            "import sys; sys.path.insert(0, r'{cwd}')\n"
-            "from opaihub.journal_runtime import record_admission\n"
-            "record_admission(r'{root}', task_id='task-a', run_id='orphan',"
-            " task='x', now='{now}')\n"
-            "import os; os._exit(9)\n"
-        ).format(cwd=os.getcwd(), root=self.root, now=NOW)
-        subprocess.run(  # nosec B603 - fixed argv, throwaway project
-            [sys.executable, "-c", script], capture_output=True, check=False
-        )
+        _admit_then_die(self.root, run_id="orphan", task_id="task-a")
 
         rows = {entry["run_id"]: entry for entry in unterminated_runs(self.root)}
 
@@ -315,16 +322,7 @@ class ALeaseNamesTheProcessBehindItTests(_PendingFixture):
         """The reproduction that motivated this, inverted."""
 
         self._admit("mine")
-        script = (
-            "import sys; sys.path.insert(0, r'{cwd}')\n"
-            "from opaihub.journal_runtime import record_admission\n"
-            "record_admission(r'{root}', task_id='task-a', run_id='theirs',"
-            " task='x', now='{now}')\n"
-            "import os; os._exit(9)\n"
-        ).format(cwd=os.getcwd(), root=self.root, now=NOW)
-        subprocess.run(  # nosec B603 - fixed argv, throwaway project
-            [sys.executable, "-c", script], capture_output=True, check=False
-        )
+        _admit_then_die(self.root, run_id="theirs", task_id="task-a")
 
         rows = {entry["run_id"]: entry for entry in unterminated_runs(self.root)}
 

@@ -239,25 +239,6 @@ uses it -- `journal_reader`, the lease identity columns before this PR, and
 this. The pattern is worth naming: #613 built a kernel and then did not make
 anything depend on it, so its correctness has never been load-bearing.
 
-### An approval is not bound to the work it was given for
-
-`consent_dir()` is a fixed per-user temp location shared by every OPai process
-on the machine, and the grant record is `{"command": ...}`. No run, no
-operation, no workspace. Reproduced:
-
-```
-window A: user approved 'git push' for their private repo
-window B: consume_grant('git push') -> True
-*** window B pushed on an approval the user gave to window A ***
-```
-
-The atomic-consumption half is fixed in this PR. This half is not. The fix is
-to record the workspace on the grant and require the consumer to match it,
-which means the pipeline and a provider CLI's hook subprocess agreeing on a
-normalised root across a process boundary. If they disagree, the approval card
-silently stops working -- so this needs the real hook path exercised
-end-to-end, which is its own change.
-
 ### Cost has two operation identities, and the priced one is not the paid one
 
 In this checkout's journal:
@@ -468,13 +449,33 @@ the same bug in a fresh disguise. The wiring is checked by an AST walk rather
 than a string search, so a *new* call site is caught too -- which immediately
 found one, hidden inside a `**kwargs` dict.
 
-**Which run an approval belongs to.** `consent_dir()` is a fixed per-user path
-so a provider CLI's hook subprocess can find it with no argument plumbing. The
-cost is that every OPai window shares one handshake directory, and the grant
-recorded only *which command* had been approved. Measured with two real
-processes: window A's user approved a push in one repository, and window B --
-another repository, another run, a question its user was never asked --
-consumed it and was told yes.
+### An approval was not bound to the work it was given for -- now it is
+
+`consent_dir()` is a fixed per-user temp location shared by every OPai process
+on the machine, and the grant record was `{"command": ...}`. No run, no
+operation, no workspace. Reproduced with two real processes:
+
+```
+window A: user approved 'git push' for their private repo
+window B: consume_grant('git push') -> True
+*** window B pushed on an approval the user gave to window A ***
+```
+
+Both halves are fixed in this PR. Consumption is atomic (a rename claim), and
+the grant now records the run it was issued for. The run id reaches the hook
+subprocess through `OPAI_RUN_ID`, exported by `provider_child_env`, and
+`consume_grant` refuses a grant belonging to another run.
+
+The refusal needs evidence, so it fires only on a *positive* mismatch: "this
+grant is run B's and I am run A". A hook that cannot say which run it is --
+a provider CLI that sanitises the environment it hands its hooks -- is still
+allowed, because refusing there would silently break every approved push,
+which is a worse failure than the leak and is not something OPai should
+inflict on a user who just clicked Approve. Where identity does not propagate
+at all, the behaviour is exactly what it was before the check existed.
+
+The `approvals` table is still not the authority (see above); the binding
+lives in `command_consent`, which is what the hook can reach.
 
 ## AC6, measured on this repo's own journal
 
