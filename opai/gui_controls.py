@@ -206,7 +206,9 @@ def _spend_phrase(value: object, *, complete: bool = True) -> str:
         # NaN reaches here from a ledger that divided by zero somewhere.
         # "$nan today" is not an improvement on a lie.
         return UNKNOWN_SPEND
-    return f"{'' if complete else 'at least '}${amount:.2f} today"
+    from opaihub.budget import spend_prefix
+
+    return f"{spend_prefix(complete)}${amount:.2f} today"
 
 
 # --------------------------------------------------------------------------- #
@@ -390,8 +392,11 @@ def session_inspector(
         # "cost unknown / $5.00 today" invites the reader to fill in the blank.
         budget_text = UNKNOWN_SPEND
     elif isinstance(limit, (int, float)) and limit > 0:
-        prefix = "" if complete else "at least "
-        budget_text = f"{prefix}${_f2(raw_spent):.2f} / ${float(limit):.2f} today"
+        from opaihub.budget import spend_prefix
+
+        budget_text = (
+            f"{spend_prefix(complete)}${_f2(raw_spent):.2f} / ${float(limit):.2f} today"
+        )
     else:
         budget_text = f"{spend_text} · no cap"
     rows = [

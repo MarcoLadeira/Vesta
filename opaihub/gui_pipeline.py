@@ -841,6 +841,21 @@ def _journal_ending(result: Any) -> tuple[str, str]:
     return event, ending
 
 
+def _due_for_a_beat(last: float, now: float, *, has_run: bool) -> bool:
+    """Is this the moment to restamp the turn's lease?
+
+    Only once there is a run to beat. A turn's first events fire before
+    admission, and spending the throttle on them left the first real beat a
+    whole interval late (#818 review finding 20).
+
+    `now` is passed in rather than read here, so the caller stamps the same
+    instant it measured -- it used to read the clock twice, and the beat was
+    recorded a hair after the moment it was judged due.
+    """
+
+    return has_run and (now - last) >= _HEARTBEAT_INTERVAL_SECONDS
+
+
 def _journal_beat(root: Path) -> None:
     """Restamp this turn's lease so a live run does not read as abandoned.
 
@@ -1046,13 +1061,9 @@ def _handle_gui_message(
         # on a timer instead would keep restamping a wedged run's lease and
         # report it as healthy forever, which is the failure a heartbeat is
         # supposed to expose rather than hide.
-        #
-        # Only once there is a run to beat. The first events fire before
-        # admission, and spending the throttle on them made the first real
-        # beat a whole interval late (#818 review finding 20).
-        elapsed = time.monotonic() - _last_beat[0]
-        if elapsed >= _HEARTBEAT_INTERVAL_SECONDS and _JOURNAL_RUN.get():
-            _last_beat[0] = time.monotonic()
+        beat_at = time.monotonic()
+        if _due_for_a_beat(_last_beat[0], beat_at, has_run=bool(_JOURNAL_RUN.get())):
+            _last_beat[0] = beat_at
             _journal_beat(root)
         if on_event:
             from opai.activity import make_event

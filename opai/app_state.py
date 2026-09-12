@@ -300,7 +300,9 @@ def inspector_state(project_root: Path, *, mode: str = "safe-auto") -> dict[str,
     complete = bool(
         completeness.get("complete_today", completeness.get("complete", True))
     )
-    prefix = "" if complete else "at least "
+    from opaihub.budget import spend_prefix
+
+    prefix = spend_prefix(complete)
     if isinstance(daily, (int, float)) and daily > 0:
         pct = max(0, min(100, int(round(100 * spent / daily))))
         budget_text = f"{prefix}${spent:.2f} / ${daily:.2f} today"

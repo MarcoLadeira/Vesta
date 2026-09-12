@@ -265,5 +265,32 @@ class TodaysFigureIsQualifiedByTodaysFactsTests(unittest.TestCase):
         self.assertFalse(completeness["complete_today"])
 
 
+class OneReportOneDayTests(unittest.TestCase):
+    """Every "today" in a report is the same day.
+
+    Each helper read the clock itself, so a report assembled across UTC
+    midnight could count spend from one day and its completeness from the
+    next. The report now reads the clock once and hands the day down.
+    """
+
+    def test_the_clock_is_read_once_per_report(self):
+        from opaihub import budget
+
+        days = iter(["2026-09-10", "2026-09-11", "2026-09-12", "2026-09-13"])
+        with _Project(cost_model=PARTIAL_COST_MODEL) as root:
+            with mock.patch.object(
+                budget, "utc_today", side_effect=lambda: next(days)
+            ) as clock:
+                budget_status(root)
+
+        self.assertEqual(clock.call_count, 1)
+
+    def test_one_phrase_for_a_partial_total(self):
+        from opaihub.budget import spend_prefix
+
+        self.assertEqual(spend_prefix(True), "")
+        self.assertEqual(spend_prefix(False), "at least ")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import inspect
 import sqlite3
 import tempfile
 import time
@@ -76,26 +77,64 @@ class ABeatNeverWaitsForTheLockTests(unittest.TestCase):
 
 
 class TheFirstBeatIsOnTimeTests(unittest.TestCase):
+    """The throttle decision itself, which the first version got wrong.
+
+    A turn's first events fire before admission, when there is no run to beat.
+    Spending the throttle on one of them left the first real beat a whole
+    heartbeat interval late.
+
+    Tested through the decision rather than through the clock: `monotonic()` is
+    time since boot, so an earlier version of this test quietly depended on the
+    machine having been up longer than the interval it patched in -- it passed
+    all day and failed after a restart.
+    """
+
+    def due(self, last: float, now: float, *, has_run: bool) -> bool:
+        return gui_pipeline._due_for_a_beat(last, now, has_run=has_run)
+
+    def test_an_event_before_admission_does_not_spend_the_throttle(self):
+        interval = gui_pipeline._HEARTBEAT_INTERVAL_SECONDS
+
+        self.assertFalse(self.due(0.0, interval + 1, has_run=False))
+
+    def test_the_first_event_after_admission_beats(self):
+        interval = gui_pipeline._HEARTBEAT_INTERVAL_SECONDS
+
+        self.assertTrue(self.due(0.0, interval + 1, has_run=True))
+
+    def test_a_beat_just_taken_is_not_repeated(self):
+        interval = gui_pipeline._HEARTBEAT_INTERVAL_SECONDS
+
+        self.assertFalse(self.due(1000.0, 1000.0 + interval / 2, has_run=True))
+        self.assertTrue(self.due(1000.0, 1000.0 + interval, has_run=True))
+
+    def test_the_moment_judged_due_is_the_moment_recorded(self):
+        """The emitter read the clock twice: once to judge, once to stamp."""
+
+        source = inspect.getsource(gui_pipeline._handle_gui_message)
+
+        self.assertIn("beat_at = time.monotonic()", source)
+        self.assertIn("_last_beat[0] = beat_at", source)
+
+
+class ATurnReallyBeatsItsOwnRunTests(unittest.TestCase):
+    """The wiring, so the decision above is not being tested in a vacuum."""
+
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
-        self.root = make_repo(Path(self._tmp.name), files={"a.py": "x = 1\n"})
+        self.root = make_repo(Path(self._tmp.name), files={"a.py": "x = 1" + chr(10)})
 
-    def test_a_turn_beats_its_own_run_even_with_a_long_interval(self):
-        """With an hour-long interval a turn gets exactly one beat.
-
-        Before, that one beat was spent on an event that fired before
-        admission, when there was no run to beat -- so the turn got none.
-        """
-
+    def test_the_beats_a_turn_takes_name_that_turn(self):
         beats: list[str] = []
 
         def recording_beat(root, *, run_id, now):
             beats.append(run_id)
             return True
 
+        # Every event is due, so the beats are observable without waiting.
         with (
-            mock.patch.object(gui_pipeline, "_HEARTBEAT_INTERVAL_SECONDS", 3600),
+            mock.patch.object(gui_pipeline, "_HEARTBEAT_INTERVAL_SECONDS", 0),
             mock.patch.object(journal_runtime, "beat_lease", recording_beat),
         ):
             reported: list[str] = []
@@ -109,7 +148,8 @@ class TheFirstBeatIsOnTimeTests(unittest.TestCase):
             )
 
         self.assertEqual(len(reported), 1, "the turn was never admitted")
-        self.assertEqual(beats, reported, "the turn's own run was never beaten")
+        self.assertTrue(beats, "a turn took no heartbeat at all")
+        self.assertEqual(set(beats), set(reported), "a beat named another run")
 
 
 if __name__ == "__main__":

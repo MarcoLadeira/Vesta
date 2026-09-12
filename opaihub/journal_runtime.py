@@ -871,35 +871,41 @@ def record_cancellation_phase(
         return False
     if not journal_store.journal_path(root).exists():
         return False
-    fence: int | None = None
+    # One connection, one transaction. This used to read the fence, close the
+    # store, and open it again to append -- twice the cost, and room for the
+    # fence to change between the reading and the writing.
     with _store(root) as store:
         if store is None:
             return False
         try:
-            fence = _live_fence_on(store, run_id)
-            fence, after_terminal = _fence_for_late_evidence(store, run_id, fence)
-        except (sqlite3.DatabaseError, JournalStoreError):
+            with journal_store._transaction(store):
+                fence, after_terminal = _fence_for_late_evidence(
+                    store, run_id, _live_fence_on(store, run_id)
+                )
+                append_event(
+                    store,
+                    event_type=EVENT_CANCEL_PHASE,
+                    payload={
+                        "phase": str(phase),
+                        "reason_code": str(reason_code or ""),
+                        # A `terminated` that lands after the run was filed is
+                        # the normal shape of a confirmed teardown, not an
+                        # anomaly -- but replay still has to be able to see
+                        # which side of the verdict it arrived on.
+                        "after_terminal": after_terminal,
+                    },
+                    privacy_class=privacy_class_for(EVENT_CANCEL_PHASE),
+                    occurred_at=now,
+                    recorded_at=now,
+                    producer=producer,
+                    run_id=run_id,
+                    expected_fence=fence,
+                )
+            return True
+        except StaleWriterError:
             return False
-    return (
-        record_event(
-            root,
-            run_id=run_id,
-            event_type=EVENT_CANCEL_PHASE,
-            now=now,
-            fence=fence,
-            payload={
-                "phase": str(phase),
-                "reason_code": str(reason_code or ""),
-                # A `terminated` that lands after the run was filed is the
-                # normal shape of a confirmed teardown, not an anomaly -- but
-                # replay still has to be able to see which side of the verdict
-                # it arrived on.
-                "after_terminal": after_terminal,
-            },
-            producer=producer,
-        )
-        is not None
-    )
+        except (sqlite3.DatabaseError, JournalStoreError, TypeError, ValueError):
+            return False
 
 
 def unterminated_runs(
