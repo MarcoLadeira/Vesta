@@ -16,11 +16,15 @@ import uuid
 from opaihub.agent_objectives import ObjectiveStore
 from opaihub.objective_execution import ObjectiveExecutor
 from opaihub.gui_preferences import MODES
+from opaihub.process_tree import objective_runtime_support
 
 
 def create_objective_payload(root: Path, payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("Expected an objective request")
+    runtime = objective_runtime_support()
+    if not runtime["supported"]:
+        raise ValueError(runtime["reason"])
     text = payload.get("text")
     mode = payload.get("mode", "safe-auto")
     model = payload.get("model", "auto")
@@ -55,6 +59,7 @@ def control_objective_payload(root: Path, payload: dict[str, Any]) -> dict[str, 
         raise ValueError("A canonical objective ID is required")
     action = payload.get("action")
     actions = {
+        "rename": "rename",
         "run": "run",
         "cancel": "stop",
         "stop": "stop",
@@ -96,6 +101,7 @@ def objectives_payload(root: Path) -> dict[str, Any]:
     store.recover_expired()
     return {
         "objectives": store.list_objectives(),
+        "agentsRuntime": objective_runtime_support(),
         "workspaceRoot": str(root.resolve()),
     }
 
@@ -178,6 +184,7 @@ def objective_worktree_path(root: Path, payload: dict[str, Any]) -> Path:
 def _artifact_command(root: Path, command: list[str], *, limit=262144):
     """Fixed read-only argv, with bounded output and execution time."""
     from opaihub.process_tree import adopt, isolated_group_kwargs, terminate_tree
+
     if command[0] == "git":
         # Even read-only Git commands can invoke a configured fsmonitor hook.
         # Artifact inspection must never execute repository-provided helpers.

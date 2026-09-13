@@ -1,6 +1,6 @@
 # Epic #821 implementation assessment
 
-Scope: source review and local qualification against the complete issue, updated 2026-09-10. Testing resumed at the user's request. No provider calls were made.
+Scope: source review and local qualification against the complete issue, updated 2026-09-13. Extended provider/platform qualification remains deferred; the requested UI refinements receive focused checks. No provider calls were made.
 
 Merge readiness: pending the provider-backed comparisons, platform qualification and required hosted checks listed below. The PR remains draft; implementation coverage alone does not close the epic.
 
@@ -124,8 +124,20 @@ The user explicitly deferred extended testing and provider benchmarks again. Fin
 - Expanded picker height respects the header; a collapsed inspector no longer leaves invisible padding/border that can shift the page sideways.
 - Validation: 11 unit checks; 21 browser checks passed in the full Agents pass, with the newly exposed inspector regression then fixed and its attention flow plus Team limits rechecked successfully. Earlier focused new-flow pass: 5 passed. These counts overlap.
 
+## September 13 chat-first AI Team
+
+- Follow the supplied product reference: chat is the primary workspace, with a lightweight AI Team rail. The composer has a direct Team action; accepted objectives show their team automatically. The initial roster contains names, avatars, current work and status, with details shown only after selecting an agent.
+- Persist friendly names and avatar identities in the objective journal. Rename changes presentation metadata without changing assignment, task, run, route or permission identity. Portraits render locally as small SVGs, with no image service or extra provider calls.
+- Show recorded agent updates in chat, and task rationale, recent activity, approval details, findings, files and verification on inspection. These are journal projections, not invented messages or a fabricated historical timeline.
+- Show actual predecessor/reviewer relationships as named links. Additional team review uses the existing canonical action and revision fence. General observer/assistant relationship editing is not introduced by this presentation change.
+- Keep the detailed Agents workspace reachable from the rail, with a Back to chat action. Preserve focus, disclosure state and rename drafts during live updates. Reopened teams refresh from the local journal independently of the full workspace, reject older revisions and show connection failures. Polling stops when neither team surface is in use.
+- Use existing OPai colors and typography, local character avatars, subtle fades/activity indicators and reduced-motion support. On narrow screens the rail collapses over chat. The first enable action leaves the composer usable before submission.
+- Expose platform support before submission. Unsupported hosts cannot create a desktop objective by spoofing browser state; existing objectives remain inspectable. Windows/Linux support here describes implemented containment, not successful host qualification.
+
+- Focused validation: 22 workspace browser checks and 8 AI Team browser checks passed in separate runs; 14 JavaScript unit checks and 8 bridge checks passed. The combined browser run exposed a transient mobile entrance-animation offset; removing the offset was verified by the final 8-check team run. Scoped Ruff/format, JavaScript syntax, design-token and diff checks passed. These runs overlap earlier coverage and do not replace the deferred release gates.
+
 ## Activation
 
-Use a build containing PR #842. The header's **Agents** button opens existing objectives. Open the composer's **Mode** picker (the button showing Auto, Manual or the current permission mode), enable **Allow multiple agents mode**, then send an objective. The mode button includes **Agents** while enabled. The toggle persists; permission mode and model selection remain separate. Existing objectives are managed from the Agents workspace.
+Use a build containing PR #842. Press **Team** beside the composer’s Mode picker, then send an objective. Chat stays open and the **AI Team** panel shows the assignments. Select an agent to inspect its work or rename it. Once enabled, Team opens/collapses the panel; **Allow multiple agents mode** in the Mode picker turns the mode off or on. The mode pill includes **Agents** while enabled, and the preference persists. Permission mode and model selection remain separate. The header’s **Agents** button opens the detailed workspace.
 
 For cloud/account models, explicitly enable **Allow cloud providers for this objective** before sending. This permission resets for the next objective. Bypass is captured independently; reviewer/planner roles remain read-only.

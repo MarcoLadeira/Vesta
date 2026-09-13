@@ -7,6 +7,64 @@ import pytest
 from opaihub.gui_preferences import load_gui_preferences, save_gui_preferences
 
 
+def test_unsupported_host_rejects_submission_before_creating_an_objective(tmp_path):
+    from opai.agents_bridge import create_objective_payload
+
+    with (
+        mock.patch("opaihub.process_tree.sys.platform", "darwin"),
+        mock.patch("opai.agents_bridge.ObjectiveStore") as store,
+    ):
+        with pytest.raises(ValueError, match="unavailable on this host"):
+            create_objective_payload(
+                tmp_path,
+                {"text": "Repair parser", "agentsRuntime": {"supported": True}},
+            )
+        store.assert_not_called()
+
+
+def test_agent_rename_is_durable_metadata_and_preserves_execution_identity(tmp_path):
+    from opai.agents_bridge import control_objective_payload
+    from opaihub.agent_objectives import ObjectiveStore
+
+    store = ObjectiveStore(tmp_path)
+    created = store.create(
+        "Repair modules",
+        [{"name": "api", "objective": "Repair API", "intended_paths": ["api/"]}],
+    )
+    original = created["assignments"][0]
+    result = control_objective_payload(
+        tmp_path,
+        {
+            "objective_id": created["objective_id"],
+            "assignment_id": original["assignment_id"],
+            "action": "rename",
+            "value": "Ada",
+        },
+    )
+    renamed = ObjectiveStore(tmp_path).snapshot(created["objective_id"])["assignments"][
+        0
+    ]
+    assert renamed["display_name"] == "Ada"
+    assert result["objective"]["revision"] > created["revision"]
+    for field in (
+        "assignment_id",
+        "task_id",
+        "run_id",
+        "name",
+        "objective",
+        "status",
+        "model",
+        "avatar_index",
+    ):
+        assert renamed[field] == original[field]
+    with pytest.raises(ValueError):
+        store.control(
+            created["objective_id"], "rename", original["assignment_id"], "x" * 41
+        )
+    with pytest.raises(ValueError):
+        store.control(created["objective_id"], "rename", "foreign-assignment", "Ada")
+
+
 def test_multi_agent_preference_is_explicit_boolean_and_independent(tmp_path):
     save_gui_preferences(
         tmp_path,

@@ -632,6 +632,7 @@
     emitObjective: function (payload) { bridge.objectiveReady.emit(JSON.stringify(payload)); },
     emitObjectiveControl: function (payload) { bridge.objectiveControlReady.emit(JSON.stringify(payload)); },
     emitDashboard: function (payload) { bridge.dashboardReady.emit(JSON.stringify(payload)); },
+    updateDashboard: function (id, data) { dashboards[id] = data; },
     emitProviderLogin: function (id, result) { bridge.providerLoginReady.emit(JSON.stringify({ requestId: id, provider: result.provider, result: result })); },
   };
 })();

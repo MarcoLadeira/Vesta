@@ -98,8 +98,10 @@
   function renderHtml(snapshot, selection) {
     selection = selection || {};
     const objectives = list(snapshot && snapshot.objectives);
-    let html = '<div class="agents-workspace"><div class="agents-page-heading"><div class="page-title">Agents</div><p class="page-sub">One objective. A coordinated team.</p></div>';
-    if (!objectives.length) html += '<div class="card"><div class="ct">No objectives yet</div><p>Enable “Allow multiple agents mode” in the composer’s Mode menu, then send an objective.</p></div>';
+    let html = '<div class="agents-workspace"><div class="agents-page-heading"><div class="page-title">Agents</div><p class="page-sub">One objective. A coordinated team.</p><button type="button" class="team-quiet" data-agent-back-chat>Back to chat</button></div>';
+    const unavailable = snapshot && snapshot.agentsRuntime && snapshot.agentsRuntime.supported === false;
+    if (unavailable) html += '<p class="agents-note">' + esc(snapshot.agentsRuntime.reason) + '</p>';
+    if (!objectives.length) html += '<div class="card"><div class="ct">No objectives yet</div>' + (!unavailable ? '<p>Press Team in the composer, then send an objective. You can also enable “Allow multiple agents mode” in the Mode menu.</p>' : '') + '</div>';
     const activeObjective = objectives.find((o) => o.objective_id === selection.objectiveId) || objectives[0];
     if (objectives.length > 1) html += '<nav class="agents-objective-nav" aria-label="Engineering objectives">' + objectives.map((o) => '<button type="button" class="agents-assignment" data-objective-select="' + esc(o.objective_id) + '" aria-pressed="' + (o === activeObjective) + '"><strong>' + esc(o.objective) + '</strong><span>' + status(o.status) + ' · ' + cost(o.cost_usd) + '</span></button>').join("") + '</nav>';
     (activeObjective ? [activeObjective] : []).forEach((o) => {
@@ -172,7 +174,7 @@
   }
   function renderCompact(objective) {
     const count = list(objective.assignments).filter(needsAttention).length;
-    return '<section class="agents-chat-card"><header><span class="agents-eyebrow">Agent team</span>' + stateBadge(objective.status) + '</header><h3>' + esc(objective.objective) + '</h3>' + progress(objective) + (count ? '<p class="agents-note">' + count + (count === 1 ? ' assignment needs attention' : ' assignments need attention') + '</p>' : '') + '<div class="agents-chat-footer"><span>Cost ' + cost(objective.cost_usd) + (objective.cost_complete !== true ? ' · incomplete' : '') + '</span><button type="button" class="btn" data-open-agent-objective="' + esc(objective.objective_id) + '">Open in Agents</button></div></section>';
+    return '<section class="agents-chat-card"><header><span class="agents-eyebrow">Agent team</span>' + stateBadge(objective.status) + '</header><h3>' + esc(objective.objective) + '</h3>' + (count ? '<p class="agents-note">' + count + (count === 1 ? ' assignment needs attention' : ' assignments need attention') + '</p>' : '') + '<div class="agents-chat-footer"><span>Cost ' + cost(objective.cost_usd) + (objective.cost_complete !== true ? ' · incomplete' : '') + '</span><div class="team-chat-actions"><button type="button" class="btn" data-open-team>View team</button><button type="button" class="team-quiet" data-open-agent-objective="' + esc(objective.objective_id) + '">Open in Agents</button></div></div></section>';
   }
   function mount(element, snapshot, options) {
     options = options || {};
@@ -227,6 +229,7 @@
       if (target && caret) target.setSelectionRange(...caret);
     }
     element.querySelectorAll("[data-readiness-action]").forEach((button) => { button.onclick = () => options.onAction && options.onAction(button.dataset.readinessAction, button.dataset.command); });
+    element.querySelector('[data-agent-back-chat]').onclick = () => options.onBackToChat && options.onBackToChat();
     element.querySelectorAll("[data-objective-select]").forEach((button) => { button.onclick = () => options.onSelect && options.onSelect({ objectiveId: button.dataset.objectiveSelect }); });
     element.querySelectorAll("[data-agent-worktree]").forEach((button) => { button.onclick = () => options.onOpenWorktree && options.onOpenWorktree({ objective_id: button.dataset.objectiveId, assignment_id: button.dataset.assignmentId }); });
     element.querySelectorAll("[data-agent-artifact]").forEach((button) => { button.onclick = () => options.onInspectArtifact && options.onInspectArtifact({ objective_id: button.dataset.objectiveId, assignment_id: button.dataset.assignmentId, kind: button.dataset.agentArtifact }); });

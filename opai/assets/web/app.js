@@ -56,6 +56,7 @@ const state = {
   mode: { id: "safe-auto", label: "Safe Auto" },
   focus: "general", format: "normal",
   multiAgentEnabled: false, agentsAllowCloud: false, agentsMaxParallel: 2, agentsBudgetUsd: "", agentsSnapshot: null, agentsSelection: null, agentsPollTimer: null, agentsRequests: new Map(),
+  teamOpen: false, teamObjectiveId: null, teamAgentId: null, teamPollTimer: null, teamRequest: null, teamRefreshError: '',
   // Hidden until the boot payload (or the user) says otherwise, matching
   // gui_preferences' documented default. Starting true meant the shell
   // painted an empty inspector before any preference was known -- and, with
@@ -337,10 +338,13 @@ function applyBootSelection(b) {
   state.bypassPermissions = b.prefs.bypassPermissions === true;
   state.focus = b.prefs.focus || "general";
   state.format = b.prefs.format || "normal";
-  state.multiAgentEnabled = b.prefs.multiAgentEnabled === true;
+  state.multiAgentEnabled = b.prefs.multiAgentEnabled === true && b.agentsRuntime?.supported !== false;
   state.agentsAllowCloud = false;
   state.agentsMaxParallel = 2;
   state.agentsBudgetUsd = "";
+  state.teamOpen = false;
+  state.teamObjectiveId = null;
+  state.teamAgentId = null;
   const m = (b.models || []).find((x) => x.id === b.selectedModel) || (b.models || [])[0];
   if (m) state.model = { ...m, advancedLabel: m.advanced_label };
   const md = (b.modes || []).find((x) => x.id === b.prefs.mode) || (b.modes || [])[0];
@@ -761,6 +765,10 @@ function wireUpdateSheet() {
 
 function rebootFromState() {
   clearTimeout(state.agentsPollTimer);
+  clearTimeout(state.teamPollTimer);
+  state.teamPollTimer = null;
+  state.teamRequest = null;
+  state.teamRefreshError = '';
   state.agentsSnapshot = null;
   state.agentsSelection = null;
   state.agentsRequests.clear();
@@ -1748,6 +1756,7 @@ function switchView(id) {
   state.dashRequest = null;
   state.dashPaint = null;
   state.view = id;
+  applyPanel();
   closeMobileSidebar();
   // If the destination lives inside a folded group, unfold it so the active
   // item is visible (e.g. jumping to an Insights page from the palette).
@@ -2176,6 +2185,10 @@ function send(retryOf) {
     contextHints: state.contextHints.slice(),
   };
   if (sel.multiAgentEnabled) {
+    if (state.boot.agentsRuntime?.supported === false) {
+      toast(state.boot.agentsRuntime.reason || "Multi-agent execution is unavailable on this host.");
+      return;
+    }
     try {
       Object.assign(sel, window.OPaiAgentsWorkspace.runSettings(sel.maxParallel ?? 2, sel.budgetUsd ?? null));
     } catch (error) {
@@ -4143,16 +4156,7 @@ function renderDashboard(section, quiet = false) {
       return;
     }
     if (section === "agents" && window.OPaiAgentsWorkspace) {
-      const currentObjectives = (state.agentsSnapshot || {}).objectives || [];
-      const incomingObjectives = Array.isArray(s.objectives) ? s.objectives : [];
-      const merged = incomingObjectives.map((objective) => {
-        const current = currentObjectives.find((item) => item.objective_id === objective.objective_id);
-        return current && objectiveRevision(current) > objectiveRevision(objective) ? current : objective;
-      });
-      currentObjectives.forEach((objective) => {
-        if (!merged.some((item) => item.objective_id === objective.objective_id)) merged.push(objective);
-      });
-      state.agentsSnapshot = { ...s, objectives: merged };
+      mergeAgentsSnapshot(s);
       paintAgentsWorkspace();
       state.agentsPollTimer = setTimeout(() => {
         if (state.view === "agents" && (state.boot.workspace || {}).root === workspaceRoot) renderDashboard("agents", true);
@@ -4207,6 +4211,7 @@ function onDashboardReady(json) {
     if (state.dashPaint) state.dashPaint("");
     return;
   }
+  if (d?.requestId && d.requestId === state.teamRequest?.id) { receiveAgentTeam(d); return; }
   if (!state.dashPaint || !d || typeof d !== "object" || Array.isArray(d) || d.requestId !== state.dashRequest) return; // stale
   if (d.workspaceRoot && d.workspaceRoot !== (state.boot.workspace || {}).root) return;
   if (!Object.prototype.hasOwnProperty.call(d, "data") || !d.data || typeof d.data !== "object" || Array.isArray(d.data)) {
@@ -4217,11 +4222,13 @@ function onDashboardReady(json) {
 }
 function paintAgentsWorkspace() {
   paintAgentChatCards();
+  paintAgentTeam();
   if (state.view !== "agents" || !state.agentsSnapshot) return;
   if (document.querySelector('.agents-artifact-dialog[open]')) return;
   window.OPaiAgentsWorkspace.mount($("#dashPage"), state.agentsSnapshot, {
     selection: state.agentsSelection,
     onAction: runAction,
+    onBackToChat: () => openAgentTeam(state.agentsSelection?.objectiveId, state.agentsSelection?.assignmentId),
     onCopyReceipt: (receipt) => { copyText(JSON.stringify(receipt, null, 2)); toast("Receipt copied."); },
     onInspectArtifact: (payload) => {
       if (!bridge.inspectObjectiveArtifact) { toast("Artifact inspection is unavailable in this host."); return; }
@@ -4275,9 +4282,10 @@ function paintAgentChatCards() {
   document.querySelectorAll("[data-agent-chat-objective]").forEach((element) => {
     const objective = ((state.agentsSnapshot || {}).objectives || []).find((o) => o.objective_id === element.dataset.agentChatObjective);
     if (!objective) return;
-    const html = window.OPaiAgentsWorkspace.renderCompact(objective);
+    const html = window.OPaiAgentsWorkspace.renderCompact(objective) + (window.OPaiAgentsTeam ? window.OPaiAgentsTeam.feedHtml(objective) : '');
     if (element._agentsHtml === html) return;
-    const focused = element.contains(document.activeElement);
+    const active = element.contains(document.activeElement) ? document.activeElement : null;
+    const focused = active ? JSON.stringify({ ...active.dataset }) : null;
     element.innerHTML = html;
     element._agentsHtml = html;
     const open = element.querySelector("[data-open-agent-objective]");
@@ -4286,8 +4294,85 @@ function paintAgentChatCards() {
       switchView("agents");
       paintAgentsWorkspace();
     };
-    if (focused) open.focus({ preventScroll: true });
+    element.querySelectorAll('[data-team-select]').forEach((button) => {
+      button.onclick = () => openAgentTeam(objective.objective_id, button.dataset.teamSelect);
+    });
+    const team = element.querySelector('[data-open-team]');
+    if (team) team.onclick = () => openAgentTeam(objective.objective_id);
+    if (focused) Array.from(element.querySelectorAll('button')).find((button) => JSON.stringify({ ...button.dataset }) === focused)?.focus({ preventScroll: true });
   });
+}
+function openAgentTeam(objectiveId, assignmentId) {
+  state.teamObjectiveId = objectiveId;
+  state.teamAgentId = assignmentId || null;
+  state.teamOpen = true;
+  if (state.view !== 'chat') switchView('chat');
+  applyPanel();
+}
+function paintAgentTeam() {
+  const element = $('#agentsTeam');
+  if (!element || !window.OPaiAgentsTeam || element.hidden) return;
+  const objectives = (state.agentsSnapshot || {}).objectives || [];
+  const objective = objectives.find((o) => o.objective_id === state.teamObjectiveId) || objectives[0];
+  window.OPaiAgentsTeam.mountPanel(element, objective, state.teamAgentId, {
+    unavailable: state.teamRefreshError || (state.boot.agentsRuntime?.supported === false ? state.boot.agentsRuntime.reason : ''),
+    onClose: () => { state.teamOpen = false; applyPanel(); $('#teamModeBtn')?.focus(); },
+    onSelect: (assignmentId) => { state.teamAgentId = assignmentId; paintAgentTeam(); },
+    onInspect: (assignmentId) => {
+      state.agentsSelection = { objectiveId: objective.objective_id, assignmentId };
+      switchView('agents'); paintAgentsWorkspace();
+    },
+    onControl: (payload) => {
+      if (bridge.controlObjective) bridge.controlObjective(JSON.stringify(payload));
+      else toast('Team controls are unavailable in this host.');
+    },
+  });
+}
+function mergeAgentsSnapshot(snapshot) {
+  const current = (state.agentsSnapshot || {}).objectives || [];
+  const merged = (Array.isArray(snapshot.objectives) ? snapshot.objectives : []).map((objective) => {
+    const previous = current.find((item) => item.objective_id === objective.objective_id);
+    return previous && objectiveRevision(previous) > objectiveRevision(objective) ? previous : objective;
+  });
+  current.forEach((objective) => {
+    if (!merged.some((item) => item.objective_id === objective.objective_id)) merged.push(objective);
+  });
+  state.agentsSnapshot = { ...snapshot, objectives: merged };
+}
+function wantsAgentTeamUpdates() {
+  return state.view === 'chat' && (state.teamOpen || !!document.querySelector('[data-agent-chat-objective]'));
+}
+function syncAgentTeamPolling() {
+  if (!wantsAgentTeamUpdates()) {
+    clearTimeout(state.teamPollTimer);
+    state.teamPollTimer = null;
+    state.teamRequest = null;
+  } else if (!state.teamPollTimer && !state.teamRequest) refreshAgentTeam();
+}
+function refreshAgentTeam() {
+  state.teamPollTimer = null;
+  if (!wantsAgentTeamUpdates() || !bridge || (!bridge.requestDashboard && !bridge.dashboard)) return;
+  const request = { id: `team-${Date.now()}-${Math.random().toString(16).slice(2)}`, root: state.boot.workspace?.root };
+  state.teamRequest = request;
+  state.teamPollTimer = setTimeout(() => receiveAgentTeam({ requestId: request.id, data: null }), 15000);
+  if (bridge.requestDashboard && bridge.dashboardReady) bridge.requestDashboard('agents', request.id);
+  else bridge.dashboard('agents', (json) => {
+    let data = null; try { data = JSON.parse(json); } catch (_) {}
+    receiveAgentTeam({ requestId: request.id, workspaceRoot: request.root, data });
+  });
+}
+function receiveAgentTeam(response) {
+  const request = state.teamRequest;
+  if (!request || response.requestId !== request.id || request.root !== state.boot.workspace?.root) return;
+  if (response.workspaceRoot && response.workspaceRoot !== request.root) return;
+  clearTimeout(state.teamPollTimer);
+  state.teamRequest = null;
+  const snapshot = response.data;
+  const valid = snapshot && !snapshot.error && !snapshot.degraded && Array.isArray(snapshot.objectives);
+  state.teamRefreshError = valid ? '' : 'Team updates are temporarily unavailable. Reconnecting…';
+  if (valid) mergeAgentsSnapshot(snapshot);
+  paintAgentChatCards(); paintAgentTeam();
+  state.teamPollTimer = wantsAgentTeamUpdates() ? setTimeout(refreshAgentTeam, valid ? 3000 : 5000) : null;
 }
 function objectiveRevision(objective) {
   return Number.isSafeInteger(objective.revision) && objective.revision >= 0 ? objective.revision : 0;
@@ -4312,6 +4397,9 @@ function onObjectiveReady(json) {
   if (!initial) { paintAgentsWorkspace(); return; }
   state.agentsRequests.set(d.requestId, d.objective.objective_id);
   state.agentsSelection = { objectiveId: d.objective.objective_id };
+  state.teamObjectiveId = d.objective.objective_id;
+  state.teamAgentId = null;
+  state.teamOpen = true;
   stopTimer(); cancelTokenRender();
   state.currentRequest = null;
   state.message = null;
@@ -4323,6 +4411,7 @@ function onObjectiveReady(json) {
   }
   state.pending = null;
   setBusy(false);
+  applyPanel();
   paintAgentsWorkspace();
 }
 function onObjectiveControlReady(json) {
@@ -4719,6 +4808,7 @@ function runCommand(id) {
   }
 }
 function togglePanel() {
+  state.teamOpen = false;
   state.panel = !state.panel; applyPanel();
   // #246: the inspector is deferred at boot; load it the first time the panel
   // is opened (and refresh each open, matching pre-defer behaviour).
@@ -4726,9 +4816,15 @@ function togglePanel() {
   bridge.savePref("show_control_panel", state.panel ? "true" : "false");
 }
 function applyPanel() {
-  $("#app").classList.toggle("panel-hidden", !state.panel);
+  const team = state.teamOpen && state.view === 'chat';
+  $("#app").classList.toggle("team-open", team);
+  if ($('#agentsTeam')) $('#agentsTeam').hidden = !team;
+  $("#app").classList.toggle("panel-hidden", !state.panel && !team);
   $("#panelToggle").classList.toggle("on", state.panel);
   $("#panelToggle").setAttribute("aria-pressed", state.panel ? "true" : "false");
+  paintAgentTeam();
+  syncAgentTeamPolling();
+  if (window.OPaiComposer) window.OPaiComposer.refresh();
 }
 
 function isCompactShell() {
@@ -4981,7 +5077,9 @@ if (typeof window !== "undefined") {
     // sync (F16/F4) and the derived next-run agent mode preview (F21).
     applyBootSelection: (b) => applyBootSelection(b),
     setMultiAgentEnabled: (enabled) => {
-      state.multiAgentEnabled = enabled === true;
+      state.multiAgentEnabled = enabled === true && state.boot.agentsRuntime?.supported !== false;
+      state.teamOpen = state.multiAgentEnabled && ((state.agentsSnapshot || {}).objectives || []).length > 0;
+      applyPanel();
       if (!state.multiAgentEnabled) state.agentsAllowCloud = false;
       if (state.boot && state.boot.prefs) state.boot.prefs.multiAgentEnabled = state.multiAgentEnabled;
       if (bridge && bridge.savePref) bridge.savePref("multi_agent_enabled", String(state.multiAgentEnabled));
@@ -4993,6 +5091,11 @@ if (typeof window !== "undefined") {
     setAgentsRunSettings: (settings) => {
       if (Number.isInteger(settings.maxParallel)) state.agentsMaxParallel = settings.maxParallel;
       if (typeof settings.budgetUsd === "string") state.agentsBudgetUsd = settings.budgetUsd;
+    },
+    toggleAgentTeam: () => {
+      state.teamOpen = !state.teamOpen;
+      if (state.teamOpen && state.view !== 'chat') switchView('chat');
+      applyPanel();
     },
     derivedAgentMode: () => derivedAgentMode(),
     applyAppearance: (p) => applyAppearance(p),

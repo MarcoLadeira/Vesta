@@ -263,6 +263,7 @@
     var cur = (st.mode && st.mode.id) || "";
     var selectedModel = st.model || {};
     var editsUnavailable = selectedModel.repo_editing === false;
+    var agentsUnavailable = boot().agentsRuntime && boot().agentsRuntime.supported === false;
     var pop = els.modePop;
     var limitsOpen = !!pop.querySelector('[data-agents-limits][open]');
     var offered = {};
@@ -300,7 +301,7 @@
         disabled: editsUnavailable,
       }).replace('class="cpop-row', 'data-bypass="1" class="cpop-row cpop-row-switch') +
       '<div class="cpop-sep" role="separator"></div>' +
-      menuRow({ role: "menuitemcheckbox", title: "Allow multiple agents mode", desc: "Coordinate independent assignments within your current permissions", active: st.multiAgentEnabled === true }).replace('class="cpop-row', 'data-multi-agent="true" class="cpop-row') +
+      menuRow({ role: "menuitemcheckbox", title: "Allow multiple agents mode", desc: agentsUnavailable ? boot().agentsRuntime.reason : "Coordinate independent assignments within your current permissions", active: st.multiAgentEnabled === true, disabled: agentsUnavailable }).replace('class="cpop-row', 'data-multi-agent="true" class="cpop-row') +
       (st.multiAgentEnabled ? menuRow({ role: "menuitemcheckbox", title: "Allow cloud providers for this objective", desc: "Sends code and context to cloud providers and may use paid or account quota. Applies to the next objective only.", active: st.agentsAllowCloud === true }).replace('class="cpop-row', 'data-agents-cloud="true" class="cpop-row') : "") +
       (st.multiAgentEnabled ? '<details class="cpop-agent-limits" data-agents-limits' + (limitsOpen ? ' open' : '') + '><summary>Team limits</summary><div class="cpop-agent-fields"><label>Concurrent agents<select data-agents-parallel aria-label="Concurrent agents">' + [1, 2, 3, 4].map(function (n) { return '<option value="' + n + '"' + (n === (st.agentsMaxParallel || 2) ? ' selected' : '') + '>' + n + (n === 1 ? ' · Sequential' : n === 2 ? ' · Default' : '') + '</option>'; }).join('') + '</select></label><label>Objective budget (USD)<input data-agents-budget aria-label="Objective budget in USD" type="text" inputmode="decimal" maxlength="100" placeholder="No cap" value="' + esc(st.agentsBudgetUsd || '') + '"></label></div><p class="cpop-note">Applies to each new objective in this workspace session. A dollar cap blocks providers that cannot enforce it.</p></details>' : '') +
       (editsUnavailable
@@ -617,6 +618,14 @@
     var st = state();
     var mode = st.mode || {};
     var model = st.model || {};
+    var teamButton = document.getElementById('teamModeBtn');
+    if (teamButton) {
+      teamButton.setAttribute('aria-pressed', String(st.multiAgentEnabled === true));
+      teamButton.setAttribute('aria-label', st.multiAgentEnabled ? 'Toggle AI Team panel' : 'Enable AI Team');
+      teamButton.setAttribute('aria-expanded', String(st.teamOpen === true && st.view === 'chat'));
+      teamButton.disabled = boot().agentsRuntime && boot().agentsRuntime.supported === false;
+      teamButton.title = teamButton.disabled ? boot().agentsRuntime.reason : 'Use an AI team for your objective';
+    }
 
     // Mode button — visible text shows the value; aria-label carries purpose +
     // value so the menu button announces both to assistive tech.
@@ -703,6 +712,12 @@
     els.moreBtn && (els.moreBtn.onclick = openMore);
     els.modeBtn && (els.modeBtn.onclick = openMode);
     els.modelBtn && (els.modelBtn.onclick = openModel);
+    var teamButton = document.getElementById('teamModeBtn');
+    if (teamButton) teamButton.onclick = function () {
+      if (!global.__opai) return;
+      if (state().multiAgentEnabled && global.__opai.toggleAgentTeam) global.__opai.toggleAgentTeam();
+      else global.__opai.setMultiAgentEnabled(true);
+    };
     window.addEventListener('resize', fitModePop);
 
     // Outside click / Escape close (Escape only closes popovers; app.js owns

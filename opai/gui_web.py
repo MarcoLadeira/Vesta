@@ -715,6 +715,7 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
     """Everything the front-end needs to render the whole shell in one call."""
     from opaihub.gui_preferences import MODES, load_gui_preferences
     from opaihub.workflow_state import load_workflow_state
+    from opaihub.process_tree import objective_runtime_support
 
     from opaihub.autonomy import MODE_LABELS, resolve_startup_mode
 
@@ -775,6 +776,7 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
     _STARTUP.mark("boot:workflow")
     payload = {
         "workspace": workspace_payload,
+        "agentsRuntime": objective_runtime_support(),
         "workflow": workflow.to_dict(),
         "resume": _resume_payload(root),
         "models": models["models"],

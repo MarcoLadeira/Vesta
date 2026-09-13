@@ -383,6 +383,20 @@ class _LinuxSubreaper:
             time.sleep(0.05)
 
 
+def objective_runtime_support() -> dict[str, Any]:
+    supported = sys.platform in {"win32", "linux"}
+    return {
+        "supported": supported,
+        "platform": sys.platform,
+        "reason": ""
+        if supported
+        else (
+            "Multi-agent execution is unavailable on this host. Use Windows or "
+            "Linux; existing objectives remain available for inspection."
+        ),
+    }
+
+
 def prepare_guardian_custody() -> _LinuxSubreaper | None:
     """Establish full descendant custody before spawning a gated worker.
 

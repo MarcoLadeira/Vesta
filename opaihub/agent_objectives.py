@@ -147,6 +147,18 @@ def validate_plan(assignments):
             task_id=_id("task"),
             run_id=_id("run"),
             name=name,
+            display_name=(
+                "Alex",
+                "Sam",
+                "Taylor",
+                "Riley",
+                "Jordan",
+                "Morgan",
+                "Casey",
+                "Robin",
+            )[index % 8]
+            + (f" {index // 8 + 1}" if index >= 8 else ""),
+            avatar_index=index,
             title=_text(raw.get("title", name), "title", 300),
             objective=_text(raw.get("objective", raw.get("title", "")), "objective"),
             role=_text(raw.get("role", "implementer"), "role", 100),
@@ -1491,6 +1503,31 @@ class ObjectiveStore:
         return self.snapshot(objective_id)
 
     def control(self, objective_id, action, assignment_id=None, value=None):
+        if action == "rename":
+            display_name = _text(value, "Agent name", 40)
+            if any(ord(char) < 32 for char in display_name):
+                raise ValueError("Agent name must be a single line")
+            with self._db(True) as db:
+                obj = self._load(db, objective_id)
+                item = next(
+                    (
+                        a
+                        for a in self._assignments(db, objective_id)
+                        if a["assignment_id"] == assignment_id
+                    ),
+                    None,
+                )
+                if item is None:
+                    raise ValueError("Choose an assignment in this objective")
+                item["display_name"] = display_name
+                self._save_assignment(db, item)
+                self._event(
+                    db,
+                    obj,
+                    "agent-renamed",
+                    {"assignment_id": assignment_id, "display_name": display_name},
+                )
+            return self.snapshot(objective_id)
         if action == "retry":
             return self.retry(objective_id, assignment_id, value)
         if action == "approve":
