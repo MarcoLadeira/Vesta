@@ -289,6 +289,12 @@ class OtherBuildsCanStillUseTheJournalTests(_Journal):
     Measured on a `main` worktree before this: a journal this branch had opened
     was "written by a newer OPai" there -- admission returned no fence, so
     nothing was journalled, and doctor escalated the project.
+
+    **No version numbers in here.** The first draft of these tests said "1"
+    and "2", and every one of them failed the moment they ran on a trial merge
+    with #842, whose migration became 3. The mechanism is tested on a migration
+    added on top of whatever this build has, so the tests hold after the next
+    merge too.
     """
 
     def stamp(self, value: int) -> None:
@@ -301,6 +307,29 @@ class OtherBuildsCanStillUseTheJournalTests(_Journal):
             connection.commit()
         finally:
             connection.close()
+
+    @contextlib.contextmanager
+    def an_ignorable_migration_on_top(self):
+        """This build, plus one more migration older builds can ignore."""
+
+        top = journal_store.SCHEMA_VERSION + 1
+        with (
+            mock.patch.object(
+                journal_store,
+                "_MIGRATIONS",
+                (
+                    *journal_store._MIGRATIONS,
+                    (top, ("CREATE TABLE IF NOT EXISTS ignorable_probe (x TEXT)",)),
+                ),
+            ),
+            mock.patch.object(journal_store, "SCHEMA_VERSION", top),
+            mock.patch.object(
+                journal_store,
+                "_OLDER_BUILDS_CAN_IGNORE",
+                journal_store._OLDER_BUILDS_CAN_IGNORE | {top},
+            ),
+        ):
+            yield top
 
     def a_build_that_trusts_the_number(self, migrations) -> None:
         """How `main` and #842 migrate: skip anything at or below the stamp."""
@@ -326,18 +355,30 @@ class OtherBuildsCanStillUseTheJournalTests(_Journal):
         finally:
             connection.close()
 
-    def test_a_journal_this_build_creates_is_stamped_for_the_oldest_build_it_can(
-        self,
-    ):
+    def test_the_lease_owner_columns_do_not_lock_older_builds_out(self):
+        """The migration that caused this, found by what it does, not its number."""
+
+        owner_columns = [
+            version
+            for version, statements in journal_store._MIGRATIONS
+            if any("owner_pid" in statement for statement in statements)
+        ]
+
+        self.assertEqual(len(owner_columns), 1)
+        self.assertIn(owner_columns[0], journal_store._OLDER_BUILDS_CAN_IGNORE)
+
+    def test_a_journal_this_build_creates_carries_the_compatibility_stamp(self):
         journal_store.open_store(self.root).close()
 
-        self.assertEqual(self.version(), 1)
+        self.assertEqual(self.version(), journal_store.compatibility_version())
         self.assertIn("owner_pid", self.lease_columns())
 
-    def test_a_build_that_only_knows_migration_1_accepts_it(self):
+    def test_a_build_that_knows_only_what_it_must_accepts_the_journal(self):
         journal_store.open_store(self.root).close()
 
-        with mock.patch.object(journal_store, "SCHEMA_VERSION", 1):
+        with mock.patch.object(
+            journal_store, "SCHEMA_VERSION", journal_store.compatibility_version()
+        ):
             connection = journal_store._connect(self.path)
             try:
                 report = journal_store.check_integrity(connection)
@@ -346,41 +387,55 @@ class OtherBuildsCanStillUseTheJournalTests(_Journal):
 
         self.assertEqual(report.state, journal_store.INTEGRITY_COMPLETE, report.detail)
 
-    def test_a_stamp_from_before_stamps_meant_compatibility_is_restored(self):
-        journal_store.open_store(self.root).close()
-        self.stamp(2)
+    def test_an_ignorable_migration_does_not_raise_the_stamp(self):
+        with self.an_ignorable_migration_on_top():
+            journal_store.open_store(self.root).close()
 
-        journal_store.open_store(self.root).close()
+            self.assertIn("ignorable_probe", self.tables())
+            self.assertEqual(self.version(), journal_store.compatibility_version())
 
-        self.assertEqual(self.version(), 1)
+    def test_a_stamp_that_claims_an_ignorable_migration_is_restored(self):
+        with self.an_ignorable_migration_on_top() as top:
+            journal_store.open_store(self.root).close()
+            self.stamp(top)
+
+            journal_store.open_store(self.root).close()
+
+            self.assertEqual(self.version(), journal_store.compatibility_version())
 
     def test_a_restored_stamp_is_written_once_not_on_every_open(self):
-        journal_store.open_store(self.root).close()
-        self.stamp(2)
-        journal_store.open_store(self.root).close()
-        watcher = self.raw()
-        before = watcher.execute("PRAGMA data_version").fetchone()[0]
+        with self.an_ignorable_migration_on_top() as top:
+            journal_store.open_store(self.root).close()
+            self.stamp(top)
+            journal_store.open_store(self.root).close()
+            watcher = self.raw()
+            before = watcher.execute("PRAGMA data_version").fetchone()[0]
 
-        journal_store.open_store(self.root).close()
+            journal_store.open_store(self.root).close()
 
-        self.assertEqual(watcher.execute("PRAGMA data_version").fetchone()[0], before)
+            self.assertEqual(
+                watcher.execute("PRAGMA data_version").fetchone()[0], before
+            )
 
-    def test_another_branch_keeps_applying_its_own_migration_2(self):
-        """The #842 case, both ways round, twice."""
+    def test_another_branch_keeps_applying_its_own_migration_of_the_same_number(
+        self,
+    ):
+        """The #842 case: both branches claim one number, both ways round, twice."""
 
-        theirs = ((2, _ANOTHER_BUILDS_MIGRATION_2),)
+        with self.an_ignorable_migration_on_top() as top:
+            theirs = ((top, _ANOTHER_BUILDS_MIGRATION_2),)
 
-        journal_store.open_store(self.root).close()
-        self.a_build_that_trusts_the_number(theirs)
-        self.assertIn("another_builds_objectives", self.tables())
+            journal_store.open_store(self.root).close()
+            self.a_build_that_trusts_the_number(theirs)
+            self.assertIn("another_builds_objectives", self.tables())
 
-        journal_store.open_store(self.root).close()
-        self.a_build_that_trusts_the_number(theirs)
-        journal_store.open_store(self.root).close()
+            journal_store.open_store(self.root).close()
+            self.a_build_that_trusts_the_number(theirs)
+            journal_store.open_store(self.root).close()
 
-        self.assertIn("another_builds_objectives", self.tables())
-        self.assertIn("owner_pid", self.lease_columns())
-        self.assertEqual(self.version(), 1)
+            self.assertIn("another_builds_objectives", self.tables())
+            self.assertIn("ignorable_probe", self.tables())
+            self.assertEqual(self.version(), journal_store.compatibility_version())
 
     def test_a_stamp_this_build_cannot_vouch_for_is_never_lowered(self):
         journal_store.open_store(self.root).close()
@@ -394,22 +449,23 @@ class OtherBuildsCanStillUseTheJournalTests(_Journal):
     def test_a_newer_build_stamping_while_this_one_waited_is_not_lowered(self):
         """Decided under the lock: the stamp read before it may be stale."""
 
-        journal_store.open_store(self.root).close()
-        self.stamp(2)
-        real = journal_store._transaction
-        newer = journal_store.SCHEMA_VERSION + 1
+        with self.an_ignorable_migration_on_top() as top:
+            journal_store.open_store(self.root).close()
+            self.stamp(top)
+            real = journal_store._transaction
+            newer = top + 1
 
-        @contextlib.contextmanager
-        def a_newer_build_gets_there_first(connection):
-            self.stamp(newer)
-            with real(connection):
-                yield connection
+            @contextlib.contextmanager
+            def a_newer_build_gets_there_first(connection):
+                self.stamp(newer)
+                with real(connection):
+                    yield connection
 
-        with mock.patch.object(
-            journal_store, "_transaction", a_newer_build_gets_there_first
-        ):
-            store = journal_store.open_store(self.root)
-            store.close()
+            with mock.patch.object(
+                journal_store, "_transaction", a_newer_build_gets_there_first
+            ):
+                store = journal_store.open_store(self.root)
+                store.close()
 
         self.assertEqual(self.version(), newer)
 
@@ -418,11 +474,11 @@ class OtherBuildsCanStillUseTheJournalTests(_Journal):
 
         with mock.patch.object(journal_store, "_OLDER_BUILDS_CAN_IGNORE", frozenset()):
             journal_store.open_store(self.root).close()
-            self.assertEqual(self.version(), 2)
+            self.assertEqual(self.version(), journal_store.SCHEMA_VERSION)
 
             journal_store.open_store(self.root).close()
 
-        self.assertEqual(self.version(), 2)
+        self.assertEqual(self.version(), journal_store.SCHEMA_VERSION)
 
 
 class ACompleteJournalCostsNoWritesTests(_Journal):
