@@ -1,18 +1,34 @@
 # PR #817 — Settings redesign, independent screenshot evidence
 
-Captured 2026-09-10 by booting the real web UI (`opai/assets/web/index.html`) through the
-repository's own e2e mock bridge and deterministic fixtures — the same harness the
-committed Playwright gallery uses.
+**Re-captured 2026-09-13** against the current PR head. Every image was rendered live by
+booting the real web UI (`opai/assets/web/index.html`) through the repository's own e2e mock
+bridge and deterministic fixtures, on both sides of the change.
 
 | | |
 | --- | --- |
-| **BEFORE** | `ab4e26e` — the merge base PR #817 targets |
-| **AFTER** | `807a067` — PR #817 head |
+| **BEFORE** | `ab4e26e` — the merge base PR #817 targets, and still the tip of `main` |
+| **AFTER** | `519069e` — PR #817 head |
 | Viewports | desktop 1440x900 · tablet 768x1024 · phone 390x844 |
 | Browser | Chromium (Playwright), `prefers-reduced-motion: reduce`, animations disabled |
 
-These are **not** the PR author's committed baselines. They were re-rendered from source on
-both branches so the two sides are directly comparable.
+These are **not** the PR author's committed baselines. This branch holds images and this page
+only. It contains no code and is not for merge. The first capture (2026-09-10, AFTER =
+`807a067`) remains in this branch's history at `f29750d`.
+
+---
+
+## What changed since the first capture
+
+| | |
+| --- | --- |
+| New commits | **One**: `519069e` *test(web): refresh Settings token baselines* (Carlson29) |
+| Files it touches | Two baseline PNGs in `design-tokens.spec.js-snapshots/`. No code. |
+| UI source | `settings.js`, `styles.css` and `app.js` are identical to `807a067` |
+| `main` | Unmoved; still `ab4e26e` |
+| Pixel comparison | All 38 re-captures were compared with the 2026-09-10 captures. **No control, text or layout pixel differs.** The only differences are the randomized starfield background (0.04–0.13% of pixels per image, scattered dots) and one live "resets in …" countdown on the BEFORE usage page. |
+
+So the screenshots below show the same interface as before, freshly rendered. The one
+substantive change is the blocking finding in section 9, which is now **resolved**.
 
 ---
 
@@ -75,8 +91,8 @@ phone gets a proper index/detail flow with subtitles and chevrons.
 
 ## 7. Global search
 
-Results carry a `Destination › subsection` breadcrumb, and there is an explicit
-clear control and an explicit no-results state.
+Results carry a `Destination › subsection` breadcrumb, and there is an explicit clear
+control and an explicit no-results state.
 
 ![Settings search](10-search.png)
 
@@ -90,33 +106,25 @@ Failure, budget pressure, a blocked permission and a pending update all stay vis
 
 ---
 
-## 9. Finding — two stale visual baselines
+## 9. ✅ Resolved — the two stale design-token baselines
 
-`opai/assets/web/__tests__/e2e/design-tokens.spec.js-snapshots/{comfortable,compact}-settings.png`
-were last refreshed in the PR's **first** commit `1af03bb`, which still shipped the
-10-destination IA. The **second** commit `807a067` collapsed the IA to 7 destinations and
-did not refresh them, so they now encode a UI that no longer exists.
+On `807a067`, `design-tokens.spec.js-snapshots/{comfortable,compact}-settings.png` still
+encoded the pre-redesign Settings UI. The spec failed 2 of 4 with a 4–5% pixel diff against a
+1% tolerance, while the merge base passed 4 of 4.
 
-![Stale design-token baseline: expected, actual, diff](12-design-tokens-stale-baseline.png)
+`519069e` refreshed both files, and the spec now passes:
 
 ```
 npx playwright test design-tokens
 
-  on 807a067 (PR head):   2 failed, 2 passed
-      18742 pixels (ratio 0.04 of all image pixels) are different   # compact
-      18978 pixels (ratio 0.05 of all image pixels) are different   # comfortable
-      tolerance: maxDiffPixelRatio 0.01
-
-  on ab4e26e (merge base): 4 passed
+  807a067  ->  2 failed, 2 passed    (committed baseline 8130c41a…)
+  519069e  ->  4 passed              (committed baseline c219ca97…)
 ```
 
-The left pane above is the PR's own committed baseline (`git hash-object` →
-`8130c41a9a25e91fc618aef0feb1a334df1ff6b1`, byte-identical to the `-expected.png` the
-failing run used). It shows `Overview / Connect / Spend & safety / System` and the
-`OPai status` + `Needs attention` dashboard — the pre-second-pass UI.
+![Design-token baseline before and after the fix](12-design-tokens-baseline-resolved.png)
 
-Note for whoever refreshes these: the `Settings` frame in `design-tokens.spec.js` does not
-capture the Settings landing page. `openNav()` reaches *Prompt Library* and *Money Saved*
-**through** Settings → Advanced, and Settings restores its last-visited destination, so the
-frame lands on **Advanced**. That is pre-existing — `ab4e26e` behaves the same way and parks
-on `tools` — but it means the refreshed baseline will encode Advanced, not General.
+**Note, not blocking.** The refreshed `Settings` frame shows **Advanced**, not the Settings
+landing page. `openNav()` reaches *Prompt Library* and *Money Saved* **through** Settings →
+Advanced, and Settings restores its last-visited destination, so that is where the frame
+lands. The behaviour predates this PR (`ab4e26e` parks on `tools`). The token check is valid;
+it just samples Advanced rather than General.

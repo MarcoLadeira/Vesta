@@ -1,19 +1,19 @@
 # PR #817 review evidence — images only
 
-This branch exists **only to host screenshots** referenced from the review comment on
+This branch exists **only to host screenshots** for
 [PR #817](https://github.com/MarcoLadeira/OPai/pull/817). It contains no code and is not
 intended to be merged into anything.
 
-Every image under `pr-817/` was captured live on 2026-09-10 by booting the real web UI
-(`opai/assets/web/index.html`) through the repository's own e2e mock bridge and
-deterministic fixtures — the same harness the committed Playwright gallery uses — at:
+Open the gallery: [`pr-817/GALLERY.md`](pr-817/GALLERY.md).
 
-- desktop 1440x900
-- tablet 768x1024
-- phone 390x844
+Every image under `pr-817/` was captured live by booting the real web UI
+(`opai/assets/web/index.html`) through the repository's own e2e mock bridge and deterministic
+fixtures, the same harness the committed Playwright gallery uses, at desktop 1440x900,
+tablet 768x1024 and phone 390x844.
 
-"BEFORE" panes are rendered from `ab4e26e`, the merge base the PR targets.
-"AFTER" panes are rendered from `807a067`, the PR head.
+| Capture | BEFORE | AFTER | Commit on this branch |
+| --- | --- | --- | --- |
+| 2026-09-10 | `ab4e26e` | `807a067` | `f29750d` |
+| **2026-09-13 (current)** | `ab4e26e` | `519069e` | tip of this branch |
 
-`12-design-tokens-stale-baseline.png` is the baseline / actual / diff triptych produced by
-`npx playwright test design-tokens` on the PR head.
+Earlier captures stay in this branch's history, so links pinned to `f29750d` keep working.
