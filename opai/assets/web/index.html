@@ -157,7 +157,7 @@
                 </button>
                 <div class="ctool-spacer"></div>
                 <button class="build-pill" id="buildToggle" aria-pressed="true" hidden><span data-icon="sparkles" aria-hidden="true"></span> Build</button>
-                <button class="ctool team-enable" id="teamModeBtn" type="button" aria-label="Enable AI Team" aria-pressed="false" title="Use an AI team for your objective"><span aria-hidden="true">◉</span><span>Team</span></button>
+                <button class="ctool team-enable" id="teamModeBtn" type="button" aria-label="Enable AI Team" aria-pressed="false" title="Use an AI team for your objective"><span aria-hidden="true">◉</span><span id="teamModeLabel">Team</span><span aria-hidden="true">⌄</span></button>
                 <button class="ctool ctool-mode" id="modeBtn" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Mode" title="How OPai handles changes">
                   <span class="mode-dot" id="modeDot" aria-hidden="true"></span><span class="ctool-txt" id="modeBtnLabel">Ask before edits</span><span class="chev" data-icon="chevronDown" aria-hidden="true"></span>
                 </button>
@@ -171,6 +171,7 @@
               <div class="cpop" id="ctxPop" role="menu" hidden></div>
               <div class="cpop" id="modePop" role="menu" hidden></div>
               <div class="cpop" id="modelPop" role="menu" hidden></div>
+              <div class="cpop" id="teamPop" role="menu" hidden></div>
               <div class="cpop" id="morePop" role="menu" hidden></div>
 
               <!-- Drag overlay -->
@@ -230,6 +231,7 @@
 
     <!-- inspector -->
     <aside class="inspector" id="inspector"></aside>
+    <aside class="agents-team-strip" id="agentsTeamStrip" aria-label="Collapsed AI Team" hidden></aside>
     <aside class="agents-team" id="agentsTeam" aria-label="AI Team" hidden></aside>
     <button class="sidebar-backdrop" id="sidebarBackdrop" aria-label="Close sidebar"></button>
   </div>

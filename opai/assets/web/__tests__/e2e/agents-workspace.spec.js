@@ -6,7 +6,8 @@ const objective = { objective_id: 'obj-1', objective: 'Repair independent regres
 test('team limits are captured exactly and keyboard editing cannot change permission mode', async ({ page }, testInfo) => {
   await openApp(page, { boot: { prefs: { multiAgentEnabled: true, showPanel: false } } });
   const mode = await page.evaluate(() => window.__opai.state.mode.id);
-  await page.locator('#modeBtn').click();
+  await page.locator('#moreBtn').click();
+  await page.getByRole('menuitem', { name: /Change permissions/ }).click();
   await page.getByText('Team limits', { exact: true }).click();
   await page.getByLabel('Concurrent agents', { exact: true }).selectOption('3');
   const budget = page.getByLabel('Objective budget in USD');
@@ -106,10 +107,10 @@ test('blocked retry carries its run fence and removing a cap sends null', async 
 
 test('live objective updates continue after acknowledgement and reject older revisions', async ({ page }) => {
   const diagnostics = await openApp(page, { boot: { prefs: { multiAgentEnabled: true } } });
-  await expect(page.locator('#modeBtn')).toContainText('Agents');
+  await expect(page.locator('#teamModeLabel')).toHaveText('Team ON');
   const id = await sendPrompt(page);
   await page.evaluate(({ o, id }) => window.__mock.emitObjective({ requestId: id, workspaceRoot: '/demo', objective: { ...o, revision: 1 } }), { o: objective, id });
-  await expect(page.locator('.agents-chat-card')).toContainText(objective.objective);
+  await expect(page.locator('.agents-chat-card')).toBeVisible();
   await page.evaluate(({ o, id }) => {
     window.__mock.emitObjective({ requestId: id, workspaceRoot: '/demo', objective: { ...o, revision: 3, cost_usd: '0.42' } });
     window.__mock.emitObjective({ requestId: id, workspaceRoot: '/demo', objective: { ...o, revision: 2, cost_usd: '0.01' } });
@@ -207,15 +208,16 @@ test('chat keeps a compact live summary linked to the canonical objective', asyn
   await expect(card).toContainText('$0.42');
   expect(await card.evaluate((node) => getComputedStyle(node).animationName)).toBe('none');
   await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('agents-chat.png') });
-  await card.getByRole('button', { name: 'Open in Agents' }).click();
-  await expect(page.locator('.agents-objective h2')).toHaveText(objective.objective);
+  await card.getByRole('button', { name: 'View team' }).click();
+  await expect(page.locator('.team-objective')).toHaveText(objective.objective);
 });
 
 for (const width of [1440, 520]) {
   test(`agent picker exposes complete consent at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 1000 });
     await openApp(page, { boot: { prefs: { multiAgentEnabled: true, showPanel: false } } });
-    await page.locator('#modeBtn').click();
+    await page.locator('#moreBtn').click();
+  await page.getByRole('menuitem', { name: /Change permissions/ }).click();
     for (const selector of ['[data-multi-agent]', '[data-agents-cloud]']) {
       const row = page.locator('#modePop ' + selector);
       await row.scrollIntoViewIfNeeded();
@@ -250,7 +252,8 @@ test('approve once and request review carry canonical request and revision fence
 test('multiple agents checkbox preserves permission mode and model, persists, and travels with retry', async ({ page }) => {
   const diagnostics = await openApp(page, { boot: { prefs: { multiAgentEnabled: true } } });
   const selection = await page.evaluate(() => ({ mode: window.__opai.state.mode.id, model: window.__opai.state.model.id }));
-  await page.locator('#modeBtn').click();
+  await page.locator('#moreBtn').click();
+  await page.getByRole('menuitem', { name: /Change permissions/ }).click();
   const toggle = page.getByRole('menuitemcheckbox', { name: /Allow multiple agents mode/ });
   await expect(toggle).toHaveAttribute('aria-checked', 'true');
   await toggle.click();
@@ -270,7 +273,8 @@ test('multiple agents checkbox preserves permission mode and model, persists, an
 
 test('cloud permission is explicit and applies only to the next objective', async ({ page }) => {
   const diagnostics = await openApp(page, { boot: { prefs: { multiAgentEnabled: true } } });
-  await page.locator('#modeBtn').click();
+  await page.locator('#moreBtn').click();
+  await page.getByRole('menuitem', { name: /Change permissions/ }).click();
   const cloud = page.getByRole('menuitemcheckbox', { name: /Allow cloud providers for this objective/ });
   await expect(cloud).toHaveAttribute('aria-checked', 'false');
   await expect(cloud).toContainText('Sends code and context');
@@ -295,7 +299,8 @@ test('cloud permission is explicit and applies only to the next objective', asyn
 
 test('disabling agents or changing workspace clears pending cloud consent', async ({ page }) => {
   const diagnostics = await openApp(page, { boot: { prefs: { multiAgentEnabled: true } } });
-  await page.locator('#modeBtn').click();
+  await page.locator('#moreBtn').click();
+  await page.getByRole('menuitem', { name: /Change permissions/ }).click();
   const agents = page.getByRole('menuitemcheckbox', { name: /Allow multiple agents mode/ });
   const cloud = page.getByRole('menuitemcheckbox', { name: /Allow cloud providers for this objective/ });
   await cloud.click();
@@ -340,7 +345,7 @@ test('objective signal releases chat only for the active request and workspace',
   await page.evaluate(({ o, id }) => window.__mock.emitObjective({ requestId: id, objective: o, workspaceRoot: '/other' }), { o: objective, id });
   expect(await page.evaluate(() => window.__opai.state.busy)).toBe(true);
   await page.evaluate(({ o, id }) => window.__mock.emitObjective({ requestId: id, objective: o, workspaceRoot: '/demo' }), { o: objective, id });
-  await expect(page.locator('.agents-chat-card')).toContainText('Repair independent regressions');
+  await expect(page.locator('.agents-chat-card')).toBeVisible();
   expect(await page.evaluate(() => ({ busy: window.__opai.state.busy, view: window.__opai.state.view }))).toEqual({ busy: false, view: 'chat' });
   await page.evaluate(() => window.__mock.switchWorkspace('/other'));
   await expect.poll(() => page.evaluate(() => window.__opai.state.boot.workspace.root)).toBe('/other');

@@ -55,7 +55,7 @@ const state = {
   model: { id: "auto", label: "Auto", kind: "auto" },
   mode: { id: "safe-auto", label: "Safe Auto" },
   focus: "general", format: "normal",
-  multiAgentEnabled: false, agentsAllowCloud: false, agentsMaxParallel: 2, agentsBudgetUsd: "", agentsSnapshot: null, agentsSelection: null, agentsPollTimer: null, agentsRequests: new Map(),
+  multiAgentEnabled: false, agentsAllowCloud: false, agentsMaxParallel: 2, agentsSizing: "automatic", agentsBudgetUsd: "", agentsSnapshot: null, agentsSelection: null, agentsPollTimer: null, agentsRequests: new Map(),
   teamOpen: false, teamObjectiveId: null, teamAgentId: null, teamPollTimer: null, teamRequest: null, teamRefreshError: '',
   // Hidden until the boot payload (or the user) says otherwise, matching
   // gui_preferences' documented default. Starting true meant the shell
@@ -341,6 +341,7 @@ function applyBootSelection(b) {
   state.multiAgentEnabled = b.prefs.multiAgentEnabled === true && b.agentsRuntime?.supported !== false;
   state.agentsAllowCloud = false;
   state.agentsMaxParallel = 2;
+  state.agentsSizing = "automatic";
   state.agentsBudgetUsd = "";
   state.teamOpen = false;
   state.teamObjectiveId = null;
@@ -1197,7 +1198,7 @@ function renderComposerSelects() {
     // immediately, then let the asynchronous status refresh fill in its
     // independently computed spend and savings values. This avoids showing the
     // previous (potentially more permissive) mode while that refresh is in flight.
-    renderStatus({ line: $("#statusLine").textContent });
+    renderStatus({ line: state.statusLineSource || "" });
     renderComposerContext(); refreshInspector(); refreshStatus();
   };
   renderModelSelect();
@@ -1741,13 +1742,13 @@ function updateInspectorLive(stepText) {
 
 function renderStatus(st) {
   if (!st) return;
-  const segments = String(st.line || "").split(" · ");
-  // Mode is selected locally, while the rest of this line (provider, spend,
-  // savings) is supplied by the backend. Keep the only immediately knowable
-  // value authoritative even if a queued status response was generated before
-  // the user changed modes.
-  if (segments.length >= 2 && state.mode) segments[1] = modePresentationLabel(state.mode);
-  $("#statusLine").innerHTML = esc(segments.join(" · ")).replace(/^([^·]+)/, "<b>$1</b>");
+  state.statusLineSource = String(st.line || "");
+  const segments = state.statusLineSource.split(" · ");
+  if (segments.length >= 3 && state.mode) {
+    const label = modePresentationLabel(state.mode) + ' mode' + (state.bypassPermissions ? ' · Bypass on' : '');
+    $('#statusLine').innerHTML = '<b>' + esc(label) + '</b>' + segments.slice(2).map((value) => ' · ' + (/saved$/.test(value) ? '<strong class="status-savings">' + esc(value) + '</strong>' : esc(value))).join('');
+  } else $('#statusLine').textContent = st.line || '';
+
 }
 
 /* ---------- views ---------- */
@@ -4220,6 +4221,39 @@ function onDashboardReady(json) {
   }
   state.dashPaint(JSON.stringify(d.data));
 }
+function inspectAgentArtifact(payload) {
+  if (!bridge.inspectObjectiveArtifact) { toast("Artifact inspection is unavailable in this host."); return; }
+  const workspaceRoot = (state.boot.workspace || {}).root;
+  bridge.inspectObjectiveArtifact(JSON.stringify(payload), (json) => {
+    let result; try { result = JSON.parse(json); } catch (_) { result = {}; }
+    if (workspaceRoot !== (state.boot.workspace || {}).root) return;
+    if (!result.ok) { toast(safeStateReason(result.error, "No matching artifact is available.")); return; }
+    if (result.workspaceRoot !== workspaceRoot || result.kind !== payload.kind || result.objective_id !== payload.objective_id || (result.assignment_id || "") !== (payload.assignment_id || "")) return;
+    const dialog = document.createElement("dialog");
+    dialog.className = "agents-artifact-dialog";
+    const returnFocus = document.activeElement;
+    const header = document.createElement("header");
+    const title = document.createElement("h3");
+    title.id = "agents-artifact-title";
+    title.textContent = result.summary || "Recorded changes";
+    dialog.setAttribute("aria-labelledby", title.id);
+    const close = document.createElement("button");
+    close.type = "button"; close.className = "btn"; close.textContent = "Close"; close.onclick = () => dialog.close();
+    const description = document.createElement("p");
+    description.textContent = "Base " + result.base_sha + " · Head " + result.head_sha + (result.truncated ? " · Preview truncated; open the worktree for the full diff." : "");
+    const preview = document.createElement("pre");
+    preview.tabIndex = 0;
+    preview.setAttribute("aria-label", "Recorded diff");
+    preview.textContent = result.text || "No changes in this recorded diff.";
+    header.append(title, close);
+    dialog.append(header, description, preview);
+    dialog.onclose = () => {
+      dialog.remove();
+      if (returnFocus && returnFocus.isConnected) returnFocus.focus({ preventScroll: true });
+    };
+    document.body.append(dialog); dialog.showModal(); close.focus();
+  });
+}
 function paintAgentsWorkspace() {
   paintAgentChatCards();
   paintAgentTeam();
@@ -4230,39 +4264,7 @@ function paintAgentsWorkspace() {
     onAction: runAction,
     onBackToChat: () => openAgentTeam(state.agentsSelection?.objectiveId, state.agentsSelection?.assignmentId),
     onCopyReceipt: (receipt) => { copyText(JSON.stringify(receipt, null, 2)); toast("Receipt copied."); },
-    onInspectArtifact: (payload) => {
-      if (!bridge.inspectObjectiveArtifact) { toast("Artifact inspection is unavailable in this host."); return; }
-      const workspaceRoot = (state.boot.workspace || {}).root;
-      bridge.inspectObjectiveArtifact(JSON.stringify(payload), (json) => {
-        let result; try { result = JSON.parse(json); } catch (_) { result = {}; }
-        if (workspaceRoot !== (state.boot.workspace || {}).root) return;
-        if (!result.ok) { toast(safeStateReason(result.error, "No matching artifact is available.")); return; }
-        if (result.workspaceRoot !== workspaceRoot || result.kind !== payload.kind || result.objective_id !== payload.objective_id || (result.assignment_id || "") !== (payload.assignment_id || "")) return;
-        const dialog = document.createElement("dialog");
-        dialog.className = "agents-artifact-dialog";
-        const returnFocus = document.activeElement;
-        const header = document.createElement("header");
-        const title = document.createElement("h3");
-        title.id = "agents-artifact-title";
-        title.textContent = result.summary || "Recorded changes";
-        dialog.setAttribute("aria-labelledby", title.id);
-        const close = document.createElement("button");
-        close.type = "button"; close.className = "btn"; close.textContent = "Close"; close.onclick = () => dialog.close();
-        const description = document.createElement("p");
-        description.textContent = "Base " + result.base_sha + " · Head " + result.head_sha + (result.truncated ? " · Preview truncated; open the worktree for the full diff." : "");
-        const preview = document.createElement("pre");
-        preview.tabIndex = 0;
-        preview.setAttribute("aria-label", "Recorded diff");
-        preview.textContent = result.text || "No changes in this recorded diff.";
-        header.append(title, close);
-        dialog.append(header, description, preview);
-        dialog.onclose = () => {
-          dialog.remove();
-          if (returnFocus && returnFocus.isConnected) returnFocus.focus({ preventScroll: true });
-        };
-        document.body.append(dialog); dialog.showModal(); close.focus();
-      });
-    },
+    onInspectArtifact: inspectAgentArtifact,
     onOpenWorktree: (payload) => {
       if (!bridge.openObjectiveWorktree) { toast("Worktree access is unavailable in this host."); return; }
       bridge.openObjectiveWorktree(JSON.stringify(payload), (json) => {
@@ -4279,6 +4281,7 @@ function paintAgentsWorkspace() {
 }
 function paintAgentChatCards() {
   if (!window.OPaiAgentsWorkspace) return;
+  const scroll = captureChatScroll();
   document.querySelectorAll("[data-agent-chat-objective]").forEach((element) => {
     const objective = ((state.agentsSnapshot || {}).objectives || []).find((o) => o.objective_id === element.dataset.agentChatObjective);
     if (!objective) return;
@@ -4288,12 +4291,6 @@ function paintAgentChatCards() {
     const focused = active ? JSON.stringify({ ...active.dataset }) : null;
     element.innerHTML = html;
     element._agentsHtml = html;
-    const open = element.querySelector("[data-open-agent-objective]");
-    open.onclick = () => {
-      state.agentsSelection = { objectiveId: objective.objective_id };
-      switchView("agents");
-      paintAgentsWorkspace();
-    };
     element.querySelectorAll('[data-team-select]').forEach((button) => {
       button.onclick = () => openAgentTeam(objective.objective_id, button.dataset.teamSelect);
     });
@@ -4301,6 +4298,7 @@ function paintAgentChatCards() {
     if (team) team.onclick = () => openAgentTeam(objective.objective_id);
     if (focused) Array.from(element.querySelectorAll('button')).find((button) => JSON.stringify({ ...button.dataset }) === focused)?.focus({ preventScroll: true });
   });
+  restoreChatScroll(scroll);
 }
 function openAgentTeam(objectiveId, assignmentId) {
   state.teamObjectiveId = objectiveId;
@@ -4308,16 +4306,36 @@ function openAgentTeam(objectiveId, assignmentId) {
   state.teamOpen = true;
   if (state.view !== 'chat') switchView('chat');
   applyPanel();
+  if (assignmentId) $('#agentsTeam [data-team-back]')?.focus({ preventScroll: true });
 }
 function paintAgentTeam() {
   const element = $('#agentsTeam');
-  if (!element || !window.OPaiAgentsTeam || element.hidden) return;
+  if (!element || !window.OPaiAgentsTeam) return;
   const objectives = (state.agentsSnapshot || {}).objectives || [];
   const objective = objectives.find((o) => o.objective_id === state.teamObjectiveId) || objectives[0];
+  const strip = $('#agentsTeamStrip');
+  if (strip && !strip.hidden) {
+    const html = window.OPaiAgentsTeam.stripHtml(objective);
+    if (strip._teamHtml !== html) {
+      const focused = strip.contains(document.activeElement);
+      strip.innerHTML = html; strip._teamHtml = html;
+      if (focused) strip.querySelector('button').focus({ preventScroll: true });
+    }
+    strip.querySelector('button').onclick = () => openAgentTeam(objective?.objective_id);
+  }
+  if (element.hidden || document.querySelector('.agents-artifact-dialog[open]')) return;
+  if (objective) state.teamObjectiveId = objective.objective_id;
   window.OPaiAgentsTeam.mountPanel(element, objective, state.teamAgentId, {
     unavailable: state.teamRefreshError || (state.boot.agentsRuntime?.supported === false ? state.boot.agentsRuntime.reason : ''),
     onClose: () => { state.teamOpen = false; applyPanel(); $('#teamModeBtn')?.focus(); },
-    onSelect: (assignmentId) => { state.teamAgentId = assignmentId; paintAgentTeam(); },
+    onSelect: (assignmentId) => {
+      const previous = state.teamAgentId;
+      state.teamAgentId = assignmentId; paintAgentTeam();
+      if (assignmentId) element.querySelector('[data-team-back]')?.focus({ preventScroll: true });
+      else Array.from(element.querySelectorAll('.team-person')).find((b) => b.dataset.teamSelect === previous)?.focus({ preventScroll: true });
+      element.scrollTop = 0;
+    },
+    onArtifact: inspectAgentArtifact,
     onInspect: (assignmentId) => {
       state.agentsSelection = { objectiveId: objective.objective_id, assignmentId };
       switchView('agents'); paintAgentsWorkspace();
@@ -4809,6 +4827,7 @@ function runCommand(id) {
 }
 function togglePanel() {
   state.teamOpen = false;
+  state.teamObjectiveId = null;
   state.panel = !state.panel; applyPanel();
   // #246: the inspector is deferred at boot; load it the first time the panel
   // is opened (and refresh each open, matching pre-defer behaviour).
@@ -4817,13 +4836,17 @@ function togglePanel() {
 }
 function applyPanel() {
   const team = state.teamOpen && state.view === 'chat';
+  const collapsed = !team && !!state.teamObjectiveId && state.view === 'chat';
+  $('#app').classList.toggle('team-collapsed', collapsed);
+  if ($('#agentsTeamStrip')) $('#agentsTeamStrip').hidden = !collapsed;
   $("#app").classList.toggle("team-open", team);
   if ($('#agentsTeam')) $('#agentsTeam').hidden = !team;
-  $("#app").classList.toggle("panel-hidden", !state.panel && !team);
+  $("#app").classList.toggle("panel-hidden", !state.panel && !team && !collapsed);
   $("#panelToggle").classList.toggle("on", state.panel);
   $("#panelToggle").setAttribute("aria-pressed", state.panel ? "true" : "false");
   paintAgentTeam();
   syncAgentTeamPolling();
+  updateTeamComposerClearance();
   if (window.OPaiComposer) window.OPaiComposer.refresh();
 }
 
@@ -4880,8 +4903,13 @@ function toast(msg) {
   const t = $("#toast"); t.textContent = msg; t.classList.add("show");
   clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), 3200);
 }
+function updateTeamComposerClearance() {
+  const composer = $('.composer');
+  if (composer) $('#app').style.setProperty('--team-composer-clearance', Math.max(120, window.innerHeight - composer.getBoundingClientRect().top + 12) + 'px');
+}
 function autoSize() {
   const i = $("#input"); i.style.height = "auto"; i.style.height = Math.min(180, i.scrollHeight) + "px";
+  updateTeamComposerClearance();
 }
 function setComposerDraft(value, options = {}) {
   const input = $("#input");
@@ -5035,6 +5063,7 @@ function wire() {
   $("#palette").addEventListener("click", (e) => { if (e.target.id === "palette") $("#palette").classList.remove("open"); });
   wireWindowChrome();
   window.addEventListener("resize", () => {
+    updateTeamComposerClearance();
     if (!isCompactShell()) {
       $("#app").classList.remove("mobile-sidebar-open");
       $("#sidebarToggle").setAttribute("aria-expanded", $("#app").classList.contains("sidebar-hidden") ? "false" : "true");
@@ -5089,7 +5118,7 @@ if (typeof window !== "undefined") {
       state.agentsAllowCloud = state.multiAgentEnabled && enabled === true;
     },
     setAgentsRunSettings: (settings) => {
-      if (Number.isInteger(settings.maxParallel)) state.agentsMaxParallel = settings.maxParallel;
+      if (Number.isInteger(settings.maxParallel)) { state.agentsMaxParallel = settings.maxParallel; state.agentsSizing = settings.sizing || String(settings.maxParallel); }
       if (typeof settings.budgetUsd === "string") state.agentsBudgetUsd = settings.budgetUsd;
     },
     toggleAgentTeam: () => {

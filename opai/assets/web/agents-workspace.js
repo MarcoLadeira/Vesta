@@ -173,8 +173,11 @@
     return html + '</div>';
   }
   function renderCompact(objective) {
-    const count = list(objective.assignments).filter(needsAttention).length;
-    return '<section class="agents-chat-card"><header><span class="agents-eyebrow">Agent team</span>' + stateBadge(objective.status) + '</header><h3>' + esc(objective.objective) + '</h3>' + (count ? '<p class="agents-note">' + count + (count === 1 ? ' assignment needs attention' : ' assignments need attention') + '</p>' : '') + '<div class="agents-chat-footer"><span>Cost ' + cost(objective.cost_usd) + (objective.cost_complete !== true ? ' · incomplete' : '') + '</span><div class="team-chat-actions"><button type="button" class="btn" data-open-team>View team</button><button type="button" class="team-quiet" data-open-agent-objective="' + esc(objective.objective_id) + '">Open in Agents</button></div></div></section>';
+    const assignments = list(objective.assignments);
+    const working = assignments.filter((a) => a.status === 'running').length;
+    const attention = assignments.filter(needsAttention).length;
+    const summary = working ? working + (working === 1 ? ' agent working' : ' agents working') : objective.status === 'completed' ? 'Team finished' : objective.status === 'ready-to-integrate' ? 'Ready for combined checks' : objective.status === 'planning' || !assignments.length ? 'Putting your team together' : assignments.length + ' agents · ' + status(objective.status);
+    return '<section class="agents-chat-card" aria-label="Team summary"><span class="agents-state' + (working ? ' agents-state-active' : '') + '"><i aria-hidden="true"></i>' + summary + '</span><span class="team-summary-cost">' + cost(objective.cost_usd) + (objective.cost_complete !== true ? ' · incomplete' : '') + '</span>' + (attention ? '<span class="agents-note">' + attention + (attention === 1 ? ' assignment needs attention' : ' assignments need attention') + '</span>' : '') + '<button type="button" class="team-quiet" data-open-team>View team</button></section>';
   }
   function mount(element, snapshot, options) {
     options = options || {};

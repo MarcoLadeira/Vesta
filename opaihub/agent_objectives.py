@@ -659,6 +659,7 @@ class ObjectiveStore:
                 "SELECT COALESCE(MAX(sequence),0) FROM events WHERE run_id=?",
                 (obj["run_id"],),
             ).fetchone()[0]
+            obj["timeline"], obj["timeline_truncated"] = self._timeline(db, obj)
             obj["cost_usd"], obj["cost_complete"] = self._costs(db, objective_id)
             obj["cost_complete"] = (
                 obj["cost_complete"]
@@ -756,6 +757,34 @@ class ObjectiveStore:
             for item in obj["assignments"]:
                 item["receipt"] = receipts[item["assignment_id"]]
             return obj
+
+    def _timeline(self, db, obj):
+        kinds = ("agents.claimed", "agents.activity", "agents.assignment-finished")
+        recorded = db.execute(
+            "SELECT sequence,occurred_at,event_type,payload FROM events "
+            "WHERE run_id=? AND event_type IN (?,?,?) "
+            "AND CASE WHEN json_valid(json_extract(payload,'$.activity')) "
+            "THEN COALESCE(json_extract(json_extract(payload,'$.activity'),'$.channel'),'feed') "
+            "ELSE 'feed' END <> 'status' ORDER BY sequence DESC LIMIT 81",
+            (obj["run_id"], *kinds),
+        ).fetchall()
+        entries = []
+        known = {a["assignment_id"] for a in obj["assignments"]}
+        for row in reversed(recorded[:80]):
+            payload = json.loads(row["payload"])
+            if payload.get("assignment_id") not in known:
+                continue
+            entry = {
+                "sequence": row["sequence"],
+                "occurred_at": row["occurred_at"],
+                "kind": row["event_type"].removeprefix("agents."),
+                "assignment_id": payload["assignment_id"],
+            }
+            for field in ("activity", "status", "summary", "verification_summary"):
+                if isinstance(payload.get(field), str):
+                    entry[field] = payload[field][:2000]
+            entries.append(entry)
+        return entries, len(recorded) > 80
 
     def _queue_projection(self, db, obj, items):
         active = [
@@ -1112,7 +1141,19 @@ class ObjectiveStore:
                 db,
                 obj,
                 "assignment-finished",
-                {"assignment_id": assignment_id, "status": status, "fence": fence},
+                {
+                    "assignment_id": assignment_id,
+                    "status": status,
+                    "fence": fence,
+                    "summary": str(
+                        ((result or {}).get("handoff") or {}).get("summary", "")
+                    )[:2000]
+                    if isinstance((result or {}).get("handoff"), dict)
+                    else "",
+                    "verification_summary": str(
+                        (verification or {}).get("summary", "")
+                    )[:2000],
+                },
             )
             self._refresh(db, obj)
         return self.snapshot(objective_id)

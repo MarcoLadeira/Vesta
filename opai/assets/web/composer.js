@@ -142,7 +142,7 @@
 
   /* ---------- popovers ---------- */
   function fitModePop() {
-    var pop = els.modePop;
+    var pop = openPop === "teamPop" ? els.teamPop : els.modePop;
     if (!pop || pop.hidden) return;
     var header = document.getElementById('appHeader');
     var top = Math.max(0, header ? header.getBoundingClientRect().bottom : 0) + 8;
@@ -150,11 +150,11 @@
   }
   function closePopovers() {
     STYLES.forEach(function () {});
-    ["ctxPop", "modePop", "modelPop", "morePop"].forEach(function (id) {
+    ["ctxPop", "modePop", "modelPop", "morePop", "teamPop"].forEach(function (id) {
       var el = els[id];
       if (el) el.hidden = true;
     });
-    ["ctxBtn", "modeBtn", "modelBtn", "moreBtn"].forEach(function (id) {
+    ["ctxBtn", "modeBtn", "modelBtn", "moreBtn", "teamModeBtn"].forEach(function (id) {
       var el = els[id];
       if (el) el.setAttribute("aria-expanded", "false");
     });
@@ -172,7 +172,7 @@
     if (btn) btn.setAttribute("aria-expanded", "true");
     els.composer && els.composer.classList.add("pop-open");
     openPop = popId;
-    if (popId === 'modePop') fitModePop();
+    if (popId === 'modePop' || popId === 'teamPop') fitModePop();
     var first = pop.querySelector("button, input, [tabindex]");
     if (first) { try { first.focus(); } catch (_e) { /* best effort */ } }
   }
@@ -594,6 +594,35 @@
   }
   var scopeIdx = 0;
 
+  function buildTeamPop() {
+    var st = state();
+    var pop = els.teamPop;
+    var api = global.__opai || {};
+    pop.innerHTML = '<div class="cpop-head">Team</div>' +
+      ['automatic', '2', '3', '4'].map(function (size) {
+        return menuRow({ role: 'menuitemradio', title: size === 'automatic' ? 'Automatic' : 'Up to ' + size + ' agents at once', desc: size === 'automatic' ? 'OPai assigns roles and coordinates the work.' : '', active: (st.agentsSizing || 'automatic') === size }).replace('class="cpop-row', 'data-team-size="' + size + '" class="cpop-row');
+      }).join('') + '<div class="cpop-sep"></div>' +
+      menuRow({ role: 'menuitemcheckbox', title: 'Allow cloud providers for this objective', desc: 'Sends code and context to cloud providers and may use paid or account quota. Applies to the next objective only.', active: st.agentsAllowCloud === true }).replace('class="cpop-row', 'data-team-cloud class="cpop-row') +
+      '<button type="button" class="cpop-row" role="menuitem" data-team-show>Show team</button>' +
+      '<button type="button" class="cpop-row" role="menuitem" data-team-configure>Configure team…</button>' +
+      '<button type="button" class="cpop-row" role="menuitem" data-team-permissions>Permissions: ' + esc(modeLabelOf(st.mode)) + (st.bypassPermissions ? ' · Bypass on' : '') + '</button>' +
+      '<button type="button" class="cpop-row" role="menuitem" data-team-off>Turn Team off</button>';
+    pop.querySelectorAll('[data-team-size]').forEach(function (button) { button.onclick = function () {
+      var size = button.dataset.teamSize;
+      api.setAgentsRunSettings({ maxParallel: size === 'automatic' ? 2 : Number(size), sizing: size });
+      closePopovers(); els.teamModeBtn.focus();
+    }; });
+    pop.querySelector('[data-team-cloud]').onclick = function () { api.setAgentsAllowCloud(!state().agentsAllowCloud); buildTeamPop(); pop.querySelector('[data-team-cloud]').focus(); fitModePop(); };
+    pop.querySelector('[data-team-show]').onclick = function () { closePopovers(); if (!state().teamOpen) api.toggleAgentTeam(); };
+    pop.querySelector('[data-team-off]').onclick = function () { api.setMultiAgentEnabled(false); closePopovers(); els.teamModeBtn.focus(); };
+    pop.querySelector('[data-team-permissions]').onclick = function () { closePopovers(); openMode(); };
+    pop.querySelector('[data-team-configure]').onclick = function () {
+      closePopovers(); openMode();
+      var limits = els.modePop.querySelector('[data-agents-limits]');
+      if (limits) { limits.open = true; limits.querySelector('summary').focus(); fitModePop(); }
+    };
+  }
+  function openTeam() { togglePop('teamPop', 'teamModeBtn', buildTeamPop); }
   function openContext() { togglePop("ctxPop", "ctxBtn", buildContextPop); }
   function openMode() { togglePop("modePop", "modeBtn", buildModePop); }
   function openModel() { togglePop("modelPop", "modelBtn", buildModelPop); }
@@ -621,8 +650,10 @@
     var teamButton = document.getElementById('teamModeBtn');
     if (teamButton) {
       teamButton.setAttribute('aria-pressed', String(st.multiAgentEnabled === true));
-      teamButton.setAttribute('aria-label', st.multiAgentEnabled ? 'Toggle AI Team panel' : 'Enable AI Team');
-      teamButton.setAttribute('aria-expanded', String(st.teamOpen === true && st.view === 'chat'));
+      teamButton.setAttribute('aria-label', st.multiAgentEnabled ? 'Team on: options' : 'Enable AI Team');
+      document.getElementById('teamModeLabel').textContent = st.multiAgentEnabled ? 'Team ON' : 'Team';
+      teamButton.setAttribute('aria-haspopup', 'menu');
+      teamButton.setAttribute('aria-expanded', String(openPop === 'teamPop'));
       teamButton.disabled = boot().agentsRuntime && boot().agentsRuntime.supported === false;
       teamButton.title = teamButton.disabled ? boot().agentsRuntime.reason : 'Use an AI team for your objective';
     }
@@ -635,7 +666,7 @@
     // its own name -- the switch is additive, so the pill says so.
     var bypassing = st.bypassPermissions === true;
     if (els.modeBtnLabel) {
-      els.modeBtnLabel.textContent = mLabel + (bypassing ? " · Bypass" : "") + (st.multiAgentEnabled ? " · Agents" : "");
+      els.modeBtnLabel.textContent = mLabel + (bypassing ? " · Bypass" : "");
     }
     if (els.modeDot) {
       els.modeDot.style.background = dotVar(
@@ -643,6 +674,7 @@
       );
     }
     if (els.modeBtn) {
+      els.modeBtn.hidden = st.multiAgentEnabled === true && mode.id === 'safe-auto' && !bypassing;
       els.modeBtn.setAttribute(
         "aria-label",
         bypassing
@@ -652,6 +684,7 @@
     }
     // Model button
     var mdLabel = shortModel(model);
+    if (mdLabel === 'Auto') mdLabel = 'Auto model';
     if (els.modelBtnLabel) els.modelBtnLabel.textContent = mdLabel;
     if (els.modelBtn) els.modelBtn.setAttribute("aria-label", "Model: " + mdLabel);
 
@@ -698,7 +731,7 @@
   /* ---------- init ---------- */
   function cache() {
     ["composer", "composerStatus", "composerTokens",       "ctxBtn", "moreBtn", "modeBtn", "modelBtn", "modeBtnLabel", "modelBtnLabel", "modeDot",
-      "ctxPop", "modePop", "modelPop", "morePop", "composerDrop"].forEach(function (id) {
+      "ctxPop", "modePop", "modelPop", "morePop", "teamPop", "teamModeBtn", "composerDrop"].forEach(function (id) {
       els[id] = document.getElementById(id);
     });
     els.status = els.composerStatus;
@@ -715,7 +748,7 @@
     var teamButton = document.getElementById('teamModeBtn');
     if (teamButton) teamButton.onclick = function () {
       if (!global.__opai) return;
-      if (state().multiAgentEnabled && global.__opai.toggleAgentTeam) global.__opai.toggleAgentTeam();
+      if (state().multiAgentEnabled) openTeam();
       else global.__opai.setMultiAgentEnabled(true);
     };
     window.addEventListener('resize', fitModePop);

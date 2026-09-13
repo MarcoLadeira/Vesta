@@ -1,11 +1,19 @@
 .agents-team { grid-column: 3; grid-row: 2; min-width: 0; overflow-y: auto; padding: var(--space-5) var(--space-4); background: var(--surface); border-left: 1px solid var(--border); }
 .agents-team[hidden] { display: none; }
+.team-roster[hidden], .agents-team-strip[hidden], .ctool[hidden] { display: none; }
+.agents-team-strip { grid-column: 3; grid-row: 2; padding: var(--space-3) var(--space-1); border-left: 1px solid var(--border); background: var(--surface); }
+.app.team-collapsed { grid-template-columns: 250px minmax(0, 1fr) 48px; }
+.app.sidebar-hidden.team-collapsed { grid-template-columns: 0px minmax(0, 1fr) 48px; }
+.app.team-collapsed .inspector { display: none; }
+.team-strip-open { display: grid; justify-items: center; gap: var(--space-2); width: 100%; border: 0; background: transparent; color: var(--muted); cursor: pointer; }
+.team-strip-open > span:first-child { display: grid; gap: var(--space-2); }
+.team-strip-open .team-avatar { width: 28px; height: 28px; }
 .app.team-open { grid-template-columns: 250px minmax(0, 1fr) 320px; }
 .app.sidebar-hidden.team-open { grid-template-columns: 0px minmax(0, 1fr) 320px; }
 .app.team-open .inspector { display: none; }
 .app.team-open .agents-team { animation: team-reveal .18s var(--ease); }
 @keyframes team-reveal { from { opacity: 0; } to { opacity: 1; } }
-.team-header, .team-detail > header, .team-update-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.team-header, .team-detail > header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .team-header h2 { font-size: var(--type-body-lg); }
 .team-quiet { border: 0; background: transparent; padding: var(--space-2) 0; color: var(--muted); cursor: pointer; font-size: var(--type-label); }
 .team-quiet:hover { color: var(--ink); }
@@ -17,18 +25,19 @@
 .team-person > span { display: grid; gap: var(--space-1); min-width: 0; }
 .team-person strong { font-size: var(--type-label); overflow-wrap: anywhere; }
 .team-avatar { flex: none; width: 40px; height: 40px; border-radius: 50%; }
+.team-avatar { filter: saturate(.8); }
 .team-current { display: block; color: var(--muted); font-size: var(--type-label); line-height: 1.5; overflow-wrap: anywhere; }
 .team-person .team-current { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.team-state { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--muted); font-size: var(--type-caption); text-transform: capitalize; }
-.team-state i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.team-state { display: inline-flex; align-items: baseline; gap: var(--space-1); color: var(--muted); font-size: var(--type-caption); line-height: 1.5; overflow-wrap: anywhere; }
+.team-state i { flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .team-state-active { color: var(--accent); }
 .team-state-done { color: var(--green); }
 .team-state-attention { color: var(--amber); }
 .team-state-active i { animation: agents-pulse 2.4s ease-in-out infinite; }
-.team-detail { margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px solid var(--border); }
+.team-detail { margin-top: var(--space-3); }
+.team-detail-person { min-width: 0; overflow-wrap: anywhere; display: flex; align-items: center; gap: var(--space-2); color: var(--muted); font-size: var(--type-label); }
+.team-detail-person .team-avatar { width: 28px; height: 28px; }
 .team-detail h3 { font-size: var(--type-body-lg); overflow-wrap: anywhere; }
-.team-task { display: block; color: var(--ink); font-size: var(--type-label); margin: var(--space-2) 0; overflow-wrap: anywhere; }
-.team-activity { list-style: none; padding: 0 0 0 var(--space-3); margin: var(--space-4) 0; border-left: 1px solid var(--border-strong); display: grid; gap: var(--space-3); font-size: var(--type-label); color: var(--muted); overflow-wrap: anywhere; }
 .team-empty, .team-result { margin: var(--space-4) 0; color: var(--muted); font-size: var(--type-label); line-height: 1.6; overflow-wrap: anywhere; }
 .team-connection { display: flex; gap: var(--space-2); padding: var(--space-2) 0; color: var(--muted); font-size: var(--type-caption); border-left: 1px solid var(--border-strong); padding-left: var(--space-3); }
 .team-connection button { border: 0; padding: 0; color: var(--accent); background: transparent; font: inherit; cursor: pointer; }
@@ -43,17 +52,31 @@
 .team-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-3); }
 .team-footer { margin-top: var(--space-5); padding-top: var(--space-3); border-top: 1px solid var(--border); display: grid; justify-items: start; }
 .team-feed { margin-top: var(--space-4); }
-.team-update { display: flex; align-items: start; gap: var(--space-3); padding: var(--space-4) 0; text-align: left; color: var(--ink); background: transparent; border: 0; border-top: 1px solid var(--border); width: 100%; cursor: pointer; }
+.team-timeline { list-style: none; padding: 0; margin: 0; }
+.team-timeline > li { position: relative; }
+.team-timeline > li:not(:last-child)::before { content: ''; position: absolute; top: 36px; bottom: -12px; left: 15px; border-left: 1px solid var(--border); }
+.team-update { position: relative; display: flex; align-items: start; gap: var(--space-3); padding: var(--space-3) 0; text-align: left; color: var(--ink); background: transparent; border: 0; width: 100%; cursor: pointer; }
+.team-update .team-avatar { width: 32px; height: 32px; }
+.team-event-work { display: block; font-size: var(--type-label); font-weight: 500; line-height: 1.6; overflow-wrap: anywhere; }
+.team-event-by { display: flex; gap: var(--space-3); margin-top: var(--space-1); color: var(--muted); font-size: var(--type-caption); }
+.team-event-by time { color: var(--faint); }
+.agents-chat-card { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); padding: var(--space-2) 0; border: 0; background: transparent; max-width: none; }
+.team-summary-cost { color: var(--muted); font-size: var(--type-caption); }
+.agents-chat-card .agents-note { margin: 0; }
+.status-savings { color: var(--ink); font-weight: 600; }
+#teamPop { right: 48px; width: 320px; max-height: min(640px, calc(100dvh - 160px)); overscroll-behavior: contain; }
+#teamPop .cpop-desc, #teamPop .cpop-title { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
 .team-update-body { min-width: 0; flex: 1; }
-.team-update-heading strong { font-size: var(--type-label); }
-.team-update:hover .team-task { color: var(--accent); }
-.team-chat-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.team-update:hover .team-event-work { color: var(--accent); }
 @media (max-width: 1080px) {
   .app.team-open { grid-template-columns: 250px minmax(0, 1fr); }
   .app.sidebar-hidden.team-open { grid-template-columns: 0px minmax(0, 1fr); }
-  .app.team-open .agents-team { position: fixed; z-index: 35; top: 58px; right: 0; bottom: 0; width: min(360px, 94vw); box-shadow: var(--shadow-lg); }
+  .app.team-open .agents-team { position: fixed; z-index: 35; top: 58px; right: 0; bottom: var(--team-composer-clearance, 160px); width: min(360px, 94vw); box-shadow: var(--shadow-lg); }
+  .app.team-collapsed { grid-template-columns: 250px minmax(0, 1fr); }
+  .app.sidebar-hidden.team-collapsed { grid-template-columns: 0px minmax(0, 1fr); }
+  .app.team-collapsed .agents-team-strip { position: fixed; z-index: 30; right: 0; top: 35%; width: 40px; border-radius: var(--r-md) 0 0 var(--r-md); }
 }
-@media (max-width: 700px) { .app.team-open, .app.sidebar-hidden.team-open { grid-template-columns: minmax(0, 1fr); } .app.team-open .agents-team { top: 54px; } }
+@media (max-width: 700px) { .app.team-open, .app.sidebar-hidden.team-open, .app.team-collapsed, .app.sidebar-hidden.team-collapsed { grid-template-columns: minmax(0, 1fr); } .app.team-open .agents-team { top: 54px; } }
 .team-enable[aria-pressed="true"] { color: var(--accent); background: var(--glass-hi); }
 @media (prefers-reduced-motion: reduce) { .agents-team, .agents-team *, .team-feed * { animation: none !important; transition: none !important; } }
 :root[data-motion="off"] .agents-team, :root[data-motion="off"] .agents-team *, :root[data-motion="off"] .team-feed * { animation: none !important; transition: none !important; }

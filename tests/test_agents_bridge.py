@@ -7,6 +7,53 @@ import pytest
 from opaihub.gui_preferences import load_gui_preferences, save_gui_preferences
 
 
+def test_team_timeline_is_ordered_durable_bounded_and_objective_scoped(tmp_path):
+    from opaihub.agent_objectives import ObjectiveStore
+
+    store = ObjectiveStore(tmp_path)
+    obj = store.create("Repair API", [{"name": "api", "objective": "Repair auth"}])
+    oid = obj["objective_id"]
+    worker = store.claim_next(oid, "owner")
+    aid, fence = worker["assignment_id"], worker["fence"]
+    for message in ("Edited auth.ts", "Fixed token expiry"):
+        store.update_activity(oid, aid, "owner", fence, activity=message)
+    store.update_activity(
+        oid,
+        aid,
+        "owner",
+        fence,
+        activity='{"title":"Streaming response","channel":"status"}',
+    )
+    other = store.create("Other task", [{"name": "other", "objective": "Private task"}])
+    store.claim_next(other["objective_id"], "other-owner")
+    timeline = ObjectiveStore(tmp_path).snapshot(oid)["timeline"]
+    assert [e.get("activity") for e in timeline] == [
+        None,
+        "Edited auth.ts",
+        "Fixed token expiry",
+    ]
+    assert all(e["assignment_id"] == aid and e["occurred_at"] for e in timeline)
+    assert [e["sequence"] for e in timeline] == sorted(e["sequence"] for e in timeline)
+    for index in range(81):
+        store.update_activity(
+            oid, aid, "owner", fence, activity=f"Recorded check {index}"
+        )
+    store.finish_assignment(
+        oid,
+        aid,
+        "owner",
+        fence,
+        status="completed",
+        verification={"summary": "28/28 tests passed"},
+        result={"handoff": {"summary": "Fixed expiry handling"}},
+    )
+    snapshot = ObjectiveStore(tmp_path).snapshot(oid)
+    assert snapshot["timeline_truncated"] is True
+    assert len(snapshot["timeline"]) == 80
+    assert snapshot["timeline"][-1]["verification_summary"] == "28/28 tests passed"
+    assert snapshot["timeline"][-1]["summary"] == "Fixed expiry handling"
+
+
 def test_unsupported_host_rejects_submission_before_creating_an_objective(tmp_path):
     from opai.agents_bridge import create_objective_payload
 
