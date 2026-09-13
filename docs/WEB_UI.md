@@ -55,6 +55,41 @@ a `ctx` bundle of shared dependencies (`bridge`, `esc`, `toast`, `switchView`,
 routing dynamic values through `innerHTML` (text → `textContent`), and is
 unit-tested in `__tests__/settings.test.js`.
 
+### Themes (light and dark)
+
+Settings › Appearance offers **Light, Dark and System**. Dark is the default;
+System follows the operating system and switches with it.
+
+**How it works.** A theme is one attribute: `<html data-theme="light|dark">`.
+`design-tokens.css` holds a dark palette (`:root, [data-theme="dark"]`), a
+light palette (`[data-theme="light"]`) that redefines exactly the same tokens,
+and theme-independent scales. Component CSS takes every colour from a token, so
+setting the attribute repaints the whole app. `theme.js` resolves the
+preference, follows the OS while it is `system`, and cross-fades the change
+through a view transition (instant under reduced motion). Anything drawn on a
+canvas listens for `opai:themechange`; the star field does.
+
+**Where it is stored.** The theme is app-wide, not per project:
+`savePref("theme", …)` writes `~/.opai/gui_theme.json` (`opai/gui_theme.py`),
+and both `boot()` and `settingsData()` report it. At launch the host stamps the
+resolved theme on `<html>` and paints the window's ground to match, so the first
+frame is already in the right theme.
+
+**The contract, for every future change.** Never write a colour in
+`styles.css` or in a script that renders UI. Reference a token instead, and for
+a translucent status tint use `rgba(var(--tint-*-rgb), alpha)`. A new colour
+means a new token in **both** palettes. Three checks hold this in CI:
+
+- `npm run test:tokens` (`scripts/lint-web-design-tokens.mjs`) rejects raw
+  colours in `styles.css` and in `opai/assets/web/*.js`, tokens declared outside
+  `design-tokens.css`, and any palette token missing its light or dark value.
+- `theme.spec.js` walks every chat state, destination, Settings page, menu and
+  overlay in both themes and fails on text that loses contrast against the
+  background really behind it, or on a neutral surface of the wrong polarity
+  (a dark well inside the light theme). It includes a self-test proving it
+  catches a hard-coded component.
+- `theme.spec.js-snapshots` holds reviewed baselines of the light palette.
+
 ## Bridge API (Python → JS)
 
 | Slot | Returns | Purpose |
@@ -65,7 +100,7 @@ unit-tested in `__tests__/settings.test.js`.
 | `dashboard(sectionId)` | JSON | a `gui_view_model` section |
 | `prompts(query, cat)` | JSON | filtered prompt library |
 | `settingsData()` | JSON | the settings page payload |
-| `savePref(key, value)` | — | persist a GUI preference |
+| `savePref(key, value)` | — | persist a GUI preference (`theme` is app-wide; the rest are per project) |
 | `send(payloadJson)` | signal `replyReady` | run a chat turn off-thread, fail-open |
 | `runTool(name)` / `applyTool(name)` | signal `toolReady` / JSON | tools + confirm |
 | `openWorkspace()` / `switchWorkspace(path)` | signal `workspaceChanged` | switch project |
@@ -107,8 +142,9 @@ data renders whenever the panel is opened).
 
 ## How to change the UI
 
-- Visuals: edit `opai/assets/web/styles.css` (design tokens are CSS variables at
-  the top) and `index.html`.
+- Visuals: edit `opai/assets/web/styles.css` and `index.html`, taking every
+  colour from the tokens in `design-tokens.css` (see
+  [Themes](#themes-light-and-dark)).
 - Behaviour/new data: add a `Bridge` slot in `gui_web.py` returning JSON from the
   existing data modules, then render it in `app.js`. Prefer adding data to a
   `gui_view_model` section — the dashboard page renders sections automatically.

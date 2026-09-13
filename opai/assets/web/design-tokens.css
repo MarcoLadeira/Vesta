@@ -1,5 +1,29 @@
-/* OPai web visual contract (#388). Component CSS consumes these tokens. */
-:root {
+/* OPai web visual contract (#388). Component CSS consumes these tokens.
+ *
+ * Themes. The file has three blocks:
+ *
+ *   1. the dark palette -- the default, on :root and on [data-theme="dark"];
+ *   2. the light palette -- [data-theme="light"], which redefines every token
+ *      the dark palette declares, and nothing else;
+ *   3. the scales -- type, spacing, radii, motion -- which no theme changes.
+ *
+ * theme.js puts the resolved theme on <html data-theme>, so switching is one
+ * attribute and every surface follows. Because the palettes are keyed on an
+ * attribute rather than on :root alone, any subtree can wear the other theme
+ * too; the Appearance picker's preview tiles are drawn that way, with the real
+ * tokens, so a preview can never drift from the palette it shows.
+ *
+ * Component CSS never names a colour. A tint is `rgba(var(--tint-*-rgb), a)`,
+ * a shadow or a surface is a token. scripts/lint-web-design-tokens.mjs holds
+ * both halves of that contract: styles.css may not contain a raw colour, and
+ * the light palette must declare exactly the tokens the dark palette does. A
+ * new component, or a new token, that forgets light mode fails the token check
+ * instead of shipping a dark island in a light app.
+ */
+
+/* ---------- palette: dark (default) ---------- */
+:root,
+[data-theme="dark"] {
   /* Surfaces and semantic colour -- moon and galaxy, no warm light.
    *
    * The greys were neutral with a faint warm cast. They are now tilted blue
@@ -39,6 +63,9 @@
   --brand-gradient: linear-gradient(135deg, #5fdcdc, #8ea2f5);
   --green: #5fdcdc;
   --amber: #e4bd72;
+  /* The composer's "why can't I send" line. It was a fallback written inline
+     at every use; it is a colour, so it is a token. */
+  --warn: #e9c46a;
 
   /* The horizon: regolith catching starlight, low across the bottom of the
      workspace. Two stops rather than one so the ground has a lit crest and a
@@ -51,16 +78,211 @@
      with no dot grid, no washes and no horizon. Everything the theme does is
      still there -- it is just turned down, and the first send turns it up. */
   --stage-dark: #03050c;
-  /* Long enough to read as the room lighting up rather than a jump cut, short
-     enough that it never stands between someone and their answer. */
-  --stage-ms: 620ms;
-  --stage-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --lunar-crest: rgba(216, 219, 226, 0.17);
   --lunar-body: rgba(126, 146, 190, 0.085);
+  /* A point of light in the unlit room, as bare channels: starfield.js draws
+     with it at its own opacities. */
+  --space-star: 226, 238, 252;
   --red: #f2768a;
   --blue: #74b6ff;
   --claude: #e0937a;
   --codex: #6cc1e8;
+  --provider-auto: #98a2b0;
+  --provider-local: #34d399;
+  /* The initial inside a provider-coloured avatar. */
+  --avatar-ink: #06160f;
+
+  /* Tint channels. A status tint is chosen at the use site as
+     rgba(var(--tint-*-rgb), alpha): the hue belongs to the theme, the
+     strength belongs to the component. */
+  --tint-success-rgb: 52, 211, 153;
+  --tint-danger-rgb: 242, 118, 138;
+  --tint-warning-rgb: 230, 177, 94;
+  --tint-caution-rgb: 251, 191, 36;
+  --tint-notice-rgb: 233, 196, 106;
+  --tint-info-rgb: 116, 182, 255;
+  --tint-subscription-rgb: 108, 193, 232;
+  --tint-repair-rgb: 251, 113, 133;
+  /* Neutral overlays. Wash lifts a surface toward the ink (white on a dark
+     ground, deep blue on a light one); highlight is the lit top edge of glass,
+     which is white in both; shade darkens. */
+  --wash-rgb: 255, 255, 255;
+  --highlight-rgb: 255, 255, 255;
+  --shade-rgb: 0, 0, 0;
+
+  /* The sky over the workspace: ice off the top right, galaxy indigo down the
+     left, a violet rise from below, and the instrument-panel dot grid. */
+  --wash-ice: rgba(110, 220, 245, 0.10);
+  --wash-indigo: rgba(118, 132, 250, 0.09);
+  --wash-violet: rgba(158, 118, 245, 0.075);
+  --grid-dot: rgba(178, 200, 255, 0.05);
+
+  --header-bg: rgba(11, 14, 19, 0.96);
+  --header-shadow: 0 1px 0 rgba(255, 255, 255, 0.025), 0 10px 28px rgba(0, 0, 0, 0.16);
+  --headline-from: #ffffff;
+  --headline-to: #aeb9c8;
+  /* The composer's liquid glass and its lit and shadowed edges. */
+  --composer-glass: linear-gradient(180deg, rgba(20, 28, 50, 0.44), rgba(9, 14, 28, 0.34));
+  --composer-edge: inset 0 1px 0 rgba(202, 220, 255, 0.10), inset 0 -1px 0 rgba(0, 0, 0, 0.22);
+  --composer-drop-bg: rgba(6, 20, 15, 0.9);
+  --meter-inset: inset 0 1px 2px rgba(0, 0, 0, 0.4);
+  --sheet-shadow: 0 18px 55px rgba(0, 0, 0, 0.45);
+  --dialog-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+  --scrim: rgba(4, 6, 10, 0.62);
+  --drawer-scrim: rgba(2, 4, 8, 0.58);
+  --palette-bg: rgba(17, 21, 28, 0.92);
+  --code-inline-bg: #0a0d12;
+  --diff-del-ink: #d7b9c0;
+  /* The Windows close affordance is the platform's red in every theme. */
+  --window-close-bg: #c42b3a;
+  --window-close-ink: #fff;
+  --select-chevron: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%2398a2b0' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>");
+
+  /* The settings workspace: restrained graphite inside the cockpit. */
+  --settings-surface: rgba(20, 21, 25, 0.84);
+  --settings-surface-raised: rgba(32, 33, 38, 0.9);
+  --settings-surface-hover: rgba(50, 52, 59, 0.68);
+  --settings-border: rgba(239, 242, 248, 0.1);
+  --settings-border-strong: rgba(239, 242, 248, 0.18);
+  --settings-selection: rgba(116, 182, 255, 0.14);
+  --settings-selection-strong: #74b6ff;
+  --settings-canvas: rgba(8, 9, 12, 0.7);
+  --settings-field: rgba(8, 9, 12, 0.66);
+  --settings-bar: rgba(8, 9, 12, 0.88);
+  --settings-bar-solid: rgba(8, 9, 12, 0.94);
+  --settings-primary-bg: #79d9c1;
+  --settings-primary-ink: #07111b;
+
+  --elevation-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --elevation-md: 0 8px 28px rgba(0, 0, 0, 0.42);
+  --elevation-lg: 0 22px 60px rgba(0, 0, 0, 0.55);
+  --inset-hi: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --surface-code: #090b10;
+  --surface-code-head: #0d1118;
+  --border-code: rgba(255, 255, 255, 0.10);
+}
+
+/* ---------- palette: light ----------
+ *
+ * Moonlight on paper rather than daylight on glass. The ground is a cool
+ * pearl, not white, so large areas never glare; cards are white glass lifted
+ * off it by a hairline and a shadow soft enough to read as depth rather than
+ * as an outline. The ink is deep slate instead of black, which is most of what
+ * makes a light UI feel soft rather than stark.
+ *
+ * The sky survives as daylight: the same ice, indigo and violet washes, the
+ * horizon as a cool shadow along the bottom, and the unlit room before the
+ * first message as a slightly dimmer mist.
+ *
+ * Accent and status colours are the dark theme's hues, deepened until each
+ * holds WCAG AA (4.5:1) as text on the ground -- the bright aqua that glows on
+ * black all but vanishes on white. --faint matches the dark theme's ratio.
+ */
+[data-theme="light"] {
+  --bg: #eef1f6;
+  --surface: #f4f6fa;
+  --surface-2: #f9fafc;
+  --panel: #e9edf4;
+  --panel-2: #ffffff;
+  --elevated: #f7f9fc;
+  --glass: rgba(255, 255, 255, 0.62);
+  --glass-hi: rgba(30, 42, 80, 0.055);
+  --border: rgba(30, 42, 80, 0.1);
+  --border-strong: rgba(30, 42, 80, 0.18);
+  --ink: #1b2236;
+  --muted: #505b76;
+  --faint: #6b758c;
+  --accent: #0a7780;
+  --accent-2: #4f62c9;
+  --accent-deep: #075f66;
+  --accent-ink: #04202c;
+  --accent-glow: rgba(10, 119, 128, 0.16);
+  --brand-gradient: linear-gradient(135deg, #52cfd0, #8a9cf2);
+  --green: #0a7780;
+  --amber: #94600c;
+  --warn: #8a5c08;
+
+  --stage-dark: #e6eaf2;
+  --lunar-crest: rgba(120, 136, 176, 0.14);
+  --lunar-body: rgba(104, 122, 176, 0.07);
+  --space-star: 132, 150, 204;
+  --red: #c2334f;
+  --blue: #2d67cc;
+  --claude: #ad5234;
+  --codex: #1a73a0;
+  --provider-auto: #626c84;
+  --provider-local: #0f7b58;
+  --avatar-ink: #ffffff;
+
+  --tint-success-rgb: 16, 150, 110;
+  --tint-danger-rgb: 214, 69, 96;
+  --tint-warning-rgb: 196, 132, 30;
+  --tint-caution-rgb: 202, 145, 10;
+  --tint-notice-rgb: 190, 140, 30;
+  --tint-info-rgb: 52, 112, 214;
+  --tint-subscription-rgb: 32, 132, 180;
+  --tint-repair-rgb: 221, 72, 100;
+  --wash-rgb: 30, 42, 80;
+  --highlight-rgb: 255, 255, 255;
+  --shade-rgb: 24, 34, 64;
+
+  --wash-ice: rgba(96, 205, 232, 0.14);
+  --wash-indigo: rgba(124, 138, 250, 0.1);
+  --wash-violet: rgba(168, 128, 246, 0.08);
+  --grid-dot: rgba(44, 62, 120, 0.06);
+
+  --header-bg: rgba(248, 249, 252, 0.92);
+  --header-shadow: 0 1px 0 rgba(255, 255, 255, 0.7), 0 8px 24px rgba(24, 34, 64, 0.05);
+  --headline-from: #1b2236;
+  --headline-to: #5a6582;
+  --composer-glass: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(250, 251, 254, 0.7));
+  --composer-edge: inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 -1px 0 rgba(24, 34, 64, 0.05);
+  --composer-drop-bg: rgba(238, 249, 247, 0.94);
+  --meter-inset: inset 0 1px 2px rgba(24, 34, 64, 0.12);
+  --sheet-shadow: 0 18px 50px rgba(24, 34, 64, 0.14);
+  --dialog-shadow: 0 24px 70px rgba(24, 34, 64, 0.16);
+  --scrim: rgba(52, 64, 96, 0.26);
+  --drawer-scrim: rgba(52, 64, 96, 0.22);
+  --palette-bg: rgba(252, 253, 255, 0.94);
+  --code-inline-bg: rgba(30, 42, 80, 0.06);
+  --diff-del-ink: #8d3a4c;
+  --window-close-bg: #c42b3a;
+  --window-close-ink: #fff;
+  --select-chevron: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%23626c84' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>");
+
+  --settings-surface: rgba(255, 255, 255, 0.72);
+  --settings-surface-raised: #ffffff;
+  --settings-surface-hover: rgba(30, 42, 80, 0.06);
+  --settings-border: rgba(30, 42, 80, 0.1);
+  --settings-border-strong: rgba(30, 42, 80, 0.17);
+  --settings-selection: rgba(52, 112, 214, 0.1);
+  --settings-selection-strong: #2d67cc;
+  --settings-canvas: rgba(246, 248, 251, 0.6);
+  --settings-field: rgba(30, 42, 80, 0.045);
+  --settings-bar: rgba(244, 246, 250, 0.9);
+  --settings-bar-solid: rgba(244, 246, 250, 0.95);
+  --settings-primary-bg: #0a7780;
+  --settings-primary-ink: #ffffff;
+
+  --elevation-sm: 0 1px 2px rgba(24, 34, 64, 0.06);
+  --elevation-md: 0 8px 24px rgba(24, 34, 64, 0.08);
+  --elevation-lg: 0 20px 50px rgba(24, 34, 64, 0.12);
+  --inset-hi: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+  --surface-code: #f3f5f9;
+  --surface-code-head: #e9edf4;
+  --border-code: rgba(30, 42, 80, 0.1);
+}
+
+/* ---------- scales: the same in every theme ---------- */
+:root {
+  /* Long enough to read as the room lighting up rather than a jump cut, short
+     enough that it never stands between someone and their answer. */
+  --stage-ms: 620ms;
+  --stage-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  /* A theme change is a slow breath, not a flash: the old look dissolves into
+     the new one over a little under half a second. */
+  --theme-ms: 460ms;
+  --theme-ease: cubic-bezier(0.4, 0, 0.2, 1);
 
   /* Semantic type roles: size / line-height / weight travel together. */
   --type-caption: 12px;
@@ -110,13 +332,9 @@
   --r-md: var(--radius-md);
   --r-lg: var(--radius-lg);
   --r-xl: var(--radius-xl);
-  --elevation-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
-  --elevation-md: 0 8px 28px rgba(0, 0, 0, 0.42);
-  --elevation-lg: 0 22px 60px rgba(0, 0, 0, 0.55);
   --shadow-sm: var(--elevation-sm);
   --shadow-md: var(--elevation-md);
   --shadow-lg: var(--elevation-lg);
-  --inset-hi: inset 0 1px 0 rgba(255, 255, 255, 0.05);
   --icon-sm: 14px;
   --icon-md: 16px;
   --icon-lg: 20px;
@@ -128,9 +346,6 @@
      screen. Both sides use the same horizontal padding, so matching the
      measure lines them up exactly. */
   --measure-composer: var(--measure-response);
-  --surface-code: #090b10;
-  --surface-code-head: #0d1118;
-  --border-code: rgba(255, 255, 255, 0.10);
   --focus-ring: 0 0 0 3px var(--accent-glow);
   --control-min: 32px;
   --ease: cubic-bezier(0.4, 0, 0.2, 1);

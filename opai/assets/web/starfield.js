@@ -447,6 +447,14 @@
         if (state.worker) { send({ type: active ? "play" : "pause" }); return; }
         if (active) state.loop.start(); else state.loop.stop();
       },
+      // The theme changed: re-read the starlight token and redraw the field in
+      // it, rather than keeping the colour the sky was mounted with.
+      refreshColour() {
+        if (state.destroyed) return;
+        const next = readColour(canvas);
+        if (state.worker) { send({ type: "colour", colour: next }); return; }
+        state.renderer.setColour(next);
+      },
       get usingWorker() { return !!state.worker; },
       get __renderer() { return state.renderer; },
     };

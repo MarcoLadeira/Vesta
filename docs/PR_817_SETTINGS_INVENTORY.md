@@ -116,9 +116,9 @@ Legacy routes remain aliases only. New navigation writes canonical hashes.
 | Appearance | Density | `savePref("density")` | Retained |
 | Appearance | Reduced motion | `savePref("reduced_motion")` | Retained |
 | Appearance | Copy activity | `savePref("activity_copy")` | Retained |
-| Appearance | Theme status | Existing shipped-theme state | Read-only status retained |
+| Appearance | Theme: Light, Dark, System | `savePref("theme")`, stored app-wide in `~/.opai/gui_theme.json` by `opai/gui_theme.py` | New; replaces the read-only "Dark (default)" status. Dark stays the default |
 
-Every segmented control is exposed as a radio group with one checked, tabbable option. Left/right and up/down arrow keys move and select within the group.
+Every segmented control is exposed as a radio group with one checked, tabbable option. Left/right and up/down arrow keys move and select within the group. The theme picker is the same radio group drawn as three preview tiles; each tile renders with the real tokens of the palette it names.
 
 ### Advanced
 
@@ -148,6 +148,8 @@ Every segmented control is exposed as a radio group with one checked, tabbable o
 ## Contract boundary
 
 This redesign changes frontend organization, interaction, accessibility semantics, responsive layout, and tests only. It does not add or alter backend endpoints, persistence formats, provider credentials, permission policy, update policy, routing policy, or usage accounting. Existing native bridge methods and preference keys remain the source of truth.
+
+The one addition is the light theme. It adds a `theme` key to the existing `savePref` bridge method and a small app-wide store (`~/.opai/gui_theme.json`), so a theme chosen in one workspace holds in every workspace. Every other preference keeps its existing per-project owner. The theming contract itself is documented in [`docs/WEB_UI.md`](WEB_UI.md#themes-light-and-dark).
 
 ## Screenshot gallery
 
@@ -187,3 +189,13 @@ The inspected Playwright baselines live in [`settings-gallery.spec.js-snapshots`
 - `settings-state-near-budget-limit.png`
 - `settings-state-permission-restricted.png`
 - `settings-state-update-available.png`
+
+### Light theme
+
+The light palette's baselines live in [`theme.spec.js-snapshots`](../opai/assets/web/__tests__/e2e/theme.spec.js-snapshots).
+
+- `light-chat-finished-turn.png`
+- `light-settings-appearance.png`
+- `light-settings-connections.png`
+- `light-settings-safety.png`
+- `light-settings-phone-appearance.png`

@@ -216,6 +216,69 @@ describe("Appearance response preferences", () => {
   });
 });
 
+describe("Appearance theme picker", () => {
+  const esc = (s) =>
+    String(s == null ? "" : s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  const ctx = { esc, state: { boot: {} } };
+  const section = () => OPaiSettings.sections.find((s) => s.id === "appearance");
+  const picker = (html) => html.match(/<div class="theme-choices"[\s\S]*?<\/button><\/div>/)[0];
+  const tile = (html, value) => html.match(new RegExp(`data-value="${value}"[\\s\\S]*?</button>`))[0];
+
+  afterEach(() => {
+    delete globalThis.OPaiTheme;
+  });
+
+  it("offers Light, Dark and System as one radio group on the appearance key", () => {
+    const html = picker(section().render({ prefs: { theme: "light" } }, ctx));
+    expect(html).toContain('role="radiogroup" aria-label="Theme" data-appearance-key="theme"');
+    expect(html.match(/role="radio"/g)).toHaveLength(3);
+    expect(html).toMatch(/data-value="light" role="radio" aria-checked="true" tabindex="0"/);
+    expect(html).toMatch(/data-value="dark" role="radio" aria-checked="false" tabindex="-1"/);
+    expect(html).toContain(">Light<");
+    expect(html).toContain(">Dark<");
+    expect(html).toContain(">System<");
+  });
+
+  it("previews each option in its own palette, and System in both", () => {
+    const html = picker(section().render({ prefs: { theme: "dark" } }, ctx));
+    const panes = (value) =>
+      Array.from(tile(html, value).matchAll(/theme-preview-pane" data-theme="(\w+)"/g), (match) => match[1]);
+    expect(panes("light")).toEqual(["light"]);
+    expect(panes("dark")).toEqual(["dark"]);
+    expect(panes("system")).toEqual(["light", "dark"]);
+    expect(html).toContain('class="theme-preview" aria-hidden="true"');
+  });
+
+  it("shows the default dark theme for a missing or unknown preference", () => {
+    expect(picker(section().render({ prefs: {} }, ctx))).toMatch(/data-value="dark" role="radio" aria-checked="true"/);
+    expect(picker(section().render({ prefs: { theme: "neon" } }, ctx))).toMatch(/data-value="dark" role="radio" aria-checked="true"/);
+  });
+
+  it("falls back to the theme the window is wearing when the payload has none", () => {
+    globalThis.OPaiTheme = { current: () => ({ preference: "system", theme: "light" }) };
+    expect(picker(section().render({ prefs: {} }, ctx))).toMatch(/data-value="system" role="radio" aria-checked="true"/);
+    // A saved value still wins over what is applied.
+    expect(picker(section().render({ prefs: { theme: "light" } }, ctx))).toMatch(/data-value="light" role="radio" aria-checked="true"/);
+  });
+
+  it("is the first appearance row and replaces the old read-only theme status", () => {
+    const html = section().render({ prefs: {} }, ctx);
+    expect(html.indexOf('data-appearance-key="theme"')).toBeLessThan(html.indexOf("Composer style"));
+    expect(html).not.toContain("Dark (default)");
+    expect(html).not.toContain("not shipped");
+  });
+
+  it("is findable from Settings search by light, dark and system", () => {
+    const theme = section().searchItems.find((item) => item.label === "Theme");
+    expect(theme.selector).toBe('[data-appearance-key="theme"]');
+    for (const word of ["light", "dark", "system"]) expect(theme.keywords).toContain(word);
+  });
+});
+
 describe("Credits & Balance section", () => {
   const esc = (s) =>
     String(s == null ? "" : s)

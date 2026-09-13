@@ -20,8 +20,8 @@ test("the Appearance page renders honest defaults", async ({ page }) => {
   await expect(density.locator("button.active")).toHaveText("Comfortable");
   await expect(motion.locator("button.active")).toHaveText("System");
   await expect(responseDensity.locator("button.active")).toHaveText("Balanced");
-  // No half-shipped light theme: dark is stated as the only complete theme.
-  await expect(page.locator("#settingsPage")).toContainText("Dark (default)", { useInnerText: true });
+  // Light mode shipped as a real choice (theme.spec.js); dark is still the default.
+  await expect(page.locator('[data-appearance-key="theme"] button.active')).toHaveText("Dark");
 });
 
 test("response density is independent, applies instantly, and persists", async ({ page }) => {

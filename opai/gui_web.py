@@ -57,6 +57,13 @@ from opai.gui_modes import (
 from opai.gui_nav import DEFAULT_VIEW, group_collapsed, nav_groups
 from opai.gui_permissions import permission_summary, permissions_for
 from opai.gui_prompts import categories_present, filter_prompts, find_prompt
+from opai.gui_theme import (
+    THEME_GROUND,
+    load_theme,
+    resolve_theme,
+    save_theme,
+    stamp_theme,
+)
 from opai.gui_view_model import build_view_model
 from opai.gui_workspace import (
     add_recent_workspace,
@@ -151,12 +158,16 @@ def asset_build_identity(asset_dir: Path = WEB_DIR) -> dict[str, Any]:
     }
 
 
-def _runtime_index_url(web_dir: Path) -> "Any":
+def _runtime_index_url(web_dir: Path, theme: str = "dark") -> "Any":
     """Write a per-launch, cache-busted copy of index.html and return its file
     URL. QtWebEngine's resource cache can serve a stale styles.css/app.js/icon
     across restarts even after the file on disk changes; appending a fresh
     ``?v=<launch>`` to every local sub-resource makes each launch request a URL
     the cache has never seen, so the current on-disk assets always render.
+
+    The copy also carries the resolved ``theme`` on ``<html>``, so the first
+    frame is already painted in it instead of starting dark and changing once
+    the bridge boots.
 
     Falls back to plain index.html if the package dir is not writable (e.g. a
     read-only wheel install) — behaviour then matches the pre-change loader.
@@ -184,12 +195,29 @@ def _runtime_index_url(web_dir: Path) -> "Any":
             sep = "&" if "?" in url else "?"
             return f'{attr}="{url}{sep}v={ver}"'
 
-        html = _ASSET_REF.sub(_bust, index.read_text(encoding="utf-8"))
+        html = stamp_theme(
+            _ASSET_REF.sub(_bust, index.read_text(encoding="utf-8")), theme
+        )
         out = web_dir / _RUNTIME_INDEX
         out.write_text(html, encoding="utf-8")
         return QUrl.fromLocalFile(str(out))
     except OSError:
         return QUrl.fromLocalFile(str(index))
+
+
+def _launch_theme() -> str:
+    """The palette the window opens in: the saved preference, with "system"
+    resolved against the OS scheme Qt reports. The page follows the OS live
+    from there (theme.js); this only has to get the first frame right."""
+    prefers_light = False
+    try:
+        from PySide6 import QtCore, QtGui  # local import: Qt only present in the GUI
+
+        hints = QtGui.QGuiApplication.styleHints()
+        prefers_light = hints.colorScheme() == QtCore.Qt.ColorScheme.Light
+    except Exception:  # noqa: BLE001 - no scheme API: the default theme is fine
+        prefers_light = False
+    return resolve_theme(load_theme(), system_prefers_light=prefers_light)
 
 
 # Startup instrumentation (#246). t0 is import time — the closest proxy to GUI
@@ -710,6 +738,36 @@ def _resume_payload(root: Path) -> dict[str, Any]:
     }
 
 
+def save_page_preference(root: Path, key: str, value: str) -> None:
+    """Persist one preference the page sent through ``Bridge.savePref``.
+
+    Only known keys are written. The theme is the one app-wide preference: it
+    goes to its own store (``opai.gui_theme``) so that choosing light mode in
+    one workspace holds in all of them.
+    """
+    if key == "theme":
+        try:
+            save_theme(value)
+        except OSError:
+            # The page has already repainted; failing to remember the choice
+            # must not take the window down with it.
+            _LOG.warning("could not save the GUI theme preference", exc_info=True)
+        return
+    if key not in _BRIDGE_PREFERENCE_KEYS:
+        return
+    from opaihub.gui_preferences import save_gui_preferences
+
+    # Full Auto pin contract (#137): selecting Full Auto never persists a
+    # bare full-auto default. It must go through the explicit pin slot,
+    # so a plain savePref for it downgrades to Safe Auto.
+    if key == "default_mode" and value == "full-auto":
+        value = "safe-auto"
+    val: Any = value
+    if value in ("true", "false"):
+        val = value == "true"
+    save_gui_preferences(root, {key: val})
+
+
 def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, Any]:
     """Everything the front-end needs to render the whole shell in one call."""
     from opaihub.gui_preferences import MODES, load_gui_preferences
@@ -800,6 +858,9 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
             # it separately from the selected mode id.
             "bypassPermissions": bool(prefs.get("bypass_permissions", False)),
             # Appearance (#241): applied to the document root at boot.
+            # The theme is app-wide (opai.gui_theme), not a project preference:
+            # switching workspace re-sends this payload and must not repaint.
+            "theme": load_theme(),
             "density": str(prefs.get("density") or "comfortable"),
             "responseDensity": str(prefs.get("response_density") or "balanced"),
             "reducedMotion": str(prefs.get("reduced_motion") or "system"),
@@ -1532,7 +1593,9 @@ def settings_payload(root: Path) -> dict[str, Any]:
 
     credentials = credential_statuses()
     return {
-        "prefs": prefs,
+        # The theme is app-wide, so it is read from its own store rather than
+        # from this project's preferences.
+        "prefs": {**prefs, "theme": load_theme()},
         "firewall": {
             "profile": firewall.get("profile"),
             "panic": firewall.get("panic"),
@@ -1870,7 +1933,6 @@ def _run_gui(
     QtCore.qInstallMessageHandler(lambda *_a: None)
     root = resolve_gui_workspace(project_root)
     from opaihub.gui_pipeline import handle_gui_message
-    from opaihub.gui_preferences import save_gui_preferences
 
     class Worker(QtCore.QThread):
         done = QtCore.Signal(str)
@@ -2611,17 +2673,7 @@ def _run_gui(
 
         @QtCore.Slot(str, str)
         def savePref(self, key: str, value: str) -> None:
-            if key not in _BRIDGE_PREFERENCE_KEYS:
-                return
-            # Full Auto pin contract (#137): selecting Full Auto never persists a
-            # bare full-auto default. It must go through the explicit pin slot,
-            # so a plain savePref for it downgrades to Safe Auto.
-            if key == "default_mode" and value == "full-auto":
-                value = "safe-auto"
-            val: Any = value
-            if value in ("true", "false"):
-                val = value == "true"
-            save_gui_preferences(self.root, {key: val})
+            save_page_preference(self.root, key, value)
 
         @QtCore.Slot(result=str)
         def pinFullAuto(self) -> str:
@@ -3240,8 +3292,12 @@ def _run_gui(
             self.channel = QWebChannel()
             self.channel.registerObject("bridge", self.bridge)
             self.view.page().setWebChannel(self.channel)
+            # Open in the saved theme: the view's own ground behind the page
+            # and the theme stamped on <html>, so no frame shows the other one.
+            theme = _launch_theme()
+            self.view.page().setBackgroundColor(QtGui.QColor(THEME_GROUND[theme]))
             self.view.setHtml("")  # avoid white flash before load
-            self.view.load(_runtime_index_url(WEB_DIR))
+            self.view.load(_runtime_index_url(WEB_DIR, theme=theme))
 
         def closeEvent(self, event) -> None:  # noqa: N802 - Qt override
             # Closing the window is how most users "stop" an AI app: cancel any

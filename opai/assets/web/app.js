@@ -10,7 +10,9 @@ const esc = (s) =>
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 const uiIcon = (name, options) => window.OPaiIcons.icon(name, options);
 
-const PROVIDER_COLOR = { claude: "#e0937a", codex: "#6cc1e8", auto: "#98a2b0", local: "#34d399" };
+// Tokens, not hex: each theme gives a provider the shade that reads on its
+// ground (design-tokens.css), and a theme change recolours what is on screen.
+const PROVIDER_COLOR = { claude: "var(--claude)", codex: "var(--codex)", auto: "var(--provider-auto)", local: "var(--provider-local)" };
 const MODE_PRESENTATION_LABELS = {
   ask: "Ask",
   plan: "Plan",
@@ -275,6 +277,10 @@ function applyResponseDensity(shell, responseDensity) {
 function applyAppearance(prefs) {
   const p = prefs || {};
   const root = document.documentElement;
+  // Theme first, so everything below lands in the right palette. theme.js owns
+  // the attribute, the "system" listener and the cross-fade; an absent pref
+  // (an older boot payload) is the default dark theme.
+  if (window.OPaiTheme) window.OPaiTheme.apply(p.theme);
   root.classList.toggle("density-compact", (p.density || "comfortable") === "compact");
   const requestedResponseDensity = p.responseDensity || p.response_density;
   const responseDensity = window.OPaiChatComponents.normalizeResponseDensity(requestedResponseDensity);
@@ -1238,6 +1244,12 @@ function mountStarfield() {
   if (starfield || !global0().OPaiStarfield) return;
   starfield = global0().OPaiStarfield.mount(document.getElementById("starfall"));
 }
+
+// The sky is drawn on a canvas, not with CSS, so a theme change has to tell it
+// to pick up the new starlight token.
+window.addEventListener("opai:themechange", () => {
+  if (starfield && starfield.refreshColour) starfield.refreshColour();
+});
 
 function global0() { return window; }
 

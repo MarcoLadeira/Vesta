@@ -27,9 +27,34 @@ beforeAll(async () => {
   globalThis.window = { addEventListener: () => {}, OPaiIcons: { icon: () => "<svg/>" } };
   root = { classList: makeClassList(), dataset: {} };
   globalThis.document = { documentElement: root };
+  window.document = globalThis.document;
   window.OPaiChatComponents = (await import("../chat-components.js")).default;
+  await import("../theme.js");
   await import("../app.js");
   opai = globalThis.window.__opai;
+});
+
+describe("applyAppearance: theme", () => {
+  it("puts the saved theme on the root", () => {
+    opai.applyAppearance({ theme: "light" });
+    expect(root.dataset.theme).toBe("light");
+    expect(root.dataset.themePreference).toBe("light");
+  });
+
+  it("treats a payload without a theme (an older boot) as the default dark theme", () => {
+    opai.applyAppearance({ theme: "light" });
+    opai.applyAppearance({});
+    expect(root.dataset.theme).toBe("dark");
+    expect(root.dataset.themePreference).toBe("dark");
+  });
+
+  it("leaves the other appearance preferences to apply as before", () => {
+    opai.applyAppearance({ theme: "light", density: "compact", reducedMotion: "on" });
+    expect(root.dataset.theme).toBe("light");
+    expect(root.classList.contains("density-compact")).toBe(true);
+    expect(root.dataset.motion).toBe("on");
+    opai.applyAppearance({ theme: "dark" });
+  });
 });
 
 describe("applyAppearance: activity copy (drag-select the AI activity rail)", () => {

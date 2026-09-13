@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { test } from "node:test";
 
-import { lintCss } from "../../../../scripts/lint-web-design-tokens.mjs";
+import {
+  lintColours,
+  lintCss,
+  lintScriptColours,
+  lintThemeTokens,
+} from "../../../../scripts/lint-web-design-tokens.mjs";
 
 test("web design tokens define the documented scales", async () => {
   const tokens = await readFile(new URL("../design-tokens.css", import.meta.url), "utf8");
@@ -17,4 +22,90 @@ test("token lint rejects raw type and layout spacing while allowing token refere
     lintCss(".card { font-size: 13px; padding: 10px 12px; gap: 6px; margin: var(--space-px-9); padding-inline: var(--space-4) 10px; row-gap: calc(var(--space-2) + 3px); }"),
     ["font-size: 13px", "padding: 10px 12px", "gap: 6px", "margin: var(--space-px-9)", "padding-inline: var(--space-4) 10px", "row-gap: calc(var(--space-2) + 3px)"],
   );
+});
+
+/* ---------- light mode: colour must come from tokens ---------- */
+
+test("colour lint rejects every way of writing a colour into component CSS", () => {
+  assert.deepEqual(
+    lintColours(
+      ".a { color: #fff; background: rgba(0, 0, 0, 0.5); border-color: white; outline-color: hsl(200 50% 40%); }" +
+        ".b { box-shadow: 0 1px 2px rgb(10 20 30 / 40%); fill: RED; background: color-mix(in srgb, #123456 20%, transparent); }",
+    ),
+    [
+      "color: #fff",
+      "background: rgba(0, 0, 0, 0.5)",
+      "border-color: white",
+      "outline-color: hsl(200 50% 40%)",
+      "box-shadow: 0 1px 2px rgb(10 20 30 / 40%)",
+      "fill: RED",
+      "background: color-mix(in srgb, #123456 20%, transparent)",
+    ],
+  );
+});
+
+test("colour lint allows token references and the few places a colour is not paint", () => {
+  assert.deepEqual(
+    lintColours(
+      ".a { color: var(--red); background: rgba(var(--tint-success-rgb), 0.12); border: 1px solid transparent; }" +
+        ".b { fill: currentColor; background: color-mix(in oklab, var(--accent) 14%, transparent); }" +
+        /* masks read alpha only */
+        ".c { mask-image: linear-gradient(#000, transparent); -webkit-mask-image: linear-gradient(black, transparent); }" +
+        /* bytes inside a data URI, a font name, generated text, and a comment */
+        ".d { background-image: url(\"data:image/svg+xml;utf8,<svg fill='black'/>\"); font-family: \"Tan Sans\"; content: \"#1\"; }" +
+        "/* color: #fff */ .e { transition: color 0.2s var(--ease); }",
+    ),
+    [],
+  );
+});
+
+test("colour lint refuses tokens declared inside component CSS", () => {
+  assert.deepEqual(lintColours("#view-settings { --settings-surface: var(--panel); }"), [
+    "--settings-surface: var(--panel) (define tokens in design-tokens.css, not in component CSS)",
+  ]);
+});
+
+test("theme lint requires a light value for every dark palette token and no colour in the scales", () => {
+  const css = (dark, light, scales) =>
+    `:root,\n[data-theme="dark"] { ${dark} }\n[data-theme="light"] { ${light} }\n:root { ${scales} }`;
+  assert.deepEqual(lintThemeTokens(css("--bg: #000; --ink: #fff;", "--bg: #fff; --ink: #000;", "--space-1: 4px;")), []);
+  assert.deepEqual(lintThemeTokens(css("--bg: #000; --new: #123;", "--bg: #fff; --extra: #fff;", "--space-1: 4px;")), [
+    "--new has no light-theme value",
+    "--extra is light-only; declare it in the dark palette too",
+  ]);
+  assert.deepEqual(lintThemeTokens(css("--bg: #000;", "--bg: #fff;", "--glow: rgba(1, 2, 3, 0.5); --star: 1, 2, 3; --bg: #111;")), [
+    "--glow: rgba(1, 2, 3, 0.5) is a colour; move it into both palettes",
+    "--star: 1, 2, 3 is a colour; move it into both palettes",
+    "--bg is declared as both a palette token and a scale",
+    "--bg: #111 is a colour; move it into both palettes",
+  ]);
+  assert.deepEqual(lintThemeTokens(":root { --bg: #000; }"), [
+    'expected exactly one dark palette block (:root, [data-theme="dark"])',
+    'expected exactly one light palette block ([data-theme="light"])',
+  ]);
+});
+
+test("script lint rejects colours hard-coded into rendered UI", () => {
+  assert.deepEqual(
+    lintScriptColours(
+      'const a = { claude: "#e0937a" };\nel.innerHTML = \'<span style="color:#06160f">\';\nctx.fillStyle = "rgba(0, 0, 0, 0.5)";',
+    ),
+    ['"#e0937a"', "color:#06160f", "rgba(0"],
+  );
+  assert.deepEqual(
+    lintScriptColours(
+      '// #229 is an issue, not a colour\n/* #fff in a comment */\nconst a = "var(--claude)"; $("#input"); fetch("http://x/#abc"); ctx.fillStyle = "rgba(" + colour + ",0)";',
+    ),
+    [],
+  );
+});
+
+test("the shipped web UI keeps the light-mode contract", async () => {
+  const web = new URL("../", import.meta.url);
+  const read = (name) => readFile(new URL(name, web), "utf8");
+  assert.deepEqual(lintColours(await read("styles.css")), []);
+  assert.deepEqual(lintThemeTokens(await read("design-tokens.css")), []);
+  for (const name of (await readdir(web)).filter((file) => file.endsWith(".js"))) {
+    assert.deepEqual(lintScriptColours(await read(name)), [], name);
+  }
 });

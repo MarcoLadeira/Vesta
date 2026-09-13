@@ -53,7 +53,7 @@
   function renderAssistantHeader(options) {
     var model = assistantHeaderModel(options);
     var avatar = '<span class="av" style="background:' + model.color +
-      ';color:#06160f">' + esc(model.initial) + "</span>";
+      ';color:var(--avatar-ink)">' + esc(model.initial) + "</span>";
     var copy = model.copy
       ? '<button class="msg-copy" type="button" data-a="copy-answer" title="Copy this response" aria-label="Copy this response">' +
         model.copyIconHtml + "</button>"

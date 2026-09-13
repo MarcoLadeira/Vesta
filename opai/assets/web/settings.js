@@ -1372,6 +1372,13 @@
       ["app", "instant"]
     );
     h += '<div class="set-head">Appearance</div>';
+    // The saved choice, or -- when a payload predates the theme -- whatever
+    // the window is actually wearing, so the picker never contradicts it.
+    var appliedTheme = global.OPaiTheme ? global.OPaiTheme.current().preference : null;
+    h +=
+      '<div class="appearance-row appearance-row-theme"><div class="appearance-label"><span class="k">Theme</span><span class="hint">Light is soft daylight, Dark is the original night sky, and System follows your OS setting as it changes.</span></div>' +
+      themeChoices(esc, pref("theme", "theme") || appliedTheme) +
+      "</div>";
     h +=
       '<div class="appearance-row"><div class="appearance-label"><span class="k">Composer style</span><span class="hint">How the prompt box is arranged. Toolbar keeps everything one click away; Single line is the smallest footprint; Command bar is keyboard-first with #file, /mode, and @model tokens.</span></div>' +
       composerSeg(composerStyle, [
@@ -1410,9 +1417,50 @@
         { id: "off", label: "Off" },
       ]) +
       "</div>";
-    h +=
-      '<div class="appearance-row"><div class="appearance-label"><span class="k">Theme</span><span class="hint">Dark is the only complete theme; a light theme is not shipped yet.</span></div><span class="v">Dark (default)</span></div>';
     return h;
+  }
+
+  // The theme picker. Each option previews the palette it names by wearing it:
+  // the tile sets data-theme on itself, so design-tokens.css paints it with
+  // the real tokens and the preview can never drift from the theme. System is
+  // both, split on a diagonal.
+  var THEME_CHOICES = [
+    { id: "light", label: "Light", panes: ["light"] },
+    { id: "dark", label: "Dark", panes: ["dark"] },
+    { id: "system", label: "System", panes: ["light", "dark"] },
+  ];
+
+  function normalizeTheme(value) {
+    return value === "light" || value === "system" ? value : "dark";
+  }
+
+  function themeChoices(esc, value) {
+    var current = normalizeTheme(value);
+    var pane = function (theme) {
+      return (
+        '<span class="theme-preview-pane" data-theme="' + esc(theme) + '">' +
+        '<span class="tp-rail"></span>' +
+        '<span class="tp-main"><span class="tp-line"></span><span class="tp-line tp-short"></span>' +
+        '<span class="tp-composer"><span class="tp-send"></span></span></span>' +
+        "</span>"
+      );
+    };
+    return (
+      '<div class="theme-choices" role="radiogroup" aria-label="Theme" data-appearance-key="theme">' +
+      THEME_CHOICES.map(function (option) {
+        var active = option.id === current;
+        return (
+          '<button type="button" class="theme-choice' + (active ? " active" : "") +
+          '" data-value="' + esc(option.id) +
+          '" role="radio" aria-checked="' + (active ? "true" : "false") +
+          '" tabindex="' + (active ? "0" : "-1") + '">' +
+          '<span class="theme-preview" aria-hidden="true">' + option.panes.map(pane).join("") + "</span>" +
+          '<span class="theme-choice-label">' + esc(option.label) + "</span>" +
+          "</button>"
+        );
+      }).join("") +
+      "</div>"
+    );
   }
 
   // Read-only Settings projection of the canonical application-wide updater.
@@ -1760,12 +1808,12 @@
       { label: "Clear previous chats", group: "Data & privacy", selector: "#settingsClearRecents", keywords: "delete saved chat recents history" },
     ],
     appearance: [
+      { label: "Theme", group: "Appearance", selector: '[data-appearance-key="theme"]', keywords: "light mode dark mode system theme colour color night day bright" },
       { label: "Composer style", group: "Appearance", selector: '[data-composer-style-key="composer_style"]', keywords: "toolbar single line command bar" },
       { label: "Response detail", group: "Appearance", selector: '[data-appearance-key="response_density"]', keywords: "compact balanced detailed output" },
       { label: "Density", group: "Appearance", selector: '[data-appearance-key="density"]', keywords: "comfortable compact spacing" },
       { label: "Reduced motion", group: "Appearance", selector: '[data-appearance-key="reduced_motion"]', keywords: "animation accessibility system" },
       { label: "Copy activity", group: "Appearance", selector: '[data-appearance-key="activity_copy"]', keywords: "select log work" },
-      { label: "Theme", group: "Appearance", subsectionId: null, keywords: "dark light colour color" },
     ],
     advanced: [
       { label: "Prompt Library", group: "Tools & Insights", selector: '[data-go-view="prompts"]', keywords: "saved prompt template" },
@@ -2818,6 +2866,9 @@
         button.onclick = function () {
           setRadioGroup(segment, button);
           bridge.savePref(key, button.dataset.value);
+          // Remember the choice in the payload this page re-renders from, not
+          // only on disk, so a re-render cannot show the previous value.
+          if (ctx.d && ctx.d.prefs) ctx.d.prefs[key] = button.dataset.value;
           if (!ctx.applyAppearance) return;
           var current = {};
           page.querySelectorAll("[data-appearance-key]").forEach(function (other) {
@@ -2887,7 +2938,7 @@
       });
     });
 
-    page.querySelectorAll('.seg[role="radiogroup"]').forEach(function (segment) {
+    page.querySelectorAll('.seg[role="radiogroup"], .theme-choices[role="radiogroup"]').forEach(function (segment) {
       segment.addEventListener("keydown", function (event) {
         if (
           event.key !== "ArrowLeft" &&
