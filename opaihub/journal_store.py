@@ -45,6 +45,7 @@ from __future__ import annotations
 import getpass
 import json
 import os
+import re
 import sqlite3
 import subprocess  # nosec B404 - fixed argv ACL calls only
 from contextlib import contextmanager
@@ -544,8 +545,97 @@ def _record_schema_version(connection: sqlite3.Connection, version: int) -> None
     )
 
 
+#: The three shapes a migration statement may take. Each can be *checked* --
+#: does what it creates exist? -- and *re-applied* without harm, which is what
+#: lets :func:`migrate` trust the database rather than a version number.
+#: ``tests/test_journal_migrations_are_verifiable.py`` refuses any other shape,
+#: so a future migration cannot quietly opt out.
+_CREATES_OBJECT = re.compile(
+    r"^\s*CREATE\s+(?:UNIQUE\s+)?(TABLE|INDEX)\s+IF\s+NOT\s+EXISTS\s+(\w+)",
+    re.IGNORECASE,
+)
+_ADDS_COLUMN = re.compile(
+    r"^\s*ALTER\s+TABLE\s+(\w+)\s+ADD\s+COLUMN\s+(\w+)", re.IGNORECASE
+)
+
+
+class _SchemaFacts:
+    """What one database actually contains, read once per migrate call."""
+
+    def __init__(self, connection: sqlite3.Connection) -> None:
+        self._connection = connection
+        self._objects: set[tuple[str, str]] | None = None
+        self._columns: dict[str, set[str]] = {}
+
+    def refresh(self) -> None:
+        self._objects = None
+        self._columns.clear()
+
+    def has_object(self, kind: str, name: str) -> bool:
+        if self._objects is None:
+            self._objects = {
+                (str(row[0]).lower(), str(row[1]).lower())
+                for row in self._connection.execute(
+                    "SELECT type, name FROM sqlite_master"
+                )
+            }
+        return (kind.lower(), name.lower()) in self._objects
+
+    def has_column(self, table: str, column: str) -> bool:
+        key = table.lower()
+        if key not in self._columns:
+            self._columns[key] = {
+                str(row[1]).lower()
+                for row in self._connection.execute(
+                    # A table name cannot be a bound parameter in a PRAGMA; it
+                    # comes from this module's own migration text, matched by
+                    # `\w+`, never from input.
+                    f"PRAGMA table_info({key})"  # nosec B608
+                )
+            }
+        return column.lower() in self._columns[key]
+
+
+def migration_statement_is_verifiable(statement: str) -> bool:
+    """Whether :func:`migrate` can check and safely re-apply ``statement``."""
+
+    return bool(_CREATES_OBJECT.match(statement) or _ADDS_COLUMN.match(statement))
+
+
+def _outstanding(facts: _SchemaFacts, statements: Sequence[str]) -> list[str]:
+    """The statements whose effects this database does not contain."""
+
+    missing: list[str] = []
+    for statement in statements:
+        created = _CREATES_OBJECT.match(statement)
+        if created is not None:
+            if not facts.has_object(created.group(1), created.group(2)):
+                missing.append(statement)
+            continue
+        added = _ADDS_COLUMN.match(statement)
+        if added is not None:
+            if not facts.has_column(added.group(1), added.group(2)):
+                missing.append(statement)
+            continue
+        # Unverifiable. The ratchet test forbids this shape; if one slips in,
+        # it is treated as outstanding so it is at least never skipped.
+        missing.append(statement)
+    return missing
+
+
 def migrate(connection: sqlite3.Connection) -> int:
     """Apply pending migrations transactionally; return the resulting version.
+
+    **Checked against the database, not trusted from a number.** Two open PRs
+    each defined migration 2 with different contents -- lease owner columns
+    here, agent-objective tables in #842. Applied by number alone, whichever
+    build touched a journal first stamped it v2 and the other build skipped
+    its own v2 for ever: its tables or columns simply never existed, and every
+    write that needed them failed. Now every migration at or below the
+    recorded version is verified to be in place, and anything missing is
+    applied. Every statement is idempotent by construction, so applying one a
+    journal already has is harmless; on a journal that is already complete
+    this costs one catalogue read and no writes.
 
     Resumable by construction: each migration commits its own transaction and
     records the new version in the same transaction, so an interruption leaves
@@ -586,20 +676,22 @@ def migrate(connection: sqlite3.Connection) -> int:
         raise IncompatibleSchemaError(
             f"journal schema v{current} is newer than this OPai (v{SCHEMA_VERSION})"
         )
+    facts = _SchemaFacts(connection)
     for version, statements in _MIGRATIONS:
-        if version <= current:
+        if version <= current and not _outstanding(facts, statements):
             continue
         with _transaction(connection):
-            # `current` was read before this lock existed. Another process may
-            # have applied this migration in the meantime, and re-running one
-            # that is not idempotent is what bricked the journal.
-            applied = _stored_version(connection)
-            if applied >= version:
-                current = applied
-                continue
-            for statement in statements:
+            # Everything is decided again under the lock. Another process may
+            # have applied this migration in the meantime -- re-running a
+            # statement that is not idempotent is what once bricked the journal
+            # -- so the catalogue is re-read here rather than trusted from
+            # before the lock existed.
+            facts.refresh()
+            outstanding = _outstanding(facts, statements)
+            for statement in outstanding:
                 connection.execute(statement)
             _record_schema_version(connection, version)
+        facts.refresh()
         current = max(current, version)
     return current
 
@@ -1426,11 +1518,14 @@ def _openable(project_root: Path) -> tuple[bool, str]:
                 f"IncompatibleSchemaError: journal schema v{current} is newer"
                 f" than this OPai (v{SCHEMA_VERSION})"
             )
+        # Everything open_store would apply: migrations not yet recorded, and
+        # recorded ones whose effects are missing (a journal another build
+        # stamped with a different migration of the same number).
+        facts = _SchemaFacts(connection)
         pending = [
             statement
-            for version, statements in _MIGRATIONS
-            if version > current
-            for statement in statements
+            for _version, statements in _MIGRATIONS
+            for statement in _outstanding(facts, statements)
         ]
         if pending:
             connection.execute("BEGIN IMMEDIATE")
@@ -1510,6 +1605,7 @@ __all__: Sequence[str] = (
     "append_event",
     "canonical_bytes",
     "check_integrity",
+    "migration_statement_is_verifiable",
     "written_by_a_newer_opai",
     "drop_projection",
     "journal_path",

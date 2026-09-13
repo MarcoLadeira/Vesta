@@ -366,9 +366,12 @@ class DoctorDoesNotMigrateTests(_Root):
         self.assertEqual(self.stored_version(), 1)
 
     def test_a_migration_that_would_fail_is_still_reported(self):
-        # The race that bricked journals: v1 recorded, v2's columns present.
+        # A table squatting on the name of an index v1 creates: the one
+        # migration statement that is outstanding cannot succeed.
         store = journal_store.open_store(self.root)
         try:
+            store.execute("DROP INDEX events_by_run")
+            store.execute("CREATE TABLE events_by_run (squatter TEXT)")
             store.execute(
                 "UPDATE schema_meta SET value = '1' WHERE key = 'schema_version'"
             )
@@ -378,7 +381,7 @@ class DoctorDoesNotMigrateTests(_Root):
         health = journal_store.store_health(self.root)
 
         self.assertFalse(health["openable"])
-        self.assertIn("duplicate column", health["open_error"])
+        self.assertIn("already a table", health["open_error"])
         self.assertEqual(self.stored_version(), 1)
 
     def test_a_newer_journal_is_reported_without_touching_it(self):

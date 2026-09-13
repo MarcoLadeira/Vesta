@@ -211,6 +211,40 @@ class RealConcurrentProcessesTests(_FreshJournal):
         self.assertIn("owner_boot", columns)
 
 
+class TheShapeTheRaceLeftBehindNowHealsTests(_FreshJournal):
+    """v1 recorded, v2's columns already present -- once a bricked journal.
+
+    Migrations are now checked against the database rather than trusted from
+    the recorded number, so a statement whose effect is already there is not
+    run again. The journal the race used to brick simply opens, and is
+    stamped with the version it really has.
+    """
+
+    def race_shape(self) -> None:
+        journal_store.open_store(self.root).close()
+        connection = sqlite3.connect(self.path)
+        connection.execute(
+            "UPDATE schema_meta SET value = '1' WHERE key = 'schema_version'"
+        )
+        connection.commit()
+        connection.close()
+
+    def test_it_opens(self):
+        self.race_shape()
+
+        store = journal_store.open_store(self.root)
+        store.close()
+
+        self.assertEqual(self.version(), journal_store.SCHEMA_VERSION)
+
+    def test_health_calls_it_openable(self):
+        self.race_shape()
+
+        health = journal_store.store_health(self.root)
+
+        self.assertTrue(health["openable"], health["open_error"])
+
+
 class AJournalNobodyCanOpenIsNotHealthyTests(_FreshJournal):
     """The other half: doctor must not call it fine.
 
@@ -221,10 +255,18 @@ class AJournalNobodyCanOpenIsNotHealthyTests(_FreshJournal):
     """
 
     def brick(self) -> None:
-        """v2's columns present, the recorded version claiming v1."""
+        """A table squatting on the name one of v1's indexes needs.
+
+        The race shape above no longer bricks anything, so this is a journal
+        that genuinely cannot be migrated: the index is missing, and the
+        statement that would create it collides with an object of another
+        kind.
+        """
 
         journal_store.open_store(self.root).close()
         connection = sqlite3.connect(self.path)
+        connection.execute("DROP INDEX events_by_run")
+        connection.execute("CREATE TABLE events_by_run (squatter TEXT)")
         connection.execute(
             "UPDATE schema_meta SET value = '1' WHERE key = 'schema_version'"
         )
@@ -244,7 +286,7 @@ class AJournalNobodyCanOpenIsNotHealthyTests(_FreshJournal):
         health = journal_store.store_health(self.root)
 
         self.assertFalse(health["openable"])
-        self.assertIn("duplicate column", health["open_error"])
+        self.assertIn("already a table", health["open_error"])
 
     def test_the_file_is_still_reported_as_structurally_sound(self):
         """Both answers are true, and they are kept apart on purpose."""
