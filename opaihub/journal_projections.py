@@ -209,7 +209,7 @@ def run_table_parity(root: Path, *, now: str) -> dict[str, Any]:
     try:
         store = journal_store.open_store(root)
     except Exception as exc:  # noqa: BLE001 - a report must not raise
-        report["reason"] = type(exc).__name__
+        report["reason"] = journal_store.describe_open_failure(exc)
         return report
     try:
         # DEFERRED: a read snapshot, taken at the first read below and held to

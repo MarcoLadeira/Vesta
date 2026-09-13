@@ -996,9 +996,13 @@ def _why_unopenable(root: Path) -> str:
     one of those wastes their evening.
     """
 
-    return (
-        "incompatible" if journal_store.written_by_a_newer_opai(root) else "unreadable"
-    )
+    if journal_store.written_by_a_newer_opai(root):
+        return "incompatible"
+    # Inside `reading_only` a journal needing a migration is refused rather
+    # than upgraded; everywhere else it would have opened.
+    if journal_store.migration_pending(root):
+        return "migration pending"
+    return "unreadable"
 
 
 def unterminated_summary(

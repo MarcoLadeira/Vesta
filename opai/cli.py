@@ -1123,7 +1123,7 @@ def _journal_migration(root: Path) -> dict[str, object]:
             facts["runs_recorded_unknown_because"] = (
                 "incompatible"
                 if journal_store.written_by_a_newer_opai(root)
-                else type(exc).__name__
+                else journal_store.describe_open_failure(exc)
             )
             return
         try:
@@ -1307,6 +1307,22 @@ def _journal_doctor(root: Path) -> dict[str, object]:
     problem, not to become one.
     """
 
+    try:
+        from opaihub.journal_store import reading_only
+    except Exception:  # noqa: BLE001 - doctor reports a stable safe category
+        return {
+            "schema_version": 1,
+            "available": False,
+            "error_category": "journal_unavailable",
+        }
+    # Doctor looks; it does not upgrade. Every report below reaches the store
+    # through open_store, which inside this block refuses to migrate rather
+    # than doing it as a side effect (#818 review finding 16).
+    with reading_only():
+        return _journal_doctor_payload(root)
+
+
+def _journal_doctor_payload(root: Path) -> dict[str, object]:
     try:
         from opaihub.journal_store import (
             SCHEMA_VERSION,

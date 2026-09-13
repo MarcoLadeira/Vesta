@@ -47,6 +47,7 @@ import json
 import os
 import re
 import sqlite3
+from contextvars import ContextVar
 import subprocess  # nosec B404 - fixed argv ACL calls only
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -133,6 +134,48 @@ class IncompatibleSchemaError(JournalStoreError):
 
 class StaleWriterError(JournalStoreError):
     """A fenced-out process attempted a write after lease takeover."""
+
+
+class MigrationPendingError(JournalStoreError):
+    """The journal needs a migration, and the caller asked not to apply one."""
+
+
+#: Set by :func:`reading_only`. A context variable rather than a parameter,
+#: because the callers that must not migrate -- doctor's reports -- reach
+#: ``open_store`` through half a dozen modules, and threading a flag through
+#: every one of them is how one gets missed.
+_READING_ONLY: ContextVar[bool] = ContextVar("journal_reading_only", default=False)
+
+
+@contextmanager
+def reading_only() -> Iterator[None]:
+    """Open journals without creating or migrating them, inside this block.
+
+    #818 review finding 16: running doctor silently migrated the journal. The
+    first fix made ``store_health`` ask without migrating, and the finding
+    stayed true -- the migration report doctor prints next opened the store
+    the ordinary way, and a pending journal came out of ``opai doctor``
+    upgraded. Inside this block ``open_store`` refuses instead: a journal that
+    needs a migration raises :class:`MigrationPendingError`, which reports
+    describe as "migration pending", and one that does not exist is not
+    created.
+    """
+
+    token = _READING_ONLY.set(True)
+    try:
+        yield
+    finally:
+        _READING_ONLY.reset(token)
+
+
+def describe_open_failure(exc: BaseException) -> str:
+    """The word a report should use for a journal that would not open."""
+
+    if isinstance(exc, MigrationPendingError):
+        return "migration pending"
+    if isinstance(exc, IncompatibleSchemaError):
+        return "incompatible"
+    return type(exc).__name__
 
 
 @dataclass(frozen=True)
@@ -785,13 +828,39 @@ def open_store(
     would rather skip than wait -- a heartbeat -- passes something tiny.
     """
 
-    connection = _connect(journal_path(project_root), timeout=timeout)
+    path = journal_path(project_root)
+    reading = _READING_ONLY.get()
+    if reading and not path.exists():
+        raise JournalStoreError("no journal to read")
+    connection = _connect(path, timeout=timeout)
     try:
-        migrate(connection)
+        if reading:
+            _refuse_to_migrate(connection)
+        else:
+            migrate(connection)
     except BaseException:
         connection.close()
         raise
     return connection
+
+
+def _refuse_to_migrate(connection: sqlite3.Connection) -> None:
+    """Raise where :func:`migrate` would have had to write a schema change.
+
+    A stamp above the compatibility version is left as it is: restoring it is
+    a write, and reading does not need it.
+    """
+
+    current = _stored_version(connection)
+    if current > SCHEMA_VERSION:
+        raise IncompatibleSchemaError(
+            f"journal schema v{current} is newer than this OPai (v{SCHEMA_VERSION})"
+        )
+    facts = _SchemaFacts(connection)
+    if any(_outstanding(facts, statements) for _version, statements in _MIGRATIONS):
+        raise MigrationPendingError(
+            "this journal needs a migration, applied the next time OPai uses it"
+        )
 
 
 def check_integrity(connection: sqlite3.Connection) -> IntegrityReport:
@@ -1568,6 +1637,36 @@ def written_by_a_newer_opai(project_root: Path) -> bool:
         connection.close()
 
 
+def migration_pending(project_root: Path) -> bool:
+    """Whether opening this journal would have to apply a migration.
+
+    Read through a read-only connection, like :func:`written_by_a_newer_opai`:
+    asking must not be the thing that changes the answer. A journal that is
+    absent, unreadable or newer than this build is not *pending* -- those have
+    their own words.
+    """
+
+    path = journal_path(project_root)
+    if not path.exists():
+        return False
+    try:
+        connection = sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True)
+    except (sqlite3.DatabaseError, OSError):
+        return False
+    try:
+        connection.row_factory = sqlite3.Row
+        if _stored_version(connection) > SCHEMA_VERSION:
+            return False
+        facts = _SchemaFacts(connection)
+        return any(
+            _outstanding(facts, statements) for _version, statements in _MIGRATIONS
+        )
+    except sqlite3.DatabaseError:
+        return False
+    finally:
+        connection.close()
+
+
 def _openable(project_root: Path) -> tuple[bool, str]:
     """Would OPai be able to open this journal -- asked without changing it.
 
@@ -1678,6 +1777,7 @@ __all__: Sequence[str] = (
     "IntegrityReport",
     "ProjectionResult",
     "IncompatibleSchemaError",
+    "MigrationPendingError",
     "JournalStoreError",
     "StaleWriterError",
     "acquire_lease",
@@ -1685,7 +1785,10 @@ __all__: Sequence[str] = (
     "canonical_bytes",
     "check_integrity",
     "compatibility_version",
+    "describe_open_failure",
+    "migration_pending",
     "migration_statement_is_verifiable",
+    "reading_only",
     "written_by_a_newer_opai",
     "drop_projection",
     "journal_path",

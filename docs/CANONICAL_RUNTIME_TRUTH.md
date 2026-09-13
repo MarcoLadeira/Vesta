@@ -900,8 +900,9 @@ have trusted a v2 stamp written by this one and skipped the Agents tables.
 ### What the trial merge found
 
 Three files conflicted (`journal_store.py`, `gui_pipeline.py`,
-`chat-components.test.js`); each resolves mechanically. On the merged tree,
-1015 tests passed, the web unit suite passed (130), and three failed:
+`chat-components.test.js`); each resolves mechanically. The first trial merge
+ran 1015 tests on the merged tree -- the web unit suite passed too (130) -- and
+three failed:
 
 - `test_journal_inventory` -- #842's own: it fails on #842 alone, because its
   new modules write the journal without being classified.
@@ -910,6 +911,13 @@ Three files conflicted (`journal_store.py`, `gui_pipeline.py`,
   message now says exactly what to add.
 - a fixture in this branch that borrowed #842's real table name, and collided
   with the real table the moment both existed. It uses its own names now.
+
+With the recipe below applied, the same run is 1056 passed and one failed:
+#842's own inventory test. The recipe was scripted and run, not just written
+down, and doing so found that this branch's new interop tests had hardcoded
+version numbers "1" and "2" -- every one broke on the merge, where #842's
+migration became 3. They now test the mechanism on a migration added on top of
+whatever the build has.
 
 One interaction is not a failure but will be visible: #842's `ObjectiveStore`
 writes `runs` rows directly rather than through `journal_runtime`, so those
@@ -921,6 +929,22 @@ runs until they record their events.
 
 #817 merges without conflict. The only file both branches change is `app.js`,
 in unrelated places.
+
+### Doctor still migrated
+
+Review finding 16 said running doctor silently migrated the journal. The fix
+made `store_health` ask without migrating, and pinned that one function. It
+did not make the finding false: the migration report doctor prints next --
+event parity, unfinished runs, turn parity -- opened the store the ordinary
+way, and a journal one migration behind came out of `opai doctor` upgraded.
+Found by running doctor on such a journal rather than by reading the fix.
+
+Doctor now runs inside `journal_store.reading_only()`. There `open_store`
+creates nothing and migrates nothing: a journal that needs a migration is
+refused, each report says "migration pending" instead of a guessed number,
+nothing is escalated, and the next ordinary use applies it as before. The
+flag is a context variable, so a turn running on another thread while doctor
+looks is not made read-only.
 
 ### Merge recipe for whichever lands second
 

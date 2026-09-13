@@ -172,7 +172,7 @@ def turn_parity(project_root: Path) -> dict[str, Any]:
     try:
         store = journal_store.open_store(project_root)
     except Exception as exc:  # noqa: BLE001 - a report must not raise
-        report["reason"] = type(exc).__name__
+        report["reason"] = journal_store.describe_open_failure(exc)
         return report
     try:
         # Every run, whatever its surface: the join is by run id, and a GUI

@@ -400,5 +400,115 @@ class DoctorDoesNotMigrateTests(_Root):
         self.assertTrue(journal_store.written_by_a_newer_opai(self.root))
 
 
+class DoctorAsAWholeDoesNotMigrateTests(_Root):
+    """#16's second half: every report doctor prints, not only store_health.
+
+    The first fix made ``store_health`` ask without migrating and pinned only
+    that. `opai doctor` still upgraded the journal, through the migration report
+    it prints straight after -- parity, unfinished runs and the rest each open
+    the store the ordinary way. A test of one function could not see it.
+    """
+
+    journal_one_migration_behind = (
+        DoctorDoesNotMigrateTests.journal_one_migration_behind
+    )
+
+    def owner_columns_present(self) -> bool:
+        import sqlite3
+
+        connection = sqlite3.connect(journal_store.journal_path(self.root))
+        try:
+            return "owner_pid" in {
+                row[1] for row in connection.execute("PRAGMA table_info(leases)")
+            }
+        finally:
+            connection.close()
+
+    def test_doctor_leaves_a_pending_migration_pending(self):
+        self.journal_one_migration_behind()
+
+        cli._journal_doctor(self.root)
+
+        self.assertFalse(self.owner_columns_present())
+
+    def test_the_reports_say_why_they_could_not_look(self):
+        self.journal_one_migration_behind()
+
+        migration = cli._journal_doctor(self.root)["migration"]
+
+        for key in (
+            "runs_recorded_unknown_because",
+            "unterminated_runs_unknown_because",
+            "event_table_parity_unknown_because",
+            "turn_parity_unknown_because",
+        ):
+            with self.subTest(key=key):
+                self.assertEqual(migration[key], "migration pending")
+
+    def test_a_pending_migration_is_not_something_to_escalate(self):
+        self.journal_one_migration_behind()
+
+        payload = cli._journal_doctor(self.root)
+
+        self.assertTrue(payload["openable"])
+        self.assertFalse(cli._journal_needs_attention(payload))
+
+    def test_ordinary_use_still_migrates_after_doctor_has_looked(self):
+        self.journal_one_migration_behind()
+        cli._journal_doctor(self.root)
+
+        journal_store.open_store(self.root).close()
+
+        self.assertTrue(self.owner_columns_present())
+
+    def test_doctor_on_a_project_with_no_journal_creates_none(self):
+        cli._journal_doctor(self.root)
+
+        self.assertFalse(journal_store.journal_path(self.root).exists())
+
+    def test_reading_only_does_not_create_a_journal_either(self):
+        with journal_store.reading_only():
+            with self.assertRaises(journal_store.JournalStoreError):
+                journal_store.open_store(self.root)
+
+        self.assertFalse(journal_store.journal_path(self.root).exists())
+
+    def test_reading_only_ends_with_its_block(self):
+        self.journal_one_migration_behind()
+
+        with journal_store.reading_only():
+            pass
+        journal_store.open_store(self.root).close()
+
+        self.assertTrue(self.owner_columns_present())
+
+    def test_a_turn_on_another_thread_is_not_made_read_only_by_doctor(self):
+        import threading
+
+        self.journal_one_migration_behind()
+        opened: list[bool] = []
+
+        def a_turn():
+            journal_store.open_store(self.root).close()
+            opened.append(True)
+
+        with journal_store.reading_only():
+            worker = threading.Thread(target=a_turn)
+            worker.start()
+            worker.join(timeout=30)
+
+        self.assertEqual(opened, [True])
+        self.assertTrue(self.owner_columns_present())
+
+    def test_a_healthy_journal_still_reports_normally(self):
+        journal_store.open_store(self.root).close()
+
+        migration = cli._journal_doctor(self.root)["migration"]
+
+        self.assertTrue(migration["runs_recorded_known"])
+        self.assertTrue(migration["unterminated_runs_known"])
+        self.assertTrue(migration["event_table_parity_known"])
+
+
 if __name__ == "__main__":
     unittest.main()
