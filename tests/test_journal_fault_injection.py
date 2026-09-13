@@ -434,7 +434,7 @@ class InterruptedMigrationTests(unittest.TestCase):
         report = check_integrity(store)
 
         self.assertEqual(report.state, INTEGRITY_COMPLETE)
-        self.assertEqual(report.schema_version, journal_store.SCHEMA_VERSION)
+        self.assertEqual(report.schema_version, journal_store.compatibility_version())
 
 
 class ProtectionSurvivesFailureTests(_FaultFixture):

@@ -34,13 +34,19 @@ SRC = str(Path(__file__).resolve().parents[1])
 
 #: The shape #842's build leaves behind: its own migration 2 applied, recorded
 #: as v2, and none of this branch's migration 2.
+#:
+#: Deliberately *not* #842's table names. The first version of this fixture
+#: used them, and the moment the two branches were trial-merged the real
+#: migration had already created that table with a different shape -- a test
+#: about not colliding with another branch, colliding with it.
 _ANOTHER_BUILDS_MIGRATION_2 = (
-    """CREATE TABLE IF NOT EXISTS agent_objectives (
+    """CREATE TABLE IF NOT EXISTS another_builds_objectives (
         objective_id TEXT PRIMARY KEY,
         run_id TEXT NOT NULL,
         payload TEXT NOT NULL
     )""",
-    "CREATE INDEX IF NOT EXISTS objectives_by_run ON agent_objectives(run_id)",
+    "CREATE INDEX IF NOT EXISTS another_builds_objectives_by_run"
+    " ON another_builds_objectives(run_id)",
 )
 
 
@@ -115,6 +121,50 @@ class VersionNumbersStayUniqueTests(unittest.TestCase):
         self.assertEqual(repeated, [])
 
 
+class WhatOlderBuildsMayIgnoreTests(unittest.TestCase):
+    """The stamp says what an older build must know -- and only that."""
+
+    def test_the_stamp_is_the_newest_migration_older_builds_cannot_ignore(self):
+        expected = max(
+            version
+            for version, _statements in journal_store._MIGRATIONS
+            if version not in journal_store._OLDER_BUILDS_CAN_IGNORE
+        )
+
+        self.assertEqual(journal_store.compatibility_version(), expected)
+
+    def test_only_real_migrations_after_the_first_are_declared_ignorable(self):
+        versions = {version for version, _statements in journal_store._MIGRATIONS}
+
+        self.assertLessEqual(set(journal_store._OLDER_BUILDS_CAN_IGNORE), versions)
+        self.assertNotIn(1, journal_store._OLDER_BUILDS_CAN_IGNORE)
+
+    def test_an_ignorable_migration_adds_nothing_an_older_build_could_trip_over(
+        self,
+    ):
+        """A unique index would reject an older build's writes it knows nothing of."""
+
+        offending = []
+        for version, statements in journal_store._MIGRATIONS:
+            if version not in journal_store._OLDER_BUILDS_CAN_IGNORE:
+                continue
+            for statement in statements:
+                upper = " ".join(statement.upper().split())
+                created = journal_store._CREATES_OBJECT.match(statement)
+                added = journal_store._ADDS_COLUMN.match(statement)
+                if created is None and added is None:
+                    offending.append((version, "unverifiable", statement))
+                elif "UNIQUE" in upper:
+                    offending.append((version, "constrains old writers", statement))
+                elif added is not None and (
+                    "PRIMARY KEY" in upper
+                    or ("NOT NULL" in upper and "DEFAULT" not in upper)
+                ):
+                    offending.append((version, "constrains old writers", statement))
+
+        self.assertEqual(offending, [])
+
+
 class _Journal(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
@@ -173,21 +223,21 @@ class AJournalAnotherBuildStampedHealsTests(_Journal):
 
         self.assertIn("owner_pid", self.lease_columns())
         self.assertIn("owner_boot", self.lease_columns())
-        self.assertEqual(self.version(), journal_store.SCHEMA_VERSION)
+        self.assertEqual(self.version(), journal_store.compatibility_version())
 
     def test_the_other_builds_tables_are_left_exactly_as_they_were(self):
         self.stamped_by_another_build()
         connection = sqlite3.connect(self.path)
         connection.execute(
-            "INSERT INTO agent_objectives VALUES ('objective-1', 'run-1', '{}')"
+            "INSERT INTO another_builds_objectives VALUES ('objective-1', 'run-1', '{}')"
         )
         connection.commit()
         connection.close()
 
         journal_store.open_store(self.root).close()
 
-        self.assertIn("agent_objectives", self.tables())
-        rows = self.raw().execute("SELECT objective_id FROM agent_objectives")
+        self.assertIn("another_builds_objectives", self.tables())
+        rows = self.raw().execute("SELECT objective_id FROM another_builds_objectives")
         self.assertEqual([row[0] for row in rows], ["objective-1"])
 
     def test_a_lease_can_be_taken_on_the_healed_journal(self):
@@ -231,6 +281,148 @@ class AJournalAnotherBuildStampedHealsTests(_Journal):
 
         self.assertTrue(health["openable"], health["open_error"])
         self.assertNotIn("owner_pid", self.lease_columns())
+
+
+class OtherBuildsCanStillUseTheJournalTests(_Journal):
+    """`main`, #817 and #842 each refuse a journal stamped above what they know.
+
+    Measured on a `main` worktree before this: a journal this branch had opened
+    was "written by a newer OPai" there -- admission returned no fence, so
+    nothing was journalled, and doctor escalated the project.
+    """
+
+    def stamp(self, value: int) -> None:
+        connection = sqlite3.connect(self.path)
+        try:
+            connection.execute(
+                "UPDATE schema_meta SET value = ? WHERE key = 'schema_version'",
+                (str(value),),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+    def a_build_that_trusts_the_number(self, migrations) -> None:
+        """How `main` and #842 migrate: skip anything at or below the stamp."""
+
+        connection = sqlite3.connect(self.path, isolation_level=None)
+        try:
+            stored = int(
+                connection.execute(
+                    "SELECT value FROM schema_meta WHERE key = 'schema_version'"
+                ).fetchone()[0]
+            )
+            for version, statements in migrations:
+                if version <= stored:
+                    continue
+                connection.execute("BEGIN IMMEDIATE")
+                for statement in statements:
+                    connection.execute(statement)
+                connection.execute(
+                    "UPDATE schema_meta SET value = ? WHERE key = 'schema_version'",
+                    (str(version),),
+                )
+                connection.execute("COMMIT")
+        finally:
+            connection.close()
+
+    def test_a_journal_this_build_creates_is_stamped_for_the_oldest_build_it_can(
+        self,
+    ):
+        journal_store.open_store(self.root).close()
+
+        self.assertEqual(self.version(), 1)
+        self.assertIn("owner_pid", self.lease_columns())
+
+    def test_a_build_that_only_knows_migration_1_accepts_it(self):
+        journal_store.open_store(self.root).close()
+
+        with mock.patch.object(journal_store, "SCHEMA_VERSION", 1):
+            connection = journal_store._connect(self.path)
+            try:
+                report = journal_store.check_integrity(connection)
+            finally:
+                connection.close()
+
+        self.assertEqual(report.state, journal_store.INTEGRITY_COMPLETE, report.detail)
+
+    def test_a_stamp_from_before_stamps_meant_compatibility_is_restored(self):
+        journal_store.open_store(self.root).close()
+        self.stamp(2)
+
+        journal_store.open_store(self.root).close()
+
+        self.assertEqual(self.version(), 1)
+
+    def test_a_restored_stamp_is_written_once_not_on_every_open(self):
+        journal_store.open_store(self.root).close()
+        self.stamp(2)
+        journal_store.open_store(self.root).close()
+        watcher = self.raw()
+        before = watcher.execute("PRAGMA data_version").fetchone()[0]
+
+        journal_store.open_store(self.root).close()
+
+        self.assertEqual(watcher.execute("PRAGMA data_version").fetchone()[0], before)
+
+    def test_another_branch_keeps_applying_its_own_migration_2(self):
+        """The #842 case, both ways round, twice."""
+
+        theirs = ((2, _ANOTHER_BUILDS_MIGRATION_2),)
+
+        journal_store.open_store(self.root).close()
+        self.a_build_that_trusts_the_number(theirs)
+        self.assertIn("another_builds_objectives", self.tables())
+
+        journal_store.open_store(self.root).close()
+        self.a_build_that_trusts_the_number(theirs)
+        journal_store.open_store(self.root).close()
+
+        self.assertIn("another_builds_objectives", self.tables())
+        self.assertIn("owner_pid", self.lease_columns())
+        self.assertEqual(self.version(), 1)
+
+    def test_a_stamp_this_build_cannot_vouch_for_is_never_lowered(self):
+        journal_store.open_store(self.root).close()
+        self.stamp(journal_store.SCHEMA_VERSION + 1)
+
+        with self.assertRaises(journal_store.IncompatibleSchemaError):
+            journal_store.open_store(self.root).close()
+
+        self.assertEqual(self.version(), journal_store.SCHEMA_VERSION + 1)
+
+    def test_a_newer_build_stamping_while_this_one_waited_is_not_lowered(self):
+        """Decided under the lock: the stamp read before it may be stale."""
+
+        journal_store.open_store(self.root).close()
+        self.stamp(2)
+        real = journal_store._transaction
+        newer = journal_store.SCHEMA_VERSION + 1
+
+        @contextlib.contextmanager
+        def a_newer_build_gets_there_first(connection):
+            self.stamp(newer)
+            with real(connection):
+                yield connection
+
+        with mock.patch.object(
+            journal_store, "_transaction", a_newer_build_gets_there_first
+        ):
+            store = journal_store.open_store(self.root)
+            store.close()
+
+        self.assertEqual(self.version(), newer)
+
+    def test_a_migration_older_builds_need_raises_the_stamp(self):
+        """Nothing declared ignorable: the stamp is the newest migration again."""
+
+        with mock.patch.object(journal_store, "_OLDER_BUILDS_CAN_IGNORE", frozenset()):
+            journal_store.open_store(self.root).close()
+            self.assertEqual(self.version(), 2)
+
+            journal_store.open_store(self.root).close()
+
+        self.assertEqual(self.version(), 2)
 
 
 class ACompleteJournalCostsNoWritesTests(_Journal):
@@ -322,7 +514,7 @@ class HealingUnderConcurrencyTests(_Journal):
 
         self.assertEqual(answers, ["OK"] * 6)
         self.assertIn("owner_pid", self.lease_columns())
-        self.assertEqual(self.version(), journal_store.SCHEMA_VERSION)
+        self.assertEqual(self.version(), journal_store.compatibility_version())
 
 
 if __name__ == "__main__":  # pragma: no cover

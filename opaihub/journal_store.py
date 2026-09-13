@@ -57,10 +57,31 @@ from .call_reconciliation import positive_pid
 from .command_runner import redact
 from .state import state_dir
 
-#: Bumped whenever :data:`_MIGRATIONS` grows. A database reporting a higher
-#: version than this was written by a newer OPai and is *incompatible* -- a
-#: state the caller must be able to tell apart from corruption.
+#: The newest migration this build knows; bumped whenever :data:`_MIGRATIONS`
+#: grows. A database recording a higher version than this was written by a
+#: newer OPai and is *incompatible* -- a state the caller must be able to tell
+#: apart from corruption.
 SCHEMA_VERSION = 2
+
+#: Migrations an older OPai can safely ignore, so they do not raise the version
+#: a journal is stamped with.
+#:
+#: Every OPai build refuses a journal stamped above the newest migration it
+#: knows. That is right for a change an older build would write wrongly
+#: around, and needlessly destructive for one it would never notice: migration
+#: 2 only adds two nullable columns, yet stamping it made every journal this
+#: build touched "written by a newer OPai" to `main` and to every branch cut
+#: from it -- journaling silently stopped there and doctor flagged the project.
+#: Worse, a branch that defined its *own* migration 2 (#842) trusted the stamp
+#: and skipped its tables for ever.
+#:
+#: A migration listed here must be one an older build cannot trip over: new
+#: tables, non-unique indexes, nullable columns. The ratchet in
+#: ``tests/test_journal_migrations_are_verifiable.py`` refuses a unique index
+#: here, because an older build's writes could violate it. Anything not listed
+#: is assumed to matter to older builds -- the safe default for a migration
+#: nobody thought about.
+_OLDER_BUILDS_CAN_IGNORE: frozenset[int] = frozenset({2})
 
 #: Typed integrity outcomes (functional requirement 7).
 INTEGRITY_COMPLETE = "complete"
@@ -519,6 +540,42 @@ def _stored_version(connection: sqlite3.Connection) -> int:
         return 0
 
 
+def compatibility_version() -> int:
+    """The version a journal is stamped with: what an older build must know.
+
+    The newest migration an older build could *not* ignore. A build that knows
+    it can use the journal; one that does not is refused, which is the only
+    thing the stamp is for -- whether each migration is actually in place is
+    checked against the catalogue on every open.
+    """
+
+    return max(
+        (
+            version
+            for version, _statements in _MIGRATIONS
+            if version not in _OLDER_BUILDS_CAN_IGNORE
+        ),
+        default=0,
+    )
+
+
+def _restore_compatibility_stamp(connection: sqlite3.Connection, floor: int) -> None:
+    """Lower a stamp that claims more than older builds need to know.
+
+    The one deliberate exception to :func:`_record_schema_version` never going
+    backwards. Journals this branch touched before stamps meant compatibility
+    were stamped 2 for a migration older builds can ignore, locking every one
+    of those builds out. The race that made a backwards stamp dangerous cannot
+    recur: migrations are verified against the catalogue, so a lowered stamp
+    can never cause a statement to run twice.
+    """
+
+    connection.execute(
+        "UPDATE schema_meta SET value = ? WHERE key = 'schema_version'",
+        (str(floor),),
+    )
+
+
 def _record_schema_version(connection: sqlite3.Connection, version: int) -> None:
     """Record the schema version, and never let it go backwards.
 
@@ -624,22 +681,30 @@ def _outstanding(facts: _SchemaFacts, statements: Sequence[str]) -> list[str]:
 
 
 def migrate(connection: sqlite3.Connection) -> int:
-    """Apply pending migrations transactionally; return the resulting version.
+    """Apply pending migrations transactionally; return the newest now in place.
+
+    **Stamped with compatibility, not with the newest migration.** The recorded
+    version is :func:`compatibility_version` -- what an older build must know
+    to use this journal -- so a migration older builds can ignore no longer
+    locks them out of it. See :data:`_OLDER_BUILDS_CAN_IGNORE`. A migration that
+    does raise the stamp records it in the same transaction as its statements,
+    so no older build ever sees such a change without the stamp that refuses
+    it.
 
     **Checked against the database, not trusted from a number.** Two open PRs
     each defined migration 2 with different contents -- lease owner columns
     here, agent-objective tables in #842. Applied by number alone, whichever
     build touched a journal first stamped it v2 and the other build skipped
     its own v2 for ever: its tables or columns simply never existed, and every
-    write that needed them failed. Now every migration at or below the
-    recorded version is verified to be in place, and anything missing is
+    write that needed them failed. Now every migration is verified to be in
+    place whatever the recorded version says, and anything missing is
     applied. Every statement is idempotent by construction, so applying one a
     journal already has is harmless; on a journal that is already complete
     this costs one catalogue read and no writes.
 
-    Resumable by construction: each migration commits its own transaction and
-    records the new version in the same transaction, so an interruption leaves
-    the database at a version that was fully applied, never half of one.
+    Resumable by construction: each migration commits its own transaction, and
+    the next open verifies everything again, so an interruption never leaves
+    half of one believed to be whole.
 
     **Safe against a second process doing the same thing.** The version is
     re-read inside each write transaction, not just once at the top, because
@@ -668,7 +733,9 @@ def migrate(connection: sqlite3.Connection) -> int:
     1. the version is re-read under the write lock, so a migration another
        process has already applied is skipped rather than repeated;
     2. the recorded version can only ever move forward, so a stale writer
-       cannot drag it backwards even if it did somehow re-run.
+       cannot drag it backwards even if it did somehow re-run -- with one
+       deliberate exception, :func:`_restore_compatibility_stamp`, which is
+       safe only because nothing here trusts the stamp to decide what to run.
     """
 
     current = _stored_version(connection)
@@ -678,7 +745,8 @@ def migrate(connection: sqlite3.Connection) -> int:
         )
     facts = _SchemaFacts(connection)
     for version, statements in _MIGRATIONS:
-        if version <= current and not _outstanding(facts, statements):
+        stamps = version not in _OLDER_BUILDS_CAN_IGNORE
+        if not _outstanding(facts, statements) and (not stamps or version <= current):
             continue
         with _transaction(connection):
             # Everything is decided again under the lock. Another process may
@@ -687,13 +755,24 @@ def migrate(connection: sqlite3.Connection) -> int:
             # -- so the catalogue is re-read here rather than trusted from
             # before the lock existed.
             facts.refresh()
-            outstanding = _outstanding(facts, statements)
-            for statement in outstanding:
+            for statement in _outstanding(facts, statements):
                 connection.execute(statement)
-            _record_schema_version(connection, version)
+            if stamps:
+                _record_schema_version(connection, version)
         facts.refresh()
-        current = max(current, version)
-    return current
+        if stamps:
+            current = max(current, version)
+
+    floor = compatibility_version()
+    if current > floor:
+        with _transaction(connection):
+            # Every migration above the floor is, by the floor's definition, one
+            # older builds can ignore -- so a stamp between the two claims more
+            # than any build needs. Above SCHEMA_VERSION it was refused already.
+            stamped = _stored_version(connection)
+            if floor < stamped <= SCHEMA_VERSION:
+                _restore_compatibility_stamp(connection, floor)
+    return SCHEMA_VERSION
 
 
 def open_store(
@@ -1605,6 +1684,7 @@ __all__: Sequence[str] = (
     "append_event",
     "canonical_bytes",
     "check_integrity",
+    "compatibility_version",
     "migration_statement_is_verifiable",
     "written_by_a_newer_opai",
     "drop_projection",

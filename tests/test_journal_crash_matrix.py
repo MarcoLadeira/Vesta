@@ -50,11 +50,11 @@ from pathlib import Path
 from opaihub import journal_store
 from opaihub.journal_store import (
     INTEGRITY_COMPLETE,
-    SCHEMA_VERSION,
     StaleWriterError,
     acquire_lease,
     append_event,
     check_integrity,
+    compatibility_version,
     open_store,
     read_events,
     record_cost,
@@ -276,7 +276,7 @@ class ProcessDeathAroundCommitTests(unittest.TestCase):
         report = check_integrity(self._reopen())
 
         self.assertEqual(report.state, INTEGRITY_COMPLETE)
-        self.assertEqual(report.schema_version, SCHEMA_VERSION)
+        self.assertEqual(report.schema_version, compatibility_version())
 
     def test_a_second_process_can_write_after_the_first_was_killed(self):
         """A killed writer must not leave the database locked forever."""
@@ -541,10 +541,14 @@ class MigrationInterruptionTests(unittest.TestCase):
         report = check_integrity(store)
 
         self.assertEqual(report.state, INTEGRITY_COMPLETE)
-        self.assertEqual(report.schema_version, SCHEMA_VERSION)
+        self.assertEqual(report.schema_version, compatibility_version())
 
     def test_the_schema_version_is_never_left_half_applied(self):
-        """Each migration records its version inside its own transaction."""
+        """A migration that raises the stamp records it in its own transaction.
+
+        The stamp is what an older build must know, not the newest migration
+        (``journal_store._OLDER_BUILDS_CAN_IGNORE``).
+        """
 
         _run_child(self.root, "pass")
         store = open_store(self.root)
@@ -554,7 +558,7 @@ class MigrationInterruptionTests(unittest.TestCase):
             "SELECT value FROM schema_meta WHERE key = 'schema_version'"
         ).fetchone()[0]
 
-        self.assertEqual(int(version), SCHEMA_VERSION)
+        self.assertEqual(int(version), compatibility_version())
 
     def test_an_interrupted_open_does_not_leave_a_partial_schema(self):
         _run_child(self.root, "pass")

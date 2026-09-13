@@ -1308,13 +1308,21 @@ def _journal_doctor(root: Path) -> dict[str, object]:
     """
 
     try:
-        from opaihub.journal_store import SCHEMA_VERSION, store_health
+        from opaihub.journal_store import (
+            SCHEMA_VERSION,
+            compatibility_version,
+            store_health,
+        )
 
         health = store_health(root)
         return {
             "schema_version": 1,
             "available": True,
-            "expected_store_version": SCHEMA_VERSION,
+            # What a healthy journal from this build is stamped with. Not the
+            # newest migration: a migration older builds can ignore does not
+            # raise the stamp (journal_store._OLDER_BUILDS_CAN_IGNORE).
+            "expected_store_version": compatibility_version(),
+            "newest_store_version": SCHEMA_VERSION,
             # #613 Stages 6-7: how far this installation has actually got.
             # Without it the migration is only observable by writing code, and
             # a migration nobody can see the state of is one nobody can finish.

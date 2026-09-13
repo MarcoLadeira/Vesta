@@ -87,13 +87,13 @@ class AStaleWriterCannotUndoAMigrationTests(_FreshJournal):
         self.addCleanup(loser.close)
 
         journal_store.migrate(winner)
-        self.assertEqual(self.version(), journal_store.SCHEMA_VERSION)
+        self.assertEqual(self.version(), journal_store.compatibility_version())
 
         self._migrate_with_a_stale_read(loser)
 
         self.assertEqual(
             self.version(),
-            journal_store.SCHEMA_VERSION,
+            journal_store.compatibility_version(),
             "a stale writer dragged the recorded schema version backwards",
         )
 
@@ -121,13 +121,12 @@ class AStaleWriterCannotUndoAMigrationTests(_FreshJournal):
         journal_store.open_store(self.root).close()
         connection = sqlite3.connect(self.path, isolation_level=None)
         self.addCleanup(connection.close)
+        journal_store._record_schema_version(connection, 5)
 
         journal_store._record_schema_version(connection, 1)
 
         self.assertEqual(
-            self.version(),
-            journal_store.SCHEMA_VERSION,
-            "a lower version was written over a higher one",
+            self.version(), 5, "a lower version was written over a higher one"
         )
 
     def test_a_higher_version_is_still_recorded(self):
@@ -194,7 +193,7 @@ class RealConcurrentProcessesTests(_FreshJournal):
         )
         self.assertEqual(
             self.version(),
-            journal_store.SCHEMA_VERSION,
+            journal_store.compatibility_version(),
             f"the journal was left below the current schema: {answers}",
         )
 
@@ -235,7 +234,7 @@ class TheShapeTheRaceLeftBehindNowHealsTests(_FreshJournal):
         store = journal_store.open_store(self.root)
         store.close()
 
-        self.assertEqual(self.version(), journal_store.SCHEMA_VERSION)
+        self.assertEqual(self.version(), journal_store.compatibility_version())
 
     def test_health_calls_it_openable(self):
         self.race_shape()

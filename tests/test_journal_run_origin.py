@@ -152,7 +152,11 @@ class EveryCallerNamesItselfTests(unittest.TestCase):
         self.assertEqual(
             found,
             set(CALLERS),
-            "a module drives the turn pipeline and is not in CALLERS",
+            "a module drives the turn pipeline and is not in CALLERS. Add it"
+            " there with the surface it is (one of gui_pipeline.KNOWN_SURFACES"
+            " -- an agent worker is 'agent'), and pass that as surface= on"
+            " each handle_gui_message call, or its turns are journalled as"
+            " 'unknown'.",
         )
 
 

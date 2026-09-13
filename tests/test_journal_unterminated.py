@@ -375,7 +375,7 @@ class AJournalWrittenBeforeThisMigrationStillReadsTests(_PendingFixture):
         finally:
             store.close()
 
-        self.assertEqual(version, journal_store.SCHEMA_VERSION)
+        self.assertEqual(version, journal_store.compatibility_version())
 
     def test_a_lease_from_before_the_columns_reads_as_unknown(self):
         """Not "gone". Nobody recorded a process, so nobody can say."""

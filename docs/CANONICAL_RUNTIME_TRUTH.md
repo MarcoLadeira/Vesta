@@ -849,6 +849,97 @@ clock per budget report instead of four, and one place that says "at least "
 instead of three. Each disagreement was real: `pid_is_running(True)` probed
 pid 1, which exists everywhere.
 
+## Living alongside the other open branches
+
+Two other pull requests were open while this one was finished: #842 (the
+Agents command center) and #817 (the settings redesign). A change to the
+journal's schema is the kind of thing that stays invisible until somebody else
+merges, so both were trial-merged against this branch and their tests run on
+the result, rather than assumed compatible because git said so.
+
+### Two branches, one migration number
+
+#842 also defines journal migration **2** -- agent-objective tables, where this
+branch's migration 2 is the lease owner columns. Every build before this one
+decided what to run from the recorded number alone, so whichever build touched
+a journal first stamped it v2 and the other build skipped its own v2 for ever:
+tables or columns that never existed, on a database every structural check
+called perfect.
+
+`migrate()` now checks each migration against the catalogue and applies what
+is missing, deciding again under the write lock. A complete journal costs one
+catalogue read and no write lock (`open_store` 1.28 ms before, 1.46 ms after).
+Two ratchets keep it that way: every migration statement must be a shape that
+can be checked (`CREATE TABLE/INDEX IF NOT EXISTS`, `ALTER TABLE ... ADD
+COLUMN`), and versions must run 1..N with no repeats -- so a merge that resolves
+the collision by keeping two `(2, ...)` entries fails instead of shipping. The
+shape the old creation race left behind (v1 recorded, v2's columns present) no
+longer bricks anything; it simply opens.
+
+### The stamp locked older builds out
+
+Measured on a `main` worktree: once this branch's build had opened a project's
+journal, `main` -- and so #817, which is `main` plus settings -- called it
+"written by a newer OPai". Admission returned no fence, nothing was journalled,
+and doctor escalated the project. All for a migration that adds two nullable
+columns an older build would never notice.
+
+The recorded version now means *what an older build must know to use this
+journal*, not *the newest migration applied*. Migrations an older build can
+ignore are declared in `_OLDER_BUILDS_CAN_IGNORE` and do not raise it; the
+ratchet refuses a unique index there, because an older build's writes could
+violate one. Journals this branch had already stamped 2 are restored to 1 the
+next time they are opened -- written once, never lowered past a stamp this
+build cannot vouch for, and decided under the lock so a newer build stamping
+meanwhile is left alone. The same `main` worktree then admitted a run into that
+journal, and doctor called it healthy.
+
+That also closes the other merge order. Had #842 merged first, its build would
+have trusted a v2 stamp written by this one and skipped the Agents tables.
+
+### What the trial merge found
+
+Three files conflicted (`journal_store.py`, `gui_pipeline.py`,
+`chat-components.test.js`); each resolves mechanically. On the merged tree,
+1015 tests passed, the web unit suite passed (130), and three failed:
+
+- `test_journal_inventory` -- #842's own: it fails on #842 alone, because its
+  new modules write the journal without being classified.
+- `test_journal_run_origin` -- this branch's ratchet doing its job:
+  `objective_worker.py` drives turns without naming its surface. Its failure
+  message now says exactly what to add.
+- a fixture in this branch that borrowed #842's real table name, and collided
+  with the real table the moment both existed. It uses its own names now.
+
+One interaction is not a failure but will be visible: #842's `ObjectiveStore`
+writes `runs` rows directly rather than through `journal_runtime`, so those
+runs have no lifecycle events. `opai journal migration` will count them under
+event parity, and `journal pending` will list their leases as `unknown`. Both
+are reports, not gates -- doctor readiness does not read them, and nothing is
+blocked -- and both are true: the store does disagree with itself about those
+runs until they record their events.
+
+#817 merges without conflict. The only file both branches change is `app.js`,
+in unrelated places.
+
+### Merge recipe for whichever lands second
+
+1. `journal_store.py`: keep both migrations, numbered 2 and 3 in merge order,
+   and set `SCHEMA_VERSION` to 3. If the Agents tables are judged ignorable by
+   older builds (new tables and a non-unique index are), add 3 to
+   `_OLDER_BUILDS_CAN_IGNORE`; left out, the stamp becomes 3, which is the safe
+   default.
+2. `gui_pipeline.py`: keep both import lines, union the keyword arguments
+   (`surface`, `conversation_id` and #842's `task_id`, `run_id`,
+   `authority_root`, `local_model_endpoint`, `objective_bypass_permissions`),
+   and keep #842's skip of admission when `authority_root` is set around this
+   branch's `record_admission(... surface=..., session=...)` call.
+3. `chat-components.test.js`: this branch's assertions are a superset; keep
+   them.
+4. Add `"opaihub/objective_worker.py": "agent"` to `CALLERS` in
+   `tests/test_journal_run_origin.py` and pass `surface="agent"` where it calls
+   `handle_gui_message`.
+
 ## Status
 
 | Migration step (per #818) | State |
