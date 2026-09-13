@@ -3,6 +3,93 @@ import { openApp, openNav, sendPrompt, expectNoFatalErrors } from "./helpers/app
 
 const objective = { objective_id: 'obj-1', objective: 'Repair independent regressions', status: 'running', budget_usd: '4', cost_usd: null, cost_complete: false, max_parallel: 2, allowed_actions: ['pause', 'budget'], assignments: [{ assignment_id: 'a-1', title: 'API repair', status: 'blocked', depends_on: ['a-0'], intended_paths: ['api/'], blocked_reason: 'Waiting for contract', allowed_actions: ['stop', 'reroute'], activity: ['Read api/server.py'] }], integration: { status: 'pending' } };
 
+test('team limits are captured exactly and keyboard editing cannot change permission mode', async ({ page }, testInfo) => {
+  await openApp(page, { boot: { prefs: { multiAgentEnabled: true, showPanel: false } } });
+  const mode = await page.evaluate(() => window.__opai.state.mode.id);
+  await page.locator('#modeBtn').click();
+  await page.getByText('Team limits', { exact: true }).click();
+  await page.getByLabel('Concurrent agents', { exact: true }).selectOption('3');
+  const budget = page.getByLabel('Objective budget in USD');
+  await budget.pressSequentially('1.234000000000000001');
+  expect(await page.evaluate(() => window.__opai.state.mode.id)).toBe(mode);
+  expect((await page.locator('#modePop').boundingBox()).y).toBeGreaterThanOrEqual(58);
+  await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('team-limits.png') });
+  await page.keyboard.press('Escape');
+  const id = await sendPrompt(page);
+  expect(await page.evaluate(() => window.__mock.lastRequest)).toMatchObject({ maxParallel: 3, budgetUsd: '1.234000000000000001', mode });
+  await page.evaluate((rid) => window.__mock.emitReply(rid, { status: 'failed', error: 'Temporary failure' }), id);
+  await page.evaluate(() => {
+    window.__opai.setAgentsRunSettings({ maxParallel: 4, budgetUsd: '9' });
+    window.__opai.send(window.__opai.state.lastSend);
+  });
+  expect(await page.evaluate(() => window.__mock.lastRequest)).toMatchObject({ maxParallel: 3, budgetUsd: '1.234000000000000001' });
+  await page.evaluate(() => window.__opai.applyBootSelection(window.__opai.state.boot));
+  expect(await page.evaluate(() => [window.__opai.state.agentsMaxParallel, window.__opai.state.agentsBudgetUsd])).toEqual([2, '']);
+});
+
+test('invalid pre-send budget keeps the draft and does not dispatch', async ({ page }) => {
+  await openApp(page, { boot: { prefs: { multiAgentEnabled: true } } });
+  await page.evaluate(() => window.__opai.setAgentsRunSettings({ budgetUsd: '-1' }));
+  await page.locator('#input').fill('Repair the API');
+  await page.locator('#send').click();
+  await expect(page.locator('#toast')).toContainText('nonnegative USD amount');
+  await expect(page.locator('#input')).toHaveValue('Repair the API');
+  expect(await page.evaluate(() => window.__mock.sendCount)).toBe(0);
+});
+
+test('live updates preserve budget drafts and caret without freezing status or costs', async ({ page }) => {
+  await openApp(page, { dashboards: { agents: { objectives: [objective], cards: [] } } });
+  await openNav(page, 'Agents');
+  await page.getByText('Objective settings', { exact: true }).click();
+  const budget = page.getByLabel('Budget in USD');
+  await budget.fill('7.25');
+  await budget.evaluate((node) => node.setSelectionRange(1, 3));
+  await page.evaluate((o) => window.__mock.emitObjectiveControl({ ok: true, workspaceRoot: '/demo', objective: { ...o, revision: 2, status: 'paused', cost_usd: '0.42' } }), objective);
+  await expect(page.locator('.agents-objective > header')).toContainText('Paused');
+  await expect(page.locator('.agents-metrics')).toContainText('$0.42');
+  await expect(budget).toHaveValue('7.25');
+  await expect(budget).toBeFocused();
+  expect(await budget.evaluate((node) => [node.selectionStart, node.selectionEnd])).toEqual([1, 3]);
+  await page.getByRole('button', { name: 'Set budget', exact: true }).click();
+  expect(await page.evaluate(() => window.__mock.objectiveControls.at(-1))).toMatchObject({ action: 'budget', value: '7.25' });
+});
+
+test('a concurrent budget change cannot silently overwrite an unsaved draft', async ({ page }) => {
+  await openApp(page, { dashboards: { agents: { objectives: [objective], cards: [] } } });
+  await openNav(page, 'Agents');
+  await page.getByText('Objective settings', { exact: true }).click();
+  const budget = page.getByLabel('Budget in USD');
+  await budget.fill('7.25');
+  for (const revision of [2, 3]) await page.evaluate(({ o, revision }) => window.__mock.emitObjectiveControl({ ok: true, workspaceRoot: '/demo', objective: { ...o, revision, budget_usd: '5' } }), { o: objective, revision });
+  await expect(budget).toHaveValue('7.25');
+  expect(await budget.evaluate((node) => node.validationMessage)).toContain('changed elsewhere');
+  await page.getByRole('button', { name: 'Set budget', exact: true }).click();
+  expect(await page.evaluate(() => window.__mock.objectiveControls)).toEqual([]);
+  await budget.fill('7.50');
+  await page.getByRole('button', { name: 'Set budget', exact: true }).click();
+  expect(await page.evaluate(() => window.__mock.objectiveControls.at(-1))).toMatchObject({ action: 'budget', value: '7.50' });
+});
+
+test('attention navigation cycles actionable assignments without including dependency waits', async ({ page }, testInfo) => {
+  const recorded = { ...objective, assignments: [
+    objective.assignments[0],
+    { assignment_id: 'approval', title: 'Review the edit request', status: 'needs-attention', allowed_actions: ['approve'], pending_approval: { request_id: 'approval-1', reason: 'Approve scoped edits', kind: 'edits', files: ['api/server.py'] } },
+    { assignment_id: 'retry', run_id: 'retry-1', title: 'Choose another provider', status: 'needs-attention', allowed_actions: ['retry'] },
+  ] };
+  await openApp(page, { boot: { prefs: { showPanel: false } }, dashboards: { agents: { objectives: [recorded], cards: [] } } });
+  await openNav(page, 'Agents');
+  await expect(page.locator('.agents-attention')).toContainText('2 assignments need attention');
+  await page.getByRole('button', { name: 'Next to review' }).click();
+  await expect(page.locator('.agents-detail h3')).toHaveText('Review the edit request');
+  await expect(page.getByRole('button', { name: 'Approve once' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollLeft)).toBe(0);
+  await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('agents-attention.png') });
+  await page.getByRole('button', { name: 'Next to review' }).click();
+  await expect(page.locator('.agents-detail h3')).toHaveText('Choose another provider');
+  await page.getByRole('button', { name: 'Next to review' }).click();
+  await expect(page.locator('.agents-detail h3')).toHaveText('Review the edit request');
+});
+
 test('blocked retry carries its run fence and removing a cap sends null', async ({ page }) => {
   const recorded = { ...objective, allowed_actions: [], assignments: [{ ...objective.assignments[0], run_id: 'blocked-run', budget_usd: '1', allowed_actions: ['retry', 'budget', 'reroute'] }] };
   const diagnostics = await openApp(page, { dashboards: { agents: { objectives: [recorded], cards: [] } } });

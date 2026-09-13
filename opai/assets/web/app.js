@@ -55,7 +55,7 @@ const state = {
   model: { id: "auto", label: "Auto", kind: "auto" },
   mode: { id: "safe-auto", label: "Safe Auto" },
   focus: "general", format: "normal",
-  multiAgentEnabled: false, agentsAllowCloud: false, agentsSnapshot: null, agentsSelection: null, agentsPollTimer: null, agentsRequests: new Map(),
+  multiAgentEnabled: false, agentsAllowCloud: false, agentsMaxParallel: 2, agentsBudgetUsd: "", agentsSnapshot: null, agentsSelection: null, agentsPollTimer: null, agentsRequests: new Map(),
   // Hidden until the boot payload (or the user) says otherwise, matching
   // gui_preferences' documented default. Starting true meant the shell
   // painted an empty inspector before any preference was known -- and, with
@@ -339,6 +339,8 @@ function applyBootSelection(b) {
   state.format = b.prefs.format || "normal";
   state.multiAgentEnabled = b.prefs.multiAgentEnabled === true;
   state.agentsAllowCloud = false;
+  state.agentsMaxParallel = 2;
+  state.agentsBudgetUsd = "";
   const m = (b.models || []).find((x) => x.id === b.selectedModel) || (b.models || [])[0];
   if (m) state.model = { ...m, advancedLabel: m.advanced_label };
   const md = (b.modes || []).find((x) => x.id === b.prefs.mode) || (b.modes || [])[0];
@@ -2167,10 +2169,20 @@ function send(retryOf) {
     text, model: state.model.id, mode: state.mode.id, focus: state.focus, format: state.format,
     modelKind: state.model.kind, modelLabel: state.model.label, modelProvider: state.model.provider,
     multiAgentEnabled: state.multiAgentEnabled === true,
+    maxParallel: state.agentsMaxParallel,
+    budgetUsd: state.agentsBudgetUsd.trim() || null,
     bypassPermissions: state.bypassPermissions === true,
     allowCloud: state.multiAgentEnabled === true && state.agentsAllowCloud === true,
     contextHints: state.contextHints.slice(),
   };
+  if (sel.multiAgentEnabled) {
+    try {
+      Object.assign(sel, window.OPaiAgentsWorkspace.runSettings(sel.maxParallel ?? 2, sel.budgetUsd ?? null));
+    } catch (error) {
+      toast(error.message);
+      return;
+    }
+  }
   // Free-tier consent: one confirmation per provider, ever. If the user has
   // already confirmed this free model in the past (persisted per workspace),
   // send with allowCloud=true up front — no card. Otherwise the pipeline
@@ -2222,6 +2234,8 @@ function send(retryOf) {
     format: sel.format, allowCloud: sel.allowCloud === true, allowLimit: sel.allowLimit === true,
     bypassPermissions: sel.bypassPermissions === true,
     multiAgentEnabled: sel.multiAgentEnabled === true,
+    maxParallel: sel.multiAgentEnabled ? sel.maxParallel : undefined,
+    budgetUsd: sel.multiAgentEnabled ? sel.budgetUsd : undefined,
     contextHints,
     // F9/F17: one-time approval for a policy-blocked command — the exact
     // string echoed by the pipeline, never a rewritten one. Omitted unless set.
@@ -4205,8 +4219,6 @@ function paintAgentsWorkspace() {
   paintAgentChatCards();
   if (state.view !== "agents" || !state.agentsSnapshot) return;
   if (document.querySelector('.agents-artifact-dialog[open]')) return;
-  // Keep a draft control value and keyboard focus stable during polling.
-  if (document.activeElement && document.activeElement.matches("[data-agent-value]") && $("#dashPage").contains(document.activeElement)) return;
   window.OPaiAgentsWorkspace.mount($("#dashPage"), state.agentsSnapshot, {
     selection: state.agentsSelection,
     onAction: runAction,
@@ -4977,6 +4989,10 @@ if (typeof window !== "undefined") {
     },
     setAgentsAllowCloud: (enabled) => {
       state.agentsAllowCloud = state.multiAgentEnabled && enabled === true;
+    },
+    setAgentsRunSettings: (settings) => {
+      if (Number.isInteger(settings.maxParallel)) state.agentsMaxParallel = settings.maxParallel;
+      if (typeof settings.budgetUsd === "string") state.agentsBudgetUsd = settings.budgetUsd;
     },
     derivedAgentMode: () => derivedAgentMode(),
     applyAppearance: (p) => applyAppearance(p),

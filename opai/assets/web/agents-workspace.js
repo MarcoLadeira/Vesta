@@ -22,14 +22,30 @@
     const parts = amount.split(".");
     return "$" + parts[0] + "." + (parts[1] || "").padEnd(2, "0");
   }
+  function runSettings(maxParallel, budgetUsd) {
+    if (!Number.isInteger(maxParallel) || maxParallel < 1 || maxParallel > 4) throw new Error("Choose between 1 and 4 concurrent agents in Team limits.");
+    const budget = budgetUsd == null ? "" : String(budgetUsd).trim();
+    if ((budgetUsd != null && typeof budgetUsd !== "string") || (budget && (budget.length > 100 || !/^\d+(?:\.\d+)?$/.test(budget) || budget.replace(/^0+/, "").split(".")[0].length > 31))) throw new Error("Enter a nonnegative USD amount in Team limits, or leave the budget blank for no cap.");
+    return { maxParallel, budgetUsd: budget || null };
+  }
   const labels = { run: "Run queued work", pause: "Pause", resume: "Resume", stop: "Stop", cancel: "Stop", sequential: "Run sequentially", budget: "Set budget", set_budget: "Set budget", prioritize: "Move first", reroute: "Reroute", reconcile: "Reconcile", verify: "Verify integration", approve: "Approve once", retry: "Retry blocked attempt", request_review: "Request review" };
   const secondaryActions = new Set(["budget", "set_budget", "reroute", "prioritize", "sequential", "request_review"]);
   function disclosure(label, content, key) {
     return '<details class="agents-disclosure" data-disclosure="' + esc(key || label) + '"><summary>' + esc(label) + '</summary><div class="agents-disclosure-body">' + content + '</div></details>';
   }
   function stateBadge(value) {
-    const tone = { running: "active", completed: "success", failed: "attention", blocked: "attention", "needs-attention": "attention", cancelled: "muted", paused: "muted" }[value] || "muted";
+    const tones = new Map([["running", "active"], ["completed", "success"], ["failed", "attention"], ["blocked", "attention"], ["needs-attention", "attention"]]);
+    const tone = tones.get(value) || "muted";
     return '<span class="agents-state agents-state-' + tone + '"><i aria-hidden="true"></i>' + status(value) + '</span>';
+  }
+  function needsAttention(assignment) {
+    return !!assignment.pending_approval || list(assignment.allowed_actions).includes("retry") || ["failed", "needs-attention"].includes(assignment.status);
+  }
+  function attentionSummary(objective, selectedId) {
+    const attention = list(objective.assignments).filter(needsAttention);
+    if (!attention.length) return "";
+    const next = attention[(attention.findIndex((a) => a.assignment_id === selectedId) + 1) % attention.length];
+    return '<div class="agents-attention"><span>' + attention.length + (attention.length === 1 ? ' assignment needs attention' : ' assignments need attention') + '</span><button type="button" class="btn" data-agent-attention="' + esc(next.assignment_id) + '" data-objective-id="' + esc(objective.objective_id) + '">' + (attention.length > 1 ? 'Next to review' : 'Review assignment') + '</button></div>';
   }
   function progress(objective) {
     const assignments = list(objective.assignments);
@@ -45,7 +61,8 @@
       if (action === "reroute") field = '<label>Assignment model<input aria-label="Assignment model" data-agent-value value="' + esc(item.model) + '"></label>';
       const ids = ' data-objective-id="' + esc(objectiveId) + '"' + (assignmentId ? ' data-assignment-id="' + esc(assignmentId) + '"' : '');
       const removeCap = (action === "budget" || action === "set_budget") && decimal(item.budget_usd) !== null ? '<button type="button" class="btn" data-agent-action="budget" data-agent-clear-budget' + ids + '>Remove cap</button>' : '';
-      (secondaryActions.has(action) ? secondary : primary).push('<div class="agents-control">' + field + '<button type="button" class="btn" data-agent-action="' + action + '"' + ids + '>' + labels[action] + '</button>' + removeCap + '</div>');
+      const controlKey = esc(JSON.stringify([objectiveId, assignmentId || "", action]));
+      (secondaryActions.has(action) ? secondary : primary).push('<div class="agents-control" data-control-key="' + controlKey + '">' + field + '<button type="button" class="btn" data-agent-action="' + action + '"' + ids + '>' + labels[action] + '</button>' + removeCap + '</div>');
     });
     return (primary.length ? '<div class="agents-controls">' + primary.join("") + '</div>' : '') + (secondary.length ? disclosure(assignmentId ? "Assignment settings" : "Objective settings", '<div class="agents-settings">' + secondary.join("") + '</div>', "settings:" + objectiveId + ":" + (assignmentId || "")) : '');
   }
@@ -94,10 +111,11 @@
       if (o.cost_complete !== true) html += '<p class="agents-note">Cost reporting incomplete</p>';
       if (o.planning && o.planning.status !== "pending") html += '<section class="agents-section"><h3>Planning · ' + status(o.planning.status) + '</h3>' + (o.planning.result && o.planning.result.error ? '<p class="agents-note">' + esc(o.planning.result.error) + '</p>' : '') + '</section>';
       html += controls(o, o.objective_id);
+      html += attentionSummary(o, selected && selected.assignment_id);
       if (assignments.length) {
         html += '<div class="agents-split"><nav class="agents-assignments" aria-label="Assignments"><h3>Assignments</h3>';
         assignments.forEach((a) => {
-          html += '<button type="button" class="agents-assignment" aria-pressed="' + (a === selected) + '" data-agent-select="' + esc(a.assignment_id) + '" data-objective-id="' + esc(o.objective_id) + '"><strong>' + esc(a.title || a.assignment_id) + '</strong><span>' + status(a.status) + (a.role ? ' · ' + esc(a.role) : '') + '</span><span>' + esc(a.observed_model || a.model || "Model not reported") + ' · ' + cost(a.cost_usd) + (a.cost_complete === false ? ' (incomplete)' : '') + '</span></button>';
+          html += '<button type="button" class="agents-assignment" aria-pressed="' + (a === selected) + '" data-agent-select="' + esc(a.assignment_id) + '" data-objective-id="' + esc(o.objective_id) + '"><strong>' + esc(a.title || a.assignment_id) + '</strong><span>' + status(a.status) + (a.role ? ' · ' + esc(a.role) : '') + (a.pending_approval ? ' · Approval requested' : '') + '</span><span>' + esc(a.observed_model || a.model || "Model not reported") + ' · ' + cost(a.cost_usd) + (a.cost_complete === false ? ' (incomplete)' : '') + '</span></button>';
         });
         html += '</nav><section class="agents-detail" data-assignment-id="' + esc(selected && selected.assignment_id || '') + '" aria-label="Selected assignment">';
         if (selected) {
@@ -153,13 +171,14 @@
     return html + '</div>';
   }
   function renderCompact(objective) {
-    return '<section class="agents-chat-card"><header><span class="agents-eyebrow">Agent team</span>' + stateBadge(objective.status) + '</header><h3>' + esc(objective.objective) + '</h3>' + progress(objective) + '<div class="agents-chat-footer"><span>Cost ' + cost(objective.cost_usd) + (objective.cost_complete !== true ? ' · incomplete' : '') + '</span><button type="button" class="btn" data-open-agent-objective="' + esc(objective.objective_id) + '">Open in Agents</button></div></section>';
+    const count = list(objective.assignments).filter(needsAttention).length;
+    return '<section class="agents-chat-card"><header><span class="agents-eyebrow">Agent team</span>' + stateBadge(objective.status) + '</header><h3>' + esc(objective.objective) + '</h3>' + progress(objective) + (count ? '<p class="agents-note">' + count + (count === 1 ? ' assignment needs attention' : ' assignments need attention') + '</p>' : '') + '<div class="agents-chat-footer"><span>Cost ' + cost(objective.cost_usd) + (objective.cost_complete !== true ? ' · incomplete' : '') + '</span><button type="button" class="btn" data-open-agent-objective="' + esc(objective.objective_id) + '">Open in Agents</button></div></section>';
   }
   function mount(element, snapshot, options) {
     options = options || {};
     const projection = JSON.stringify([snapshot, options.selection]);
-    const html = renderHtml(snapshot, options.selection);
     if (element._agentsProjection === projection && element.querySelector('.agents-workspace')) return;
+    const html = renderHtml(snapshot, options.selection);
     const detailKey = (detail) => detail.dataset.disclosure || JSON.stringify([
       detail.closest("[data-objective-id]")?.dataset.objectiveId,
       detail.closest("[data-assignment-id]")?.dataset.assignmentId,
@@ -167,17 +186,46 @@
     ]);
     const expanded = element._agentsExpanded || new Map();
     element.querySelectorAll("details").forEach((detail) => expanded.set(detailKey(detail), detail.open));
-    const identity = (node) => JSON.stringify([node.tagName, node.textContent, { ...node.dataset }, node.closest("[data-disclosure]")?.dataset.disclosure]);
+    const fieldKey = (node) => node.closest('[data-control-key]').dataset.controlKey;
+    const drafts = element._agentsDrafts || new Map();
+    element.querySelectorAll('[data-agent-value]').forEach((input) => {
+      if (input.value !== input.defaultValue) drafts.set(fieldKey(input), { value: input.value, baseline: input.defaultValue, conflict: input._agentsConflict === true });
+      else drafts.delete(fieldKey(input));
+    });
+    const identity = (node) => JSON.stringify([node.tagName, node.textContent, { ...node.dataset }, node.closest("[data-disclosure]")?.dataset.disclosure, node.closest('[data-control-key]')?.dataset.controlKey]);
     const active = element.contains(document.activeElement) ? identity(document.activeElement) : null;
+    const caret = active && document.activeElement.matches('[data-agent-value]') ? [document.activeElement.selectionStart, document.activeElement.selectionEnd, document.activeElement.selectionDirection] : null;
+    const scrollKey = (node) => JSON.stringify([node.closest('[data-objective-id]')?.dataset.objectiveId, node.className || detailKey(node.closest('details'))]);
+    const scroll = new Map(Array.from(element.querySelectorAll('.agents-assignments, .agents-objective-nav, .agents-evidence pre')).map((node) => [scrollKey(node), [node.scrollLeft, node.scrollTop]]));
     element.innerHTML = html;
     element._agentsProjection = projection;
     element._agentsExpanded = expanded;
+    element._agentsDrafts = drafts;
+    element.querySelectorAll('[data-agent-value]').forEach((input) => {
+      const draft = drafts.get(fieldKey(input));
+      if (draft && draft.value !== input.defaultValue) {
+        input.value = draft.value;
+        if (draft.conflict || draft.baseline !== input.defaultValue) {
+          input._agentsConflict = true;
+          input.setCustomValidity('This value changed elsewhere. Edit it to confirm your intended value before applying.');
+        }
+      } else drafts.delete(fieldKey(input));
+      input.oninput = () => { input._agentsConflict = false; input.setCustomValidity(''); };
+    });
     const detail = element.querySelector('.agents-detail');
     const selectedKey = detail ? JSON.stringify([detail.closest('[data-objective-id]').dataset.objectiveId, detail.dataset.assignmentId]) : null;
     if (detail && selectedKey !== element._agentsSelected) detail.classList.add('agents-selection-enter');
     element._agentsSelected = selectedKey;
     element.querySelectorAll("details").forEach((detail) => { if (expanded.has(detailKey(detail))) detail.open = expanded.get(detailKey(detail)); });
-    if (active) Array.from(element.querySelectorAll("button, summary")).find((node) => identity(node) === active)?.focus({ preventScroll: true });
+    element.querySelectorAll('.agents-assignments, .agents-objective-nav, .agents-evidence pre').forEach((node) => {
+      const position = scroll.get(scrollKey(node));
+      if (position) { node.scrollLeft = position[0]; node.scrollTop = position[1]; }
+    });
+    if (active) {
+      const target = Array.from(element.querySelectorAll("button, summary, input")).find((node) => identity(node) === active);
+      target?.focus({ preventScroll: true });
+      if (target && caret) target.setSelectionRange(...caret);
+    }
     element.querySelectorAll("[data-readiness-action]").forEach((button) => { button.onclick = () => options.onAction && options.onAction(button.dataset.readinessAction, button.dataset.command); });
     element.querySelectorAll("[data-objective-select]").forEach((button) => { button.onclick = () => options.onSelect && options.onSelect({ objectiveId: button.dataset.objectiveSelect }); });
     element.querySelectorAll("[data-agent-worktree]").forEach((button) => { button.onclick = () => options.onOpenWorktree && options.onOpenWorktree({ objective_id: button.dataset.objectiveId, assignment_id: button.dataset.assignmentId }); });
@@ -187,7 +235,7 @@
       const item = button.dataset.assignmentId ? objective && list(objective.assignments).find((row) => row.assignment_id === button.dataset.assignmentId) : objective;
       if (item && item.receipt && options.onCopyReceipt) options.onCopyReceipt(item.receipt);
     }; });
-    element.querySelectorAll("[data-agent-select]").forEach((button) => { button.onclick = () => options.onSelect && options.onSelect({ objectiveId: button.dataset.objectiveId, assignmentId: button.dataset.agentSelect }); });
+    element.querySelectorAll("[data-agent-select], [data-agent-attention]").forEach((button) => { button.onclick = () => options.onSelect && options.onSelect({ objectiveId: button.dataset.objectiveId, assignmentId: button.dataset.agentSelect || button.dataset.agentAttention }); });
     element.querySelectorAll("[data-agent-action]").forEach((button) => { button.onclick = () => {
       const payload = { objective_id: button.dataset.objectiveId, action: button.dataset.agentAction };
       if (button.dataset.assignmentId) payload.assignment_id = button.dataset.assignmentId;
@@ -212,5 +260,5 @@
       if (options.onControl) options.onControl(payload);
     }; });
   }
-  global.OPaiAgentsWorkspace = { renderHtml, renderCompact, mount };
+  global.OPaiAgentsWorkspace = { renderHtml, renderCompact, runSettings, mount };
 })(typeof window !== "undefined" ? window : globalThis);

@@ -24,6 +24,7 @@
 .agents-assignment[aria-pressed="true"] { border-color: var(--border-strong); background: var(--panel); box-shadow: inset 2px 0 var(--accent); }
 .agents-assignment span { color: var(--muted); font-size: var(--type-label); }
 .agents-note { color: var(--amber); font-size: var(--type-label); }
+.agents-attention { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-3); margin: var(--space-3) 0; border: 1px solid var(--border-strong); border-radius: var(--r-sm); color: var(--amber); background: var(--surface-2); font-size: var(--type-label); }
 .agents-evidence { margin-top: var(--space-3); color: var(--muted); font-size: var(--type-label); }
 .agents-evidence summary { cursor: pointer; padding: var(--space-2) 0; }
 .agents-evidence[open] pre { padding: var(--space-3); background: var(--surface); border-radius: 8px; }

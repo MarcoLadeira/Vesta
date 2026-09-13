@@ -116,6 +116,14 @@ The user explicitly deferred extended testing and provider benchmarks again. Fin
 - Keep new objectives in chat with a compact live card linking to the full workspace. Add responsive assignment navigation, quiet state indicators and reduced-motion-aware transitions. Refreshes do not replay entrance animations.
 - Verification: 17 focused Chromium checks passed, followed by 5 targeted checks after the final layout/animation refinements; 9 JavaScript unit checks and syntax/design-token/diff checks passed. Browser checks cover opaque centered dialogs, hostile diff text, narrow layout, complete consent, disclosure/focus retention, current revision fences and live chat updates. Extended backend, packaging and provider qualification remains deferred.
 
+## September 13 control improvements
+
+- Team limits in the Mode picker configure 1–4 concurrent agents and an exact decimal objective budget before submission. Retries retain the original limits; workspace changes reset session settings. Invalid budgets retain the prompt and never dispatch.
+- Canonical approvals, failures and retryable attempts appear in an attention summary with direct navigation. Ordinary dependency waits do not imply user intervention.
+- Journal refreshes preserve unsaved budget/model drafts, caret position, focus and evidence scrolling while continuing to update status and cost. A value changed elsewhere requires the user to edit their stale draft before applying it.
+- Expanded picker height respects the header; a collapsed inspector no longer leaves invisible padding/border that can shift the page sideways.
+- Validation: 11 unit checks; 21 browser checks passed in the full Agents pass, with the newly exposed inspector regression then fixed and its attention flow plus Team limits rechecked successfully. Earlier focused new-flow pass: 5 passed. These counts overlap.
+
 ## Activation
 
 Use a build containing PR #842. The header's **Agents** button opens existing objectives. Open the composer's **Mode** picker (the button showing Auto, Manual or the current permission mode), enable **Allow multiple agents mode**, then send an objective. The mode button includes **Agents** while enabled. The toggle persists; permission mode and model selection remain separate. Existing objectives are managed from the Agents workspace.

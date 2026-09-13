@@ -141,6 +141,13 @@
   }
 
   /* ---------- popovers ---------- */
+  function fitModePop() {
+    var pop = els.modePop;
+    if (!pop || pop.hidden) return;
+    var header = document.getElementById('appHeader');
+    var top = Math.max(0, header ? header.getBoundingClientRect().bottom : 0) + 8;
+    pop.style.maxHeight = Math.max(80, Math.min(640, pop.getBoundingClientRect().bottom - top)) + 'px';
+  }
   function closePopovers() {
     STYLES.forEach(function () {});
     ["ctxPop", "modePop", "modelPop", "morePop"].forEach(function (id) {
@@ -165,6 +172,7 @@
     if (btn) btn.setAttribute("aria-expanded", "true");
     els.composer && els.composer.classList.add("pop-open");
     openPop = popId;
+    if (popId === 'modePop') fitModePop();
     var first = pop.querySelector("button, input, [tabindex]");
     if (first) { try { first.focus(); } catch (_e) { /* best effort */ } }
   }
@@ -256,6 +264,7 @@
     var selectedModel = st.model || {};
     var editsUnavailable = selectedModel.repo_editing === false;
     var pop = els.modePop;
+    var limitsOpen = !!pop.querySelector('[data-agents-limits][open]');
     var offered = {};
     modes.forEach(function (m) { offered[m.id] = true; });
     var editRow = function (entry, index) {
@@ -293,6 +302,7 @@
       '<div class="cpop-sep" role="separator"></div>' +
       menuRow({ role: "menuitemcheckbox", title: "Allow multiple agents mode", desc: "Coordinate independent assignments within your current permissions", active: st.multiAgentEnabled === true }).replace('class="cpop-row', 'data-multi-agent="true" class="cpop-row') +
       (st.multiAgentEnabled ? menuRow({ role: "menuitemcheckbox", title: "Allow cloud providers for this objective", desc: "Sends code and context to cloud providers and may use paid or account quota. Applies to the next objective only.", active: st.agentsAllowCloud === true }).replace('class="cpop-row', 'data-agents-cloud="true" class="cpop-row') : "") +
+      (st.multiAgentEnabled ? '<details class="cpop-agent-limits" data-agents-limits' + (limitsOpen ? ' open' : '') + '><summary>Team limits</summary><div class="cpop-agent-fields"><label>Concurrent agents<select data-agents-parallel aria-label="Concurrent agents">' + [1, 2, 3, 4].map(function (n) { return '<option value="' + n + '"' + (n === (st.agentsMaxParallel || 2) ? ' selected' : '') + '>' + n + (n === 1 ? ' · Sequential' : n === 2 ? ' · Default' : '') + '</option>'; }).join('') + '</select></label><label>Objective budget (USD)<input data-agents-budget aria-label="Objective budget in USD" type="text" inputmode="decimal" maxlength="100" placeholder="No cap" value="' + esc(st.agentsBudgetUsd || '') + '"></label></div><p class="cpop-note">Applies to each new objective in this workspace session. A dollar cap blocks providers that cannot enforce it.</p></details>' : '') +
       (editsUnavailable
         ? '<p class="cpop-note cpop-note-warn">Update this provider CLI to enable scoped edits. Plan remains available.</p>'
         : "");
@@ -314,6 +324,19 @@
       buildModePop();
       pop.querySelector("[data-agents-cloud]").focus();
     };
+    var parallel = pop.querySelector('[data-agents-parallel]');
+    var budget = pop.querySelector('[data-agents-budget]');
+    if (parallel) parallel.onchange = function () {
+      var api = global.__opai || {};
+      if (api.setAgentsRunSettings) api.setAgentsRunSettings({ maxParallel: Number(parallel.value) });
+    };
+    if (budget) budget.oninput = function () {
+      var api = global.__opai || {};
+      if (api.setAgentsRunSettings) api.setAgentsRunSettings({ budgetUsd: budget.value });
+    };
+    var limits = pop.querySelector('[data-agents-limits]');
+    if (limits) limits.ontoggle = fitModePop;
+    fitModePop();
     var bypassRow = pop.querySelector("[data-bypass]");
     if (bypassRow) {
       bypassRow.onclick = function () {
@@ -328,6 +351,7 @@
     // 1-4 pick a graded mode while the menu is open. Bypass has no number on
     // purpose -- a keystroke is exactly the kind of drift it should not have.
     pop.onkeydown = function (event) {
+      if (event.target.matches('input, select, textarea') || event.target.isContentEditable) return;
       var index = "1234".indexOf(event.key);
       if (index < 0 || index >= rows.length) return;
       var target = rows[index];
@@ -679,6 +703,7 @@
     els.moreBtn && (els.moreBtn.onclick = openMore);
     els.modeBtn && (els.modeBtn.onclick = openMode);
     els.modelBtn && (els.modelBtn.onclick = openModel);
+    window.addEventListener('resize', fitModePop);
 
     // Outside click / Escape close (Escape only closes popovers; app.js owns
     // Escape-to-stop when a run is active and no popover is open).

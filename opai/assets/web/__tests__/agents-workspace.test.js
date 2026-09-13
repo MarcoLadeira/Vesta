@@ -16,6 +16,21 @@ const objective = {
 };
 
 describe("Agents workspace projection", () => {
+  it("validates team limits without rounding money or treating zero as no cap", () => {
+    expect(workspace.runSettings(3, '0.000000000000000001')).toEqual({ maxParallel: 3, budgetUsd: '0.000000000000000001' });
+    expect(workspace.runSettings(1, '0')).toEqual({ maxParallel: 1, budgetUsd: '0' });
+    expect(workspace.runSettings(2, ' ')).toEqual({ maxParallel: 2, budgetUsd: null });
+    for (const limit of [0, 5, 1.5, true, '2']) expect(() => workspace.runSettings(limit, null)).toThrow();
+    for (const amount of [1.25, true, '-1', 'Infinity', 'NaN', '1e100', '9'.repeat(32)]) expect(() => workspace.runSettings(2, amount)).toThrow();
+  });
+  it("distinguishes actionable assignments from ordinary dependency waits", () => {
+    const waiting = { ...objective.assignments[0], status: 'blocked', depends_on: ['upstream'] };
+    expect(workspace.renderCompact({ ...objective, assignments: [waiting] })).not.toContain('needs attention');
+    const approval = { ...waiting, pending_approval: { request_id: 'request-1' } };
+    expect(workspace.renderCompact({ ...objective, assignments: [approval] })).toContain('1 assignment needs attention');
+    const failed = { ...waiting, status: 'failed' };
+    expect(workspace.renderHtml({ objectives: [{ ...objective, assignments: [failed] }] })).toContain('Review assignment');
+  });
   it("shows retry and cap removal only when canonically available", () => {
     const blocked = { ...objective.assignments[0], run_id: "run-blocked", budget_usd: "1", allowed_actions: ["retry", "budget", "reroute"] };
     const html = workspace.renderHtml({ objectives: [{ ...objective, assignments: [blocked] }] });
