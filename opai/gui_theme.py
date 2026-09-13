@@ -1,4 +1,8 @@
-"""App-wide colour theme for the desktop GUI: light, dark, or the OS's choice.
+"""App-wide colour theme for the desktop GUI.
+
+The choices are Light, Viber Coder (OPai's original night sky, and the
+default), Dark (pitch black in Dracula's colours), and System, which follows
+the OS between Light and Viber Coder.
 
 Appearance preferences such as density live with each project
 (``opaihub.gui_preferences``). The theme does not. It is how the application
@@ -18,13 +22,19 @@ from pathlib import Path
 
 from opaihub.atomic_io import atomic_write_text
 
-THEMES = ("light", "dark", "system")
-DEFAULT_THEME = "dark"
+# Preferences a user can choose, and the palettes they paint with. Every
+# preference but "system" is a palette of the same name.
+THEMES = ("light", "viber-coder", "dark", "system")
+PALETTES = ("light", "viber-coder", "dark")
+DEFAULT_THEME = "viber-coder"
+# What "system" becomes when the OS is dark: the brand's own night sky, not the
+# blackout theme.
+SYSTEM_DARK_THEME = "viber-coder"
 
 # The window's own background, painted before the page has drawn anything.
 # These are the ``--bg`` of each palette in assets/web/design-tokens.css -- a
-# test holds them equal -- so a launch never flashes the other theme's ground.
-THEME_GROUND = {"dark": "#04050f", "light": "#eef1f6"}
+# test holds them equal -- so a launch never flashes another theme's ground.
+THEME_GROUND = {"light": "#eef1f6", "viber-coder": "#04050f", "dark": "#000000"}
 
 
 def theme_path() -> Path:
@@ -61,10 +71,10 @@ def save_theme(value: object) -> str:
 
 
 def resolve_theme(preference: object, *, system_prefers_light: bool = False) -> str:
-    """Turn a preference into the palette to paint: ``light`` or ``dark``."""
+    """Turn a preference into the palette to paint (one of ``PALETTES``)."""
     theme = normalize_theme(preference)
     if theme == "system":
-        return "light" if system_prefers_light else "dark"
+        return "light" if system_prefers_light else SYSTEM_DARK_THEME
     return theme
 
 
@@ -79,9 +89,9 @@ def stamp_theme(html: str, theme: str) -> str:
 
     The page's own script applies the theme too, but only once the bridge has
     booted; without the stamp a light-theme user would watch the window start
-    dark and then change.
+    in the default theme and then change.
     """
-    resolved = theme if theme in ("light", "dark") else DEFAULT_THEME
+    resolved = theme if theme in PALETTES else DEFAULT_THEME
     match = _HTML_START_TAG.search(html)
     if match is None:
         return html

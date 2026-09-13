@@ -1251,10 +1251,10 @@ class ThemePreferenceTests(unittest.TestCase):
     """Light mode is an app-wide choice: made in one workspace, it holds in all
     of them, and reaches both the boot payload and the Settings page."""
 
-    def test_a_fresh_profile_boots_in_the_dark_theme(self):
+    def test_a_fresh_profile_boots_in_the_viber_coder_theme(self):
         with isolated_home(), tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
-            self.assertEqual(boot_payload(root)["prefs"]["theme"], "dark")
+            self.assertEqual(boot_payload(root)["prefs"]["theme"], "viber-coder")
 
     def test_a_theme_saved_in_one_workspace_holds_in_every_workspace(self):
         from opai.gui_web import save_page_preference

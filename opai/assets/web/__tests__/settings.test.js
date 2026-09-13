@@ -232,30 +232,34 @@ describe("Appearance theme picker", () => {
     delete globalThis.OPaiTheme;
   });
 
-  it("offers Light, Dark and System as one radio group on the appearance key", () => {
+  it("offers Light, Viber Coder, Dark and System as one radio group on the appearance key", () => {
     const html = picker(section().render({ prefs: { theme: "light" } }, ctx));
     expect(html).toContain('role="radiogroup" aria-label="Theme" data-appearance-key="theme"');
-    expect(html.match(/role="radio"/g)).toHaveLength(3);
+    expect(Array.from(html.matchAll(/data-value="([\w-]+)" role="radio"/g), (match) => match[1])).toEqual([
+      "light",
+      "viber-coder",
+      "dark",
+      "system",
+    ]);
     expect(html).toMatch(/data-value="light" role="radio" aria-checked="true" tabindex="0"/);
     expect(html).toMatch(/data-value="dark" role="radio" aria-checked="false" tabindex="-1"/);
-    expect(html).toContain(">Light<");
-    expect(html).toContain(">Dark<");
-    expect(html).toContain(">System<");
+    for (const label of ["Light", "Viber Coder", "Dark", "System"]) expect(html).toContain(">" + label + "<");
   });
 
-  it("previews each option in its own palette, and System in both", () => {
+  it("previews each option in its own palette, and System in the two it switches between", () => {
     const html = picker(section().render({ prefs: { theme: "dark" } }, ctx));
     const panes = (value) =>
-      Array.from(tile(html, value).matchAll(/theme-preview-pane" data-theme="(\w+)"/g), (match) => match[1]);
+      Array.from(tile(html, value).matchAll(/theme-preview-pane" data-theme="([\w-]+)"/g), (match) => match[1]);
     expect(panes("light")).toEqual(["light"]);
+    expect(panes("viber-coder")).toEqual(["viber-coder"]);
     expect(panes("dark")).toEqual(["dark"]);
-    expect(panes("system")).toEqual(["light", "dark"]);
+    expect(panes("system")).toEqual(["light", "viber-coder"]);
     expect(html).toContain('class="theme-preview" aria-hidden="true"');
   });
 
-  it("shows the default dark theme for a missing or unknown preference", () => {
-    expect(picker(section().render({ prefs: {} }, ctx))).toMatch(/data-value="dark" role="radio" aria-checked="true"/);
-    expect(picker(section().render({ prefs: { theme: "neon" } }, ctx))).toMatch(/data-value="dark" role="radio" aria-checked="true"/);
+  it("shows the default Viber Coder theme for a missing or unknown preference", () => {
+    expect(picker(section().render({ prefs: {} }, ctx))).toMatch(/data-value="viber-coder" role="radio" aria-checked="true"/);
+    expect(picker(section().render({ prefs: { theme: "neon" } }, ctx))).toMatch(/data-value="viber-coder" role="radio" aria-checked="true"/);
   });
 
   it("falls back to the theme the window is wearing when the payload has none", () => {
@@ -272,10 +276,12 @@ describe("Appearance theme picker", () => {
     expect(html).not.toContain("not shipped");
   });
 
-  it("is findable from Settings search by light, dark and system", () => {
+  it("is findable from Settings search by every theme's name and the usual phrases", () => {
     const theme = section().searchItems.find((item) => item.label === "Theme");
     expect(theme.selector).toBe('[data-appearance-key="theme"]');
-    for (const word of ["light", "dark", "system"]) expect(theme.keywords).toContain(word);
+    for (const phrase of ["light mode", "dark mode", "night mode", "viber coder", "dracula", "system"]) {
+      expect(theme.keywords).toContain(phrase);
+    }
   });
 });
 

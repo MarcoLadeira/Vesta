@@ -1,5 +1,7 @@
 /**
- * Theme: light, dark, or whatever the operating system is using.
+ * Theme: Light, Viber Coder (OPai's original night sky, and the default), Dark
+ * (pitch black with Dracula's colours), or whatever the operating system is
+ * using.
  *
  * The whole mechanism is one attribute. design-tokens.css keys each palette on
  * [data-theme], so setting <html data-theme="light"> repaints every surface that
@@ -9,7 +11,8 @@
  *
  * This module owns three things:
  *
- *   - resolving a preference to a theme ("system" becomes light or dark);
+ *   - resolving a preference to a palette ("system" becomes Light by day and
+ *     Viber Coder by night -- the brand's own dark, not the blackout one);
  *   - following the OS while the preference is "system", so a machine that
  *     switches at sunset takes the app with it;
  *   - the change itself. A theme switch is a whole-window repaint, and a
@@ -25,8 +28,10 @@
 (function (global) {
   "use strict";
 
-  var THEMES = ["light", "dark", "system"];
-  var DEFAULT_THEME = "dark";
+  // Preferences a user can choose. Every one but "system" is a palette.
+  var THEMES = ["light", "viber-coder", "dark", "system"];
+  var DEFAULT_THEME = "viber-coder";
+  var SYSTEM_DARK = "viber-coder";
   var EVENT = "opai:themechange";
 
   var state = { preference: null, theme: null, watching: false, pending: false };
@@ -48,7 +53,7 @@
     var choice = normalize(preference);
     if (choice !== "system") return choice;
     var light = prefersLight === undefined ? systemPrefersLight() : !!prefersLight;
-    return light ? "light" : "dark";
+    return light ? "light" : SYSTEM_DARK;
   }
 
   // Same precedence as the rest of the app: the Appearance override wins, and

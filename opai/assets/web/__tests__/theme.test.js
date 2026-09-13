@@ -58,20 +58,22 @@ afterEach(() => {
 });
 
 describe("theme preferences", () => {
-  it("knows light, dark and system, and falls back to dark", async () => {
+  it("knows Light, Viber Coder, Dark and System, and falls back to Viber Coder", async () => {
     const { theme } = await loadTheme();
-    expect(theme.THEMES).toEqual(["light", "dark", "system"]);
-    expect(theme.DEFAULT_THEME).toBe("dark");
+    expect(theme.THEMES).toEqual(["light", "viber-coder", "dark", "system"]);
+    expect(theme.DEFAULT_THEME).toBe("viber-coder");
     expect(theme.normalize("light")).toBe("light");
-    expect(theme.normalize("sepia")).toBe("dark");
-    expect(theme.normalize(undefined)).toBe("dark");
+    expect(theme.normalize("dark")).toBe("dark");
+    expect(theme.normalize("sepia")).toBe("viber-coder");
+    expect(theme.normalize(undefined)).toBe("viber-coder");
   });
 
-  it("resolves system from the operating system and nothing else", async () => {
+  it("resolves system to Light by day and Viber Coder by night, and nothing else", async () => {
     const { theme } = await loadTheme({ prefersLight: true });
     expect(theme.resolve("system")).toBe("light");
-    expect(theme.resolve("system", false)).toBe("dark");
+    expect(theme.resolve("system", false)).toBe("viber-coder");
     expect(theme.resolve("dark")).toBe("dark");
+    expect(theme.resolve("viber-coder", true)).toBe("viber-coder");
     expect(theme.resolve("light", false)).toBe("light");
   });
 });
@@ -177,11 +179,14 @@ describe("the system preference", () => {
   it("follows the operating system as it changes", async () => {
     const { theme, root, media, land } = await loadTheme({ prefersLight: false });
     theme.apply("system");
-    expect(root.dataset.theme).toBe("dark");
+    expect(root.dataset.theme).toBe("viber-coder");
     expect(root.dataset.themePreference).toBe("system");
     media["(prefers-color-scheme: light)"].fire(true);
     land();
     expect(root.dataset.theme).toBe("light");
+    media["(prefers-color-scheme: light)"].fire(false);
+    land();
+    expect(root.dataset.theme).toBe("viber-coder");
   });
 
   it("stops following the OS once an explicit theme is chosen", async () => {

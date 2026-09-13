@@ -58,6 +58,7 @@ from opai.gui_nav import DEFAULT_VIEW, group_collapsed, nav_groups
 from opai.gui_permissions import permission_summary, permissions_for
 from opai.gui_prompts import categories_present, filter_prompts, find_prompt
 from opai.gui_theme import (
+    DEFAULT_THEME,
     THEME_GROUND,
     load_theme,
     resolve_theme,
@@ -158,7 +159,7 @@ def asset_build_identity(asset_dir: Path = WEB_DIR) -> dict[str, Any]:
     }
 
 
-def _runtime_index_url(web_dir: Path, theme: str = "dark") -> "Any":
+def _runtime_index_url(web_dir: Path, theme: str = DEFAULT_THEME) -> "Any":
     """Write a per-launch, cache-busted copy of index.html and return its file
     URL. QtWebEngine's resource cache can serve a stale styles.css/app.js/icon
     across restarts even after the file on disk changes; appending a fresh

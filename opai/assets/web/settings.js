@@ -1376,7 +1376,7 @@
     // the window is actually wearing, so the picker never contradicts it.
     var appliedTheme = global.OPaiTheme ? global.OPaiTheme.current().preference : null;
     h +=
-      '<div class="appearance-row appearance-row-theme"><div class="appearance-label"><span class="k">Theme</span><span class="hint">Light is soft daylight, Dark is the original night sky, and System follows your OS setting as it changes.</span></div>' +
+      '<div class="appearance-row appearance-row-theme"><div class="appearance-label"><span class="k">Theme</span><span class="hint">Light is soft daylight. Viber Coder is OPai\'s original night sky. Dark turns the lights all the way off, in Dracula\'s colours. System follows your OS: Light by day, Viber Coder by night.</span></div>' +
       themeChoices(esc, pref("theme", "theme") || appliedTheme) +
       "</div>";
     h +=
@@ -1423,15 +1423,19 @@
   // The theme picker. Each option previews the palette it names by wearing it:
   // the tile sets data-theme on itself, so design-tokens.css paints it with
   // the real tokens and the preview can never drift from the theme. System is
-  // both, split on a diagonal.
+  // the two it switches between, split on a diagonal.
   var THEME_CHOICES = [
     { id: "light", label: "Light", panes: ["light"] },
+    { id: "viber-coder", label: "Viber Coder", panes: ["viber-coder"] },
     { id: "dark", label: "Dark", panes: ["dark"] },
-    { id: "system", label: "System", panes: ["light", "dark"] },
+    { id: "system", label: "System", panes: ["light", "viber-coder"] },
   ];
 
   function normalizeTheme(value) {
-    return value === "light" || value === "system" ? value : "dark";
+    for (var i = 0; i < THEME_CHOICES.length; i += 1) {
+      if (THEME_CHOICES[i].id === value) return value;
+    }
+    return "viber-coder";
   }
 
   function themeChoices(esc, value) {
@@ -1440,7 +1444,7 @@
       return (
         '<span class="theme-preview-pane" data-theme="' + esc(theme) + '">' +
         '<span class="tp-rail"></span>' +
-        '<span class="tp-main"><span class="tp-line"></span><span class="tp-line tp-short"></span>' +
+        '<span class="tp-main"><span class="tp-accent"></span><span class="tp-line"></span><span class="tp-line tp-short"></span>' +
         '<span class="tp-composer"><span class="tp-send"></span></span></span>' +
         "</span>"
       );
@@ -1808,7 +1812,7 @@
       { label: "Clear previous chats", group: "Data & privacy", selector: "#settingsClearRecents", keywords: "delete saved chat recents history" },
     ],
     appearance: [
-      { label: "Theme", group: "Appearance", selector: '[data-appearance-key="theme"]', keywords: "light mode dark mode system theme colour color night day bright" },
+      { label: "Theme", group: "Appearance", selector: '[data-appearance-key="theme"]', keywords: "light mode dark mode night mode viber coder dracula black system theme colour color day bright" },
       { label: "Composer style", group: "Appearance", selector: '[data-composer-style-key="composer_style"]', keywords: "toolbar single line command bar" },
       { label: "Response detail", group: "Appearance", selector: '[data-appearance-key="response_density"]', keywords: "compact balanced detailed output" },
       { label: "Density", group: "Appearance", selector: '[data-appearance-key="density"]', keywords: "comfortable compact spacing" },

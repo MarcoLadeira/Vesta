@@ -41,11 +41,16 @@ describe("applyAppearance: theme", () => {
     expect(root.dataset.themePreference).toBe("light");
   });
 
-  it("treats a payload without a theme (an older boot) as the default dark theme", () => {
+  it("treats a payload without a theme (an older boot) as the default Viber Coder theme", () => {
     opai.applyAppearance({ theme: "light" });
     opai.applyAppearance({});
+    expect(root.dataset.theme).toBe("viber-coder");
+    expect(root.dataset.themePreference).toBe("viber-coder");
+  });
+
+  it("wears the Dark theme when it is chosen", () => {
+    opai.applyAppearance({ theme: "dark" });
     expect(root.dataset.theme).toBe("dark");
-    expect(root.dataset.themePreference).toBe("dark");
   });
 
   it("leaves the other appearance preferences to apply as before", () => {

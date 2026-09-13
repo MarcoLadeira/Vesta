@@ -15,6 +15,8 @@ from _helpers import isolated_home
 
 from opai.gui_theme import (
     DEFAULT_THEME,
+    PALETTES,
+    SYSTEM_DARK_THEME,
     THEME_GROUND,
     THEMES,
     load_theme,
@@ -34,17 +36,21 @@ class NormalizeTests(unittest.TestCase):
             self.assertEqual(normalize_theme(theme), theme)
             self.assertEqual(normalize_theme(f"  {theme.upper()} "), theme)
 
-    def test_anything_else_is_the_default_dark_theme(self):
-        self.assertEqual(DEFAULT_THEME, "dark")
-        for value in (None, "", "sepia", "auto", 1, True, ["light"]):
-            self.assertEqual(normalize_theme(value), "dark")
+    def test_the_choices_are_light_viber_coder_dark_and_system(self):
+        self.assertEqual(THEMES, ("light", "viber-coder", "dark", "system"))
+        self.assertEqual(PALETTES, ("light", "viber-coder", "dark"))
+
+    def test_anything_else_is_the_default_viber_coder_theme(self):
+        self.assertEqual(DEFAULT_THEME, "viber-coder")
+        for value in (None, "", "sepia", "auto", "viber", 1, True, ["light"]):
+            self.assertEqual(normalize_theme(value), "viber-coder")
 
 
 class PersistenceTests(unittest.TestCase):
     def test_a_fresh_profile_opens_in_the_default_theme(self):
         with isolated_home():
             self.assertFalse(theme_path().exists())
-            self.assertEqual(load_theme(), "dark")
+            self.assertEqual(load_theme(), "viber-coder")
 
     def test_each_theme_round_trips_through_the_app_wide_file(self):
         with isolated_home() as home:
@@ -58,8 +64,8 @@ class PersistenceTests(unittest.TestCase):
     def test_an_unknown_value_is_stored_as_the_default(self):
         with isolated_home():
             save_theme("light")
-            self.assertEqual(save_theme("neon"), "dark")
-            self.assertEqual(load_theme(), "dark")
+            self.assertEqual(save_theme("neon"), "viber-coder")
+            self.assertEqual(load_theme(), "viber-coder")
 
     def test_a_corrupt_or_foreign_file_reads_as_the_default(self):
         with isolated_home():
@@ -67,23 +73,26 @@ class PersistenceTests(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             for content in ("{not json", "[]", '"light"', '{"theme": 7}'):
                 path.write_text(content, encoding="utf-8")
-                self.assertEqual(load_theme(), "dark", content)
+                self.assertEqual(load_theme(), "viber-coder", content)
 
 
 class ResolveTests(unittest.TestCase):
-    def test_system_follows_the_operating_system(self):
+    def test_system_follows_the_operating_system_between_light_and_viber_coder(self):
+        self.assertEqual(SYSTEM_DARK_THEME, "viber-coder")
         self.assertEqual(resolve_theme("system", system_prefers_light=True), "light")
-        self.assertEqual(resolve_theme("system", system_prefers_light=False), "dark")
+        self.assertEqual(
+            resolve_theme("system", system_prefers_light=False), "viber-coder"
+        )
 
     def test_an_explicit_choice_ignores_the_operating_system(self):
         for prefers_light in (True, False):
-            self.assertEqual(
-                resolve_theme("light", system_prefers_light=prefers_light), "light"
-            )
-            self.assertEqual(
-                resolve_theme("dark", system_prefers_light=prefers_light), "dark"
-            )
-        self.assertEqual(resolve_theme("bogus", system_prefers_light=True), "dark")
+            for palette in PALETTES:
+                self.assertEqual(
+                    resolve_theme(palette, system_prefers_light=prefers_light), palette
+                )
+        self.assertEqual(
+            resolve_theme("bogus", system_prefers_light=True), "viber-coder"
+        )
 
 
 class StampTests(unittest.TestCase):
@@ -105,9 +114,11 @@ class StampTests(unittest.TestCase):
             self.assertIn('lang="en"', stamped)
 
     def test_only_a_palette_is_ever_stamped(self):
+        for palette in PALETTES:
+            self.assertIn(f'data-theme="{palette}"', stamp_theme("<html>", palette))
         # "system" is a preference, not a palette: the host resolves it first.
-        self.assertIn('data-theme="dark"', stamp_theme("<html>", "system"))
-        self.assertIn('data-theme="dark"', stamp_theme("<HTML>", "<script>"))
+        self.assertIn('data-theme="viber-coder"', stamp_theme("<html>", "system"))
+        self.assertIn('data-theme="viber-coder"', stamp_theme("<HTML>", "<script>"))
 
     def test_a_document_without_an_html_element_is_left_alone(self):
         self.assertEqual(stamp_theme("<body></body>", "light"), "<body></body>")
@@ -117,15 +128,26 @@ class StampTests(unittest.TestCase):
 class WebContractTests(unittest.TestCase):
     """The Python host and the page must agree on names and colours."""
 
-    def test_the_window_ground_is_each_palettes_background(self):
+    @staticmethod
+    def _palettes() -> dict[str, str]:
         css = (WEB_DIR / "design-tokens.css").read_text(encoding="utf-8")
-        blocks = {
-            "dark": re.search(r':root,\s*\[data-theme="dark"\]\s*\{(.*?)\}', css, re.S),
-            "light": re.search(r'\[data-theme="light"\]\s*\{(.*?)\}', css, re.S),
-        }
-        for theme, block in blocks.items():
-            self.assertIsNotNone(block, theme)
-            bg = re.search(r"--bg:\s*([^;]+);", block.group(1))
+        css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+        blocks = {}
+        for selector, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css):
+            match = re.fullmatch(
+                r'\s*(?::root,\s*)?\[data-theme="([\w-]+)"\]\s*', selector
+            )
+            if match:
+                blocks[match.group(1)] = body
+        return blocks
+
+    def test_every_theme_has_a_palette_and_every_palette_a_theme(self):
+        self.assertEqual(set(self._palettes()), set(PALETTES))
+        self.assertEqual(set(THEME_GROUND), set(PALETTES))
+
+    def test_the_window_ground_is_each_palettes_background(self):
+        for theme, body in self._palettes().items():
+            bg = re.search(r"--bg:\s*([^;]+);", body)
             self.assertIsNotNone(bg, theme)
             self.assertEqual(bg.group(1).strip().lower(), THEME_GROUND[theme], theme)
 

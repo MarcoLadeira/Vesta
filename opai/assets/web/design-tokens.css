@@ -1,29 +1,34 @@
 /* OPai web visual contract (#388). Component CSS consumes these tokens.
  *
- * Themes. The file has three blocks:
+ * Themes. The file has a palette block per theme and one block of scales:
  *
- *   1. the dark palette -- the default, on :root and on [data-theme="dark"];
- *   2. the light palette -- [data-theme="light"], which redefines every token
- *      the dark palette declares, and nothing else;
- *   3. the scales -- type, spacing, radii, motion -- which no theme changes.
+ *   1. Viber Coder -- OPai's original night sky and the default, on :root and
+ *      on [data-theme="viber-coder"];
+ *   2. Light -- [data-theme="light"];
+ *   3. Dark -- [data-theme="dark"], pitch black with Dracula's colours;
+ *   4. the scales -- type, spacing, radii, motion -- which no theme changes.
  *
- * theme.js puts the resolved theme on <html data-theme>, so switching is one
- * attribute and every surface follows. Because the palettes are keyed on an
- * attribute rather than on :root alone, any subtree can wear the other theme
- * too; the Appearance picker's preview tiles are drawn that way, with the real
- * tokens, so a preview can never drift from the palette it shows.
+ * Every palette declares exactly the same tokens. theme.js puts the resolved
+ * theme on <html data-theme>, so switching is one attribute and every surface
+ * follows. Because the palettes are keyed on an attribute rather than on :root
+ * alone, any subtree can wear another theme too; the Appearance picker's
+ * preview tiles are drawn that way, with the real tokens, so a preview can
+ * never drift from the palette it shows.
  *
  * Component CSS never names a colour. A tint is `rgba(var(--tint-*-rgb), a)`,
  * a shadow or a surface is a token. scripts/lint-web-design-tokens.mjs holds
  * both halves of that contract: styles.css may not contain a raw colour, and
- * the light palette must declare exactly the tokens the dark palette does. A
- * new component, or a new token, that forgets light mode fails the token check
- * instead of shipping a dark island in a light app.
+ * every palette must declare exactly the tokens the default palette does. A
+ * new component, or a new token, that forgets a theme fails the token check
+ * instead of shipping a stray island of another theme.
+ *
+ * Adding a theme is one more palette block here, its id in theme.js and
+ * opai/gui_theme.py, and a tile in the Appearance picker (settings.js).
  */
 
-/* ---------- palette: dark (default) ---------- */
+/* ---------- palette: Viber Coder (default) ---------- */
 :root,
-[data-theme="dark"] {
+[data-theme="viber-coder"] {
   /* Surfaces and semantic colour -- moon and galaxy, no warm light.
    *
    * The greys were neutral with a faint warm cast. They are now tilted blue
@@ -80,9 +85,12 @@
   --stage-dark: #03050c;
   --lunar-crest: rgba(216, 219, 226, 0.17);
   --lunar-body: rgba(126, 146, 190, 0.085);
-  /* A point of light in the unlit room, as bare channels: starfield.js draws
-     with it at its own opacities. */
+  /* A point of light in the unlit room, as bare channels, and how strongly the
+     still stars are drawn (a multiplier on starfield.js's own opacities). Every
+     theme tunes both so the sky reads the same on its ground: a star has to be
+     brighter to be seen on pearl than on black. */
   --space-star: 226, 238, 252;
+  --space-star-strength: 1;
   --red: #f2768a;
   --blue: #74b6ff;
   --claude: #e0937a;
@@ -92,9 +100,12 @@
   /* The initial inside a provider-coloured avatar. */
   --avatar-ink: #06160f;
 
-  /* Tint channels. A status tint is chosen at the use site as
+  /* Tint channels. A tint is chosen at the use site as
      rgba(var(--tint-*-rgb), alpha): the hue belongs to the theme, the
-     strength belongs to the component. */
+     strength belongs to the component. Accent is the brand's own highlight
+     (the active row, a focused field, the selected command); success is a
+     result that went well. They share a hue here and part ways in Dark. */
+  --tint-accent-rgb: 52, 211, 153;
   --tint-success-rgb: 52, 211, 153;
   --tint-danger-rgb: 242, 118, 138;
   --tint-warning-rgb: 230, 177, 94;
@@ -174,9 +185,9 @@
  * horizon as a cool shadow along the bottom, and the unlit room before the
  * first message as a slightly dimmer mist.
  *
- * Accent and status colours are the dark theme's hues, deepened until each
- * holds WCAG AA (4.5:1) as text on the ground -- the bright aqua that glows on
- * black all but vanishes on white. --faint matches the dark theme's ratio.
+ * Accent and status colours are Viber Coder's hues, deepened until each holds
+ * WCAG AA (4.5:1) as text on the ground -- the bright aqua that glows on black
+ * all but vanishes on white. --faint matches Viber Coder's ratio.
  */
 [data-theme="light"] {
   --bg: #eef1f6;
@@ -205,7 +216,10 @@
   --stage-dark: #e6eaf2;
   --lunar-crest: rgba(120, 136, 176, 0.14);
   --lunar-body: rgba(104, 122, 176, 0.07);
-  --space-star: 132, 150, 204;
+  /* Ink stars on the mist, as on a star chart: deep indigo, drawn about twice
+     as strongly as on black so the brightest match the night sky's contrast. */
+  --space-star: 96, 112, 186;
+  --space-star-strength: 2.2;
   --red: #c2334f;
   --blue: #2d67cc;
   --claude: #ad5234;
@@ -214,6 +228,7 @@
   --provider-local: #0f7b58;
   --avatar-ink: #ffffff;
 
+  --tint-accent-rgb: 16, 150, 110;
   --tint-success-rgb: 16, 150, 110;
   --tint-danger-rgb: 214, 69, 96;
   --tint-warning-rgb: 196, 132, 30;
@@ -271,6 +286,117 @@
   --surface-code: #f3f5f9;
   --surface-code-head: #e9edf4;
   --border-code: rgba(30, 42, 80, 0.1);
+}
+
+/* ---------- palette: Dark ----------
+ *
+ * Night mode with the lights all the way off. The ground is true black and
+ * every surface above it is a neutral near-black, so a dark room stays dark;
+ * nothing is tinted navy the way Viber Coder is. Colour comes back only where
+ * it means something, and it is Dracula's: purple for the brand and the
+ * current selection, pink beside it, green for success, orange for caution,
+ * red for failure, cyan for information and links, and Dracula's warm white
+ * for the text.
+ *
+ * The sky over the workspace is almost gone -- the washes and the horizon are
+ * a few percent of purple and pink -- but the stars are not: on black they
+ * need no help to be seen.
+ */
+[data-theme="dark"] {
+  --bg: #000000;
+  --surface: #08080c;
+  --surface-2: #0c0c12;
+  --panel: #111118;
+  --panel-2: #18181f;
+  --elevated: #23232d;
+  --glass: rgba(248, 248, 242, 0.025);
+  --glass-hi: rgba(189, 147, 249, 0.07);
+  --border: rgba(248, 248, 242, 0.07);
+  --border-strong: rgba(248, 248, 242, 0.15);
+  --ink: #f8f8f2;
+  --muted: #bcbad0;
+  --faint: #7a86b8;
+  --accent: #bd93f9;
+  --accent-2: #ff79c6;
+  --accent-deep: #9d6ee8;
+  --accent-ink: #1b1030;
+  --accent-glow: rgba(189, 147, 249, 0.26);
+  --brand-gradient: linear-gradient(135deg, #bd93f9, #ff79c6);
+  --green: #50fa7b;
+  --amber: #ffb86c;
+  --warn: #f1fa8c;
+
+  --stage-dark: #000000;
+  --lunar-crest: rgba(189, 147, 249, 0.07);
+  --lunar-body: rgba(98, 114, 164, 0.06);
+  --space-star: 240, 234, 255;
+  --space-star-strength: 1;
+  --red: #ff5555;
+  --blue: #8be9fd;
+  --claude: #ffb86c;
+  --codex: #8be9fd;
+  --provider-auto: #a4a9cc;
+  --provider-local: #50fa7b;
+  --avatar-ink: #1b1030;
+
+  --tint-accent-rgb: 189, 147, 249;
+  --tint-success-rgb: 80, 250, 123;
+  --tint-danger-rgb: 255, 85, 85;
+  --tint-warning-rgb: 255, 184, 108;
+  --tint-caution-rgb: 241, 250, 140;
+  --tint-notice-rgb: 241, 250, 140;
+  --tint-info-rgb: 139, 233, 253;
+  --tint-subscription-rgb: 139, 233, 253;
+  --tint-repair-rgb: 255, 121, 198;
+  --wash-rgb: 248, 248, 242;
+  --highlight-rgb: 255, 255, 255;
+  --shade-rgb: 0, 0, 0;
+
+  --wash-ice: rgba(139, 233, 253, 0.03);
+  --wash-indigo: rgba(189, 147, 249, 0.05);
+  --wash-violet: rgba(255, 121, 198, 0.035);
+  --grid-dot: rgba(248, 248, 242, 0.035);
+
+  --header-bg: rgba(0, 0, 0, 0.96);
+  --header-shadow: 0 1px 0 rgba(255, 255, 255, 0.03), 0 10px 28px rgba(0, 0, 0, 0.6);
+  --headline-from: #f8f8f2;
+  --headline-to: #bd93f9;
+  --composer-glass: linear-gradient(180deg, rgba(24, 24, 31, 0.62), rgba(8, 8, 12, 0.55));
+  --composer-edge: inset 0 1px 0 rgba(189, 147, 249, 0.14), inset 0 -1px 0 rgba(0, 0, 0, 0.5);
+  --composer-drop-bg: rgba(18, 10, 28, 0.94);
+  --meter-inset: inset 0 1px 2px rgba(0, 0, 0, 0.7);
+  --sheet-shadow: 0 18px 55px rgba(0, 0, 0, 0.75);
+  --dialog-shadow: 0 24px 80px rgba(0, 0, 0, 0.8);
+  --scrim: rgba(0, 0, 0, 0.74);
+  --drawer-scrim: rgba(0, 0, 0, 0.68);
+  --palette-bg: rgba(12, 12, 18, 0.96);
+  --code-inline-bg: #111118;
+  --diff-del-ink: #ffb3b3;
+  --window-close-bg: #c42b3a;
+  --window-close-ink: #fff;
+  --select-chevron: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%237a86b8' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>");
+
+  --settings-surface: rgba(12, 12, 18, 0.9);
+  --settings-surface-raised: rgba(30, 30, 40, 0.95);
+  --settings-surface-hover: rgba(44, 44, 58, 0.7);
+  --settings-border: rgba(248, 248, 242, 0.08);
+  --settings-border-strong: rgba(248, 248, 242, 0.16);
+  --settings-selection: rgba(189, 147, 249, 0.16);
+  --settings-selection-strong: #bd93f9;
+  --settings-canvas: rgba(0, 0, 0, 0.8);
+  --settings-field: rgba(0, 0, 0, 0.72);
+  --settings-bar: rgba(0, 0, 0, 0.9);
+  --settings-bar-solid: rgba(0, 0, 0, 0.96);
+  --settings-primary-bg: #bd93f9;
+  --settings-primary-ink: #1b1030;
+
+  --elevation-sm: 0 1px 2px rgba(0, 0, 0, 0.6);
+  --elevation-md: 0 8px 28px rgba(0, 0, 0, 0.7);
+  --elevation-lg: 0 22px 60px rgba(0, 0, 0, 0.8);
+  --inset-hi: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --surface-code: #07070b;
+  --surface-code-head: #0e0e14;
+  --border-code: rgba(248, 248, 242, 0.08);
 }
 
 /* ---------- scales: the same in every theme ---------- */

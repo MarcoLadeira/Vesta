@@ -55,19 +55,36 @@ a `ctx` bundle of shared dependencies (`bridge`, `esc`, `toast`, `switchView`,
 routing dynamic values through `innerHTML` (text → `textContent`), and is
 unit-tested in `__tests__/settings.test.js`.
 
-### Themes (light and dark)
+### Themes
 
-Settings › Appearance offers **Light, Dark and System**. Dark is the default;
-System follows the operating system and switches with it.
+Settings › Appearance offers four choices:
 
-**How it works.** A theme is one attribute: `<html data-theme="light|dark">`.
-`design-tokens.css` holds a dark palette (`:root, [data-theme="dark"]`), a
-light palette (`[data-theme="light"]`) that redefines exactly the same tokens,
-and theme-independent scales. Component CSS takes every colour from a token, so
+| Choice | `data-theme` | What it is |
+| --- | --- | --- |
+| **Light** | `light` | Soft daylight: a pearl ground, slate ink, white glass cards, indigo stars. |
+| **Viber Coder** | `viber-coder` | OPai's original night sky, and the default. |
+| **Dark** | `dark` | Pitch black with Dracula's colours: purple and pink accents, green, orange, red, cyan. |
+| **System** | resolved | Follows the operating system: Light by day, Viber Coder by night, switching live. |
+
+**How it works.** A theme is one attribute: `<html data-theme="…">`.
+`design-tokens.css` holds one palette block per theme — Viber Coder is the
+default on `:root, [data-theme="viber-coder"]`, then `[data-theme="light"]` and
+`[data-theme="dark"]` — each declaring exactly the same tokens, plus
+theme-independent scales. Component CSS takes every colour from a token, so
 setting the attribute repaints the whole app. `theme.js` resolves the
 preference, follows the OS while it is `system`, and cross-fades the change
-through a view transition (instant under reduced motion). Anything drawn on a
-canvas listens for `opai:themechange`; the star field does.
+through a view transition (instant under reduced motion).
+
+**The star field works in every theme.** It is a canvas, so it reads two
+tokens instead of CSS: `--space-star` (the starlight, as bare channels) and
+`--space-star-strength` (a multiplier on the still stars' opacity — a star
+must be drawn more strongly to show on pearl than on black). It repaints on
+`opai:themechange`, which anything else drawn outside CSS should listen for too.
+
+**Adding a theme** is one more palette block in `design-tokens.css`, its id in
+`THEMES` in both `theme.js` and `opai/gui_theme.py` (with its ground colour in
+`THEME_GROUND`), and a tile in `THEME_CHOICES` in `settings.js`. The checks below
+fail until every piece is there.
 
 **Where it is stored.** The theme is app-wide, not per project:
 `savePref("theme", …)` writes `~/.opai/gui_theme.json` (`opai/gui_theme.py`),
@@ -76,19 +93,24 @@ resolved theme on `<html>` and paints the window's ground to match, so the first
 frame is already in the right theme.
 
 **The contract, for every future change.** Never write a colour in
-`styles.css` or in a script that renders UI. Reference a token instead, and for
-a translucent status tint use `rgba(var(--tint-*-rgb), alpha)`. A new colour
-means a new token in **both** palettes. Three checks hold this in CI:
+`styles.css` or in a script that renders UI. Reference a token instead. For a
+translucent tint use `rgba(var(--tint-*-rgb), alpha)` — `--tint-accent-rgb` for
+the brand's own highlight (an active row, a focused field, a selection) and
+`--tint-success-rgb` and friends for results. A new colour means a new token in
+**every** palette. These checks hold this in CI:
 
 - `npm run test:tokens` (`scripts/lint-web-design-tokens.mjs`) rejects raw
   colours in `styles.css` and in `opai/assets/web/*.js`, tokens declared outside
-  `design-tokens.css`, and any palette token missing its light or dark value.
+  `design-tokens.css`, and any palette missing a token another palette has.
 - `theme.spec.js` walks every chat state, destination, Settings page, menu and
-  overlay in both themes and fails on text that loses contrast against the
+  overlay in every theme and fails on text that loses contrast against the
   background really behind it, or on a neutral surface of the wrong polarity
-  (a dark well inside the light theme). It includes a self-test proving it
-  catches a hard-coded component.
-- `theme.spec.js-snapshots` holds reviewed baselines of the light palette.
+  (a dark well inside Light, a white card inside Dark). It includes a self-test
+  proving it catches a hard-coded component, and measures the star canvas's
+  pixels to prove the stars are visible in each theme.
+- `tests/test_gui_theme.py` holds the Python host, `theme.js` and the palettes
+  to the same list of themes.
+- `theme.spec.js-snapshots` holds reviewed baselines of Light and Dark.
 
 ## Bridge API (Python → JS)
 
@@ -143,8 +165,7 @@ data renders whenever the panel is opened).
 ## How to change the UI
 
 - Visuals: edit `opai/assets/web/styles.css` and `index.html`, taking every
-  colour from the tokens in `design-tokens.css` (see
-  [Themes](#themes-light-and-dark)).
+  colour from the tokens in `design-tokens.css` (see [Themes](#themes)).
 - Behaviour/new data: add a `Bridge` slot in `gui_web.py` returning JSON from the
   existing data modules, then render it in `app.js`. Prefer adding data to a
   `gui_view_model` section — the dashboard page renders sections automatically.

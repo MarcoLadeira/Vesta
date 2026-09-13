@@ -123,37 +123,55 @@ function tokenBlocks(css) {
   return blocks;
 }
 
-// design-tokens.css: the light palette mirrors the dark one exactly, and the
-// scales carry no colour at all.
+const DEFAULT_PALETTE = /^:root,\[data-theme="([\w-]+)"\]$/;
+const THEME_PALETTE = /^\[data-theme="([\w-]+)"\]$/;
+
+// The theme ids design-tokens.css defines a palette for, default first.
+export function paletteIds(css) {
+  const ids = [];
+  for (const { selector } of tokenBlocks(css)) {
+    const match = selector.match(DEFAULT_PALETTE) || selector.match(THEME_PALETTE);
+    if (match) ids.push(match[1]);
+  }
+  return ids;
+}
+
+// design-tokens.css: every theme's palette declares exactly the tokens the
+// default palette does, and the scales carry no colour at all.
 export function lintThemeTokens(css) {
   const blocks = tokenBlocks(css);
-  const pick = (selector) => blocks.filter((block) => block.selector === selector);
-  const dark = pick(':root,[data-theme="dark"]');
-  const light = pick('[data-theme="light"]');
-  const scales = pick(":root");
   const violations = [];
-  if (dark.length !== 1) violations.push('expected exactly one dark palette block (:root, [data-theme="dark"])');
-  if (light.length !== 1) violations.push('expected exactly one light palette block ([data-theme="light"])');
+  const defaults = blocks.filter((block) => DEFAULT_PALETTE.test(block.selector));
+  const themes = blocks.filter((block) => THEME_PALETTE.test(block.selector));
+  const scales = blocks.filter((block) => block.selector === ":root");
+  if (defaults.length !== 1) violations.push('expected exactly one default palette block (:root, [data-theme="…"])');
+  if (!themes.length) violations.push('expected at least one more theme palette block ([data-theme="…"])');
   if (scales.length !== 1) violations.push("expected exactly one scale block (:root)");
   for (const block of blocks) {
-    if (![':root,[data-theme="dark"]', '[data-theme="light"]', ":root"].includes(block.selector)) {
+    if (!DEFAULT_PALETTE.test(block.selector) && !THEME_PALETTE.test(block.selector) && block.selector !== ":root") {
       violations.push(`unexpected token block ${block.selector}`);
     }
   }
+  const ids = paletteIds(css);
+  for (const id of new Set(ids.filter((id, index) => ids.indexOf(id) !== index))) {
+    violations.push(`theme "${id}" has more than one palette block`);
+  }
   if (violations.length) return violations;
 
-  const darkTokens = dark[0].tokens;
-  const lightTokens = light[0].tokens;
-  for (const name of darkTokens.keys()) {
-    if (!lightTokens.has(name)) violations.push(`${name} has no light-theme value`);
-  }
-  for (const name of lightTokens.keys()) {
-    if (!darkTokens.has(name)) violations.push(`${name} is light-only; declare it in the dark palette too`);
+  const reference = defaults[0].tokens;
+  for (const block of themes) {
+    const id = block.selector.match(THEME_PALETTE)[1];
+    for (const name of reference.keys()) {
+      if (!block.tokens.has(name)) violations.push(`${name} has no "${id}" value`);
+    }
+    for (const name of block.tokens.keys()) {
+      if (!reference.has(name)) violations.push(`${name} is only in "${id}"; declare it in every palette`);
+    }
   }
   for (const [name, value] of scales[0].tokens) {
-    if (darkTokens.has(name)) violations.push(`${name} is declared as both a palette token and a scale`);
+    if (reference.has(name)) violations.push(`${name} is declared as both a palette token and a scale`);
     if (colourLiteralIn(value) || BARE_CHANNELS.test(value)) {
-      violations.push(`${name}: ${value} is a colour; move it into both palettes`);
+      violations.push(`${name}: ${value} is a colour; move it into every palette`);
     }
   }
   return violations;
@@ -188,7 +206,7 @@ async function main() {
   const stylesheet = await read("styles.css");
   report("Raw web type/spacing values must use design tokens", lintCss(stylesheet));
   report("styles.css must take every colour from a theme token", lintColours(stylesheet));
-  report("design-tokens.css light and dark palettes must match", lintThemeTokens(await read("design-tokens.css")));
+  report("design-tokens.css theme palettes must match", lintThemeTokens(await read("design-tokens.css")));
 
   const scripts = (await readdir(fileURLToPath(web))).filter((name) => name.endsWith(".js")).sort();
   for (const name of scripts) {

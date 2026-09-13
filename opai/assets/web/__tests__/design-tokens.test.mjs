@@ -7,6 +7,7 @@ import {
   lintCss,
   lintScriptColours,
   lintThemeTokens,
+  paletteIds,
 } from "../../../../scripts/lint-web-design-tokens.mjs";
 
 test("web design tokens define the documented scales", async () => {
@@ -65,23 +66,44 @@ test("colour lint refuses tokens declared inside component CSS", () => {
   ]);
 });
 
-test("theme lint requires a light value for every dark palette token and no colour in the scales", () => {
-  const css = (dark, light, scales) =>
-    `:root,\n[data-theme="dark"] { ${dark} }\n[data-theme="light"] { ${light} }\n:root { ${scales} }`;
-  assert.deepEqual(lintThemeTokens(css("--bg: #000; --ink: #fff;", "--bg: #fff; --ink: #000;", "--space-1: 4px;")), []);
-  assert.deepEqual(lintThemeTokens(css("--bg: #000; --new: #123;", "--bg: #fff; --extra: #fff;", "--space-1: 4px;")), [
-    "--new has no light-theme value",
-    "--extra is light-only; declare it in the dark palette too",
-  ]);
-  assert.deepEqual(lintThemeTokens(css("--bg: #000;", "--bg: #fff;", "--glow: rgba(1, 2, 3, 0.5); --star: 1, 2, 3; --bg: #111;")), [
-    "--glow: rgba(1, 2, 3, 0.5) is a colour; move it into both palettes",
-    "--star: 1, 2, 3 is a colour; move it into both palettes",
-    "--bg is declared as both a palette token and a scale",
-    "--bg: #111 is a colour; move it into both palettes",
-  ]);
+test("theme lint requires every palette to declare every token, and no colour in the scales", () => {
+  const css = (base, light, dark, scales) =>
+    `:root,\n[data-theme="viber-coder"] { ${base} }\n[data-theme="light"] { ${light} }\n[data-theme="dark"] { ${dark} }\n:root { ${scales} }`;
+  assert.deepEqual(
+    lintThemeTokens(css("--bg: #04050f; --ink: #fff;", "--bg: #fff; --ink: #000;", "--bg: #000; --ink: #fff;", "--space-1: 4px;")),
+    [],
+  );
+  assert.deepEqual(
+    lintThemeTokens(css("--bg: #04050f; --new: #123;", "--bg: #fff; --new: #456; --extra: #fff;", "--bg: #000;", "--space-1: 4px;")),
+    [
+      '--extra is only in "light"; declare it in every palette',
+      '--new has no "dark" value',
+    ],
+  );
+  assert.deepEqual(
+    lintThemeTokens(css("--bg: #000;", "--bg: #fff;", "--bg: #000;", "--glow: rgba(1, 2, 3, 0.5); --star: 1, 2, 3; --bg: #111;")),
+    [
+      "--glow: rgba(1, 2, 3, 0.5) is a colour; move it into every palette",
+      "--star: 1, 2, 3 is a colour; move it into every palette",
+      "--bg is declared as both a palette token and a scale",
+      "--bg: #111 is a colour; move it into every palette",
+    ],
+  );
   assert.deepEqual(lintThemeTokens(":root { --bg: #000; }"), [
-    'expected exactly one dark palette block (:root, [data-theme="dark"])',
-    'expected exactly one light palette block ([data-theme="light"])',
+    'expected exactly one default palette block (:root, [data-theme="…"])',
+    'expected at least one more theme palette block ([data-theme="…"])',
+  ]);
+  assert.deepEqual(
+    lintThemeTokens(css("--bg: #000;", "--bg: #fff;", "--bg: #000;", "--space-1: 4px;") + '\n[data-theme="light"] { --bg: #eee; }'),
+    ['theme "light" has more than one palette block'],
+  );
+});
+
+test("the shipped palettes are Viber Coder by default, then Light and Dark", async () => {
+  assert.deepEqual(paletteIds(await readFile(new URL("../design-tokens.css", import.meta.url), "utf8")), [
+    "viber-coder",
+    "light",
+    "dark",
   ]);
 });
 
