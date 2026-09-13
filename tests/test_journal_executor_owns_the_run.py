@@ -198,5 +198,24 @@ class RecoverLeavesALiveRunAloneTests(_Root):
         )
 
 
+class WhichStatesTransferOwnershipTests(unittest.TestCase):
+    """Derived from the lifecycle contract; pinned here so a change is seen."""
+
+    def test_the_states_doing_the_work_and_no_others(self):
+        self.assertEqual(
+            journal_runtime._EXECUTING_STATES,
+            {
+                RunState.PREPARING.value,
+                RunState.RUNNING.value,
+                RunState.VERIFYING.value,
+            },
+        )
+
+    def test_a_queued_run_is_not_executing(self):
+        """Queued is active, but nobody is working on it yet."""
+
+        self.assertNotIn(RunState.QUEUED.value, journal_runtime._EXECUTING_STATES)
+
+
 if __name__ == "__main__":
     unittest.main()

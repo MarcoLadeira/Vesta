@@ -1039,7 +1039,10 @@ def _manifest_check_summary(result: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(raw, dict) or not raw:
         return {}
     try:
-        from opaihub.verification_execution import verification_manifest_from_dict
+        from opaihub.verification_execution import (
+            CheckStatus,
+            verification_manifest_from_dict,
+        )
 
         manifest = verification_manifest_from_dict(raw)
     except (KeyError, TypeError, ValueError):
@@ -1056,13 +1059,16 @@ def _manifest_check_summary(result: dict[str, Any]) -> dict[str, Any]:
     if manifest.integrity_errors:
         status = "not_verified"
     elif failed:
+        # Verification *check* outcomes, spelled through their own enum: a
+        # check is not a run, and a bare tuple of these words is exactly what
+        # the lifecycle-authority ratchet reads as a second state vocabulary.
         priority = (
-            "failed",
-            "timeout",
-            "cancelled",
-            "blocked",
-            "unavailable",
-            "artifact_lost",
+            CheckStatus.FAILED.value,
+            CheckStatus.TIMEOUT.value,
+            CheckStatus.CANCELLED.value,
+            CheckStatus.BLOCKED.value,
+            CheckStatus.UNAVAILABLE.value,
+            CheckStatus.ARTIFACT_LOST.value,
             "missing",
         )
         first = next((item for item in priority if item in statuses), "not_verified")

@@ -719,22 +719,33 @@ The expensive reports -- parity, unevidenced completions, unconfirmed
 cancellations, launcher health -- are `opai doctor`'s and doctor's only,
 checked the same way.
 
-### Exactly one visible string changed
+### What a user can see changed
 
-The whole inspector payload, diffed against `main`:
+When this section was first written, exactly one visible string had changed
+and the frontend was byte-for-byte `main`. Later fixes made that untrue, so
+this is the list as it stands, checked against `git diff main`:
 
-```
-- "github": "Ready to push & open PRs"
-+ "github": "Token connected · not verified yet"
-```
+- The GitHub inspector row no longer says "Ready to push & open PRs" on a token
+  nobody has checked. It says what is known: "not verified yet", "last
+  verified over a day ago", "last check couldn't reach GitHub", or that GitHub
+  rejected the token. "Ready to push & open PRs" still appears when a recent
+  check passed.
+- One sentence on the edit-approval card: "In Auto, OPai asks before changing
+  files" became "OPai asks before changing files in this mode", because the
+  card now also appears in Manual. A Manual or Accept Edits turn asked to fix
+  something used to run read-only, and Manual had no way to allow an edit at
+  all -- less than Ask, which an explicit "fix X" upgrades to Auto. Every
+  edit-capable mode can now edit, as its mode contract says; OPai's own tool
+  loop, which cannot stop and ask, edits in Manual only with the user's
+  one-shot grant (commit 50f9538, `tests/test_every_edit_mode_can_edit.py`).
+- `opai doctor` and `opai journal status` gained lines and words: parity
+  counts, "abandoned", "migration pending", "incompatible". CLI diagnostics
+  only.
 
-Every key and every row label identical, and **zero web assets changed** -- the
-frontend is byte-for-byte `main`. The e2e suite drives a mock bridge with no
-Python in it, so it cannot be affected by any of this.
-
-The added work behind that row is 0.249 ms of a 41.8 ms render, and the render
-already ran in a worker thread on request rather than on a poll or a
-keystroke.
+That is one line of `app.js`; every other web change is a test. Every key and
+row label in the inspector payload is unchanged. The added work behind the
+GitHub row is 0.249 ms of a 41.8 ms render, and the render already ran in a
+worker thread on request rather than on a poll or a keystroke.
 
 ### And the one thing that would have blocked somebody
 

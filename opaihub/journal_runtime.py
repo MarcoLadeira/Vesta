@@ -42,7 +42,13 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Iterator, Mapping
 
-from . import call_reconciliation, journal_liveness, journal_store, owner_lease
+from . import (
+    call_reconciliation,
+    generated_lifecycle,
+    journal_liveness,
+    journal_store,
+    owner_lease,
+)
 from .journal_store import (
     JournalStoreError,
     StaleWriterError,
@@ -113,7 +119,18 @@ TERMINAL_REASON_CHARS = 500
 
 #: Run states that mean a process is *executing* the run, not just describing
 #: it. A process that saves one of these is the run's owner from then on.
-_EXECUTING_STATES = frozenset({"preparing", "running", "verifying"})
+#:
+#: Read from the lifecycle contract rather than listed: active states whose
+#: work is in progress -- preparing, running, verifying -- and not `queued`,
+#: which is active but waiting for somebody to pick it up. A hand-written set
+#: here was a second lifecycle vocabulary, which `test_lifecycle_authority`
+#: exists to refuse.
+_EXECUTING_STATES = frozenset(
+    state
+    for state, spec in generated_lifecycle.STATE_SPECS.items()
+    if spec.get("classification") == "active"
+    and spec.get("presentation_category") == "progress"
+)
 
 
 class _TerminalRunReadmitted(Exception):
