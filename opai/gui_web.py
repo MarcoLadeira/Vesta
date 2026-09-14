@@ -2015,7 +2015,9 @@ def _run_gui(
                     health = service.startup_health(
                         Path(__file__).resolve().parent / "assets" / "web"
                     )
-                    if current.state is UpdateState.RESTARTING:
+                    if current.state in {
+                        UpdateState.RESTARTING, UpdateState.HEALTH_CHECKING
+                    }:
                         current = service.confirm_health(
                             current.operation_id,
                             running=service.installed,

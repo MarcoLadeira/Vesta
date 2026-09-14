@@ -1365,12 +1365,13 @@ def test_safe_install_records_last_known_good_and_native_transaction(tmp_path: P
 def test_packaged_download_fails_closed_without_a_signed_recovery_candidate(
     tmp_path: Path,
 ):
-    service, _, _, adapter = _service(tmp_path)
+    service, fetcher, _, adapter = _service(tmp_path)
     available = service.check(force=True)
     candidate = dict(available.candidate)
     candidate["rollback_compatible"] = False
     candidate["native"] = {"appinstaller_url": candidate["native"]["appinstaller_url"]}
     service.store.save_operation(replace(available, candidate=candidate))
+    fetcher.payload, service.trust = _manifest(candidate)
 
     blocked = service.download(available.operation_id)
 
@@ -1764,3 +1765,190 @@ def test_policy_update_is_application_wide_and_enforces_consent_dependency(
     assert disabled.automatic_install_on_quit is False
     with pytest.raises(UpdateError, match="automatic_download_required"):
         service.set_policy(automatic_install_on_quit=True)
+
+
+@pytest.mark.parametrize("automatic", [False, True])
+def test_quarantined_candidate_is_not_offered_after_restart(tmp_path, automatic):
+    service, _, _, _ = _service(tmp_path)
+    available = service.check(force=True)
+    service.store.save_operation(
+        replace(
+            available,
+            state=UpdateState.ROLLED_BACK,
+            quarantined_versions=("0.3.0",),
+        )
+    )
+    restarted, _, downloader, _ = _service(
+        tmp_path, policy=UpdatePolicy(rollout_cohort=42, automatic_downloads=automatic)
+    )
+    result = restarted.check(force=True, allow_automatic_download=True)
+    assert result.state is UpdateState.POLICY_BLOCKED
+    assert result.error_category == "candidate_quarantined"
+    assert result.quarantined_versions == ("0.3.0",)
+    assert downloader.calls == 0
+
+
+def test_higher_signed_release_supersedes_local_quarantine(tmp_path):
+    service, fetcher, _, _ = _service(tmp_path)
+    available = service.check(force=True)
+    service.store.save_operation(replace(available, quarantined_versions=("0.3.0",)))
+    fetcher.payload, service.trust = _manifest(_candidate(version="0.3.1"))
+    result = service.check(force=True)
+    assert result.state is UpdateState.AVAILABLE
+    assert result.candidate["version"] == "0.3.1"
+    assert result.quarantined_versions == ("0.3.0",)
+
+
+@pytest.mark.parametrize(
+    "state", [UpdateState.AVAILABLE, UpdateState.PAUSED, UpdateState.FAILED_RETRIABLE]
+)
+def test_download_rejects_persisted_quarantined_candidate(tmp_path, state):
+    service, _, downloader, _ = _service(tmp_path)
+    operation = service.check(force=True)
+    service.store.save_operation(
+        replace(operation, state=state, quarantined_versions=("0.3.0",))
+    )
+    with pytest.raises(UpdateError, match="candidate_quarantined"):
+        service.download(operation.operation_id)
+    assert downloader.calls == 0
+
+
+def test_install_rejects_persisted_quarantined_candidate(tmp_path):
+    service, _, _, adapter = _service(tmp_path)
+    ready = service.download(service.check(force=True).operation_id)
+    service.store.save_operation(replace(ready, quarantined_versions=("0.3.0",)))
+    with pytest.raises(UpdateError, match="candidate_quarantined"):
+        service.install(ready.operation_id, mode="now")
+    assert adapter.installs == []
+
+
+def test_interrupted_health_check_can_confirm_after_restart(tmp_path):
+    service, _, _, _ = _service(tmp_path)
+    restarting = service.install(
+        service.download(service.check(force=True).operation_id).operation_id,
+        mode="now",
+    )
+    service.store.save_operation(restarting.transition(UpdateState.HEALTH_CHECKING))
+    restarted, _, _, _ = _service(tmp_path)
+    result = restarted.confirm_health(
+        restarting.operation_id,
+        running=_installed(version="0.3.0", build_id="b" * 40),
+        interactive=True,
+        assets_ok=True,
+        state_schema_ok=True,
+        doctor_ok=True,
+    )
+    assert result.state is UpdateState.COMPLETED
+
+
+def test_interrupted_health_check_times_out_and_starts_recovery(tmp_path):
+    service, _, _, _ = _service(tmp_path)
+    restarting = service.install(
+        service.download(service.check(force=True).operation_id).operation_id,
+        mode="now",
+    )
+    service.store.save_operation(restarting.transition(UpdateState.HEALTH_CHECKING))
+    restarted, _, _, adapter = _service(tmp_path)
+    restarted._now = lambda: NOW + timedelta(minutes=6)
+    result = restarted.maintain()
+    assert result.state is UpdateState.ROLLING_BACK
+    assert result.quarantined_versions == ("0.3.0",)
+    assert adapter.rollbacks == 1
+
+
+def test_maintenance_resumes_durable_rollback_request(tmp_path):
+    service, _, _, _ = _service(tmp_path)
+    restarting = service.install(
+        service.download(service.check(force=True).operation_id).operation_id,
+        mode="now",
+    )
+    service.confirm_health(
+        restarting.operation_id,
+        running=_installed(),
+        interactive=False,
+        assets_ok=True,
+        state_schema_ok=True,
+        doctor_ok=True,
+    )
+    restarted, _, _, adapter = _service(tmp_path)
+    assert restarted.maintain().state is UpdateState.ROLLING_BACK
+    assert adapter.rollbacks == 1
+
+
+@pytest.mark.parametrize("stale", [False, True])
+def test_maintenance_preserves_needs_attention_and_recovery_evidence(tmp_path, stale):
+    service, fetcher, _, _ = _service(tmp_path)
+    available = service.check(force=True)
+    attention = service.store.save_operation(
+        replace(
+            available,
+            state=UpdateState.NEEDS_ATTENTION,
+            error_category="rollback_health_failed",
+            safe_diagnostic="Recovery failed.",
+            quarantined_versions=("0.3.0",),
+            last_known_good={"build_id": "previous"},
+        )
+    )
+    service._now = lambda: NOW + timedelta(days=1)
+    service._running_build_is_stale = lambda: stale
+    assert service.maintain() == attention
+    assert service.check() == attention
+    assert len(fetcher.calls) == 1
+
+
+@pytest.mark.parametrize("percentage", [0, 1, 5, 25])
+def test_signed_rollout_reduction_advances_replay_floor(tmp_path, percentage):
+    service, fetcher, _, _ = _service(tmp_path)
+    key = Ed25519PrivateKey.generate()
+    fetcher.payload, service.trust = _manifest(
+        _candidate(rollout_percentage=percentage), metadata_version=8, signing_key=key
+    )
+    excluded = service.check(force=True)
+    assert excluded.error_category == "rollout_excluded"
+    assert service.store.load_metadata_floor("stable") == 8
+    fetcher.payload, _ = _manifest(metadata_version=7, signing_key=key)
+    replay = service.check(force=True)
+    assert replay.state is UpdateState.UNAVAILABLE
+    assert replay.error_category == "metadata_rollback"
+
+
+@pytest.mark.parametrize(
+    "trigger", ["startup", "resume", "network_restored", "periodic"]
+)
+def test_automatic_triggers_cannot_clear_recovery_failure(tmp_path, trigger):
+    service, fetcher, _, _ = _service(tmp_path)
+    available = service.check(force=True)
+    attention = service.store.save_operation(
+        replace(
+            available,
+            state=UpdateState.NEEDS_ATTENTION,
+            error_category="rollback_failed",
+        )
+    )
+    assert service.check(force=True, trigger=trigger) == attention
+    assert len(fetcher.calls) == 1
+
+
+@pytest.mark.parametrize("status", ["paused", "yanked", "quarantined"])
+@pytest.mark.parametrize("staged", [False, True])
+def test_signed_halt_prevents_new_download_or_staged_install(tmp_path, status, staged):
+    service, fetcher, downloader, adapter = _service(tmp_path)
+    key = Ed25519PrivateKey.generate()
+    fetcher.payload, service.trust = _manifest(signing_key=key)
+    operation = service.check(force=True)
+    if staged:
+        operation = service.download(operation.operation_id)
+    downloads = downloader.calls
+    fetcher.payload, _ = _manifest(
+        _candidate(rollout_percentage=0, rollout_status=status),
+        metadata_version=8,
+        signing_key=key,
+    )
+    with pytest.raises(UpdateError, match=f"rollout_{status}"):
+        if staged:
+            service.install(operation.operation_id, mode="now")
+        else:
+            service.download(operation.operation_id)
+    assert downloader.calls == downloads
+    assert adapter.installs == []
+    assert service.store.load_metadata_floor("stable") == 8

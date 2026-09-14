@@ -169,6 +169,8 @@ def _validate_candidate(
         raise ManifestError("current_version_unsupported")
     if candidate.minimum_updater_protocol > installed.updater_protocol_version:
         raise ManifestError("updater_protocol_unsupported")
+    if candidate.rollout_status != "active":
+        raise ManifestError(f"rollout_{candidate.rollout_status}")
     if not _rollout_includes(candidate, cohort):
         raise ManifestError("rollout_excluded")
     return True
