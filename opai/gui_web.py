@@ -1007,7 +1007,10 @@ def _manifest_check_summary(result: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(raw, dict) or not raw:
         return {}
     try:
-        from opaihub.verification_execution import verification_manifest_from_dict
+        from opaihub.verification_execution import (
+            CheckStatus,
+            verification_manifest_from_dict,
+        )
 
         manifest = verification_manifest_from_dict(raw)
     except (KeyError, TypeError, ValueError):
@@ -1024,13 +1027,16 @@ def _manifest_check_summary(result: dict[str, Any]) -> dict[str, Any]:
     if manifest.integrity_errors:
         status = "not_verified"
     elif failed:
+        # Verification *check* outcomes, spelled through their own enum: a
+        # check is not a run, and a bare tuple of these words is exactly what
+        # the lifecycle-authority ratchet reads as a second state vocabulary.
         priority = (
-            "failed",
-            "timeout",
-            "cancelled",
-            "blocked",
-            "unavailable",
-            "artifact_lost",
+            CheckStatus.FAILED.value,
+            CheckStatus.TIMEOUT.value,
+            CheckStatus.CANCELLED.value,
+            CheckStatus.BLOCKED.value,
+            CheckStatus.UNAVAILABLE.value,
+            CheckStatus.ARTIFACT_LOST.value,
             "missing",
         )
         first = next((item for item in priority if item in statuses), "not_verified")
@@ -3030,11 +3036,14 @@ def _run_gui(
             """
 
             from opaihub.attachments import AttachmentError, store_image
+            from opaihub.command_runner import redact
 
             try:
                 stored = store_image(self.root, data, name=name)
             except AttachmentError as exc:
-                return json.dumps({"ok": False, "error": str(exc)})
+                # The message is written for the user; redact() leaves it as
+                # written and still scrubs anything secret-shaped (#622).
+                return json.dumps({"ok": False, "error": redact(str(exc))})
             except Exception:  # noqa: BLE001 - never leak a host path or trace
                 _LOG.debug("Attachment storage failed", exc_info=True)
                 return json.dumps(

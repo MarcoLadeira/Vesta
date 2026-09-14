@@ -2445,7 +2445,7 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
   border-radius: 6px;
   object-fit: cover;
   background: var(--panel);
-  border: 1px solid var(--line);
+  border: 1px solid var(--border);
   flex: 0 0 auto;
 }
 .context-image-name {

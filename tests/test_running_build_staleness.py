@@ -108,9 +108,26 @@ class MaintenanceSurfacesStalenessTests(unittest.TestCase):
     """The hint has to reach a state the UI actually renders."""
 
     def _service(self):
+        """A service over a private home, offline.
+
+        It used the real one: a real `~/.opai` update lock, which any OPai
+        running on the machine holds -- the tests errored with
+        `operation_busy` whenever the app was open -- and a real manifest
+        fetch over the network.
+        """
+
         from opai.update.factory import create_update_service
 
-        return create_update_service(workspaces=[Path.cwd()])
+        home = __import__("tempfile").TemporaryDirectory()
+        self.addCleanup(home.cleanup)
+
+        def offline(url: str) -> bytes:
+            raise OSError("tests do not reach the update feed")
+
+        with mock.patch("opai.gui_workspace.load_recent_workspaces", return_value=[]):
+            return create_update_service(
+                workspaces=[], home=Path(home.name), manifest_fetcher=offline
+            )
 
     def test_a_stale_process_lands_in_completed_with_a_restart_message(self) -> None:
         from opai.update.models import UpdateState
