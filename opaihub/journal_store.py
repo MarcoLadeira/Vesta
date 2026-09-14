@@ -690,7 +690,7 @@ class _SchemaFacts:
                     # A table name cannot be a bound parameter in a PRAGMA; it
                     # comes from this module's own migration text, matched by
                     # `\w+`, never from input.
-                    f"PRAGMA table_info({key})"  # nosec B608
+                    f"PRAGMA table_info({key})"
                 )
             }
         return column.lower() in self._columns[key]
