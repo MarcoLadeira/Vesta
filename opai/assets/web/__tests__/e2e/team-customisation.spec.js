@@ -229,3 +229,21 @@ test('small screens keep avatars outside the drawer and edit mode stays optional
   await expect(page.locator('#agentsTeamStrip')).toBeVisible();
   expectNoFatalErrors(diagnostics);
 });
+
+test('team focus clears on empty space and restores the chat sidebar', async ({ page }) => {
+  await page.setViewportSize({ width: 1500, height: 980 });
+  const diagnostics = await start(page);
+  await page.getByRole('button', { name: 'Organise team', exact: true }).click();
+  await expect(page.locator('#app')).toHaveClass(/sidebar-hidden/);
+  await page.locator('[data-map-select="alex"]').click();
+  await expect(page.locator('.team-map-node.is-selected')).toHaveCount(1);
+  await expect(page.locator('.team-focus-context')).toBeVisible();
+  await page.locator('.team-map-viewport').click({ position: { x: 5, y: 5 } });
+  await expect(page.locator('.team-map-node.is-selected')).toHaveCount(0);
+  await expect(page.locator('#agentsTeam')).toBeHidden();
+  expect((await page.locator('#composer').boundingBox()).height).toBeLessThan(65);
+  await expect(page.locator('.team-map-zoom')).toBeHidden();
+  await page.getByRole('button', { name: 'Back to chat', exact: false }).click();
+  await expect(page.locator('#app')).not.toHaveClass(/sidebar-hidden/);
+  expectNoFatalErrors(diagnostics);
+});

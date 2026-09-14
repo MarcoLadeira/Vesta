@@ -43,7 +43,8 @@
   }
   function status(agent, objective) {
     if (agent.pending_approval) return { kind: 'attention', label: 'Approval needed', icon: '!' };
-    if (['blocked', 'failed', 'needs-attention'].includes(agent.status)) return { kind: 'attention', label: 'Needs attention', icon: '!' };
+    if (agent.status === 'failed') return { kind: 'attention', label: /review|critic/i.test(agent.role || '') ? 'Review failed' : 'Task failed', icon: '!' };
+    if (['blocked', 'needs-attention'].includes(agent.status)) return { kind: 'attention', label: 'Decision needed', icon: '!' };
     if (agent.status === 'completed') return { kind: 'done', label: 'Done', icon: '✓' };
     if (agent.status === 'running') return { kind: 'active', label: 'Working', icon: '◉' };
     if (agent.held) return { kind: 'waiting', label: 'Ready to start', icon: 'Ⅱ' };
@@ -53,11 +54,16 @@
   function groupSummary(members, objective) {
     const counts = new Map();
     members.forEach((a) => { const kind = status(a, objective).kind; counts.set(kind, (counts.get(kind) || 0) + 1); });
-    return members.length + ' agents' + ['active', 'attention', 'waiting', 'done'].filter((kind) => counts.has(kind)).map((kind) => ' · ' + counts.get(kind) + ' ' + ({ active: 'working', attention: counts.get(kind) === 1 ? 'needs attention' : 'need attention', waiting: 'waiting', done: 'done' })[kind]).join('');
+    return members.length + ' agents' + ['active', 'attention', 'waiting', 'done'].filter((kind) => counts.has(kind)).map((kind) => ' · ' + ({ active: '◉ ', attention: '! ', waiting: '◷ ', done: '✓ ' })[kind] + counts.get(kind) + ' ' + ({ active: 'working', attention: counts.get(kind) === 1 ? 'needs attention' : 'need attention', waiting: 'waiting', done: 'done' })[kind]).join('');
   }
   function graphHtml(objective, positions, view = {}) {
     positions = safePositions(objective, positions);
     const agents = list(objective), links = edges(objective), groups = new Map(), focused = view.focusId;
+    if (!view.editing) {
+      const columns = [...new Set(agents.map((a) => positions[id(a)].x))].sort((a, b) => a - b), gaps = [];
+      columns.forEach((x, index) => { if (index && x - columns[index - 1] > 312) gaps.push({ x, amount: x - columns[index - 1] - 312 }); });
+      agents.forEach((a) => { const point = positions[id(a)]; point.x -= gaps.filter((gap) => gap.x <= point.x).reduce((sum, gap) => sum + gap.amount, 0); });
+    }
     const original = structuredClone(positions);
     const related = new Set(focused ? [focused] : []);
     if (focused) {
@@ -84,13 +90,13 @@
     const visible = agents.filter((a) => !collapsedFor(a));
     const width = Math.max(480, ...visible.map((a) => positions[id(a)].x + 280), ...boxes.map((b) => b.x + b.width + 20));
     const height = Math.max(240, ...visible.map((a) => positions[id(a)].y + 166), ...boxes.map((b) => b.displayY + (b.collapsed ? 64 : b.height) + 20));
-    let html = boxes.map((box) => '<section class="team-map-group' + (box.collapsed ? ' is-collapsed' : '') + '" style="left:' + box.x + 'px;top:' + box.displayY + 'px;width:' + box.width + 'px;height:' + (box.collapsed ? 64 : box.height) + 'px"><header><button type="button" data-map-collapse="' + esc(box.name) + '" aria-expanded="' + !box.collapsed + '"' + (view.editing ? ' disabled' : '') + '><span aria-hidden="true">' + (box.collapsed ? '›' : '⌄') + '</span><strong>' + esc(box.name) + '</strong><span class="team-group-summary">' + esc(groupSummary(box.members, objective)) + '</span></button><button type="button" data-map-group="' + esc(box.name) + '" class="team-group-handle" aria-label="Move ' + esc(box.name) + ' group" title="Drag group or use arrow keys">⠿</button></header></section>').join('');
+    let html = boxes.map((box) => '<section class="team-map-group' + (box.collapsed ? ' is-collapsed' : '') + (box.members.every((a) => status(a, objective).kind === 'done') ? ' is-done' : '') + (box.members.some((a) => status(a, objective).kind === 'attention') ? ' has-attention' : '') + (focused && !box.members.some((a) => related.has(id(a))) ? ' is-muted' : '') + '" style="left:' + box.x + 'px;top:' + box.displayY + 'px;width:' + box.width + 'px;height:' + (box.collapsed ? 64 : box.height) + 'px"><header><button type="button" data-map-collapse="' + esc(box.name) + '" aria-expanded="' + !box.collapsed + '"' + (view.editing ? ' disabled' : '') + '><span aria-hidden="true">' + (box.collapsed ? '›' : '⌄') + '</span><strong>' + esc(box.name) + '</strong><span class="team-group-summary">' + esc(groupSummary(box.members, objective)) + '</span></button><button type="button" data-map-group="' + esc(box.name) + '" class="team-group-handle" aria-label="Move ' + esc(box.name) + ' group" title="Drag group or use arrow keys">⠿</button></header></section>').join('');
     html += '<svg class="team-map-links" width="' + width + '" height="' + height + '" aria-label="Result handoffs"><defs><marker id="team-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" /></marker></defs>' + links.map(({ source, target }, index) => {
       const from = collapsedFor(source), to = collapsedFor(target);
       if (from && from === to) return '';
       const cross = source.group !== target.group;
       const relevant = focused && related.has(id(source)) && related.has(id(target));
-      if (cross && agents.length > 7 && !view.showAll && !relevant && !view.editing) return '';
+      if (agents.length > 7 && !view.showAll && !view.editing && (focused ? !relevant : cross || (source.status !== 'running' && target.status !== 'running'))) return '';
       const a = from ? { x: from.x, y: from.displayY } : positions[id(source)], b = to ? { x: to.x, y: to.displayY } : positions[id(target)];
       const aw = from ? from.width : 240, bw = to ? to.width : 240, ah = from ? 64 : 128, bh = to ? 64 : 128;
       const forward = b.x >= a.x + aw;
@@ -113,7 +119,9 @@
   function mount(element, objective, options) {
     if (!objective) return;
     if (element._objectiveId !== objective.objective_id) {
-      element.innerHTML = '<header class="team-map-header"><button type="button" class="team-quiet" data-map-back>← Back to chat</button><h2>Your team</h2><button type="button" class="btn" data-map-edit aria-pressed="false">Edit team</button><div class="team-actions team-map-edit-actions" hidden><button type="button" class="team-quiet" data-map-add>+ Add agent</button><button type="button" class="team-quiet" data-map-connect>Connect</button><button type="button" class="team-quiet" data-map-group-mode>Group</button><button type="button" class="team-quiet" data-map-arrange>Auto arrange</button></div></header><p class="team-map-hint" role="status">Your team at a glance. Select an agent to follow its work.</p><form class="team-map-group-form" hidden><label>Group name<input name="groupName" maxlength="40" required placeholder="e.g. Authentication"></label><button type="submit" class="btn">Group selected</button><span data-group-count>0 selected</span></form><div class="team-map-viewport"><div class="team-map-canvas"></div></div><footer class="team-map-footer"><span data-map-link-hint></span><div><button type="button" class="team-quiet" data-map-clear hidden>Clear focus</button><button type="button" class="team-quiet" data-map-links aria-pressed="false">All links</button><button type="button" class="team-quiet" data-map-fit>Fit</button><button type="button" class="team-quiet" data-map-zoom="-1" aria-label="Zoom out">−</button><output class="team-map-zoom">100%</output><button type="button" class="team-quiet" data-map-zoom="1" aria-label="Zoom in">+</button></div></footer>';
+      element.innerHTML = '<header class="team-map-header"><button type="button" class="team-quiet" data-map-back>← Back to chat</button><h2>Your team</h2><span class="team-map-overview" data-map-overview></span><button type="button" class="team-map-attention" data-map-attention hidden></button><button type="button" class="btn" data-map-edit aria-pressed="false">Edit team</button><div class="team-actions team-map-edit-actions" hidden><button type="button" class="team-quiet" data-map-add>+ Add agent</button><button type="button" class="team-quiet" data-map-connect>Connect</button><button type="button" class="team-quiet" data-map-group-mode>Group</button><button type="button" class="team-quiet" data-map-arrange>Auto arrange</button></div></header><p class="team-map-hint" role="status"></p><form class="team-map-group-form" hidden><label>Group name<input name="groupName" maxlength="40" required placeholder="e.g. Authentication"></label><button type="submit" class="btn">Group selected</button><span data-group-count>0 selected</span></form><div class="team-map-viewport"><div class="team-map-canvas"></div></div><footer class="team-map-footer"><span data-map-link-hint></span><div><button type="button" class="team-quiet" data-map-clear hidden>Clear focus</button><button type="button" class="team-quiet" data-map-links aria-pressed="false">Relevant links</button><button type="button" class="btn team-fit" data-map-fit aria-label="Fit"><span aria-hidden="true">⛶</span> Fit</button><details class="team-map-zoom-control"><summary>Zoom</summary><div><button type="button" class="team-quiet" data-map-zoom="-1" aria-label="Zoom out">−</button><output class="team-map-zoom">100%</output><button type="button" class="team-quiet" data-map-zoom="1" aria-label="Zoom in">+</button></div></details></div></footer>';
+      element.querySelector('.team-map-hint').textContent = 'Select an agent to follow its work. Click empty space to return.';
+      try { if (sessionStorage.getItem('opai.teamMap.learned')) element.querySelector('.team-map-hint').textContent = ''; } catch (_) {}
       element._objectiveId = objective.objective_id; element._positions = {}; element._zoom = 1; element._collapsed = new Map(); element._focusId = null; element._showAll = false;
       element._layoutPending = null; element._layoutQueued = null; element._dragging = false; element._editing = false; element.classList.remove("is-editing"); element._selected = new Set(); element._grouping = false; element._connecting = false; element._source = null;
     }
@@ -124,6 +132,13 @@
     if (!element._dragging && !element._layoutPending) element._positions = safePositions(objective, objective.team_layout || defaults);
     const canvas = element.querySelector('.team-map-canvas'), viewport = element.querySelector('.team-map-viewport');
     const hint = (text) => { element.querySelector('.team-map-hint').textContent = text; };
+    const learn = () => { if (!element._editing) hint(''); try { sessionStorage.setItem('opai.teamMap.learned', '1'); } catch (_) {} };
+    const people = list(objective), attention = people.filter((a) => status(a, objective).kind === 'attention');
+    element.querySelector('[data-map-overview]').textContent = people.length + ' agents · ' + people.filter((a) => status(a, objective).kind === 'active').length + ' working';
+    const attentionButton = element.querySelector('[data-map-attention]');
+    attentionButton.hidden = !attention.length; attentionButton.textContent = attention.length + ' needs you →';
+    attentionButton.onclick = () => { const next = attention[(attention.findIndex((a) => id(a) === element._focusId) + 1) % attention.length]; if (next) { element._focusId = id(next); learn(); paint(); options.onSelect(next.assignment_id); } };
+
     const control = (action, value, assignmentId) => options.onControl({ objective_id: element._objective.objective_id, ...(assignmentId ? { assignment_id: assignmentId } : {}), action, value: { revision: element._objective.team_revision || 0, ...value } });
     const save = () => {
       const positions = structuredClone(element._positions);
@@ -139,7 +154,7 @@
       element.querySelector('[data-map-clear]').hidden = !element._focusId;
       canvas.querySelectorAll('[data-map-group]').forEach((button) => { button.tabIndex = element._editing ? 0 : -1; });
       canvas.querySelectorAll('[data-map-select]').forEach((button) => {
-        button.setAttribute('aria-pressed', String(element._selected?.has(button.dataset.mapSelect) || false));
+        button.setAttribute('aria-pressed', String(element._selected?.has(button.dataset.mapSelect) || element._focusId === id((objective.assignments || []).find((a) => a.assignment_id === button.dataset.mapSelect) || {})));
       });
       if (dataset) Array.from(canvas.querySelectorAll('button, [data-map-edge]')).find((b) => JSON.stringify({ ...b.dataset }) === JSON.stringify(dataset))?.focus({ preventScroll: true });
     };
@@ -155,7 +170,7 @@
       element.querySelector('.team-map-group-form').hidden = true;
       element.querySelector('[data-map-connect]').setAttribute('aria-pressed', 'false');
       element.querySelector('[data-map-group-mode]').setAttribute('aria-pressed', 'false');
-      hint(element._editing ? 'Drag agents or groups. Connect tasks or group your team.' : 'Your team at a glance. Select an agent to follow its work.');
+      hint(element._editing ? 'Drag agents or groups. Connect tasks or group your team.' : '');
       paint();
     };
     element.querySelector('[data-map-edit]').onclick = toggleEdit;
@@ -186,19 +201,20 @@
       element.querySelector('[data-map-connect]').setAttribute('aria-pressed', String(element._connecting));
       hint(element._connecting ? 'Choose the agent sending work, then the agent receiving it. Escape cancels.' : 'Drag agents or groups. Click an agent to open its thread.');
     };
-    const crossLinks = edges(objective).filter(({source, target}) => source.group !== target.group).length;
-    element.querySelector('[data-map-link-hint]').textContent = crossLinks ? crossLinks + ' cross-group links · select an agent to trace its work' : 'Select an agent to inspect its work and connections';
-    element.querySelector('[data-map-clear]').onclick = () => { element._focusId = null; paint(); };
-    element.querySelector('[data-map-links]').onclick = (event) => { element._showAll = !element._showAll; event.currentTarget.setAttribute('aria-pressed', String(element._showAll)); paint(); };
+    element.querySelector('[data-map-link-hint]').textContent = '';
+    const clearFocus = () => { element._focusId = null; learn(); paint(); options.onClearFocus?.(); };
+    element.querySelector('[data-map-clear]').onclick = clearFocus;
+    viewport.onclick = (event) => { if (element._focusId && !element._editing && (event.target === viewport || event.target === canvas || event.target.matches('.team-map-group'))) clearFocus(); };
+    element.querySelector('[data-map-links]').onclick = (event) => { element._showAll = !element._showAll; event.currentTarget.setAttribute('aria-pressed', String(element._showAll)); event.currentTarget.textContent = element._showAll ? 'All links' : 'Relevant links'; paint(); };
     element.querySelector('[data-map-fit]').onclick = () => {
-      element._zoom = Math.min(1.25, Math.max(.02, Math.min((viewport.clientWidth - 24) / parseFloat(canvas.style.width), (viewport.clientHeight - 24) / parseFloat(canvas.style.height))));
+      element._zoom = Math.min(1.15, Math.max(.02, Math.min((viewport.clientWidth - 24) / parseFloat(canvas.style.width), (viewport.clientHeight - 24) / parseFloat(canvas.style.height))));
       canvas.style.zoom = element._zoom; viewport.scrollTo(0, 0); element.querySelector('.team-map-zoom').textContent = Math.round(element._zoom * 100) + '%';
     };
     element.querySelector('[data-map-arrange]').onclick = () => { element._positions = arrange(element._objective); paint(); save(); };
     element.querySelectorAll('[data-map-zoom]').forEach((button) => { button.onclick = () => { element._zoom = Math.min(1.5, Math.max(.5, element._zoom + Number(button.dataset.mapZoom) * .1)); canvas.style.zoom = element._zoom; element.querySelector('.team-map-zoom').textContent = Math.round(element._zoom * 100) + '%'; }; });
     canvas.onclick = (event) => {
       const collapse = event.target.closest('[data-map-collapse]');
-      if (collapse && !element._editing) { element._collapsed.set(collapse.dataset.mapCollapse, collapse.getAttribute('aria-expanded') === 'true'); element._focusId = null; paint(); return; }
+      if (collapse && !element._editing) { element._collapsed.set(collapse.dataset.mapCollapse, collapse.getAttribute('aria-expanded') === 'true'); element._focusId = null; learn(); paint(); return; }
       const button = event.target.closest('[data-map-select]');
       if (button) {
         const agent = element._objective.assignments.find((a) => a.assignment_id === button.dataset.mapSelect);
@@ -206,7 +222,7 @@
           if (element._selected.has(agent.assignment_id)) element._selected.delete(agent.assignment_id); else element._selected.add(agent.assignment_id);
           element.querySelector('[data-group-count]').textContent = element._selected.size + ' selected'; paint(); return;
         }
-        if (!element._connecting) { element._focusId = id(agent); paint(); options.onSelect(agent.assignment_id); return; }
+        if (!element._connecting) { element._focusId = id(agent); learn(); paint(); options.onSelect(agent.assignment_id); return; }
         if (!element._source) { element._source = agent; hint('Send ' + team().name(agent, 0) + '’s results to…'); return; }
         const target = element._objective.assignments.filter((a) => id(a) === id(agent) && a.team_controls?.can_connect).sort((a, b) => (b.team_order || 0) - (a.team_order || 0))[0];
         if (!target) { hint('This agent has already started. Send it a follow-up task, then connect that queued task.'); return; }
@@ -250,7 +266,7 @@
       if (event.target.matches('[data-map-edge]') && ['Enter', ' '].includes(event.key)) { event.preventDefault(); event.target.dispatchEvent(new MouseEvent('click', { bubbles: true })); }
     };
     canvas.onkeyup = (event) => { if (element._dragging && event.key.startsWith('Arrow')) { element._dragging = false; save(); } };
-    element.onkeydown = (event) => { if (event.key === 'Escape' && (element._connecting || element._grouping)) { event.stopPropagation(); element._connecting = false; element._source = null; element.querySelector('[data-map-connect]').setAttribute('aria-pressed', 'false'); element._grouping = false; element._selected = new Set(); groupForm.hidden = true; element.querySelector('[data-map-group-mode]').setAttribute('aria-pressed', 'false'); paint(); hint('Selection cancelled.'); } };
+    element.onkeydown = (event) => { if (event.key === 'Escape' && element._focusId && !element._editing) { event.preventDefault(); event.stopPropagation(); clearFocus(); return; } if (event.key === 'Escape' && (element._connecting || element._grouping)) { event.stopPropagation(); element._connecting = false; element._source = null; element.querySelector('[data-map-connect]').setAttribute('aria-pressed', 'false'); element._grouping = false; element._selected = new Set(); groupForm.hidden = true; element.querySelector('[data-map-group-mode]').setAttribute('aria-pressed', 'false'); paint(); hint('Selection cancelled.'); } };
   }
   function dialog(title, html, objective, options) {
     document.querySelector('.team-edit-dialog')?.close();

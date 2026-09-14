@@ -233,3 +233,39 @@
 .team-map-identity > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .team-strip-open { width: calc(100% + var(--space-2)); margin-inline: calc(-1 * var(--space-1)); padding: 0; min-width: 0; }
+
+.team-map-header h2 { flex: none; }
+.team-map-overview { color: var(--muted); font-size: var(--type-label); flex: 1; }
+.team-map-attention { color: var(--amber); background: var(--glass-hi); border: 0; border-radius: var(--r-md); padding: var(--space-2) var(--space-3); font-size: var(--type-label); cursor: pointer; }
+.team-map-attention[hidden] { display: none; }
+.team-map-group.is-done { background: transparent; }
+.team-map-group.is-done strong, .team-map-group.is-done .team-group-summary { color: var(--faint); }
+.team-map-group.has-attention > header strong { color: var(--amber); }
+.team-map-group.is-muted { opacity: .45; }
+.team-map-node.is-selected { outline: 2px solid var(--accent); box-shadow: var(--shadow-md); }
+.team-map-node.is-muted { opacity: .42; }
+.team-map-identity { color: var(--faint); font-size: var(--type-caption); }
+.team-map-hint:empty { display: none; }
+.team-map-canvas { margin-inline: auto; }
+.team-map-footer .team-fit { display: inline-flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); }
+.team-map-zoom-control { position: relative; }
+.team-map-zoom-control summary { color: var(--muted); font-size: var(--type-label); cursor: pointer; padding: var(--space-2); }
+.team-map-zoom-control > div { position: absolute; bottom: 100%; right: 0; display: flex; align-items: center; gap: var(--space-2); background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--space-2); white-space: nowrap; box-shadow: var(--shadow-md); }
+.team-map [data-map-links][aria-pressed="true"] { color: var(--accent); }
+.team-attention-detail { border-left: 2px solid var(--amber); padding: var(--space-3); margin-top: var(--space-3); background: var(--glass-hi); border-radius: var(--r-sm); font-size: var(--type-label); }
+.team-attention-detail > strong { color: var(--amber); }
+.team-attention-detail p { margin: var(--space-2) 0 0; line-height: 1.5; overflow-wrap: anywhere; }
+.team-attention-detail pre { margin-top: var(--space-2); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow: auto; }
+.team-attention-detail .team-actions:empty { display: none; }
+.team-focus-context { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-2) var(--space-3); padding: var(--space-3) 0; font-size: var(--type-label); }
+.team-focus-context dt { color: var(--muted); }
+.team-focus-context dd { margin: 0; overflow-wrap: anywhere; }
+.team-focus-context code { display: block; font-size: var(--type-caption); }
+.team-focus-actions { display: flex; gap: var(--space-4); border-bottom: 1px solid var(--border); }
+.team-focus-actions button { color: var(--accent); }
+.app.team-map-active .composer:not(:has(textarea:focus)):has(textarea:placeholder-shown):not(:has(.context-hints:not(:empty))):not(:has(.composer-status:not([hidden]))) { display: flex; align-items: center; gap: var(--space-2); }
+.app.team-map-active .composer:not(:has(textarea:focus)):has(textarea:placeholder-shown) textarea { flex: 1; min-width: 0; height: 32px !important; min-height: 32px; padding-block: 0; }
+.app.team-map-active .composer:not(:has(textarea:focus)):has(textarea:placeholder-shown) .composer-toolbar { flex: none; margin: 0; }
+.app.team-map-active .composer:not(:has(textarea:focus)):has(textarea:placeholder-shown) .composer-toolbar > :not(.send):not(#ctxBtn),
+.app.team-map-active .composer:not(:has(textarea:focus)):has(textarea:placeholder-shown) #ctxBtn .ctool-txt { display: none; }
+@media (max-width: 700px) { .team-map-overview { flex-basis: 100%; order: 3; } }

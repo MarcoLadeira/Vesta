@@ -4324,7 +4324,7 @@ function peekAgentTeam(objectiveId, assignmentId) {
   state.teamAgentId = assignmentId || null;
   state.teamOpen = true;
   applyPanel();
-  if (assignmentId) $('#agentsTeam [data-team-back]')?.focus({ preventScroll: true });
+  if (assignmentId) { $('#agentsTeam').scrollTop = 0; $('#agentsTeam [data-team-back]')?.focus({ preventScroll: true }); }
 }
 function openAgentTeam(objectiveId, assignmentId) {
   if (state.view !== 'chat') switchView('chat');
@@ -4345,6 +4345,7 @@ function teamMapOptions(objective) {
     onControl: teamControl,
     onAdd: () => window.OPaiTeamMap.addDialog(objective, teamMapOptions(objective)),
     onSelect: (assignmentId) => openAgentTeam(objective.objective_id, assignmentId),
+    onClearFocus: () => { state.teamOpen = false; state.teamAgentId = null; applyPanel(); },
     onBack: () => { state.teamMapOpen = false; paintAgentTeam(); $('#input')?.focus(); },
     onDialogClose: () => paintAgentTeam(),
   };
@@ -4366,7 +4367,10 @@ function paintAgentTeam() {
   if (map) {
     map.hidden = state.view !== 'chat' || !state.teamMapOpen || !objective;
     $('#chatScroll').hidden = !map.hidden;
-    $('#app').classList.toggle('team-map-active', !map.hidden);
+    const app = $('#app'), wasMap = app.classList.contains('team-map-active');
+    if (!map.hidden && !wasMap) { map._sidebarWasHidden = app.classList.contains('sidebar-hidden'); app.classList.add('sidebar-hidden'); closeMobileSidebar(); $('#sidebarToggle').setAttribute('aria-expanded', 'false'); }
+    if (map.hidden && wasMap) { app.classList.toggle('sidebar-hidden', !!map._sidebarWasHidden); $('#sidebarToggle').setAttribute('aria-expanded', String(!isCompactShell() && !map._sidebarWasHidden)); }
+    app.classList.toggle('team-map-active', !map.hidden);
     if (!map.hidden && !document.querySelector('.team-edit-dialog[open]')) window.OPaiTeamMap.mount(map, objective, teamMapOptions(objective));
   }
   const strip = $('#agentsTeamStrip');

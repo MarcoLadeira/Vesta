@@ -107,6 +107,20 @@
       return separator + '<button type="button" class="team-shortcut" data-team-shortcut="' + esc(agent.assignment_id) + '" data-team-objective="' + esc(o.objective_id) + '" aria-label="' + esc('Open ' + label + "’s agent chat") + '" aria-pressed="' + (selectedId === agent.assignment_id && objective?.objective_id === o.objective_id) + '" title="' + esc(label + ' · ' + status + '\n' + (agent.title || agent.objective) + '\n' + (agent.group ? agent.group + ' · ' : '') + o.objective) + '">' + avatar(profileIndex(agent, index)) + '<span class="team-shortcut-status" aria-hidden="true">' + symbol + '</span></button>';
     }).join('') + '</nav>';
   }
+  function attentionHtml(agent) {
+    if (!agent.pending_approval && !['blocked', 'failed', 'needs-attention'].includes(agent.status)) return '';
+    const title = agent.pending_approval ? 'Needs your approval' : agent.status === 'failed' ? (/review|critic/i.test(agent.role || '') ? 'Review failed' : 'Task failed') : 'Waiting for a decision';
+    const reason = agent.pending_approval?.reason || agent.blocked_reason || agent.admission?.reason || agent.result?.handoff?.summary || 'No explanation was recorded. Inspect the recorded work before deciding how to continue.';
+    const approval = agent.pending_approval;
+    const evidence = approval && (approval.command || approval.files);
+    return '<section class="team-attention-detail"><strong>' + esc(title) + '</strong><p>' + esc(reason) + '</p>' + (evidence ? '<pre>' + esc(JSON.stringify(evidence, null, 2)) + '</pre>' : '') + '<div class="team-actions">' + rows(agent.allowed_actions).filter((action) => ['approve', 'retry'].includes(action)).map((action) => '<button type="button" class="btn" data-team-action="' + action + '">' + (action === 'approve' ? 'Approve once' : 'Retry') + '</button>').join('') + '</div></section>';
+  }
+  function focusContext(objective, agent) {
+    const assignments = rows(objective.assignments), parents = dependencies(agent, assignments).filter((a) => a.status !== 'completed');
+    const next = agents(objective).filter((a) => !['completed', 'cancelled'].includes(a.status) && dependencies(a, assignments).some((source) => actorId(source) === actorId(agent)));
+    const paths = rows(agent.intended_paths).slice(0, 4);
+    return '<dl class="team-focus-context">' + (paths.length ? '<dt>Task scope</dt><dd>' + paths.map((path) => '<code>' + esc(path) + '</code>').join('') + '</dd>' : '') + '<dt>Waiting on</dt><dd>' + (parents.length ? parents.map((a) => esc(name(a, assignments.indexOf(a)))).join(', ') : 'Nothing') + '</dd><dt>Next</dt><dd>' + (next.length ? 'Send completed work to ' + next.map((a) => esc(name(a, assignments.indexOf(a)))).join(', ') : 'No dependent task') + '</dd></dl><div class="team-focus-actions"><button type="button" class="team-quiet" data-team-view-work>View work</button>' + (agent.team_controls?.can_message ? '<button type="button" class="team-quiet" data-team-message-focus>Message ' + esc(name(agent, assignments.indexOf(agent))) + '</button>' : '') + '</div>';
+  }
   function panelHtml(objective, selectedId, unavailable, models) {
     const assignments = rows(objective && objective.assignments);
     const selected = assignments.find((a) => a.assignment_id === selectedId);
@@ -121,7 +135,9 @@
     if (selected) {
       const index = assignments.indexOf(selected);
       html += '<section class="team-detail" aria-label="Agent details"><button type="button" class="team-quiet" data-team-back>← Back to team</button><h3>' + esc(selected.title || selected.objective) + '</h3><header><span class="team-detail-person">' + avatar(profileIndex(selected, index)) + esc(name(selected, index)) + '</span><details class="team-name-editor"><summary>Rename</summary><form data-team-rename><label>Agent name<input name="agentName" aria-label="Agent name" maxlength="40" required value="' + esc(name(selected, index)) + '"></label><button type="submit" class="btn">Save name</button></form></details></header>';
-      html += state(selected, assignments) + connection(selected, assignments);
+      const attention = attentionHtml(selected);
+      html += attention || state(selected, assignments);
+      html += connection(selected, assignments) + focusContext(objective, selected);
       if (selected.rationale) html += '<details class="team-explanation"><summary>Why this task</summary><p>' + esc(selected.rationale) + '</p></details>';
       const conversation = conversationHtml(objective, selected);
       html += conversation ? conversation + '<details class="team-explanation"><summary>Recent work activity</summary>' + feedHtml(objective, selectedId) + '</details>' : feedHtml(objective, selectedId);
@@ -130,14 +146,12 @@
         if (selected.team_controls.can_start) html += '<button type="button" class="btn primary" data-team-start>Start agent</button>';
         html += '<form class="team-message-form" data-team-message><label>Message ' + esc(name(selected, index)) + '<textarea name="agentMessage" rows="2" maxlength="8000" required placeholder="Ask a question or give the next task…"' + (selected.team_controls.can_message ? '' : ' disabled') + '></textarea></label><div class="team-message-hint">' + (selected.team_controls.can_message ? 'Queued after current work, in this agent’s thread.' : 'Resolve the current task first, or start a new objective if this team is full.') + '</div><button type="submit" class="btn"' + (selected.team_controls.can_message ? '' : ' disabled') + '>Send to agent</button></form>';
       }
-      if (selected.pending_approval) html += '<div class="team-approval"><strong>Needs your approval</strong><p>' + esc(selected.pending_approval.reason) + '</p><pre>' + esc(JSON.stringify(selected.pending_approval.command || selected.pending_approval.files, null, 2)) + '</pre></div>';
-      if (selected.blocked_reason) html += '<p class="team-empty">' + esc(selected.blocked_reason) + '</p>';
       const findings = selected.result && selected.result.handoff && selected.result.handoff.summary;
       if (findings && !conversation) html += '<p class="team-result">' + esc(findings) + '</p>';
       if (rows(selected.changed_files).length) html += '<details class="team-explanation"><summary>' + rows(selected.changed_files).length + (selected.changed_files.length === 1 ? ' changed file' : ' changed files') + '</summary><ul>' + selected.changed_files.map((v) => '<li>' + esc(typeof v === 'string' ? v : v.path) + '</li>').join('') + '</ul></details>';
       const checks = selected.verification;
       if (checks && (checks.status || typeof checks.passed === 'boolean')) html += '<p class="team-check">Checks: ' + esc(checks.status || (checks.passed ? 'passed' : 'failed')) + '</p>';
-      html += '<div class="team-actions">' + rows(selected.allowed_actions).filter((a) => ['approve', 'retry', 'stop'].includes(a)).map((action) => '<button type="button" class="btn" data-team-action="' + action + '">' + ({ approve: 'Approve once', retry: 'Retry', stop: 'Stop agent' })[action] + '</button>').join('') + (selected.worktree ? '<button type="button" class="team-quiet" data-team-diff>Inspect diff</button>' : '') + '</div></section>';
+      html += '<div class="team-actions">' + rows(selected.allowed_actions).filter((a) => (attention ? ['stop'] : ['approve', 'retry', 'stop']).includes(a)).map((action) => '<button type="button" class="btn" data-team-action="' + action + '">' + ({ approve: 'Approve once', retry: 'Retry', stop: 'Stop agent' })[action] + '</button>').join('') + (selected.worktree ? '<button type="button" class="team-quiet" data-team-diff>Inspect diff</button>' : '') + '</div></section>';
     }
     html += '<footer class="team-footer">' + (rows(objective.allowed_actions).includes('request_review') ? '<button type="button" class="btn" data-team-review>Ask for team review</button>' : '') + '<button type="button" class="team-quiet" data-team-workspace>Full Agents workspace</button></footer>';
     return html;
@@ -215,6 +229,10 @@
     element.querySelectorAll('[data-team-select]').forEach((button) => { button.onclick = () => options.onSelect(button.dataset.teamSelect); });
     const back = element.querySelector('[data-team-back]');
     if (back) back.onclick = () => options.onSelect(null);
+    const viewWork = element.querySelector('[data-team-view-work]');
+    if (viewWork) viewWork.onclick = () => { const feed = element.querySelector('.team-conversation, .team-feed'); if (feed) { feed.tabIndex = -1; feed.scrollIntoView({ block: 'start' }); feed.focus({ preventScroll: true }); } };
+    const messageFocus = element.querySelector('[data-team-message-focus]');
+    if (messageFocus) messageFocus.onclick = () => element.querySelector('[name="agentMessage"]')?.focus();
     const diff = element.querySelector('[data-team-diff]');
     if (diff) diff.onclick = () => options.onArtifact({ objective_id: objective.objective_id, assignment_id: selectedId, kind: 'diff' });
     const workspace = element.querySelector('[data-team-workspace]');
@@ -250,5 +268,5 @@
     element._teamPending = null;
   }
   function assignmentsFor(objective) { return rows(objective && objective.assignments); }
-  global.OPaiAgentsTeam = { feedHtml, panelHtml, mountPanel, stripHtml, name, avatar, agents, actorId, modelOptions, state, settle, conversationHtml, activities };
+  global.OPaiAgentsTeam = { feedHtml, panelHtml, mountPanel, stripHtml, name, avatar, agents, actorId, modelOptions, state, settle, conversationHtml, activities, attentionHtml };
 })(typeof window !== "undefined" ? window : globalThis);
