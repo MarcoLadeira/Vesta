@@ -55,6 +55,8 @@ const state = {
   model: { id: "auto", label: "Auto", kind: "auto" },
   mode: { id: "safe-auto", label: "Safe Auto" },
   focus: "general", format: "normal",
+  multiAgentEnabled: false, agentsAllowCloud: false, agentsMaxParallel: 2, agentsSizing: "automatic", agentsBudgetUsd: "", agentsSnapshot: null, agentsSelection: null, agentsPollTimer: null, agentsRequests: new Map(),
+  teamOpen: false, teamMapOpen: false, teamObjectiveId: null, teamAgentId: null, teamPollTimer: null, teamRequest: null, teamRefreshError: '', teamDiscovered: false,
   // Hidden until the boot payload (or the user) says otherwise, matching
   // gui_preferences' documented default. Starting true meant the shell
   // painted an empty inspector before any preference was known -- and, with
@@ -336,6 +338,16 @@ function applyBootSelection(b) {
   state.bypassPermissions = b.prefs.bypassPermissions === true;
   state.focus = b.prefs.focus || "general";
   state.format = b.prefs.format || "normal";
+  state.multiAgentEnabled = b.prefs.multiAgentEnabled === true && b.agentsRuntime?.supported !== false;
+  state.agentsAllowCloud = false;
+  state.agentsMaxParallel = 2;
+  state.agentsSizing = "automatic";
+  state.agentsBudgetUsd = "";
+  state.teamOpen = false;
+  state.teamObjectiveId = null;
+  state.teamAgentId = null;
+  state.teamMapOpen = false;
+  state.teamDiscovered = false;
   const m = (b.models || []).find((x) => x.id === b.selectedModel) || (b.models || [])[0];
   if (m) state.model = { ...m, advancedLabel: m.advanced_label };
   const md = (b.modes || []).find((x) => x.id === b.prefs.mode) || (b.modes || [])[0];
@@ -463,6 +475,8 @@ function boot() {
   if (bridge.connectionDoctorReady) bridge.connectionDoctorReady.connect(onConnectionDoctorReady);
   // #146: async data delivery — heavy payloads computed off the GUI thread.
   if (bridge.dashboardReady) bridge.dashboardReady.connect(onDashboardReady);
+  if (bridge.objectiveReady) bridge.objectiveReady.connect(onObjectiveReady);
+  if (bridge.objectiveControlReady) bridge.objectiveControlReady.connect(onObjectiveControlReady);
   if (bridge.settingsReady) bridge.settingsReady.connect(onSettingsReady);
   if (bridge.statusReady) bridge.statusReady.connect(onStatusReady);
   if (bridge.workspaceReady) bridge.workspaceReady.connect(onWorkspaceReady);
@@ -753,6 +767,14 @@ function wireUpdateSheet() {
 }
 
 function rebootFromState() {
+  clearTimeout(state.agentsPollTimer);
+  clearTimeout(state.teamPollTimer);
+  state.teamPollTimer = null;
+  state.teamRequest = null;
+  state.teamRefreshError = '';
+  state.agentsSnapshot = null;
+  state.agentsSelection = null;
+  state.agentsRequests.clear();
   state.dashRequest = null;
   state.settingsRequest = null;
   state.statusRequest = null;
@@ -803,6 +825,8 @@ function updateSendLabel() {
   updateComposerAvailability();
 }
 function submitComposer() {
+  const recipient = composerAgent();
+  if (recipient) { sendAgentMessage(recipient); return; }
   if (composerBlockReason()) return;
   const text = $("#input").value.trim();
   // A sent prompt starts history over, so the next Up recalls what was just
@@ -1178,7 +1202,7 @@ function renderComposerSelects() {
     // immediately, then let the asynchronous status refresh fill in its
     // independently computed spend and savings values. This avoids showing the
     // previous (potentially more permissive) mode while that refresh is in flight.
-    renderStatus({ line: $("#statusLine").textContent });
+    renderStatus({ line: state.statusLineSource || "" });
     renderComposerContext(); refreshInspector(); refreshStatus();
   };
   renderModelSelect();
@@ -1374,6 +1398,15 @@ function raiseTheLights(resume) {
 }
 
 function composerBlockReason() {
+  const recipient = composerAgent();
+  if (recipient) {
+    if (!recipient.agent?.team_controls?.can_message) return 'This agent cannot receive a follow-up yet. Resolve its current task or choose To: Team.';
+    if (typeof bridge.controlObjective !== 'function') return 'Agent messaging is unavailable in this host.';
+    if (teamComposer.pending) return 'Waiting for the message to be queued…';
+    if (state.contextHints.length) return 'Agent follow-ups use their existing task context. Remove attached context or choose To: Team.';
+    if ($('#input').value.trim().length > 8000) return 'Keep agent messages within 8,000 characters.';
+    return $('#input').value.trim() ? '' : EMPTY_PROMPT_REASON;
+  }
   if (state.resumePending) return "Choose how to continue this saved session before sending.";
   if (selectedAccountNeedsConnection()) {
     return `Connect ${state.model.provider ? providerName(state.model.provider) : "this provider"} before sending.`;
@@ -1418,6 +1451,13 @@ function updateComposerAvailability() {
   // availability change (typing, mode/model change, send lifecycle).
   if (window.OPaiComposer) window.OPaiComposer.refresh();
   const blocked = composerBlockReason();
+  if (composerAgent()) {
+    send.textContent = 'Send'; send.classList.remove('stop'); send.disabled = !!blocked; send.setAttribute('aria-label', 'Send to selected agent');
+    $('#composerStatus').hidden = true;
+    reason.textContent = blocked === EMPTY_PROMPT_REASON ? '' : blocked; reason.dataset.tone = 'hint';
+    return;
+  }
+  send.textContent = state.busy ? 'Stop' : ((state.buildMode && state.buildApp) ? 'Build' : 'Send'); send.classList.toggle('stop', state.busy);
   if (state.busy) { send.disabled = false; reason.innerHTML = ""; delete reason.dataset.tone; return; }
   send.disabled = Boolean(blocked);
   send.setAttribute("aria-label", (state.buildMode && state.buildApp) ? "Start build" : "Send prompt");
@@ -1722,18 +1762,23 @@ function updateInspectorLive(stepText) {
 
 function renderStatus(st) {
   if (!st) return;
-  const segments = String(st.line || "").split(" · ");
-  // Mode is selected locally, while the rest of this line (provider, spend,
-  // savings) is supplied by the backend. Keep the only immediately knowable
-  // value authoritative even if a queued status response was generated before
-  // the user changed modes.
-  if (segments.length >= 2 && state.mode) segments[1] = modePresentationLabel(state.mode);
-  $("#statusLine").innerHTML = esc(segments.join(" · ")).replace(/^([^·]+)/, "<b>$1</b>");
+  state.statusLineSource = String(st.line || "");
+  const segments = state.statusLineSource.split(" · ");
+  if (segments.length >= 3 && state.mode) {
+    const label = modePresentationLabel(state.mode) + ' mode' + (state.bypassPermissions ? ' · Bypass on' : '');
+    $('#statusLine').innerHTML = '<b>' + esc(label) + '</b>' + segments.slice(2).map((value) => ' · ' + (/saved$/.test(value) ? '<strong class="status-savings">' + esc(value) + '</strong>' : esc(value))).join('');
+  } else $('#statusLine').textContent = st.line || '';
+
 }
 
 /* ---------- views ---------- */
 function switchView(id) {
+  if (state.view !== id) state.teamOpen = false;
+  clearTimeout(state.agentsPollTimer);
+  state.dashRequest = null;
+  state.dashPaint = null;
   state.view = id;
+  applyPanel();
   closeMobileSidebar();
   // If the destination lives inside a folded group, unfold it so the active
   // item is visible (e.g. jumping to an Insights page from the palette).
@@ -1754,6 +1799,7 @@ function switchView(id) {
   else if (id === "prompts") loadPrompts();
   else if (id === "settings") renderSettings();
   else $("#input").focus();
+  updateTeamComposerClearance();
 }
 
 /* ---------- chat ---------- */
@@ -1779,8 +1825,12 @@ function renderEmptyChips() {
   $$("#chips .chip").forEach((b) => (b.onclick = () => { setComposerDraft(b.dataset.p); send(); }));
 }
 function clearChat() {
+  state.teamMapOpen = false;
+  if ($("#teamMap")) $("#teamMap").hidden = true;
+  $("#chatScroll").hidden = false;
+  document.querySelector(".team-edit-dialog")?.close();
   const t = $("#thread");
-  t.querySelectorAll(".msg").forEach((m) => m.remove());
+  t.querySelectorAll(".msg, .chat-timestamp").forEach((m) => m.remove());
   $("#empty").style.display = "";
   state.followLatest = true;
   state.tlNodes = null;
@@ -1886,7 +1936,7 @@ function renderConversation(conv) {
     messages.forEach((m) => {
       const text = String(m.text || "");
       if (m.role === "user") {
-        appendMsg(userMessageHtml(text), "user");
+        appendMsg(userMessageHtml(text), "user", m.timestamp || null);
         return;
       }
       const el = appendMsg(
@@ -2081,7 +2131,7 @@ function buildResultHtml(r) {
   const msg = (r.error && (r.error.userMessage || r.error)) || r.answer || status;
   return `<div class="build-card error" role="group" aria-label="Build failed"><div class="bres-t">${uiIcon("error")} ${esc(String(msg)).slice(0, 400)}</div></div>`;
 }
-function appendMsg(html, cls) {
+function appendMsg(html, cls, timestamp) {
   $("#empty").style.display = "none";
   // Every path that puts a message on screen lights the room, not just send():
   // slash commands, a restored session and a queued message all arrive here.
@@ -2092,7 +2142,18 @@ function appendMsg(html, cls) {
   // animation at that point instead, which is the same stutter one frame late.
   d.className = "msg " + (cls || "") + (chatBatchDepth > 0 ? " no-entry" : "");
   d.innerHTML = html;
-  withChatScrollPreserved(() => $("#thread").appendChild(d));
+  withChatScrollPreserved(() => {
+    const thread = $("#thread");
+    const stamp = cls === "user" && window.OPaiChatTime?.stamp(timestamp === undefined ? new Date() : timestamp);
+    const previous = thread.querySelector(':scope > .chat-timestamp:last-of-type');
+    if (stamp && previous?.dataset.minute !== String(stamp.minute)) {
+      const time = document.createElement('time');
+      time.className = 'chat-timestamp'; time.dateTime = stamp.iso; time.title = stamp.title;
+      time.dataset.minute = stamp.minute; time.textContent = stamp.label;
+      thread.appendChild(time);
+    }
+    thread.appendChild(d);
+  });
   return d;
 }
 function roleHeader(label, color, opts) {
@@ -2154,15 +2215,33 @@ function send(retryOf) {
   const sel = retryOf || {
     text, model: state.model.id, mode: state.mode.id, focus: state.focus, format: state.format,
     modelKind: state.model.kind, modelLabel: state.model.label, modelProvider: state.model.provider,
+    multiAgentEnabled: state.multiAgentEnabled === true,
+    maxParallel: state.agentsMaxParallel,
+    budgetUsd: state.agentsBudgetUsd.trim() || null,
+    bypassPermissions: state.bypassPermissions === true,
+    allowCloud: state.multiAgentEnabled === true && state.agentsAllowCloud === true,
     contextHints: state.contextHints.slice(),
   };
+  if (sel.multiAgentEnabled) {
+    if (state.boot.agentsRuntime?.supported === false) {
+      toast(state.boot.agentsRuntime.reason || "Multi-agent execution is unavailable on this host.");
+      return;
+    }
+    try {
+      Object.assign(sel, window.OPaiAgentsWorkspace.runSettings(sel.maxParallel ?? 2, sel.budgetUsd ?? null));
+    } catch (error) {
+      toast(error.message);
+      return;
+    }
+  }
   // Free-tier consent: one confirmation per provider, ever. If the user has
   // already confirmed this free model in the past (persisted per workspace),
   // send with allowCloud=true up front — no card. Otherwise the pipeline
   // returns needs_free_confirmation and the in-chat card handles it.
-  if (sel.modelKind === "free" && sel.allowCloud !== true && state.freeConsent && state.freeConsent.has(sel.model)) {
+  if (!sel.multiAgentEnabled && sel.modelKind === "free" && sel.allowCloud !== true && state.freeConsent && state.freeConsent.has(sel.model)) {
     sel.allowCloud = true;
   }
+  if (!retryOf && sel.multiAgentEnabled) state.agentsAllowCloud = false;
   if (!retryOf) setComposerDraft("");
   state.lastSend = sel;
   if (!retryOf) {
@@ -2204,6 +2283,10 @@ function send(retryOf) {
   bridge.send(JSON.stringify({
     requestId, text: requestText, model: sel.model, mode: sel.mode, focus: sel.focus,
     format: sel.format, allowCloud: sel.allowCloud === true, allowLimit: sel.allowLimit === true,
+    bypassPermissions: sel.bypassPermissions === true,
+    multiAgentEnabled: sel.multiAgentEnabled === true,
+    maxParallel: sel.multiAgentEnabled ? sel.maxParallel : undefined,
+    budgetUsd: sel.multiAgentEnabled ? sel.budgetUsd : undefined,
     contextHints,
     // F9/F17: one-time approval for a policy-blocked command — the exact
     // string echoed by the pipeline, never a rewritten one. Omitted unless set.
@@ -4058,14 +4141,17 @@ function setBusy(on) {
 }
 
 /* ---------- dashboards ---------- */
-function renderDashboard(section) {
+function renderDashboard(section, quiet = false) {
+  clearTimeout(state.agentsPollTimer);
+  const workspaceRoot = (state.boot.workspace || {}).root;
   const page = $("#dashPage");
-  renderViewState(page, {
+  if (!quiet) renderViewState(page, {
     kind: "loading",
     title: "Loading dashboard",
     reason: "Waiting for locally prepared dashboard data.",
   });
   const paint = (json) => {
+    if (state.view !== section || (state.boot.workspace || {}).root !== workspaceRoot) return;
     let s = {};
     try { s = JSON.parse(json); } catch (_e) {
       renderViewState(page, {
@@ -4105,6 +4191,14 @@ function renderDashboard(section) {
         action: "open_chat",
         actionLabel: "Open chat",
       }, () => switchView("chat"));
+      return;
+    }
+    if (section === "agents" && window.OPaiAgentsWorkspace) {
+      mergeAgentsSnapshot(s);
+      paintAgentsWorkspace();
+      state.agentsPollTimer = setTimeout(() => {
+        if (state.view === "agents" && (state.boot.workspace || {}).root === workspaceRoot) renderDashboard("agents", true);
+      }, 3000);
       return;
     }
     if (!s.hero && !(s.kpis || []).length && !(s.cards || []).length && !(s.actions || []).length) {
@@ -4155,12 +4249,341 @@ function onDashboardReady(json) {
     if (state.dashPaint) state.dashPaint("");
     return;
   }
+  if (d?.requestId && d.requestId === state.teamRequest?.id) { receiveAgentTeam(d); return; }
   if (!state.dashPaint || !d || typeof d !== "object" || Array.isArray(d) || d.requestId !== state.dashRequest) return; // stale
+  if (d.workspaceRoot && d.workspaceRoot !== (state.boot.workspace || {}).root) return;
   if (!Object.prototype.hasOwnProperty.call(d, "data") || !d.data || typeof d.data !== "object" || Array.isArray(d.data)) {
     state.dashPaint("");
     return;
   }
   state.dashPaint(JSON.stringify(d.data));
+}
+function inspectAgentArtifact(payload) {
+  if (!bridge.inspectObjectiveArtifact) { toast("Artifact inspection is unavailable in this host."); return; }
+  const workspaceRoot = (state.boot.workspace || {}).root;
+  bridge.inspectObjectiveArtifact(JSON.stringify(payload), (json) => {
+    let result; try { result = JSON.parse(json); } catch (_) { result = {}; }
+    if (workspaceRoot !== (state.boot.workspace || {}).root) return;
+    if (!result.ok) { toast(safeStateReason(result.error, "No matching artifact is available.")); return; }
+    if (result.workspaceRoot !== workspaceRoot || result.kind !== payload.kind || result.objective_id !== payload.objective_id || (result.assignment_id || "") !== (payload.assignment_id || "")) return;
+    const dialog = document.createElement("dialog");
+    dialog.className = "agents-artifact-dialog";
+    const returnFocus = document.activeElement;
+    const header = document.createElement("header");
+    const title = document.createElement("h3");
+    title.id = "agents-artifact-title";
+    title.textContent = result.summary || "Recorded changes";
+    dialog.setAttribute("aria-labelledby", title.id);
+    const close = document.createElement("button");
+    close.type = "button"; close.className = "btn"; close.textContent = "Close"; close.onclick = () => dialog.close();
+    const description = document.createElement("p");
+    description.textContent = "Base " + result.base_sha + " · Head " + result.head_sha + (result.truncated ? " · Preview truncated; open the worktree for the full diff." : "");
+    const preview = document.createElement("pre");
+    preview.tabIndex = 0;
+    preview.setAttribute("aria-label", "Recorded diff");
+    preview.textContent = result.text || "No changes in this recorded diff.";
+    header.append(title, close);
+    dialog.append(header, description, preview);
+    dialog.onclose = () => {
+      dialog.remove();
+      if (returnFocus && returnFocus.isConnected) returnFocus.focus({ preventScroll: true });
+    };
+    document.body.append(dialog); dialog.showModal(); close.focus();
+  });
+}
+function paintAgentsWorkspace() {
+  paintAgentChatCards();
+  paintAgentTeam();
+  if (state.view !== "agents" || !state.agentsSnapshot) return;
+  if (document.querySelector('.agents-artifact-dialog[open]')) return;
+  window.OPaiAgentsWorkspace.mount($("#dashPage"), state.agentsSnapshot, {
+    selection: state.agentsSelection,
+    onAction: runAction,
+    onBackToChat: () => openAgentTeam(state.agentsSelection?.objectiveId, state.agentsSelection?.assignmentId),
+    onCopyReceipt: (receipt) => { copyText(JSON.stringify(receipt, null, 2)); toast("Receipt copied."); },
+    onInspectArtifact: inspectAgentArtifact,
+    onOpenWorktree: (payload) => {
+      if (!bridge.openObjectiveWorktree) { toast("Worktree access is unavailable in this host."); return; }
+      bridge.openObjectiveWorktree(JSON.stringify(payload), (json) => {
+        let result; try { result = JSON.parse(json); } catch (_) { result = {}; }
+        if (!result.ok) toast(safeStateReason(result.error, "The worktree could not be opened."));
+      });
+    },
+    onSelect: (selection) => { state.agentsSelection = selection; paintAgentsWorkspace(); },
+    onControl: (payload) => {
+      if (bridge.controlObjective) bridge.controlObjective(JSON.stringify(payload));
+      else toast("Objective controls are unavailable in this host.");
+    },
+  });
+}
+function paintAgentChatCards() {
+  if (!window.OPaiAgentsWorkspace) return;
+  const scroll = captureChatScroll();
+  document.querySelectorAll("[data-agent-chat-objective]").forEach((element) => {
+    const objective = ((state.agentsSnapshot || {}).objectives || []).find((o) => o.objective_id === element.dataset.agentChatObjective);
+    if (!objective) return;
+    const html = window.OPaiAgentsWorkspace.renderCompact(objective) + (window.OPaiAgentsTeam ? window.OPaiAgentsTeam.feedHtml(objective) : '');
+    if (element._agentsHtml === html) return;
+    const active = element.contains(document.activeElement) ? document.activeElement : null;
+    const focused = active ? JSON.stringify({ ...active.dataset }) : null;
+    element.innerHTML = html;
+    element._agentsHtml = html;
+    element.querySelectorAll('[data-team-select]').forEach((button) => {
+      button.onclick = () => openAgentTeam(objective.objective_id, button.dataset.teamSelect);
+    });
+    const team = element.querySelector('[data-open-team]');
+    if (team) team.onclick = () => openAgentTeam(objective.objective_id);
+    if (focused) Array.from(element.querySelectorAll('button')).find((button) => JSON.stringify({ ...button.dataset }) === focused)?.focus({ preventScroll: true });
+  });
+  restoreChatScroll(scroll);
+}
+function peekAgentTeam(objectiveId, assignmentId) {
+  state.teamObjectiveId = objectiveId;
+  state.teamAgentId = assignmentId || null;
+  state.teamOpen = true;
+  applyPanel();
+  if (assignmentId) { $('#agentsTeam').scrollTop = 0; $('#agentsTeam [data-team-close]')?.focus({ preventScroll: true }); }
+}
+function openAgentTeam(objectiveId, assignmentId) {
+  if (state.view !== 'chat') switchView('chat');
+  peekAgentTeam(objectiveId, assignmentId);
+}
+const teamComposer = { root: null, key: 'team', drafts: new Map(), pending: null, placeholder: '' };
+function composerAgent() {
+  if (state.view !== 'chat' || !state.teamMapOpen || !state.teamOpen || !state.teamAgentId) return null;
+  const objective = (state.agentsSnapshot?.objectives || []).find((o) => o.objective_id === state.teamObjectiveId);
+  return { objective, agent: objective?.assignments?.find((a) => a.assignment_id === state.teamAgentId) };
+}
+function syncTeamRecipient(objective) {
+  const select = $('#teamRecipient'), input = $('#input'), root = state.boot.workspace?.root;
+  if (!select || !input) return;
+  const enabled = state.view === 'chat' && state.teamMapOpen && !!objective;
+  if (teamComposer.root !== root) { if (teamComposer.key !== 'team') input.value = ''; teamComposer.root = root; teamComposer.key = 'team'; teamComposer.drafts.clear(); teamComposer.pending = null; }
+  const target = composerAgent(), agent = target?.agent;
+  const key = target ? JSON.stringify([objective?.objective_id, agent?.agent_id || state.teamAgentId]) : 'team';
+  if (key !== teamComposer.key) {
+    teamComposer.drafts.set(teamComposer.key, input.value);
+    teamComposer.key = key; input.value = teamComposer.drafts.get(key) || ''; autoSize(); historyReset();
+  }
+  while (teamComposer.drafts.size > 96) { const oldest = [...teamComposer.drafts.keys()].find((k) => k !== 'team' && k !== key); if (!oldest) break; teamComposer.drafts.delete(oldest); }
+  if (!teamComposer.placeholder) teamComposer.placeholder = input.placeholder;
+  select.hidden = !enabled;
+  const people = window.OPaiAgentsTeam.agents(objective);
+  const html = '<option value="">To: Team</option>' + people.map((a, index) => '<option value="' + esc(a.assignment_id) + '">To: ' + esc(window.OPaiAgentsTeam.name(a, index)) + '</option>').join('') + (target && agent && !people.some((a) => a.assignment_id === agent.assignment_id) ? '<option value="' + esc(agent.assignment_id) + '">To: ' + esc(window.OPaiAgentsTeam.name(agent, 0)) + '</option>' : '') + (target && !agent ? '<option value="' + esc(state.teamAgentId) + '">Agent unavailable</option>' : '');
+  if (select._options !== html) { select.innerHTML = html; select._options = html; }
+  select.value = target ? state.teamAgentId : '';
+  select.onchange = () => {
+    state.teamAgentId = select.value || null; state.teamOpen = !!select.value;
+    if (!select.value) { const map = $('#teamMap'); if (map) map._focusId = null; }
+    applyPanel(); input.focus();
+  };
+  $('#composer').classList.toggle('to-agent', !!target);
+  input.placeholder = target ? 'Ask ' + (agent ? window.OPaiAgentsTeam.name(agent, 0) : 'this agent') + ' · queued after the current task…' : enabled ? 'Give your team a new objective…' : teamComposer.placeholder;
+  updateComposerAvailability();
+}
+function sendAgentMessage(target) {
+  const message = $('#input').value.trim();
+  if (composerBlockReason() || !target.agent || !target.objective) return;
+  const request = { objective_id: target.objective.objective_id, assignment_id: target.agent.assignment_id, action: 'agent_message', value: { revision: target.objective.team_revision || 0, message } };
+  teamComposer.pending = { ...request, key: teamComposer.key, name: window.OPaiAgentsTeam.name(target.agent, 0), root: state.boot.workspace?.root };
+  teamComposer.drafts.set(teamComposer.key, $('#input').value);
+  try { teamControl(request); } catch (_) { teamComposer.pending = null; toast('Could not queue the message. Your draft is still here.'); }
+  updateComposerAvailability();
+}
+function settleTeamMessage(response) {
+  const pending = teamComposer.pending, control = response.control;
+  if (!pending || pending.root !== response.workspaceRoot || control?.action !== 'agent_message' || control.assignment_id !== pending.assignment_id || control.revision !== pending.value.revision || (response.objective?.objective_id || control.objective_id) !== pending.objective_id) return;
+  teamComposer.pending = null;
+  if (response.ok) {
+    if (teamComposer.drafts.get(pending.key)?.trim() === pending.value.message) teamComposer.drafts.delete(pending.key);
+    if (teamComposer.key === pending.key && $('#input').value.trim() === pending.value.message) { $('#input').value = ''; autoSize(); }
+    toast('Queued for ' + pending.name + ' · starts after the current task.');
+  }
+  updateComposerAvailability();
+}
+function teamModels() {
+  return Array.from($('#modelSel')?.options || []).filter((o) => !o.disabled).map((o) => ({ value: o.value, label: o.value === 'auto' ? 'Auto model' : o.textContent }));
+}
+function teamControl(payload) {
+  if (bridge.controlObjective) bridge.controlObjective(JSON.stringify(payload));
+  else toast('Team controls are unavailable in this host.');
+}
+function teamMapOptions(objective) {
+  const root = state.boot.workspace?.root;
+  return {
+    models: teamModels(), selectedId: state.teamOpen ? state.teamAgentId : null,
+    getObjective: () => root === state.boot.workspace?.root && ((state.agentsSnapshot || {}).objectives || []).find((o) => o.objective_id === objective.objective_id),
+    onControl: teamControl,
+    onAdd: () => window.OPaiTeamMap.addDialog(objective, teamMapOptions(objective)),
+    onSelect: (assignmentId) => openAgentTeam(objective.objective_id, assignmentId),
+    onAgentOptions: () => { const menu = $('#agentsTeam .team-agent-menu'); if (menu) { menu.open = true; menu.querySelector('summary').focus(); } },
+    onClearFocus: () => { state.teamOpen = false; state.teamAgentId = null; applyPanel(); },
+    onBack: () => { state.teamMapOpen = false; paintAgentTeam(); $('#input')?.focus(); },
+    onDialogClose: () => paintAgentTeam(),
+  };
+}
+function openTeamMap(objective) {
+  if (!objective) return;
+  if (state.view !== 'chat') switchView('chat');
+  $('#teamMap')?._stopEditing?.();
+  state.teamMapOpen = true; state.teamObjectiveId = objective.objective_id;
+  state.teamOpen = false; applyPanel();
+  $('#teamMap [data-map-back]')?.focus();
+}
+function paintAgentTeam() {
+  const element = $('#agentsTeam');
+  if (!element || !window.OPaiAgentsTeam) return;
+  const objectives = (state.agentsSnapshot || {}).objectives || [];
+  const objective = objectives.find((o) => o.objective_id === state.teamObjectiveId) || objectives[0];
+  const map = $('#teamMap');
+  if (map) {
+    map.hidden = state.view !== 'chat' || !state.teamMapOpen || !objective;
+    $('#chatScroll').hidden = !map.hidden;
+    const app = $('#app'), wasMap = app.classList.contains('team-map-active');
+    if (!map.hidden && !wasMap) { map._sidebarWasHidden = app.classList.contains('sidebar-hidden'); app.classList.add('sidebar-hidden'); closeMobileSidebar(); $('#sidebarToggle').setAttribute('aria-expanded', 'false'); }
+    if (map.hidden && wasMap) { app.classList.toggle('sidebar-hidden', !!map._sidebarWasHidden); $('#sidebarToggle').setAttribute('aria-expanded', String(!isCompactShell() && !map._sidebarWasHidden)); }
+    app.classList.toggle('team-map-active', !map.hidden);
+    syncTeamRecipient(objective);
+    if (!map.hidden && !document.querySelector('.team-edit-dialog[open]')) window.OPaiTeamMap.mount(map, objective, teamMapOptions(objective));
+  }
+  const strip = $('#agentsTeamStrip');
+  if (strip && !strip.hidden) {
+    const html = window.OPaiAgentsTeam.stripHtml(objective, objectives, state.teamOpen ? state.teamAgentId : null);
+    if (strip._teamHtml !== html) {
+      const focused = strip.contains(document.activeElement) ? document.activeElement : null;
+      const shortcut = focused?.dataset.teamShortcut, focusedObjective = focused?.dataset.teamObjective;
+      const scrollTop = strip.querySelector('.team-shortcuts')?.scrollTop || 0;
+      strip.innerHTML = html; strip._teamHtml = html;
+      strip.querySelector('.team-shortcuts').scrollTop = scrollTop;
+      if (focused) (Array.from(strip.querySelectorAll('[data-team-shortcut]')).find((b) => b.dataset.teamShortcut === shortcut && b.dataset.teamObjective === focusedObjective) || strip.querySelector('button')).focus({ preventScroll: true });
+    }
+    strip.querySelector('.team-strip-open').onclick = () => peekAgentTeam(objective?.objective_id);
+    strip.querySelectorAll('[data-team-shortcut]').forEach((button) => { button.onclick = () => peekAgentTeam(button.dataset.teamObjective, button.dataset.teamShortcut); });
+  }
+  if (element.hidden || document.querySelector('.agents-artifact-dialog[open]')) return;
+  if (objective) state.teamObjectiveId = objective.objective_id;
+  window.OPaiAgentsTeam.mountPanel(element, objective, state.teamAgentId, {
+    unavailable: state.teamRefreshError || (state.boot.agentsRuntime?.supported === false ? state.boot.agentsRuntime.reason : ''),
+    onClose: () => { state.teamOpen = false; applyPanel(); $('#agentsTeamStrip .team-strip-open')?.focus(); },
+    onSelect: (assignmentId) => {
+      const previous = state.teamAgentId;
+      state.teamAgentId = assignmentId; paintAgentTeam();
+      if (assignmentId) element.querySelector('[data-team-close]')?.focus({ preventScroll: true });
+      else Array.from(element.querySelectorAll('.team-person')).find((b) => b.dataset.teamSelect === previous)?.focus({ preventScroll: true });
+      element.scrollTop = 0;
+    },
+    models: teamModels(), unifiedComposer: state.view === 'chat' && state.teamMapOpen,
+    onMap: () => openTeamMap(objective),
+    onAdd: () => window.OPaiTeamMap.addDialog(objective, teamMapOptions(objective)),
+    onArtifact: inspectAgentArtifact,
+    onInspect: (assignmentId) => {
+      state.agentsSelection = { objectiveId: objective.objective_id, assignmentId };
+      switchView('agents'); paintAgentsWorkspace();
+    },
+    onControl: teamControl,
+  });
+}
+function mergeAgentsSnapshot(snapshot) {
+  const current = (state.agentsSnapshot || {}).objectives || [];
+  const merged = (Array.isArray(snapshot.objectives) ? snapshot.objectives : []).map((objective) => {
+    const previous = current.find((item) => item.objective_id === objective.objective_id);
+    return previous && objectiveRevision(previous) > objectiveRevision(objective) ? previous : objective;
+  });
+  current.forEach((objective) => {
+    if (!merged.some((item) => item.objective_id === objective.objective_id)) merged.push(objective);
+  });
+  state.agentsSnapshot = { ...snapshot, objectives: merged };
+}
+function wantsAgentTeamUpdates() {
+  const active = ((state.agentsSnapshot || {}).objectives || []).some((o) => ['planning', 'ready', 'running', 'stopping'].includes(o.status));
+  return !state.teamDiscovered || state.teamOpen || active || (state.view === 'chat' && (state.teamMapOpen || !!document.querySelector('[data-agent-chat-objective]')));
+}
+function syncAgentTeamPolling() {
+  if (!wantsAgentTeamUpdates()) {
+    clearTimeout(state.teamPollTimer);
+    state.teamPollTimer = null;
+    state.teamRequest = null;
+  } else if (!state.teamPollTimer && !state.teamRequest) refreshAgentTeam();
+}
+function refreshAgentTeam() {
+  state.teamPollTimer = null;
+  if (!wantsAgentTeamUpdates() || !bridge || (!bridge.requestDashboard && !bridge.dashboard)) return;
+  const request = { id: `team-${Date.now()}-${Math.random().toString(16).slice(2)}`, root: state.boot.workspace?.root };
+  state.teamRequest = request;
+  state.teamPollTimer = setTimeout(() => receiveAgentTeam({ requestId: request.id, data: null }), 15000);
+  if (bridge.requestDashboard && bridge.dashboardReady) bridge.requestDashboard('agents', request.id);
+  else bridge.dashboard('agents', (json) => {
+    let data = null; try { data = JSON.parse(json); } catch (_) {}
+    receiveAgentTeam({ requestId: request.id, workspaceRoot: request.root, data });
+  });
+}
+function receiveAgentTeam(response) {
+  const request = state.teamRequest;
+  if (!request || response.requestId !== request.id || request.root !== state.boot.workspace?.root) return;
+  if (response.workspaceRoot && response.workspaceRoot !== request.root) return;
+  clearTimeout(state.teamPollTimer);
+  state.teamRequest = null;
+  const snapshot = response.data;
+  const valid = snapshot && !snapshot.error && !snapshot.degraded && Array.isArray(snapshot.objectives);
+  state.teamRefreshError = valid ? '' : 'Team updates are temporarily unavailable. Reconnecting…';
+  state.teamDiscovered = true;
+  if (valid) mergeAgentsSnapshot(snapshot);
+  paintAgentChatCards(); paintAgentTeam();
+  state.teamPollTimer = wantsAgentTeamUpdates() ? setTimeout(refreshAgentTeam, valid ? 3000 : 5000) : null;
+}
+function objectiveRevision(objective) {
+  return Number.isSafeInteger(objective.revision) && objective.revision >= 0 ? objective.revision : 0;
+}
+function applyObjectiveSnapshot(objective) {
+  if (!objective || typeof objective.objective_id !== "string") return false;
+  const snapshot = state.agentsSnapshot || {};
+  const objectives = Array.isArray(snapshot.objectives) ? snapshot.objectives.slice() : [];
+  const index = objectives.findIndex((o) => o.objective_id === objective.objective_id);
+  if (index >= 0 && objectiveRevision(objectives[index]) > objectiveRevision(objective)) return false;
+  if (index < 0) objectives.unshift(objective); else objectives[index] = objective;
+  state.agentsSnapshot = { ...snapshot, objectives };
+  return true;
+}
+function onObjectiveReady(json) {
+  let d; try { d = JSON.parse(json); } catch (_e) { return; }
+  if (!d || d.workspaceRoot !== (state.boot.workspace || {}).root) return;
+  const initial = d.requestId === state.currentRequest && state.lastSend && state.lastSend.multiAgentEnabled;
+  const knownObjective = state.agentsRequests.get(d.requestId);
+  if (!initial && (!knownObjective || knownObjective !== (d.objective || {}).objective_id)) return;
+  if (!applyObjectiveSnapshot(d.objective)) return;
+  if (!initial) { paintAgentsWorkspace(); return; }
+  state.agentsRequests.set(d.requestId, d.objective.objective_id);
+  state.agentsSelection = { objectiveId: d.objective.objective_id };
+  state.teamObjectiveId = d.objective.objective_id;
+  state.teamAgentId = null;
+  state.teamMapOpen = false;
+  state.teamOpen = true;
+  stopTimer(); cancelTokenRender();
+  state.currentRequest = null;
+  state.message = null;
+  $("#statusStrip").hidden = true;
+  if (state.pending) {
+    state.pending.innerHTML = '';
+    state.pending.dataset.agentChatObjective = d.objective.objective_id;
+    paintAgentChatCards();
+  }
+  state.pending = null;
+  setBusy(false);
+  applyPanel();
+  paintAgentsWorkspace();
+}
+function onObjectiveControlReady(json) {
+  let d; try { d = JSON.parse(json); } catch (_e) { return; }
+  if (!d || d.workspaceRoot !== (state.boot.workspace || {}).root) return;
+  settleTeamMessage(d);
+  window.OPaiTeamMap?.settle(d);
+  window.OPaiAgentsTeam?.settle($('#agentsTeam'), d);
+  if (!d.ok) { toast(safeStateReason(d.error, "Objective control failed.")); return; }
+  // Invalidate a pre-control poll so it cannot overwrite the newer snapshot.
+  state.dashRequest = null;
+  if (applyObjectiveSnapshot(d.objective)) paintAgentsWorkspace();
+  clearTimeout(state.agentsPollTimer);
+  if (state.view === "agents") state.agentsPollTimer = setTimeout(() => renderDashboard("agents", true), 3000);
 }
 function runAction(aid, cmd) {
   if (aid === "panic_toggle") { switchView("chat"); bridge.runTool("panic"); return; }
@@ -4517,18 +4940,36 @@ function renderEditApprovalCard(el, r, sel) {
 }
 
 /* ---------- palette + shortcuts ---------- */
+function teamPaletteItems() {
+  if (state.view !== 'chat' || !state.teamMapOpen) return [];
+  const click = (selector) => () => $('#teamMap ' + selector)?.click();
+  const items = [
+    { id: 'team_fit', label: 'Fit team to view', hint: 'F', run: click('[data-map-fit]') },
+    { id: 'team_configure', label: $('#teamMap')?._editing ? 'Finish configuring team' : 'Configure team', hint: '', run: click('[data-map-edit]') },
+    { id: 'team_chat', label: 'Back to chat', hint: '', run: click('[data-map-back]') },
+  ];
+  const target = composerAgent();
+  if (target?.agent) {
+    const name = window.OPaiAgentsTeam.name(target.agent, 0);
+    items.unshift({ id: 'team_options', label: 'Options for ' + name, hint: 'Model · group · controls', run: () => teamMapOptions(target.objective).onAgentOptions() });
+    if (target.agent.team_controls?.can_message) items.unshift({ id: 'team_message', label: 'Message ' + name, hint: 'After the current task', run: () => $('#input').focus() });
+  }
+  return items;
+}
 function openPalette() {
   const ov = $("#palette"); ov.classList.add("open");
   const inp = $("#paletteInput"); inp.value = ""; renderPalette(""); inp.focus();
 }
 function renderPalette(q) {
   const list = $("#paletteList");
-  const items = PALETTE.filter((c) => (c.label + " " + c.id).toLowerCase().includes(q.toLowerCase()));
+  const items = [...teamPaletteItems(), ...PALETTE].filter((c) => (c.label + " " + c.id).toLowerCase().includes(q.toLowerCase()));
   list.innerHTML = items.map((c, i) => `<div class="opt${i === 0 ? " sel" : ""}" data-id="${c.id}"><span>${esc(c.label)}</span><span class="hint">${esc(c.hint)}</span></div>`).join("");
   $$("#paletteList .opt").forEach((o) => (o.onclick = () => runCommand(o.dataset.id)));
 }
 function runCommand(id) {
   $("#palette").classList.remove("open");
+  const teamCommand = teamPaletteItems().find((item) => item.id === id);
+  if (teamCommand) { teamCommand.run(); return; }
   switch (id) {
     case "new_chat": startNewChat(); break;
     case "focus_input": switchView("chat"); $("#input").focus(); break;
@@ -4546,6 +4987,8 @@ function runCommand(id) {
   }
 }
 function togglePanel() {
+  state.teamOpen = false;
+  state.teamObjectiveId = null;
   state.panel = !state.panel; applyPanel();
   // #246: the inspector is deferred at boot; load it the first time the panel
   // is opened (and refresh each open, matching pre-defer behaviour).
@@ -4553,9 +4996,21 @@ function togglePanel() {
   bridge.savePref("show_control_panel", state.panel ? "true" : "false");
 }
 function applyPanel() {
-  $("#app").classList.toggle("panel-hidden", !state.panel);
+  const team = state.teamOpen;
+  const collapsed = !team;
+  const chatTeam = state.view === 'chat' && !!state.teamObjectiveId;
+  $('#app').classList.add('team-access');
+  $('#app').classList.toggle('team-collapsed', collapsed);
+  if ($('#agentsTeamStrip')) $('#agentsTeamStrip').hidden = false;
+  $('#app').classList.toggle('team-open', team);
+  if ($('#agentsTeam')) $('#agentsTeam').hidden = !team;
+  $('#app').classList.toggle('panel-hidden', !team && (!state.panel || chatTeam));
   $("#panelToggle").classList.toggle("on", state.panel);
   $("#panelToggle").setAttribute("aria-pressed", state.panel ? "true" : "false");
+  paintAgentTeam();
+  syncAgentTeamPolling();
+  updateTeamComposerClearance();
+  if (window.OPaiComposer) window.OPaiComposer.refresh();
 }
 
 function isCompactShell() {
@@ -4611,8 +5066,13 @@ function toast(msg) {
   const t = $("#toast"); t.textContent = msg; t.classList.add("show");
   clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), 3200);
 }
+function updateTeamComposerClearance() {
+  const composer = $('.composer');
+  if (composer) $('#app').style.setProperty('--team-composer-clearance', (state.view === 'chat' ? Math.max(120, window.innerHeight - composer.getBoundingClientRect().top + 12) : 12) + 'px');
+}
 function autoSize() {
   const i = $("#input"); i.style.height = "auto"; i.style.height = Math.min(180, i.scrollHeight) + "px";
+  updateTeamComposerClearance();
 }
 function setComposerDraft(value, options = {}) {
   const input = $("#input");
@@ -4708,16 +5168,18 @@ function wire() {
   const sidebarNewChat = $("#newChat");
   if (sidebarNewChat) sidebarNewChat.onclick = startNewChat;
   $("#headerNewChat").onclick = startNewChat;
+  $("#headerAgents").onclick = () => switchView("agents");
   $("#footSettings").onclick = () => switchView("settings");
   $("#headerSettings").onclick = () => switchView("settings");
   $("#sidebarToggle").onclick = toggleSidebar;
   $("#sidebarBackdrop").onclick = closeMobileSidebar;
-  $("#send").onclick = () => (state.busy ? stop() : submitComposer());
+  $("#send").onclick = () => (state.busy && !composerAgent() ? stop() : submitComposer());
   const buildToggle = $("#buildToggle");
   if (buildToggle) buildToggle.onclick = () => { state.buildMode = !state.buildMode; syncBuildMode(); };
   $("#panelToggle").onclick = togglePanel;
   $("#wsSwitch").onclick = (e) => { e.stopPropagation(); toggleWsMenu(); };
   $("#wsMenu").addEventListener("click", (e) => e.stopPropagation());
+  document.addEventListener('click', (event) => { document.querySelectorAll('.team-agent-menu[open], .team-view-menu[open]').forEach((menu) => { if (!menu.contains(event.target)) menu.open = false; }); });
   document.addEventListener("click", closeWsMenu);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeWsMenu(); });
   $("#input").addEventListener("input", () => {
@@ -4729,7 +5191,7 @@ function wire() {
     // Enter sends. While a request is active the text is queued rather than
     // discarded (#295) — still no second concurrent request.
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitComposer(); }
-    else if (e.key === "ArrowUp" || e.key === "ArrowDown") historyKey(e);
+    else if (!composerAgent() && (e.key === "ArrowUp" || e.key === "ArrowDown")) historyKey(e);
     else if (e.key === "Escape" && state.history.index >= 0) { e.preventDefault(); historyCancel(); }
   });
   const contextPath = $("#contextPath");
@@ -4765,6 +5227,7 @@ function wire() {
   $("#palette").addEventListener("click", (e) => { if (e.target.id === "palette") $("#palette").classList.remove("open"); });
   wireWindowChrome();
   window.addEventListener("resize", () => {
+    updateTeamComposerClearance();
     if (!isCompactShell()) {
       $("#app").classList.remove("mobile-sidebar-open");
       $("#sidebarToggle").setAttribute("aria-expanded", $("#app").classList.contains("sidebar-hidden") ? "false" : "true");
@@ -4784,7 +5247,7 @@ function wire() {
     else if (c && e.key === "m") { e.preventDefault(); openModelPicker(); }
     else if (c && e.key === "b") { e.preventDefault(); toggleSidebar(); }
     else if (e.key === "?" && !isTypingTarget(e.target)) { e.preventDefault(); runCommand("shortcuts"); }
-    else if (e.key === "Escape" && state.busy) { e.preventDefault(); stop(); }
+    else if (e.key === "Escape" && state.busy && !composerAgent()) { e.preventDefault(); stop(); }
   });
 }
 
@@ -4806,6 +5269,26 @@ if (typeof window !== "undefined") {
     // Pure-ish internals exposed for unit tests: the payload→state selection
     // sync (F16/F4) and the derived next-run agent mode preview (F21).
     applyBootSelection: (b) => applyBootSelection(b),
+    setMultiAgentEnabled: (enabled) => {
+      state.multiAgentEnabled = enabled === true && state.boot.agentsRuntime?.supported !== false;
+      state.teamOpen = state.multiAgentEnabled && ((state.agentsSnapshot || {}).objectives || []).length > 0;
+      applyPanel();
+      if (!state.multiAgentEnabled) state.agentsAllowCloud = false;
+      if (state.boot && state.boot.prefs) state.boot.prefs.multiAgentEnabled = state.multiAgentEnabled;
+      if (bridge && bridge.savePref) bridge.savePref("multi_agent_enabled", String(state.multiAgentEnabled));
+      if (window.OPaiComposer) window.OPaiComposer.refresh();
+    },
+    setAgentsAllowCloud: (enabled) => {
+      state.agentsAllowCloud = state.multiAgentEnabled && enabled === true;
+    },
+    setAgentsRunSettings: (settings) => {
+      if (Number.isInteger(settings.maxParallel)) { state.agentsMaxParallel = settings.maxParallel; state.agentsSizing = settings.sizing || String(settings.maxParallel); }
+      if (typeof settings.budgetUsd === "string") state.agentsBudgetUsd = settings.budgetUsd;
+    },
+    toggleAgentTeam: () => {
+      state.teamOpen = !state.teamOpen;
+      applyPanel();
+    },
     derivedAgentMode: () => derivedAgentMode(),
     applyAppearance: (p) => applyAppearance(p),
     // Used by the redesigned composer's overflow menu (Keyboard shortcuts).

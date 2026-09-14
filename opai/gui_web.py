@@ -73,6 +73,7 @@ WEB_DIR = Path(__file__).resolve().parent / "assets" / "web"
 _BRIDGE_PREFERENCE_KEYS = frozenset(
     {
         "default_model",
+        "multi_agent_enabled",
         "default_mode",
         "default_task_mode",
         "default_output_format",
@@ -740,6 +741,7 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
     """Everything the front-end needs to render the whole shell in one call."""
     from opaihub.gui_preferences import MODES, load_gui_preferences
     from opaihub.workflow_state import load_workflow_state
+    from opaihub.process_tree import objective_runtime_support
 
     from opaihub.autonomy import MODE_LABELS, resolve_startup_mode
 
@@ -800,6 +802,7 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
     _STARTUP.mark("boot:workflow")
     payload = {
         "workspace": workspace_payload,
+        "agentsRuntime": objective_runtime_support(),
         "workflow": workflow.to_dict(),
         "resume": _resume_payload(root),
         "models": models["models"],
@@ -813,6 +816,7 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
         "outputFormats": output_formats(),
         "prefs": {
             "model": prefs.get("default_model", "auto"),
+            "multiAgentEnabled": prefs.get("multi_agent_enabled") is True,
             "mode": mode,
             "focus": focus,
             "format": fmt,
@@ -1482,6 +1486,13 @@ def dashboard_section_payload(root: Path, section_id: str) -> dict[str, Any]:
     try:
         vm = build_view_model(root)
         section = next((s for s in vm["sections"] if s.get("id") == section_id), None)
+        if section_id == "agents":
+            from opai.agents_bridge import objectives_payload
+
+            section = {
+                **(section or {"id": "agents", "title": "Agents"}),
+                **objectives_payload(root),
+            }
     except Exception as exc:  # noqa: BLE001
         return {"error": safe_detail(exc)}
     return section or {"error": "not found"}
@@ -1946,6 +1957,8 @@ def _run_gui(
         connectionDoctorReady = QtCore.Signal(str)
         # Async data delivery (#146): heavy payloads leave the GUI thread.
         dashboardReady = QtCore.Signal(str)
+        objectiveReady = QtCore.Signal(str)
+        objectiveControlReady = QtCore.Signal(str)
         settingsReady = QtCore.Signal(str)
         toolApplied = QtCore.Signal(str)
         statusReady = QtCore.Signal(str)
@@ -2688,11 +2701,182 @@ def _run_gui(
 
         # ---- async slots --------------------------------------------- #
         @QtCore.Slot(str)
+        def controlObjective(self, payload_json: str) -> None:
+            turn_root = self.root
+            control_id = "objective-control-" + uuid.uuid4().hex
+            cancel = threading.Event()
+            self._cancels[control_id] = cancel
+
+            def emit_snapshot(objective):
+                self.objectiveControlReady.emit(
+                    json.dumps(
+                        {
+                            "ok": True,
+                            "objective": objective,
+                            "workspaceRoot": str(turn_root),
+                        },
+                        default=str,
+                    )
+                )
+
+            def job():
+                from opai.agents_bridge import control_objective_payload
+
+                payload = {}
+                try:
+                    payload = json.loads(payload_json)
+                    from opaihub.objective_execution import ObjectiveExecutor
+
+                    if payload.get("action") in {"run", "reconcile", "verify"}:
+                        if payload.get("assignment_id") is not None:
+                            raise ValueError(
+                                "Execution and integration operate on the whole objective"
+                            )
+                        executor = ObjectiveExecutor(turn_root, on_event=emit_snapshot)
+                        execute = (
+                            executor.run
+                            if payload["action"] == "run"
+                            else executor.reconcile
+                        )
+                        objective = execute(payload["objective_id"], cancel)
+                        return {
+                            "ok": True,
+                            "objective": objective,
+                            "workspaceRoot": str(turn_root),
+                        }
+                    result = control_objective_payload(turn_root, payload)
+                    if payload.get("action") in {
+                        "resume",
+                        "budget",
+                        "set_budget",
+                        "sequential",
+                        "reroute",
+                        "prioritize",
+                        "approve",
+                        "retry",
+                        "request_review",
+                        "add_agent",
+                        "agent_message",
+                        "connect_agents",
+                        "start_agent",
+                    } or (
+                        payload.get("action") == "agent_settings"
+                        and isinstance(payload.get("value"), dict)
+                        and "model" in payload["value"]
+                        and any(
+                            a["status"] == "pending"
+                            for a in result["objective"]["assignments"]
+                        )
+                    ):
+                        self.objectiveControlReady.emit(json.dumps(result, default=str))
+                        result["objective"] = ObjectiveExecutor(
+                            turn_root, on_event=emit_snapshot
+                        ).run(payload["objective_id"], cancel=cancel)
+                    return result
+                except Exception as exc:  # noqa: BLE001
+                    from opaihub.agent_team import TeamControlError
+
+                    return {
+                        "ok": False,
+                        "error": {"userMessage": str(exc)}
+                        if isinstance(exc, TeamControlError)
+                        else safe_detail(exc),
+                        "control": {
+                            "action": payload.get("action"),
+                            "revision": payload.get("value", {}).get("revision")
+                            if isinstance(payload.get("value"), dict)
+                            else None,
+                            "objective_id": payload.get("objective_id"),
+                        }
+                        if isinstance(payload, dict)
+                        else None,
+                        "workspaceRoot": str(turn_root),
+                    }
+
+            worker = Worker(job)
+
+            def done(result_json):
+                self._cancels.pop(control_id, None)
+                self.objectiveControlReady.emit(result_json)
+
+            worker.done.connect(done)
+            worker.finished.connect(lambda: self._confirm_teardown(control_id))
+            start_tracked_worker(self._workers, worker)
+
+        def _send_objective(self, payload: dict[str, Any]) -> None:
+            turn_root = self.root
+            request_id = str(payload.get("requestId") or uuid.uuid4().hex)
+            cancel = threading.Event()
+            accepted = threading.Event()
+            self._cancels[request_id] = cancel
+
+            def emit_snapshot(objective):
+                self.objectiveReady.emit(
+                    json.dumps(
+                        {
+                            "requestId": request_id,
+                            "objective": objective,
+                            "workspaceRoot": str(turn_root),
+                        },
+                        default=str,
+                    )
+                )
+
+            def job():
+                from opai.agents_bridge import create_objective_payload
+                from opaihub.objective_execution import ObjectiveExecutor
+
+                objective = create_objective_payload(
+                    turn_root, {**payload, "requestId": request_id}
+                )
+                accepted.set()
+                emit_snapshot(objective)
+                return ObjectiveExecutor(turn_root, on_event=emit_snapshot).run(
+                    objective["objective_id"],
+                    cancel=cancel,
+                )
+
+            def done(result_json):
+                self._cancels.pop(request_id, None)
+                result = json.loads(result_json)
+                if result.get("objective_id"):
+                    emit_snapshot(result)
+                elif accepted.is_set():
+                    self.objectiveControlReady.emit(
+                        json.dumps(
+                            {
+                                "ok": False,
+                                "error": safe_detail(
+                                    RuntimeError(
+                                        result.get("error")
+                                        or "Objective execution was interrupted"
+                                    )
+                                ),
+                                "workspaceRoot": str(turn_root),
+                            }
+                        )
+                    )
+                else:
+                    self.replyReady.emit(
+                        json.dumps({"requestId": request_id, "result": result})
+                    )
+
+            worker = Worker(job)
+            worker.done.connect(done)
+            worker.finished.connect(lambda: self._confirm_teardown(request_id))
+            start_tracked_worker(self._workers, worker)
+
+        @QtCore.Slot(str)
         def send(self, payload_json: str) -> None:
             try:
                 payload = json.loads(payload_json)
             except ValueError:
                 payload = {}
+            if not isinstance(payload, dict):
+                return
+            if payload.get("multiAgentEnabled") is True:
+                self._send_objective(payload)
+                return
             text = str(payload.get("text", "")).strip()
             if not text:
                 return
@@ -3150,6 +3334,36 @@ def _run_gui(
             resolved = resolve_openable(self.root, target)
             if resolved is not None:
                 QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(resolved)))
+
+        @QtCore.Slot(str, result=str)
+        def inspectObjectiveArtifact(self, payload_json: str) -> str:
+            from opai.agents_bridge import inspect_objective_artifact
+            from opaihub.worktree_leases import WorktreeLeaseError
+
+            try:
+                return json.dumps(
+                    inspect_objective_artifact(self.root, json.loads(payload_json))
+                )
+            except (OSError, ValueError, KeyError, WorktreeLeaseError) as exc:
+                return json.dumps({"ok": False, "error": safe_detail(exc)})
+
+        @QtCore.Slot(str, result=str)
+        def openObjectiveWorktree(self, payload_json: str) -> str:
+            from opai.agents_bridge import objective_worktree_path
+
+            try:
+                target = objective_worktree_path(self.root, json.loads(payload_json))
+                opened = QtGui.QDesktopServices.openUrl(
+                    QtCore.QUrl.fromLocalFile(str(target))
+                )
+                return json.dumps(
+                    {
+                        "ok": opened,
+                        "error": "" if opened else "The worktree could not be opened.",
+                    }
+                )
+            except (OSError, ValueError, KeyError) as exc:
+                return json.dumps({"ok": False, "error": safe_detail(exc)})
 
         @QtCore.Slot(result=str)
         def recents(self) -> str:

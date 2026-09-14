@@ -114,6 +114,7 @@ test("the mode menu is Claude Code's, in Vesta's rows", async ({ page }) => {
     "Accept edits",
     "Plan",
     "Bypass permissions",
+    "Allow multiple agents mode",
   ]);
   await expect(menu.locator(".cpop-desc")).toHaveText([
     "Vesta handles permission decisions",
@@ -121,11 +122,14 @@ test("the mode menu is Claude Code's, in Vesta's rows", async ({ page }) => {
     "Automatically accept all file edits",
     "Create a plan before making changes",
     "Run everything, including pushes, without asking",
+    "Coordinate independent assignments within your current permissions",
   ]);
   // The four graded modes are numbered; Bypass is not, and sits below a
   // separator — it is not the next rung on the ladder.
   await expect(menu.locator(".cpop-meta")).toHaveText(["1", "2", "3", "4"]);
-  await expect(menu.locator(".cpop-sep")).toHaveCount(1);
+  await expect(menu.locator(".cpop-sep")).toHaveCount(2);
+  await expect(menu.locator('[data-bypass]')).toHaveAttribute("aria-checked", "false");
+  await expect(menu.locator('[data-multi-agent]')).toHaveAttribute("aria-checked", "false");
 });
 
 test("the number keys pick a mode, and Bypass has none", async ({ page }) => {

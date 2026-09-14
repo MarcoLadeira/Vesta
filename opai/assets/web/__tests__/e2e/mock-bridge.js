@@ -102,7 +102,7 @@
   }
   var bridge = {
     replyReady: Sig(), buildReady: Sig(), activity: Sig(), activityBatch: Sig(), token: Sig(), toolReady: Sig(), cancelReady: Sig(), workspaceChanged: Sig(), modelsChanged: Sig(), providerLoginReady: Sig(), connectionDoctorReady: Sig(), updateReady: Sig(),
-    dashboardReady: Sig(), settingsReady: Sig(), toolApplied: Sig(), statusReady: Sig(),
+    dashboardReady: Sig(), objectiveReady: Sig(), objectiveControlReady: Sig(), settingsReady: Sig(), toolApplied: Sig(), statusReady: Sig(),
     workspaceReady: Sig(), inspectorReady: Sig(),
     boot: function (cb) { cb(JSON.stringify(boot)); },
     // Round 2: the header's "N uncommitted" badge came from the boot payload
@@ -345,6 +345,7 @@
       }, scenario.doctorDelayMs || 0);
     },
     savePref: function (key, value) { window.__mock.savedPrefs.push([key, value]); },
+    controlObjective: function (raw) { window.__mock.objectiveControls.push(JSON.parse(raw)); },
     // Vesta Build (#276): scaffold an app under the workspace, zero tokens.
     scaffoldApp: function (payload, cb) {
       var parsed = {};
@@ -599,7 +600,7 @@
     deletedProviderKeys: [], providerTests: [], savedUsageLimits: [], codexRepairs: 0,
     freeConsentGrants: [], disconnects: [], diffDecisions: [], providerLogins: [],
     githubConnects: [], githubPushToggles: [], githubDisconnects: 0,
-    dashboardRequests: [], settingsRequests: [], statusRequests: [],
+    dashboardRequests: [], objectiveControls: [], settingsRequests: [], statusRequests: [],
     workspaceRequests: [], inspectorRequests: [],
     updateChecks: [], updateActions: [], updatePolicies: [], interactiveMarks: 0, usageRefreshes: 0,
     modelDiscoveries: 0, savedModelOverrides: [],
@@ -628,6 +629,10 @@
       bridge.token.emit(JSON.stringify(payload));
     },
     emitReply: function (id, result) { bridge.replyReady.emit(JSON.stringify({ requestId: id, result: result })); },
+    emitObjective: function (payload) { bridge.objectiveReady.emit(JSON.stringify(payload)); },
+    emitObjectiveControl: function (payload) { bridge.objectiveControlReady.emit(JSON.stringify(payload)); },
+    emitDashboard: function (payload) { bridge.dashboardReady.emit(JSON.stringify(payload)); },
+    updateDashboard: function (id, data) { dashboards[id] = data; },
     emitProviderLogin: function (id, result) { bridge.providerLoginReady.emit(JSON.stringify({ requestId: id, provider: result.provider, result: result })); },
   };
 })();

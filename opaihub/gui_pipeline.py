@@ -14,6 +14,7 @@ from typing import Any
 from opai.release_identity import surface_identity_payload
 
 from . import command_consent, owner_lease
+from .execution_scope import assignment_scope, assignment_cost_events, financial_root
 from .agent_policy import (
     AgentMode,
     build_capability_contract,
@@ -1021,6 +1022,11 @@ def _handle_gui_message(
     allow_edits_once: bool = False,
     allowEditsOnce: bool = False,
     defer_checkpoint_finalization: bool = False,
+    task_id: str | None = None,
+    run_id: str | None = None,
+    authority_root: Path | None = None,
+    local_model_endpoint: str | None = None,
+    objective_bypass_permissions: bool = False,
     # Which surface asked for this turn. The CLI, background automations
     # and `opai build` all run through this exact pipeline, so an
     # admission hardcoded to "gui" recorded every one of them as a
@@ -1080,7 +1086,7 @@ def _handle_gui_message(
     # status channel for the status strip (docs/AI_ACTIVITY_UX.md).
     from opai.activity import derived_id, new_id
 
-    turn_id = new_id()
+    turn_id = run_id or new_id()
     _phase_id = derived_id(turn_id, "phase")
     _phase_state = {"open": False, "etype": "request_prepare"}
     # Admission (#295 gate 3): prove this request enters the runtime once.
@@ -1206,10 +1212,14 @@ def _handle_gui_message(
     command_consent.begin_turn(command_grant, run=turn_id)
     # One-shot edit grant from an edit-approval re-send (F26).
     edit_grant = bool(allow_edits_once or allowEditsOnce)
-    prefs = load_gui_preferences(root)
+    prefs = load_gui_preferences(financial_root(root))
     # Bypass Permissions is a switch, not a mode: it composes with whichever
     # mode is selected so turning it off returns the user to that mode.
-    bypass_permissions = prefs.get("bypass_permissions") is True
+    bypass_permissions = (
+        objective_bypass_permissions is True
+        if authority_root is not None
+        else prefs.get("bypass_permissions") is True
+    )
     selected_model = model_id or prefs.get("default_model") or "auto"
     # Whether Vesta is choosing the model (Auto mode). Set before any _decorate
     # call so the terminal recorder can always read it. The capability/cost/
@@ -1276,7 +1286,7 @@ def _handle_gui_message(
     repo_context = resolve_repo_context(root)
     save_active_repo(root, repo_context)
     previous_workflow = load_workflow_state(root)
-    runtime = AgentRuntime(root, task=message)
+    runtime = AgentRuntime(root, task=message, task_id=task_id)
     # #613 Stage 3: mirror this run's admission into the transactional journal.
     #
     # Placed here rather than beside the #295 admission gate above because that
@@ -1295,26 +1305,20 @@ def _handle_gui_message(
     with contextlib.suppress(Exception):  # noqa: BLE001 - never block a turn
         from .journal_runtime import record_admission
 
-        # #818: which conversation this turn belongs to. `runtime.task_id`
-        # cannot answer that -- `gui_recents` documents it as falling back to
-        # the per-turn request id, which is why a 13-conversation history
-        # produced 27 journal tasks with nothing joining them. Recorded in
-        # `origin_session`, a column that existed and was never filled, so the
-        # journal and the saved conversations finally share an identifier.
-        #
-        # Deliberately not used as `task_id`: turns in a conversation are not
-        # retries of one objective, and making them attempts of one task would
-        # redefine `attempt` rather than record a fact.
-        _journal_fence = record_admission(
-            root,
-            task_id=runtime.task_id,
-            run_id=turn_id,
-            task=message,
-            now=_iso_now(),
-            surface=_normalized_surface(surface),
-            session=str(conversation_id or "").strip()[:200],
-            mode=mode,
-            model=model_id,
+        _journal_fence = (
+            None
+            if authority_root is not None
+            else record_admission(
+                root,
+                task_id=runtime.task_id,
+                run_id=turn_id,
+                task=message,
+                now=_iso_now(),
+                surface=_normalized_surface(surface),
+                session=str(conversation_id or "").strip()[:200],
+                mode=mode,
+                model=model_id,
+            )
         )
         if _journal_fence is not None:
             # Published rather than returned: this function has many exits and
@@ -2242,7 +2246,9 @@ def _handle_gui_message(
                 _failed_provider = _ar2.provider_of(selected_model)
                 fallback_offer = _ar2.best_alternative(
                     root,
-                    _app_state.available_models(root, discover_local=False),
+                    _app_state.available_models(
+                        financial_root(root), discover_local=False
+                    ),
                     exclude_providers={_failed_provider} if _failed_provider else set(),
                     exclude_ids={selected_model},
                     needs_edit=will_edit,
@@ -2412,7 +2418,9 @@ def _handle_gui_message(
 
         from . import auto_router
 
-        _catalog = _app_state.available_models(root, discover_local=False)
+        _catalog = _app_state.available_models(
+            financial_root(root), discover_local=False
+        )
         _auto_labels = {
             str(item.get("id") or ""): str(item.get("label") or item.get("id") or "")
             for item in (_catalog.get("models") or [])
@@ -2652,7 +2660,7 @@ def _handle_gui_message(
 
             blockers = _ar3.routing_blockers(
                 root,
-                _app_state.available_models(root, discover_local=False),
+                _app_state.available_models(financial_root(root), discover_local=False),
                 needs_edit=will_edit,
             )
         if not blockers:
@@ -2842,6 +2850,27 @@ def _handle_gui_message(
     )
 
     while True:
+        from .execution_scope import managed_budget_gate
+
+        managed = managed_budget_gate(
+            root,
+            next_cost_usd=None
+            if selected_model.startswith(("account:", "paid:"))
+            else "0",
+        )
+        if managed["denied"]:
+            return _decorate(
+                {
+                    "status": "blocked",
+                    "answer": "; ".join(managed["reasons"]),
+                    "changed_files": [],
+                    "tool_trace": tool_trace,
+                    "warnings": [],
+                    "next_actions": [
+                        "Choose a local or free model, or revise the objective budget."
+                    ],
+                }
+            )
         if selected_model.startswith("free:"):
             from opai import app_state as A
 
@@ -3009,7 +3038,7 @@ def _handle_gui_message(
                     model=selected_model,
                 )
                 record_workflow_cost(
-                    root, runtime.task_id, free_telemetry, task=message
+                    financial_root(root), runtime.task_id, free_telemetry, task=message
                 )
                 _journal_cost(
                     root,
@@ -3345,7 +3374,9 @@ def _handle_gui_message(
             account_telemetry = normalize_account_result(
                 provider, result, model=selected_model
             )
-            record_workflow_cost(root, runtime.task_id, account_telemetry, task=message)
+            record_workflow_cost(
+                financial_root(root), runtime.task_id, account_telemetry, task=message
+            )
             _journal_cost(
                 root,
                 account_telemetry,
@@ -3444,7 +3475,13 @@ def _handle_gui_message(
         # run *that* model, not whatever detect_local_runner finds first. "auto"
         # (and unknown ids) fall through to run_ask's own local-first detection.
         picked_runner = None
-        if selected_model not in {"auto", "", None} and ":" in str(selected_model):
+        if authority_root is not None:
+            from .objective_routing import managed_local_runner
+
+            # The managed router admitted this exact model and endpoint. Never
+            # rebuild it from environment configuration or rediscover a runner.
+            picked_runner = managed_local_runner(selected_model, local_model_endpoint)
+        elif selected_model not in {"auto", "", None} and ":" in str(selected_model):
             picked_runner = runner_for_model(selected_model, root)
         # cancel threads into the local runner too (#107): Stop closes the HTTP
         # connection mid-generation instead of only ignoring the late result.
@@ -3646,7 +3683,26 @@ def handle_gui_message(*args: Any, **kwargs: Any) -> dict[str, Any]:
     token = _JOURNAL_RUN.set(None)
     root = Path(args[0] if args else kwargs["project_root"])
     try:
-        result = _handle_gui_message(*args, **kwargs)
+        authority = kwargs.get("authority_root")
+        scope = (
+            assignment_scope(
+                root,
+                authority,
+                task_id=kwargs.get("task_id"),
+                run_id=kwargs.get("run_id"),
+            )
+            if authority is not None
+            else contextlib.nullcontext()
+        )
+        with scope:
+            result = _handle_gui_message(*args, **kwargs)
+            if authority is not None:
+                result = {
+                    **result,
+                    "objective_cost_events": assignment_cost_events(
+                        authority, kwargs["run_id"]
+                    ),
+                }
     except BaseException as exc:  # noqa: BLE001 - re-raised immediately below
         _record_turn_ending(root, {"status": "failed", "reason": type(exc).__name__})
         raise

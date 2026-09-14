@@ -679,6 +679,148 @@ def _iso_now_for_journal() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def cmd_objectives(args: argparse.Namespace) -> int:
+    from opai.agents_bridge import control_objective_payload, objectives_payload
+    from opaihub.agent_objectives import ObjectiveStore
+    from opaihub.command_runner import redact
+
+    root = _project(args.project)
+    action = args.agents_command
+    try:
+        if action == "create":
+            from opai.agents_bridge import create_objective_payload
+
+            objective = create_objective_payload(
+                root,
+                {
+                    "text": args.objective,
+                    "mode": args.mode,
+                    "model": args.model,
+                    "maxParallel": args.max_parallel,
+                    "budgetUsd": args.budget,
+                    "allowCloud": args.allow_cloud,
+                    "requestId": args.request_id,
+                },
+            )
+            if args.start_objective:
+                from opaihub.objective_execution import ObjectiveExecutor
+
+                objective = ObjectiveExecutor(root).run(objective["objective_id"])
+            result = {"objective": objective}
+        elif action == "list":
+            result = objectives_payload(root)
+        elif action == "show":
+            result = {"objective": ObjectiveStore(root).snapshot(args.objective_id)}
+        elif action == "receipt":
+            objective = ObjectiveStore(root).snapshot(args.objective_id)
+            receipt = objective["receipt"]
+            if args.assignment:
+                item = next(
+                    (
+                        row
+                        for row in objective["assignments"]
+                        if row["assignment_id"] == args.assignment
+                    ),
+                    None,
+                )
+                if item is None:
+                    raise ValueError("Assignment does not belong to this objective")
+                receipt = item["receipt"]
+            if args.sign:
+                from opaihub.signing import sign
+
+                receipt = sign(root, receipt)
+            print(json.dumps(receipt, indent=2, default=str))
+            return 0
+        elif action in {"run", "resume"}:
+            from opaihub.objective_execution import ObjectiveExecutor
+
+            if action == "resume":
+                ObjectiveStore(root).control(args.objective_id, "resume")
+            result = {"objective": ObjectiveExecutor(root).run(args.objective_id)}
+        else:
+            value = args.value
+            if action == "approve":
+                value = {"request_id": args.request_id}
+            elif action == "retry":
+                value = {"run_id": args.run_id}
+            elif action == "request-review":
+                value = {"revision": args.revision}
+            result = control_objective_payload(
+                root,
+                {
+                    "objective_id": args.objective_id,
+                    "assignment_id": args.assignment,
+                    "action": "request_review"
+                    if action == "request-review"
+                    else action,
+                    "value": value,
+                },
+            )
+        if args.json:
+            print(json.dumps(result, default=str))
+        else:
+            objectives = result.get("objectives", [result.get("objective", {})])
+            if not objectives:
+                print("No engineering objectives yet.")
+            for item in objectives:
+                print(
+                    f"{item.get('objective_id', '')}  {item.get('status', 'unknown')}  {item.get('objective', '')}"
+                )
+                cost = item.get("cost_usd", "0")
+                coverage = "complete" if item.get("cost_complete") else "incomplete"
+                budget = item.get("budget_usd")
+                print(
+                    f"  Cost: ${cost} ({coverage}); budget: {'unset' if budget is None else '$' + budget}"
+                )
+                for assignment in item.get("assignments", []):
+                    print(
+                        f"  {assignment['assignment_id']}  {assignment['status']}  {assignment.get('title', '')}"
+                    )
+                    route = (
+                        assignment.get("observed_model")
+                        or assignment.get("model")
+                        or "auto"
+                    )
+                    print(
+                        f"    Model: {route}; cost: ${assignment.get('cost_usd', '0')}"
+                    )
+                    if assignment.get("blocked_reason"):
+                        print(f"    {assignment['blocked_reason']}")
+                if action != "list":
+                    integration = item.get("integration") or {}
+                    evidence = integration.get("result") or {}
+                    for label, value in (
+                        (
+                            "Integration",
+                            evidence.get("summary") or evidence.get("error"),
+                        ),
+                        ("Commit", evidence.get("head_sha")),
+                        ("Branch", integration.get("branch")),
+                        ("Worktree", integration.get("worktree")),
+                    ):
+                        if value:
+                            print(f"  {label}: {value}")
+        executed = action in {"run", "resume", "reconcile", "verify"} or (
+            action == "create" and args.start_objective
+        )
+        if executed and (result.get("objective") or {}).get("status") in {
+            "failed",
+            "needs-attention",
+            "cancelled",
+            "blocked",
+        }:
+            return 1
+        return 0
+    except Exception as exc:  # noqa: BLE001
+        print(
+            json.dumps({"ok": False, "error": redact(str(exc))})
+            if args.json
+            else redact(str(exc))
+        )
+        return 1
+
+
 def cmd_journal(args: argparse.Namespace) -> int:
     """Inspect, back up and recover the #613 runtime journal.
 
@@ -4471,6 +4613,62 @@ def build_parser() -> argparse.ArgumentParser:
         p = sub.add_parser(name)
         p.add_argument("--project", default=None, help="Project root")
         p.set_defaults(func=cmd_delegate, hub_args=hub_args)
+        if name == "agents":
+            agent_sub = p.add_subparsers(dest="agents_command")
+            for action in (
+                "list",
+                "create",
+                "show",
+                "receipt",
+                "run",
+                "pause",
+                "resume",
+                "stop",
+                "sequential",
+                "budget",
+                "prioritize",
+                "reroute",
+                "reconcile",
+                "verify",
+                "approve",
+                "retry",
+                "request-review",
+            ):
+                command = agent_sub.add_parser(action)
+                command.add_argument(
+                    "--project", default=argparse.SUPPRESS, help="Project root"
+                )
+                command.add_argument("--json", action="store_true")
+                if action == "approve":
+                    command.add_argument("--request-id", required=True)
+                if action == "retry":
+                    command.add_argument("--run-id", required=True)
+                if action == "request-review":
+                    command.add_argument("--revision", required=True, type=int)
+                if action == "receipt":
+                    command.add_argument(
+                        "--sign",
+                        action="store_true",
+                        help="Sign the receipt with the local integrity key",
+                    )
+                if action == "create":
+                    command.add_argument("objective")
+                    command.add_argument("--mode", default="safe-auto")
+                    command.add_argument("--model", default="auto")
+                    command.add_argument("--max-parallel", type=int, default=2)
+                    command.add_argument("--budget", default=None)
+                    command.add_argument("--allow-cloud", action="store_true")
+                    command.add_argument("--request-id", default=None)
+                    command.add_argument(
+                        "--run", dest="start_objective", action="store_true"
+                    )
+                elif action != "list":
+                    command.add_argument("objective_id")
+                command.add_argument("--assignment", default=None)
+                command.add_argument(
+                    "--value", default=None, help="Budget in USD, priority, or model ID"
+                )
+                command.set_defaults(func=cmd_objectives)
 
     p = sub.add_parser("dashboard", help="Write or serve the local Vesta dashboard")
     p.add_argument("--project", default=None, help="Project root")

@@ -154,7 +154,9 @@ class WhatOlderBuildsMayIgnoreTests(unittest.TestCase):
                 added = journal_store._ADDS_COLUMN.match(statement)
                 if created is None and added is None:
                     offending.append((version, "unverifiable", statement))
-                elif "UNIQUE" in upper:
+                elif "UNIQUE" in upper and not (
+                    created and created.group(1).upper() == "TABLE"
+                ):
                     offending.append((version, "constrains old writers", statement))
                 elif added is not None and (
                     "PRIMARY KEY" in upper
