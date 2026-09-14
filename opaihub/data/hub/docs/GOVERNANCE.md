@@ -1,4 +1,4 @@
-# OPai Team & Enterprise Governance
+# Vesta Team & Enterprise Governance
 
 Per the [business strategy](../../docs/BUSINESS_STRATEGY.md), the highest-value
 revenue is **team and enterprise governance**, not solo subscriptions. This is
@@ -47,7 +47,7 @@ opai policy check --require-team-policy  # strict CI: missing team policy fails
 Example GitHub Actions step:
 
 ```yaml
-- name: OPai governance gate
+- name: Vesta governance gate
   run: python -m opai policy check
 ```
 
@@ -92,7 +92,7 @@ opai team report
 
 ## Free Public Alpha coverage
 
-The governance controls implemented in OPai alpha are free: shared local team
+The governance controls implemented in Vesta alpha are free: shared local team
 policy, team reports, audit logs, approved MCP checks, CI policy gates, and
 evidence exports. They have no checkout, licence, or tier requirement.
 

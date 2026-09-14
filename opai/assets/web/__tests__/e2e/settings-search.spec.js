@@ -19,7 +19,7 @@ const seen = { useInnerText: true };
 test("the search box is present and only the active page shows by default", async ({ page }) => {
   await expect(page.locator("#settingsSearch")).toBeVisible();
   const settings = page.locator("#settingsPage");
-  await expect(settings).toContainText("OPai status", seen);
+  await expect(settings).toContainText("Vesta status", seen);
   // Other pages exist in the rail but their content is not on screen.
   await expect(settings).not.toContainText("Connection Doctor", seen);
   await expect(settings).not.toContainText("Cost firewall", seen);
@@ -50,7 +50,7 @@ test("Escape clears the search and returns to the active page", async ({ page })
   await expect(page.locator("#settingsPage")).toContainText("Panic mode", seen);
   await search.press("Escape");
   await expect(search).toHaveValue("");
-  await expect(page.locator("#settingsPage")).toContainText("OPai status", seen);
+  await expect(page.locator("#settingsPage")).toContainText("Vesta status", seen);
   await expect(page.locator("#settingsPage")).not.toContainText("Panic mode", seen);
   await expect(page.locator("#settingsNoResults")).toBeHidden();
 });
@@ -59,7 +59,7 @@ test("clearing the query manually also returns to the active page", async ({ pag
   const search = page.locator("#settingsSearch");
   await search.fill("panic");
   await search.fill("");
-  await expect(page.locator("#settingsPage")).toContainText("OPai status", seen);
+  await expect(page.locator("#settingsPage")).toContainText("Vesta status", seen);
   await expect(page.locator("#settingsNoResults")).toBeHidden();
 });
 

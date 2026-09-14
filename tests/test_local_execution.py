@@ -56,7 +56,7 @@ def _git_repo(root: Path) -> Path:
             "-c",
             "user.email=cache-tests@example.invalid",
             "-c",
-            "user.name=OPai Cache Tests",
+            "user.name=Vesta Cache Tests",
             "commit",
             "-qm",
             "initial",

@@ -89,7 +89,9 @@ class _StackFixture(unittest.TestCase):
     def _ending(self, status: str, reason: str, identity: Any) -> None:
         token = gui_pipeline._JOURNAL_RUN.set(identity)
         try:
-            gui_pipeline._record_turn_ending(self.root, status, reason)
+            gui_pipeline._record_turn_ending(
+                self.root, {"status": status, "reason": reason}
+            )
         finally:
             gui_pipeline._JOURNAL_RUN.reset(token)
 
@@ -169,10 +171,10 @@ class TheTurnEndingSurvivesAnythingTests(_StackFixture):
         fence = record_admission(self.root, task_id="t", run_id="r", task="x", now=NOW)
         identity = {"run_id": "r", "fence": fence}
 
-        self._ending("completed", "ok", identity)
+        self._ending("timeout", "slow", identity)
         self._ending("failed", "late", identity)
 
-        self.assertEqual(self._verdict("r"), "completed")
+        self.assertEqual(self._verdict("r"), "timeout")
 
     def test_a_stale_fence_cannot_close_a_run_it_no_longer_owns(self):
         fence = record_admission(self.root, task_id="t", run_id="r", task="x", now=NOW)

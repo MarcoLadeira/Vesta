@@ -21,7 +21,7 @@ def _candidate(install_type: InstallType, **overrides: object) -> UpdateCandidat
             "windows_signer_thumbprint": "A" * 40,
             "appinstaller_url": "https://updates.example.test/stable/OPai.appinstaller",
         }
-        publisher = "CN=OPai"
+        publisher = "CN=Vesta"
         suffix = "msix"
     else:
         native = {
@@ -50,7 +50,7 @@ def _candidate(install_type: InstallType, **overrides: object) -> UpdateCandidat
 
 
 def _msix(
-    path: Path, *, name: str = "OPai.Desktop", publisher: str = "CN=OPai"
+    path: Path, *, name: str = "OPai.Desktop", publisher: str = "CN=Vesta"
 ) -> None:
     manifest = (
         '<?xml version="1.0" encoding="utf-8"?>'
@@ -75,7 +75,7 @@ def test_windows_adapter_requires_manifest_and_native_signer_continuity(tmp_path
             json.dumps(
                 {
                     "Status": "Valid",
-                    "Subject": "CN=OPai",
+                    "Subject": "CN=Vesta",
                     "Thumbprint": "A" * 40,
                 }
             ),
@@ -87,7 +87,7 @@ def test_windows_adapter_requires_manifest_and_native_signer_continuity(tmp_path
     )
 
     assert result.verified is True
-    assert result.publisher_identity == "CN=OPai"
+    assert result.publisher_identity == "CN=Vesta"
     assert calls and "Get-AuthenticodeSignature" in " ".join(calls[0])
 
 
@@ -112,9 +112,9 @@ def test_windows_authenticates_package_before_parsing_untrusted_xml(tmp_path: Pa
 @pytest.mark.parametrize(
     ("name", "publisher", "thumbprint", "category"),
     [
-        ("Attacker.App", "CN=OPai", "A" * 40, "package_identity_mismatch"),
+        ("Attacker.App", "CN=Vesta", "A" * 40, "package_identity_mismatch"),
         ("OPai.Desktop", "CN=Attacker", "A" * 40, "publisher_mismatch"),
-        ("OPai.Desktop", "CN=OPai", "B" * 40, "certificate_mismatch"),
+        ("OPai.Desktop", "CN=Vesta", "B" * 40, "certificate_mismatch"),
     ],
 )
 def test_windows_adapter_rejects_identity_mix_and_match(

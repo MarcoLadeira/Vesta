@@ -2,7 +2,7 @@
 
 The issue asks Stage 1 to "list all durable runtime/status/cost/approval/history
 files and direct writes" and "define ownership and migration mapping". A
-document would answer that once and then quietly rot: OPai has 62 modules that
+document would answer that once and then quietly rot: Vesta has 62 modules that
 put bytes on disk, and the next one is added without anyone rereading the list.
 
 So the inventory lives here instead, as a classification the tree is checked
@@ -94,6 +94,14 @@ JOURNAL_OWNED = {
     "opaihub/workflow_runner.py": "runs — run/step transitions",
     "opaihub/background_runs.py": "runs — background run records and notifications",
     "opaihub/agent_runtime.py": "runs — agent process state",
+    # Owns the cancellation phase ladder -- "cancellation and teardown
+    # evidence" in #818's canonical-record list. Its authority is already a
+    # sequenced run_journal rather than a snapshot file, so its dual read
+    # compares that phase log against the cancel-phase events mirrored into
+    # the canonical journal, which is the pair that can actually disagree.
+    "opaihub/cancellation_lifecycle.py": (
+        "events — cancellation phase evidence (requested -> terminated)"
+    ),
     "opaihub/owner_lease.py": "leases — ownership and fencing",
     "opaihub/worktree_leases.py": "leases — worktree ownership",
     "opaihub/session_registry.py": "leases — cross-process active provider sessions",
@@ -177,6 +185,13 @@ PROJECTION_OR_EXPORT = {
     # Stage 7's retirement gate. Reads telemetry to answer one question --
     # may the legacy writes go? -- and writes nothing itself.
     "opaihub/journal_retirement.py",
+    # #818's parity checks. Both open the journal to *read* it: one replays
+    # the event log against the `runs` table, the other compares the journal
+    # with the saved conversations. Neither persists anything -- rebuild_runs
+    # had a persist=True default no caller used, removed so a doctor run can
+    # never write to the store it is diagnosing.
+    "opaihub/journal_projections.py",
+    "opaihub/journal_conversations.py",
     # Build-only generated identity written into wheel/sdist staging trees.
     "opai/build_metadata.py",
     "opaihub/dashboard.py",
@@ -215,6 +230,14 @@ NOT_RUNTIME_STATE = {
     "opai/updater.py",
     "opaihub/accounts.py",
     "opaihub/app_scaffold.py",
+    # Bytes a person pasted or dropped into the composer, written to disk so a
+    # prompt has a path to point at. Not runtime truth: no replay reconstructs
+    # a clipboard, and nothing about a run's verdict, cost or approval depends
+    # on it. Not a projection either -- it cannot be rebuilt from anything, so
+    # it sits here for the same reason `opcoding/memory.py` does. Losing it
+    # would be bad and would still not make Vesta lie about what happened, which
+    # is the line these three classes actually draw.
+    "opaihub/attachments.py",
     "opaihub/benchmark.py",
     "opaihub/build_loop.py",
     "opaihub/context_engine.py",

@@ -112,20 +112,20 @@ def freshness_phrase(discovery: dict, *, now: datetime | None = None) -> str:
 # Timings, cache provenance, install types, sources and commands stay in
 # `opai update doctor`, which is where someone debugging the updater looks.
 _USER_MESSAGES = {
-    "available": "A new version of OPai is ready.",
+    "available": "A new version of Vesta is ready.",
     "downloading": "Downloading the update.",
     "verifying": "Checking the update.",
-    "ready_to_install": "Restart OPai to finish updating.",
-    "completed": "Restart OPai to finish updating.",
-    "install_on_quit": "OPai will finish updating when you close it.",
-    "waiting_for_idle": "OPai will update when the current work finishes.",
+    "ready_to_install": "Restart Vesta to finish updating.",
+    "completed": "Restart Vesta to finish updating.",
+    "install_on_quit": "Vesta will finish updating when you close it.",
+    "waiting_for_idle": "Vesta will update when the current work finishes.",
     "deferred": "The update is ready when you are.",
-    "unavailable": "OPai couldn't check for updates. It will try again.",
-    "failed_retriable": "The update didn't finish. OPai will try again.",
+    "unavailable": "Vesta couldn't check for updates. It will try again.",
+    "failed_retriable": "The update didn't finish. Vesta will try again.",
     "failed_terminal": "The update couldn't be verified, so it wasn't installed.",
-    "policy_blocked": "Updates are managed outside OPai.",
-    "rollback_pending": "OPai is restoring the previous version.",
-    "rolled_back": "OPai went back to the previous version.",
+    "policy_blocked": "Updates are managed outside Vesta.",
+    "rollback_pending": "Vesta is restoring the previous version.",
+    "rolled_back": "Vesta went back to the previous version.",
     "needs_attention": "The update needs your attention.",
     "up_to_date": "",
     "checking": "",
@@ -134,8 +134,8 @@ _USER_MESSAGES = {
 
 _USER_TITLES = {
     "available": "Update available",
-    "downloading": "Updating OPai",
-    "verifying": "Updating OPai",
+    "downloading": "Updating Vesta",
+    "verifying": "Updating Vesta",
     "ready_to_install": "Update ready",
     "completed": "Update ready",
     "install_on_quit": "Update ready",
@@ -160,7 +160,7 @@ def user_facing(payload: dict) -> dict:
     `unsupported_install` is the state a source checkout reaches when it is
     behind its remote, and calling that "Manual update required" told someone
     with a working Update button that they had to do something by hand. What it
-    means to them is simply that an update is available -- unless OPai genuinely
+    means to them is simply that an update is available -- unless Vesta genuinely
     cannot install it, which is a different sentence.
     """
 
@@ -173,7 +173,7 @@ def user_facing(payload: dict) -> dict:
         if ownership.get("self_updatable") is False:
             return {
                 "title": "Managed elsewhere",
-                "message": "Updates for this installation are handled outside OPai.",
+                "message": "Updates for this installation are handled outside Vesta.",
             }
         return {"title": "Update available", "message": _USER_MESSAGES["available"]}
 

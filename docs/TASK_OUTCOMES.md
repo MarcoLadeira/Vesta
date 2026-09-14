@@ -1,6 +1,6 @@
 # Task-outcome metrics (#288)
 
-OPai's promise is *more useful work per token and per euro*. To prove it we need a
+Vesta's promise is *more useful work per token and per euro*. To prove it we need a
 number that connects a user request to what it cost and whether it actually
 finished — **cost per completed task** — plus honest evidence of duplicate model
 calls avoided. Today spend, savings estimates, and execution state live in
@@ -16,7 +16,7 @@ surface reported identically by the GUI and CLI.
    never *re-defines* spend. Cost per completed task uses the authoritative
    `model_call` spend sum as its numerator, so it reconciles exactly to the
    ledger and can never drift or double-count.
-2. **Unknown is a first-class value.** Fields OPai has not yet measured (time to
+2. **Unknown is a first-class value.** Fields Vesta has not yet measured (time to
    first useful result, selected-context size, cached tokens) are recorded as the
    literal string `"unknown"` — never synthesised, never a fake `0`. A true
    zero (no model call happened) is recorded as `0`, which is a fact, not a guess.
@@ -50,7 +50,7 @@ recorders). On top of the standard `created_at` / `event_type` / `task_hash`:
 | `cost_measurement` | str | `actual` \| `derived` \| `estimated` \| `none` \| `unknown` |
 | `cached_tokens` | int \| `"unknown"` | Tokens served from cache (`"unknown"` until measured) |
 | `avoided_duplicate_calls` | int | Model calls this turn skipped via a cache hit |
-| `selected_context_bytes` / `selected_context_tokens` | int \| `"unknown"` | Context OPai actually sent |
+| `selected_context_bytes` / `selected_context_tokens` | int \| `"unknown"` | Context Vesta actually sent |
 | `time_to_first_result_ms` | int \| `"unknown"` | Latency to first useful output |
 | `recovered` | bool | Whether the turn recovered from a failure/retry |
 

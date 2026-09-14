@@ -1,4 +1,4 @@
-"""The OPai Build customization loop (#276): scaffold → cheap targeted edits.
+"""The Vesta Build customization loop (#276): scaffold → cheap targeted edits.
 
 ``opai build "make the heading purple"`` turns a request into a small, cheap
 model call and a safe, deterministic file write:
@@ -6,13 +6,13 @@ model call and a safe, deterministic file write:
 1. **Select context** — only the app files relevant to the request are sent
    (scored by filename mentions and keyword→file-type hints, trimmed to a
    budget). Sending less is the saving: Lovable-style tools resend and
-   regenerate whole projects; OPai sends a slice and gets back a diff-sized
+   regenerate whole projects; Vesta sends a slice and gets back a diff-sized
    answer.
 2. **Ask through the normal pipeline** — the same ``handle_gui_message`` path
    as chat, so routing, the cost firewall, activity events, and the savings
    receipt all apply. The model gets NO tool access; it must answer with
    complete updated files in fenced ``file:`` blocks.
-3. **Apply deterministically** — OPai parses the blocks and writes them itself:
+3. **Apply deterministically** — Vesta parses the blocks and writes them itself:
    paths confined to the app root, protected files refused, text-only
    allowlist, size caps, and a timestamped backup of every overwritten file.
 
@@ -91,7 +91,7 @@ TEXT_EXTENSIONS = {
 
 # Read-only context spans real polyglot repositories. Keep the model-writable
 # allowlist above deliberately narrower; retrieval must still see definitions
-# and callers in languages OPai Build does not write directly.
+# and callers in languages Vesta Build does not write directly.
 CONTEXT_EXTENSIONS = TEXT_EXTENSIONS | {
     ".c",
     ".cc",
@@ -162,7 +162,7 @@ _KEYWORD_HINTS: dict[str, tuple[str, ...]] = {
 
 
 def load_app_manifest(app_root: Path) -> dict[str, Any] | None:
-    """The OPai Build manifest for a directory, or None if it isn't one."""
+    """The Vesta Build manifest for a directory, or None if it isn't one."""
     try:
         path = _safe_internal_path(Path(app_root), MANIFEST_NAME)
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -289,7 +289,7 @@ def _is_link_or_junction(path: Path) -> bool:
 
 
 def _safe_internal_path(root: Path, relative: str | Path) -> Path:
-    """Return an OPai-owned path only when no component redirects elsewhere."""
+    """Return a Vesta-owned path only when no component redirects elsewhere."""
 
     resolved_root = root.expanduser().resolve()
     candidate = Path(relative)
@@ -948,6 +948,9 @@ def run_build_request(
         allow_cloud=allow_cloud,
         allow_limit=allow_limit,
         resume_context=resume_context,
+        # `opai build` drives the same pipeline as chat, and the
+        # canonical record should say which one asked (#818 AC2).
+        surface="automation",
         defer_checkpoint_finalization=True,
     )
     status = str(result.get("status") or "error")

@@ -1,4 +1,4 @@
-"""Signed, screenshot-able savings receipts — OPai's shareable proof artifact.
+"""Signed, screenshot-able savings receipts — Vesta's shareable proof artifact.
 
 A receipt is a compact, signed snapshot of the local savings ledger that a
 developer can screenshot and share, and that an eng lead can independently
@@ -6,7 +6,7 @@ verify (see ``verify_receipt`` / the ``opai receipt verify`` command, #88). It
 is the hero artifact behind Epic B (#84): one object that serves both the
 solo-dev growth loop and the enterprise audit wedge.
 
-Privacy (matches the rest of OPai): only the project *name* is included, never
+Privacy (matches the rest of Vesta): only the project *name* is included, never
 an absolute path; every string field is redacted before signing; and nothing is
 read but the local ledger aggregate (no raw prompts, no network).
 """
@@ -289,7 +289,7 @@ def render_receipt_svg(receipt: dict[str, Any]) -> str:
     return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" width="640" height="360">
   <rect width="640" height="360" fill="{bg}"/>
   <rect x="20" y="20" width="600" height="320" rx="16" fill="{card}" stroke="#30363d"/>
-  <text x="40" y="50" fill="{fg}" font-size="20" font-weight="800" font-family="Nunito,Segoe UI,sans-serif">OPai — Savings Receipt</text>
+  <text x="40" y="50" fill="{fg}" font-size="20" font-weight="800" font-family="Nunito,Segoe UI,sans-serif">Vesta — Savings Receipt</text>
   {badge}
   <text x="40" y="68" fill="{muted}" font-size="13" font-family="Nunito,Segoe UI,sans-serif">{project}</text>
   <text x="40" y="135" fill="{accent}" font-size="52" font-weight="800" font-family="Nunito,Segoe UI,sans-serif">{hero}</text>

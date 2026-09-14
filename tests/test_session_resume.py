@@ -284,7 +284,10 @@ class ThreadPersistenceTests(_ThreadAPI):
             )
 
     def test_assistant_presentation_is_closed_redacted_bounded_and_provider_safe(self):
-        secret = "sk-history-secret-abcdefghijklmnopqrstuvwxyz"
+        # A deliberately fake key -- the alphabet -- used to prove redaction.
+        secret = (
+            "sk-history-secret-abcdefghijklmnopqrstuvwxyz"  # pragma: allowlist secret
+        )
         presentation = {
             "schema_version": 1,
             "run": {
@@ -1142,7 +1145,7 @@ class BootResumeContractTests(_ThreadAPI):
                     task_id="task-313",
                     mode="implement",
                     phase="testing",
-                    message="Tests were running when OPai closed",
+                    message="Tests were running when Vesta closed",
                     checkpoint_id=newest.checkpoint_id,
                     plan_steps=("Persist state", "Run focused tests"),
                     changed_files=("opai/gui_web.py",),
@@ -1251,7 +1254,7 @@ class BootResumeContractTests(_ThreadAPI):
                     checkpoint_id=new.checkpoint_id,
                     mode="implement",
                     phase="implementing",
-                    message="Provider was running when OPai closed",
+                    message="Provider was running when Vesta closed",
                 ),
             )
 

@@ -1,6 +1,6 @@
 # Discovery, Analytics, And Sandbox
 
-OPai 0.1.1 pre-alpha includes low-risk foundations for operating a larger hub.
+Vesta 0.1.1 pre-alpha includes low-risk foundations for operating a larger hub.
 
 ## Discovery
 

@@ -473,7 +473,7 @@ class LocalProbe:
 
 
 def _probes() -> list[Any]:
-    """Every adapter shape OPai advertises support for."""
+    """Every adapter shape Vesta advertises support for."""
     return [
         AccountProbe("claude", _claude_lines),
         AccountProbe("codex", _codex_lines),
@@ -562,7 +562,7 @@ class DefectsTheMatrixFoundTests(unittest.TestCase):
 
     def test_an_empty_reply_is_a_failure_not_a_silent_success(self) -> None:
         # Was: {"text": "", "cost": None} with no error — the blank reply that
-        # renders as OPai having answered when it has not.
+        # renders as Vesta having answered when it has not.
         result = self._claude(Script(then="empty"))
         self.assertTrue(result.get("error"), "an empty run must not look successful")
         self.assertEqual(result["error"]["code"], "NO_RESPONSE")
@@ -598,8 +598,15 @@ class DefectsTheMatrixFoundTests(unittest.TestCase):
         def boom(_chunk):
             raise RuntimeError("a rendering bug in the activity line")
 
-        result = self._claude(Script(chunks=("a", "b"), cost=0.01), on_text=boom)
-        self.assertEqual(result["text"], "ab")
+        script = Script(chunks=("a", "b"), cost=0.01)
+        result = self._claude(script, on_text=boom)
+        # Compared with the same run and no listener, not with a hard-coded
+        # join: how messages are joined is d4b3fbb's decision, and what this
+        # test guards is that the broken listener changed nothing at all.
+        unobserved = self._claude(script)
+        self.assertEqual(result["text"], unobserved["text"])
+        self.assertIn("a", result["text"])
+        self.assertIn("b", result["text"])
         self.assertIsNone(result.get("error"))
 
 

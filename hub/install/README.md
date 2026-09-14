@@ -1,6 +1,6 @@
-# OPai Install Layer
+# Vesta Install Layer
 
-OPai 0.2.0 alpha.1 installs as a local Python CLI. The default bootstrap does not call paid APIs, enable cloud tools, or install optional scanners.
+Vesta 0.2.0 alpha.1 installs as a local Python CLI. The default bootstrap does not call paid APIs, enable cloud tools, or install optional scanners.
 
 ## Local Install
 

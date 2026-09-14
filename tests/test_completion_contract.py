@@ -235,7 +235,7 @@ def test_failure_reason_falls_back_honestly_without_a_typed_code() -> None:
     # #656 opens by describing what that default actually produced: a run the
     # no-progress guard stopped, presented to the user as "the provider
     # failed". Blaming a component that produced no evidence of failing is not
-    # a lesser fabrication than blaming OPai itself.
+    # a lesser fabrication than blaming Vesta itself.
     #
     # So an absent cause is now UNKNOWN. Evidence still classifies: a runner
     # error is internal because the status says so.
@@ -386,12 +386,12 @@ def test_pipeline_persists_one_manifest_verdict_and_receipt_contract() -> None:
 
 def test_verification_receives_the_live_cancel_signal() -> None:
     """#614/#666: verification runs real subprocesses -- the "verifying" state
-    OPai refuses to let jump straight to "cancelled" for exactly that reason
+    Vesta refuses to let jump straight to "cancelled" for exactly that reason
     (see test_cancel_two_phase.py). Before this, ``execute_policy`` was always
     called with ``cancel=None``: pressing Stop mid-verification changed
     nothing here, so a check kept running to its own timeout regardless, and
     cost or repository changes could keep accruing after the user was told
-    OPai was stopping. This proves the same Event that stops everything else
+    Vesta was stopping. This proves the same Event that stops everything else
     in the turn now reaches verification too.
     """
     import threading

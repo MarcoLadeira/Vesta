@@ -14,7 +14,7 @@ def main() -> int:
     value = json.loads(args.manifest.read_text(encoding="utf-8"))
     profile = value.get("profile") or {}
     print(
-        f"### OPai {profile.get('name', 'unknown')} / {profile.get('component', 'all')} qualification"
+        f"### Vesta {profile.get('name', 'unknown')} / {profile.get('component', 'all')} qualification"
     )
     print(f"- Verdict: `{value.get('verdict', 'infrastructure_blocked')}`")
     print(f"- Classification: `{value.get('classification', 'infrastructure')}`")

@@ -1,6 +1,6 @@
 # Security Policy
 
-OPai is pre-alpha. Treat it as powerful local automation that should be reviewed before production use.
+Vesta is pre-alpha. Treat it as powerful local automation that should be reviewed before production use.
 
 ## Supported Version
 

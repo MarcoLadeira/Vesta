@@ -443,7 +443,7 @@ class BaselineAndRenderingTests(unittest.TestCase):
                 for name, path in artifacts.items()
             }
 
-        self.assertIn("OPai vs baseline", contents["markdown"])
+        self.assertIn("Vesta vs baseline", contents["markdown"])
         self.assertIn("<table", contents["html"])
         self.assertEqual(json.loads(contents["json"])["kind"], "opaibench_parity")
 

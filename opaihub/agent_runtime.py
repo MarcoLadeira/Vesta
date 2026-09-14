@@ -1,4 +1,4 @@
-"""Durable, validated coding-agent runtime owned by OPai."""
+"""Durable, validated coding-agent runtime owned by Vesta."""
 
 from __future__ import annotations
 
@@ -321,7 +321,7 @@ class AgentRuntime:
     ) -> AgentRuntimeState:
         return self._move(
             RuntimePhase.BLOCKED,
-            message="OPai needs a safe resolution before continuing",
+            message="Vesta needs a safe resolution before continuing",
             blocker=reason,
             next_actions=next_actions,
         )

@@ -1,4 +1,4 @@
-"""Render OPai chat answers as calm, readable rich text.
+"""Render Vesta chat answers as calm, readable rich text.
 
 Account models (Claude, Codex) reply in Markdown, but the desktop chat used to
 drop that text into a plain ``QLabel`` - so ``**bold**``, ``# headings``,

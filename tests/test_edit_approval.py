@@ -205,12 +205,31 @@ class BuildCommandGrantTests(unittest.TestCase):
         self.assertNotIn("acceptEdits", cmd)
 
     def test_read_only_modes_never_get_accept_edits(self):
-        for mode in ("ask", "plan", "approve-edits"):
+        # Not even with a grant: Ask and Plan have no approval path to grant.
+        for mode in ("ask", "plan"):
             with self.subTest(mode=mode):
                 cmd = self._runner().build_command(
                     "task", allow_edits=False, mode=mode, edit_grant=True
                 )
                 self.assertNotIn("acceptEdits", cmd)
+
+    def test_manual_applies_an_edit_the_user_granted(self):
+        # 40d6dc0: Manual "asks, and a granted edit applies". It used to be
+        # listed as read-only here, which asserted the opposite.
+        cmd = self._runner().build_command(
+            "task", allow_edits=True, mode="approve-edits", edit_grant=True
+        )
+
+        self.assertIn("acceptEdits", cmd)
+        self.assertNotIn("--dangerously-skip-permissions", cmd)
+
+    def test_manual_without_a_grant_still_asks(self):
+        cmd = self._runner().build_command(
+            "task", allow_edits=True, mode="approve-edits"
+        )
+
+        self.assertNotIn("acceptEdits", cmd)
+        self.assertNotIn("--dangerously-skip-permissions", cmd)
 
 
 class _DeniedEditStreamRunner(FakeStreamingRunner):

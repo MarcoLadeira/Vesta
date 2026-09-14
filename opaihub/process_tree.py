@@ -3,7 +3,7 @@
 A visible Stop or window close must terminate the *entire* agent process tree,
 not just the direct CLI child. Provider CLIs spawn grandchildren (language
 servers, git, sub-agents) that can survive a plain ``terminate()`` and keep
-spending or mutating the repo after OPai reports the run stopped.
+spending or mutating the repo after Vesta reports the run stopped.
 
 Three pieces, all platform-aware and injectable for tests:
 
@@ -132,7 +132,7 @@ def _new_kill_on_close_job(k: Any) -> int | None:
     """Create a job whose members are killed when the last handle closes.
 
     ``KILL_ON_JOB_CLOSE`` is the belt to :func:`terminate_tree`'s braces: even
-    if OPai is killed outright and never gets to terminate anything, Windows
+    if Vesta is killed outright and never gets to terminate anything, Windows
     closes the handle on exit and reaps the tree.
     """
     import ctypes
@@ -523,7 +523,7 @@ def _default_tree_killer(pid: int) -> None:
 def _killpg(pgid: int, sig: int) -> None:
     """Signal a process group, refusing to signal our own.
 
-    Killing our own group would take OPai down with the run it is cleaning up.
+    Killing our own group would take Vesta down with the run it is cleaning up.
     Cheap to check and catastrophic to miss, so it is checked every time rather
     than reasoned about at each call site.
     """

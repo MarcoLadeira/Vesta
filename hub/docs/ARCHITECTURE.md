@@ -2,9 +2,9 @@
 
 Folder layout:
 
-- `opai/`: public OPai CLI and install bootstrap.
+- `opai/`: public Vesta CLI and install bootstrap.
 - `opaihub/`: registry, health, MCP, workflow, dashboard, discovery, analytics, sandbox, and team modules.
-- `opcoding/`: legacy-compatible coding workflow engine used by OPai for project scans, tests, GitOps, local tools, and routing.
+- `opcoding/`: legacy-compatible coding workflow engine used by Vesta for project scans, tests, GitOps, local tools, and routing.
 - `hub/registry/`: central metadata for tools, agents, workflows, MCP servers, and models.
 - `hub/install/`: install manifest and setup notes.
 - `hub/tools/`: future tool adapters and install recipes.

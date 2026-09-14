@@ -1,4 +1,4 @@
-"""Restart OPai into a build that is already on disk.
+"""Restart Vesta into a build that is already on disk.
 
 Claude Code and Codex both stop here: they install the new version and tell
 you to run the command again yourself. Finishing the job is the difference
@@ -69,7 +69,7 @@ def relaunch_command(
     argv: list[str] | None = None,
     frozen: bool | None = None,
 ) -> list[str] | None:
-    """Reconstruct the command that started this OPai, or ``None``.
+    """Reconstruct the command that started this Vesta, or ``None``.
 
     Three shapes reach here, and they do not share a reconstruction:
 
@@ -80,7 +80,7 @@ def relaunch_command(
     * a module launch (``pythonw -m opai gui``), where ``argv[1:]`` already
       holds the subcommand and the *same* interpreter must be reused, which on
       Windows keeps a windowed process windowed and anywhere keeps a
-      virtualenv's OPai from being replaced by some other Python's.
+      virtualenv's Vesta from being replaced by some other Python's.
 
     Anything else returns ``None`` and the caller leaves the restart to the
     user. That is deliberate: an app that closes itself and then fails to come
@@ -113,7 +113,7 @@ def schedule_relaunch(
     give_up_after_seconds: float = 120.0,
     spawn=subprocess.Popen,
 ) -> bool:
-    """Arm a detached supervisor that restarts OPai once this process exits.
+    """Arm a detached supervisor that restarts Vesta once this process exits.
 
     Returns whether the supervisor started. It is armed *before* the quit so a
     failure to arm can still be reported honestly -- an app that closed itself
@@ -125,7 +125,7 @@ def schedule_relaunch(
     if getattr(sys, "frozen", False):
         # The supervisor is hosted by ``sys.executable -c``, and in a frozen
         # bundle that executable is the application itself: it has no ``-c``.
-        # Rather than spawn a second copy of OPai to babysit the first, say
+        # Rather than spawn a second copy of Vesta to babysit the first, say
         # the restart is unavailable and let the user do it.
         return False
     creationflags = 0

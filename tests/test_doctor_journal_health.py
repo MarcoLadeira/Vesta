@@ -55,6 +55,13 @@ class _DoctorFixture(unittest.TestCase):
         Clearing only ``broken`` and ``missing`` leaves every other input real
         and makes the journal the single variable, so the assertion now depends
         on the wiring it claims to test.
+
+        Launcher health is pinned for exactly the same reason. It reads the
+        *host's* installed launchers, so on a machine whose desktop icon is
+        broken -- the machine that check was written on -- every readiness
+        assertion here would flip to ``attention`` for a reason that has
+        nothing to do with the journal. That wiring has its own tests in
+        ``tests/test_launcher_health.py``; here it is held still.
         """
 
         import argparse
@@ -62,6 +69,14 @@ class _DoctorFixture(unittest.TestCase):
         from contextlib import redirect_stdout
 
         real_status = cli.project_status
+        pinned_launchers = {
+            "available": True,
+            "healthy": True,
+            "checked": 0,
+            "broken": [],
+            "unreadable": [],
+            "launchers": [],
+        }
 
         def patched(root, *args, **kwargs):
             status = real_status(root, *args, **kwargs)
@@ -73,15 +88,18 @@ class _DoctorFixture(unittest.TestCase):
 
         buffer = io.StringIO()
         with redirect_stdout(buffer):
-            if clean_integrations:
-                with mock.patch.object(cli, "project_status", patched):
+            with mock.patch.object(
+                cli, "_launcher_doctor", lambda: dict(pinned_launchers)
+            ):
+                if clean_integrations:
+                    with mock.patch.object(cli, "project_status", patched):
+                        code = cli.cmd_doctor(
+                            argparse.Namespace(project=str(self.root), json=True)
+                        )
+                else:
                     code = cli.cmd_doctor(
                         argparse.Namespace(project=str(self.root), json=True)
                     )
-            else:
-                code = cli.cmd_doctor(
-                    argparse.Namespace(project=str(self.root), json=True)
-                )
         self.assertEqual(code, 0)
         return json.loads(buffer.getvalue())
 
@@ -177,7 +195,7 @@ class AbsenceIsNotAFaultTests(_DoctorFixture):
         self.assertTrue(cli._journal_needs_attention(cli._journal_doctor(self.root)))
 
     def test_an_incompatible_journal_needs_attention(self):
-        """Written by a newer OPai: the user needs an upgrade, and must be told."""
+        """Written by a newer Vesta: the user needs an upgrade, and must be told."""
 
         incompatible = {
             "available": True,

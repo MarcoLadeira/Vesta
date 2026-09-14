@@ -176,7 +176,7 @@ class UserFacingCopyTests(unittest.TestCase):
             self._payload("unsupported_install", ownership={"self_updatable": False})
         )
 
-        self.assertIn("outside OPai", copy["message"])
+        self.assertIn("outside Vesta", copy["message"])
         for term in ("pipx", "brew", "pip install", "`"):
             self.assertNotIn(term, copy["message"])
 

@@ -1,7 +1,7 @@
 """Guided, end-to-end local-model onboarding readiness (#3).
 
 Free, local-first value is only credible if a new user can go from
-"no local model" to a verified local route without OPai silently downloading
+"no local model" to a verified local route without Vesta silently downloading
 software, starting a service, or making a network call. Discovery already
 tells you a runtime binary exists; this module adds the missing *state
 machine*: is the server actually running, does it have a model, is the
@@ -246,7 +246,7 @@ def local_onboarding_status(
         "summary": summary,
         "next_action": next_action,
         "privacy": (
-            "OPai never downloads a model, starts a service, or reaches a public "
+            "Vesta never downloads a model, starts a service, or reaches a public "
             "host on its own. Commands are shown for you to run."
         ),
     }

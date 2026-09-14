@@ -1,4 +1,4 @@
-"""Verify a finished OPai desktop artifact outside the source checkout."""
+"""Verify a finished Vesta desktop artifact outside the source checkout."""
 
 from __future__ import annotations
 
@@ -121,7 +121,7 @@ def _remaining_helpers(before: set[str], *, attempts: int = 10) -> set[str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Smoke-test a finished OPai portable desktop artifact."
+        description="Smoke-test a finished Vesta portable desktop artifact."
     )
     parser.add_argument("bundle", type=Path)
     parser.add_argument("--timeout", type=int, default=90)

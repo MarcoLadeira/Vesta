@@ -1,6 +1,6 @@
 # AI Activity UX — the Calm Stream spec
 
-How OPai's surfaces (web GUI and CLI) show what the AI is doing, keep slow
+How Vesta's surfaces (web GUI and CLI) show what the AI is doing, keep slow
 models from looking frozen, and stay honest about what actually happened —
 without flooding the user with rows.
 

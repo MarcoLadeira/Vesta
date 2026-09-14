@@ -1,9 +1,9 @@
 """Persist pasted, dropped, and picked images so a prompt can point at them.
 
-OPai already has one way to put a file in front of a model: a workspace
+Vesta already has one way to put a file in front of a model: a workspace
 relative path, prepended to the prompt as an ``@`` reference. The provider
 CLIs read that path themselves. The composer's own note says it --
-"OPai links to your files -- it sends their location, not their contents."
+"Vesta links to your files -- it sends their location, not their contents."
 
 An image pasted from the clipboard has no location. It is bytes in a
 ``DataTransfer``, and a screenshot has never been a file at all. So the only
@@ -99,7 +99,7 @@ def attachments_dir(root: Path) -> Path:
     """Where images for this workspace live: ``.opaihub/attachments``.
 
     Inside the workspace because a context reference is workspace-relative,
-    and under ``.opaihub`` because that directory is already OPai's and
+    and under ``.opaihub`` because that directory is already Vesta's and
     already ignored by git -- an attachment must never turn up in a diff.
     """
 
@@ -164,13 +164,13 @@ def store_image(
         raise AttachmentError(f"Images must be {megabytes} MB or smaller.")
     suffix = sniff_extension(payload)
     if suffix is None:
-        raise AttachmentError("That file is not an image OPai can send.")
+        raise AttachmentError("That file is not an image Vesta can send.")
 
     directory = attachments_dir(root)
     try:
         directory.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
-        raise AttachmentError("OPai could not save the image.") from exc
+        raise AttachmentError("Vesta could not save the image.") from exc
     prune(root, now=now)
 
     stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime(now or time.time()))
@@ -182,11 +182,11 @@ def store_image(
         resolved = target.resolve()
         resolved.relative_to(directory)
     except (OSError, ValueError) as exc:
-        raise AttachmentError("OPai could not save the image.") from exc
+        raise AttachmentError("Vesta could not save the image.") from exc
     try:
         resolved.write_bytes(payload)
     except OSError as exc:
-        raise AttachmentError("OPai could not save the image.") from exc
+        raise AttachmentError("Vesta could not save the image.") from exc
 
     workspace = Path(root).expanduser().resolve()
     return StoredImage(

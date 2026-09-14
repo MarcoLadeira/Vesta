@@ -1,4 +1,4 @@
-"""Inline-capture proxy (#91, Epic A #85): route agent calls through OPai.
+"""Inline-capture proxy (#91, Epic A #85): route agent calls through Vesta.
 
 Fakes only — no real CLI, no network, no spend. Asserts the three guarantees:
 classify+route+record, destructive gate before any paid call, and fail-open.

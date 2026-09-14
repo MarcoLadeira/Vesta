@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import sys
+import subprocess
+import os
 import tempfile
 import threading
 import unittest
@@ -20,10 +23,12 @@ from opaihub.background_runs import (
     load_run,
     read_notifications,
     recover_interrupted_runs,
+    runs_owned_by_a_live_process,
     request_cancel,
     schedule_automation,
     tick_automations,
 )
+from opaihub.journal_store import journal_path, open_store
 from opaihub.run_state import RunState
 from opaihub.run_result import RunResult
 
@@ -508,6 +513,50 @@ class RunnerTests(unittest.TestCase):
             thread.join(timeout=10)
 
 
+def _really_dead_pid() -> int:
+    """A process id that is genuinely not running.
+
+    Spawned and reaped rather than guessed. A made-up high number is a
+    coin flip -- if the machine happens to be using it, the lease reads
+    ``owner_unverified`` and the test passes or fails for a reason that has
+    nothing to do with the code.
+    """
+
+    child = subprocess.Popen(  # nosec B603 - fixed argv, does nothing
+        [sys.executable, "-c", ""],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    child.wait(timeout=30)
+    return child.pid
+
+
+def _simulate_owner_death(root: Path, run_id: str) -> None:
+    """Make the run's journal lease name a process that is really gone.
+
+    Editing the run *file* to say "running" is not a crash: #818 gave the
+    lease a process identity, and until this exists the journal correctly
+    reports that the test process itself still owns the run. Which it does --
+    a fixture that only rewrites the file is simulating a lie, not a crash.
+    """
+
+    from opaihub.call_reconciliation import pid_is_running
+    from opaihub.journal_store import open_store
+
+    dead = _really_dead_pid()
+    if pid_is_running(dead) is not False:  # pragma: no cover - pid was reused
+        raise unittest.SkipTest("the reaped pid was immediately reused")
+    store = open_store(root)
+    try:
+        store.execute(
+            "UPDATE leases SET owner_pid = ?, owner_boot = 'a-dead-opai'"
+            " WHERE run_id = ?",
+            (dead, run_id),
+        )
+    finally:
+        store.close()
+
+
 class DurabilityTests(unittest.TestCase):
     def test_orphaned_running_runs_are_recovered_as_interrupted(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -518,6 +567,7 @@ class DurabilityTests(unittest.TestCase):
             data = json.loads((path / f"{run.run_id}.json").read_text("utf-8"))
             data["status"] = "running"
             (path / f"{run.run_id}.json").write_text(json.dumps(data), encoding="utf-8")
+            _simulate_owner_death(root, run.run_id)
 
             recovered = recover_interrupted_runs(root)
             self.assertEqual([item.run_id for item in recovered], [run.run_id])
@@ -528,11 +578,11 @@ class DurabilityTests(unittest.TestCase):
 
     def test_a_crash_mid_teardown_is_recovered_as_needs_attention_not_failed(self):
         """#614: a crash while CANCEL_REQUESTED must not be filed as a bare
-        "failed". OPai asked to stop the run and never observed whether that
+        "failed". Vesta asked to stop the run and never observed whether that
         stop finished, so claiming either "cancelled" (a stop nobody saw) or
         plain "failed" (silently dropping the stop request, and inviting a
         naive retry to overlap the unreconciled attempt) is dishonest. Only
-        NEEDS_ATTENTION with "cancellation_unconfirmed" says what OPai
+        NEEDS_ATTENTION with "cancellation_unconfirmed" says what Vesta
         actually knows.
         """
         with tempfile.TemporaryDirectory() as tmp:
@@ -550,6 +600,7 @@ class DurabilityTests(unittest.TestCase):
             data["run_state"] = RunState.CANCEL_REQUESTED.value
             data["cancel_requested"] = True
             record_path.write_text(json.dumps(data), encoding="utf-8")
+            _simulate_owner_death(root, run.run_id)
 
             recovered = recover_interrupted_runs(root)
             self.assertEqual([item.run_id for item in recovered], [run.run_id])
@@ -717,6 +768,141 @@ class RunListingTests(unittest.TestCase):
                 [done.run_id],
             )
             self.assertIsInstance(list_runs(root)[0], AutomationRun)
+
+
+class RecoveryLeavesLiveWorkAloneTests(unittest.TestCase):
+    """#818: a terminal verdict must never land on work that is still running.
+
+    Reproduced against a real second process before this existed: a run being
+    executed by a live Vesta was filed as ``failed`` with the message "the
+    owning session ended before it finished", while the owning session was
+    demonstrably still there. ``active_run_ids`` could not have prevented it --
+    it names only the calling process's own runs, and `opaihub/cli.py` passes
+    none at all.
+    """
+
+    def _running_run(self, root: Path):
+        run = enqueue_automation(root, "bug_fix", "task")
+        path = root / ".opaihub" / "agent" / "background" / "runs"
+        record = path / f"{run.run_id}.json"
+        data = json.loads(record.read_text("utf-8"))
+        data["status"] = "running"
+        record.write_text(json.dumps(data), encoding="utf-8")
+        return run
+
+    def test_a_run_this_process_owns_is_not_reconciled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = self._running_run(root)
+
+            # No fixture needed: the journal genuinely records this process as
+            # the lease owner, because this process really did admit the run.
+            recovered = recover_interrupted_runs(root)
+
+            self.assertEqual(recovered, [])
+            self.assertEqual(load_run(root, run.run_id).status, "running")
+
+    def test_a_run_owned_by_another_live_process_is_not_reconciled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = self._running_run(root)
+            # A different Vesta, still alive: a foreign boot id on a pid that
+            # is genuinely in use. This is the case `active_run_ids` is blind
+            # to by construction.
+            store = open_store(root)
+            try:
+                store.execute(
+                    "UPDATE leases SET owner_pid = ?, owner_boot = 'another-opai'",
+                    (os.getpid(),),
+                )
+            finally:
+                store.close()
+
+            recovered = recover_interrupted_runs(root)
+
+            self.assertEqual(recovered, [])
+            self.assertEqual(load_run(root, run.run_id).status, "running")
+
+    def test_a_run_whose_owner_died_is_still_reconciled(self):
+        """The fix must not simply switch recovery off."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = self._running_run(root)
+            _simulate_owner_death(root, run.run_id)
+
+            recovered = recover_interrupted_runs(root)
+
+            self.assertEqual([item.run_id for item in recovered], [run.run_id])
+            self.assertEqual(load_run(root, run.run_id).status, "interrupted")
+
+    def test_a_run_with_no_journal_at_all_still_reconciles(self):
+        """Absence of evidence is not evidence of life.
+
+        Every run admitted before #818 has no process on its lease. If those
+        counted as "might be alive" they would sit in ``running`` forever with
+        no way out -- the ghost state this recovery exists to clear.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = self._running_run(root)
+            journal_path(root).unlink()
+
+            recovered = recover_interrupted_runs(root)
+
+            self.assertEqual([item.run_id for item in recovered], [run.run_id])
+
+    def test_a_lease_written_before_818_still_reconciles(self):
+        """The migration case, and distinct from having no journal at all.
+
+        The journal is present and holds a lease for this run; what it lacks
+        is a process on that lease, because it was written before the identity
+        columns existed. Deleting the whole journal does not exercise this --
+        `unterminated_runs` returns nothing and the predicate is never asked.
+        A sabotage that made a pid-less lease count as alive survived the
+        no-journal test untouched, which is why this one exists.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = self._running_run(root)
+            store = open_store(root)
+            try:
+                store.execute("UPDATE leases SET owner_pid = NULL, owner_boot = ''")
+                held = store.execute(
+                    "SELECT COUNT(*) FROM leases WHERE run_id = ?", (run.run_id,)
+                ).fetchone()[0]
+            finally:
+                store.close()
+            self.assertEqual(held, 1, "the lease must exist for this to test anything")
+
+            recovered = recover_interrupted_runs(root)
+
+            self.assertEqual([item.run_id for item in recovered], [run.run_id])
+            self.assertEqual(load_run(root, run.run_id).status, "interrupted")
+
+    def test_an_explicitly_active_run_is_still_skipped(self):
+        """The old signal keeps working; the journal is an addition to it."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = self._running_run(root)
+            _simulate_owner_death(root, run.run_id)
+
+            recovered = recover_interrupted_runs(root, active_run_ids=(run.run_id,))
+
+            self.assertEqual(recovered, [])
+
+    def test_the_live_set_is_empty_rather_than_raising_on_a_broken_journal(self):
+        """Recovery runs when things are already wrong; it must not add to it."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._running_run(root)
+            journal_path(root).write_bytes(b"not a database")
+
+            self.assertEqual(runs_owned_by_a_live_process(root), frozenset())
 
 
 if __name__ == "__main__":

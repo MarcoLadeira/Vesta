@@ -3,9 +3,9 @@
 The gate asks for receipt completeness. Receipts carried route, cost, model and
 the verdict — but not the *evidence* that verdict rested on, nor what the turn
 was authorised to do. A receipt that states an outcome without either asks the
-user to take OPai's word for it, which is the opposite of what a receipt is for.
+user to take Vesta's word for it, which is the opposite of what a receipt is for.
 
-#539 made the verdict trust only evidence OPai actually observed. This is the
+#539 made the verdict trust only evidence Vesta actually observed. This is the
 other half: letting the user see that evidence and check the reasoning.
 """
 

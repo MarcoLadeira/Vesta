@@ -1,4 +1,4 @@
-name: OPai desktop artifact rehearsal
+name: Vesta desktop artifact rehearsal
 
 # Every v* tag automatically rehearses the unsigned candidate. Production is a
 # reviewed main-branch dispatch and adds a protected provider canary, signing,

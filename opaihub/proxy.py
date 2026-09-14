@@ -1,15 +1,15 @@
-"""Inline capture: route an agent's call through OPai automatically.
+"""Inline capture: route an agent's call through Vesta automatically.
 
 This is the engine behind the agent shim (#91, Epic A #85). Instead of running
 ``claude`` / ``codex`` / ``copilot`` directly, the installed wrapper calls this
 proxy, which:
 
   1. **gates** destructive requests *before* any paid call (every mode except
-     Full Auto), so OPai blocks risk before spending money;
+     Full Auto), so Vesta blocks risk before spending money;
   2. **routes** the task through the connected account runner; and
   3. **records** the call to the local ledger with its real cost (honest spend).
 
-It **fails open**: if OPai's own logic errors, the raw agent still runs so a
+It **fails open**: if Vesta's own logic errors, the raw agent still runs so a
 developer is never blocked by the firewall. The per-agent seam (``SUPPORTED_AGENTS``
 + ``_resolve_runner``) keeps Cursor/Cline addable later without touching callers.
 """
@@ -33,7 +33,7 @@ def _blocked(agent: str, reason: str) -> dict[str, Any]:
         "paid": False,
         "reason": reason,
         "answer": (
-            "OPai held this back before spending anything because it matched a "
+            "Vesta held this back before spending anything because it matched a "
             "command that can change or delete files"
             + (f" ({reason})" if reason else "")
             + ".\nAsk about it in read-only mode, or rephrase the request without "
@@ -60,7 +60,7 @@ def _fail_open(
     runner: Any,
     error: Exception,
 ) -> dict[str, Any]:
-    """OPai's own path failed — run the raw agent so the dev is never blocked.
+    """Vesta's own path failed — run the raw agent so the dev is never blocked.
 
     Marked ``captured=False`` because routing/recording was bypassed; the answer
     still comes back. If even the raw runner is unavailable, surface a clean error.
@@ -74,7 +74,7 @@ def _fail_open(
                 "captured": False,
                 "paid": False,
                 "answer": (
-                    f"OPai couldn't route this and {agent} isn't connected. "
+                    f"Vesta couldn't route this and {agent} isn't connected. "
                     f"Connect {agent} and try again."
                 ),
                 "error": str(error),
@@ -112,9 +112,9 @@ def proxy_run(
     mode: str | None = None,
     runner: Any = None,
 ) -> dict[str, Any]:
-    """Route one agent call through OPai. The single entrypoint for the shim.
+    """Route one agent call through Vesta. The single entrypoint for the shim.
 
-    Returns a result dict that always carries ``captured`` (whether OPai routed
+    Returns a result dict that always carries ``captured`` (whether Vesta routed
     and recorded the call) and ``agent``. ``runner`` is injectable for tests.
     """
     root = project_root.expanduser().resolve()
@@ -163,7 +163,7 @@ def proxy_run(
                 "captured": False,
                 "paid": False,
                 "answer": (
-                    f"OPai can route {', '.join(SUPPORTED_AGENTS)} today, not '{agent}'."
+                    f"Vesta can route {', '.join(SUPPORTED_AGENTS)} today, not '{agent}'."
                 ),
             }
         )
@@ -179,7 +179,7 @@ def proxy_run(
     if warnings and mode != "full-auto":
         return finish(_blocked(agent, str(warnings[0].get("reason", ""))))
 
-    # 2) Route through OPai's account path: classify, run, and record real spend.
+    # 2) Route through Vesta's account path: classify, run, and record real spend.
     #    _ask_account already does honest cost accounting (#90) and never raises
     #    for ordinary CLI failures; we still wrap it so any surprise fails open.
     try:

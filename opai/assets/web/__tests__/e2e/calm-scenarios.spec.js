@@ -148,9 +148,9 @@ test("a local no-stream turn shows its latest real activity, never fake progress
   // Only preamble activity arrives — no stream events, no tokens.
   await emitScenario(page, id, [{
     id: `${id}:phase`, type: "request_sending", status: "running",
-    title: "Running OPai locally", requestId: id,
+    title: "Running Vesta locally", requestId: id,
   }]);
-  await expect(page.locator(".gen-stage")).toHaveText("Running OPai locally");
+  await expect(page.locator(".gen-stage")).toHaveText("Running Vesta locally");
   await expect(page.locator(".thinking")).toHaveCount(0);
   await expect(page.locator(".gen-stage")).not.toContainText("Streaming");
   await finishRequest(page, id, { answer: "local answer" });

@@ -1,4 +1,4 @@
-"""Structural validation for canonical OPai release identity projections."""
+"""Structural validation for canonical Vesta release identity projections."""
 
 from __future__ import annotations
 

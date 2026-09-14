@@ -1,4 +1,4 @@
-"""Stable evidence caching for the OPai router (power-efficiency roadmap Phase 2).
+"""Stable evidence caching for the Vesta router (power-efficiency roadmap Phase 2).
 
 The evidence collector re-scans the whole repository (a recursive language walk
 plus several git calls) on every ``opai route``. The raw ``cache_key`` baked

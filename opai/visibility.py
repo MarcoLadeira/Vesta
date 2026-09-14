@@ -36,7 +36,7 @@ def _ensure_local_git_ignore(root: Path) -> str:
     exclude.write_text(
         existing
         + suffix
-        + "# OPai local status and proof files\n"
+        + "# Vesta local status and proof files\n"
         + "\n".join(missing)
         + "\n",
         encoding="utf-8",
@@ -51,9 +51,9 @@ def render_visibility_markdown(payload: dict[str, Any]) -> str:
     benchmark = payload["benchmark"]
     status_text = "active" if payload["status"] == "on" else "needs attention"
     lines = [
-        "# OPai Status",
+        "# Vesta Status",
         "",
-        f"OPai is {status_text} for this project.",
+        f"Vesta is {status_text} for this project.",
         "",
         f"`{compact_statusline(payload)}`",
         "",

@@ -67,7 +67,7 @@ def detect_image_mode() -> str:
 def render_ascii_mascot(color: bool = True) -> str:
     lines = [
         "        .-=========-.",
-        "     .-'   OPai      '-.",
+        "     .-'   Vesta     '-.",
         "    /   .----------.   \\",
         "   |   |   > _ <    |   |",
         "   |   '------------'   |",
@@ -161,7 +161,7 @@ def render_graphic(
 
 
 def render_badge(width: int | None = None, color: bool = True) -> str:
-    text = "Using OPai"
+    text = "Using Vesta"
     columns = width or terminal_width()
     padding = max(0, columns - len(text))
     return " " * padding + colorize(text, BLUE, color)

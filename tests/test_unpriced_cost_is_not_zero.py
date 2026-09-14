@@ -84,7 +84,7 @@ class TierPriceKnownTests(unittest.TestCase):
     def test_a_local_tier_is_known_even_when_absent_from_the_table(self) -> None:
         # Local execution costing nothing is the premise, not an estimate.
         # Without this, a partial table would flag every local run — noise on
-        # exactly the runs OPai is most confident about.
+        # exactly the runs Vesta is most confident about.
         model = dict(DEFAULT_COST_MODEL, tier_usd_per_1k_tokens=PARTIAL_TIER_TABLE)
         self.assertTrue(tier_price_known("L1", model))
         self.assertTrue(tier_price_known("L0", model))
@@ -164,7 +164,7 @@ class LedgerRecordingTests(unittest.TestCase):
     def test_usage_provenance_is_not_overwritten_by_price_availability(self) -> None:
         """These are different facts and must not be conflated.
 
-        A provider can report exact token usage for a tier OPai has no price
+        A provider can report exact token usage for a tier Vesta has no price
         for. Reporting that window as unmeasured because the *price* was
         unknown is the contradiction #619 AC4 forbids — and doing it broke
         seven existing usage-confidence tests when first attempted.

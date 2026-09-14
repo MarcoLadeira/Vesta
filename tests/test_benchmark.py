@@ -1,4 +1,4 @@
-"""Tests for local OPai effectiveness benchmarking."""
+"""Tests for local Vesta effectiveness benchmarking."""
 
 from __future__ import annotations
 
@@ -118,8 +118,8 @@ class BenchmarkTests(unittest.TestCase):
 
             markdown = render_benchmark_markdown(report)
 
-            self.assertIn("# OPai Benchmark Report", markdown)
-            self.assertIn("OPai Efficiency Score", markdown)
+            self.assertIn("# Vesta Benchmark Report", markdown)
+            self.assertIn("Vesta Efficiency Score", markdown)
             self.assertIn("context reduction", markdown.lower())
             self.assertIn("promptfoo", markdown.lower())
             self.assertIn("Claim readiness", markdown)
@@ -197,7 +197,7 @@ class BenchmarkTests(unittest.TestCase):
             self.assertFalse(comparison["ok"])
             self.assertTrue(comparison["regressions"])
             self.assertIn("context_reduction_ratio", comparison["deltas"])
-            self.assertIn("# OPai Benchmark Comparison", markdown)
+            self.assertIn("# Vesta Benchmark Comparison", markdown)
 
     def test_promptfoo_export_is_privacy_safe(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -211,7 +211,7 @@ class BenchmarkTests(unittest.TestCase):
             self.assertGreaterEqual(export["task_count"], 16)
             self.assertTrue(out.exists())
             content = out.read_text(encoding="utf-8")
-            self.assertIn("OPai coding-agent benchmark handoff", content)
+            self.assertIn("Vesta coding-agent benchmark handoff", content)
             self.assertIn("task_hash", content)
             self.assertNotIn("Plan a small feature", content)
 
@@ -274,7 +274,7 @@ class BenchmarkTests(unittest.TestCase):
                     ]
                 )
             self.assertEqual(0, code)
-            self.assertIn("# OPai Benchmark Report", out.getvalue())
+            self.assertIn("# Vesta Benchmark Report", out.getvalue())
 
             out = io.StringIO()
             with contextlib.redirect_stdout(out):

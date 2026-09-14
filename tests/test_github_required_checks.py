@@ -113,7 +113,7 @@ class _StrictGitHub:
                 "id": run_id,
                 "head_sha": HEAD,
                 "path": WORKFLOW_PATH,
-                "name": "OPai CI (hosted)",
+                "name": "Vesta CI (hosted)",
                 "event": "pull_request",
             }
             payload.update(self.run_overrides.get(run_id, {}))

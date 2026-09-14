@@ -70,7 +70,7 @@ SUPPORTED_PROVIDERS = frozenset(record["provider_id"] for record in _CATALOG_REC
 
 @dataclass(frozen=True)
 class ExecutionRequest:
-    """Explicit provider execution boundary; workflow state remains in OPai."""
+    """Explicit provider execution boundary; workflow state remains in Vesta."""
 
     prompt: str
     cwd: str
@@ -108,7 +108,7 @@ _WRITE_TOOLS = ("apply_patch", "run_tests")
 
 
 def gemini_approval_mode(mode: str) -> str:
-    """Map OPai autonomy to Gemini CLI's current approval vocabulary."""
+    """Map Vesta autonomy to Gemini CLI's current approval vocabulary."""
 
     return {
         "ask": "plan",
@@ -121,7 +121,7 @@ def gemini_approval_mode(mode: str) -> str:
 
 
 def opai_mode_for_gemini_approval(approval_mode: str) -> str | None:
-    """Translate a supported Gemini CLI approval mode back to OPai autonomy."""
+    """Translate a supported Gemini CLI approval mode back to Vesta autonomy."""
 
     return {
         "plan": "plan",
@@ -413,7 +413,7 @@ class ProviderAdapter:
                 or request.permission != expected_permission
             ):
                 raise ValueError(
-                    "Codex sandbox and permission must match the centralized OPai mode"
+                    "Codex sandbox and permission must match the centralized Vesta mode"
                 )
         command = AccountRunner(
             self.provider_id,
@@ -470,7 +470,7 @@ class ProviderAdapter:
         Parser ``done`` and ``cost`` hints remain useful to their legacy stream
         owner, but this adapter boundary does not assert completion, price,
         verification, or authority.  It emits caller-managed observations that
-        a later OPai layer may assign stream sequence numbers and timestamps to.
+        a later Vesta layer may assign stream sequence numbers and timestamps to.
         """
 
         from opai.activity import parse_claude_line, parse_codex_line

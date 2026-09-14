@@ -70,7 +70,7 @@ test("selected model and mode reach the native bridge request", async ({ page })
 
 test("normal chat hides route IDs and broken-value sentinels", async ({ page }) => {
   const id = await sendPrompt(page, "keep details human");
-  await finishRequest(page, id, { answer: "OPai chose the safest capable route." });
+  await finishRequest(page, id, { answer: "Vesta chose the safest capable route." });
   await expectNoRawProviderIds(page);
   await expectNoUiSentinels(page);
 });

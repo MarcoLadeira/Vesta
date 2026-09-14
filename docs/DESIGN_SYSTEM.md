@@ -1,6 +1,6 @@
-# OPai — Design System
+# Vesta — Design System
 
-The shipped OPai GUI (`opai gui`) renders with **Chromium (QtWebEngine) + CSS**,
+The shipped Vesta GUI (`opai gui`) renders with **Chromium (QtWebEngine) + CSS**,
 not Qt/QSS. Tokens are CSS custom properties in
 `opai/assets/web/design-tokens.css`; components are DOM elements styled by class
 in `styles.css`. This doc is the contract so the surface stays consistent as it
@@ -101,7 +101,7 @@ silently break the way a borderless confirm once did.
   ghost/outline control or a nav item.
 - Hover always lightens by one step (`--panel` → `--panel-2`, `--glass` →
   `--glass-hi`, `--border` → `--border-strong`).
-- Motion only moves when OPai is genuinely working; transitions use `--ease`.
+- Motion only moves when Vesta is genuinely working; transitions use `--ease`.
 - Destructive/mutating actions (panic, repair, Full Auto pin) always go through
   an `.inline-confirm`; read actions never prompt.
 - **Labels must be honest** (#400): a control's text and `aria-label` name where

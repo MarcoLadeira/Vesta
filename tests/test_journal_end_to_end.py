@@ -419,7 +419,7 @@ class ExistingInstallationsMigrateWithoutLossTests(_EndToEndFixture):
     "Existing installations migrate without losing task, cost, approval or
     evidence references."
 
-    The upgrade path is the one users actually experience: OPai has been
+    The upgrade path is the one users actually experience: Vesta has been
     running for months with files, a release adds the journal, and from that
     moment some runs are journalled and older ones never will be. If the switch
     dropped the older ones, users would open the app to find their history

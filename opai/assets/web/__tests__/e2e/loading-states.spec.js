@@ -28,7 +28,7 @@ test("Prompt Library transitions from loading boundary to templates", async ({ p
 
 test("shell renders before delayed local discovery and updates the picker asynchronously", async ({ page }) => {
   const discovered = [
-    { id: "auto", label: "OPai · Auto mode", kind: "auto", group: "routing", provider: "auto", available: true },
+    { id: "auto", label: "Vesta · Auto mode", kind: "auto", group: "routing", provider: "auto", available: true },
     { id: "ollama:qwen", label: "Qwen · local", kind: "local", group: "local", provider: "ollama", available: true },
   ];
   await openApp(page, { discoveredModels: discovered, deferDiscovery: true });

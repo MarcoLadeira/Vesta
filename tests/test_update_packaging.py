@@ -48,7 +48,7 @@ def _identity(install_type: InstallType, **overrides: object) -> dict[str, objec
         "package_identity": "OPai.Desktop"
         if install_type is InstallType.WINDOWS_MSIX
         else "com.opai.desktop",
-        "publisher_identity": "CN=OPai"
+        "publisher_identity": "CN=Vesta"
         if install_type is InstallType.WINDOWS_MSIX
         else "ABCDE12345",
         "assets": asset_manifest(ROOT / "opai" / "assets"),
@@ -146,7 +146,7 @@ def test_msix_manifest_ships_gui_and_cli_alias_together():
     root = ElementTree.fromstring(
         render_msix_manifest(
             package_identity="OPai.Desktop",
-            publisher_identity="CN=OPai",
+            publisher_identity="CN=Vesta",
             version="0.3.0",
             architecture="x86_64",
         )
@@ -172,7 +172,7 @@ def test_msix_layout_contains_complete_bundle_manifest_and_assets(tmp_path: Path
         bundle,
         layout,
         package_identity="OPai.Desktop",
-        publisher_identity="CN=OPai",
+        publisher_identity="CN=Vesta",
         version="0.3.0",
         architecture="x86_64",
         assets=_assets(tmp_path),
@@ -191,7 +191,7 @@ def test_msix_layout_refuses_missing_cli(tmp_path: Path):
             bundle,
             tmp_path / "layout",
             package_identity="OPai.Desktop",
-            publisher_identity="CN=OPai",
+            publisher_identity="CN=Vesta",
             version="0.3.0",
             architecture="x86_64",
             assets=_assets(tmp_path),

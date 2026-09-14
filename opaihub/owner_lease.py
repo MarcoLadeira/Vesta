@@ -1,15 +1,15 @@
 """Supervisor leases: is the process that owns this run still alive? (#295)
 
-OPai persists a turn as ``state: "running"`` before the work starts, so a crash
+Vesta persists a turn as ``state: "running"`` before the work starts, so a crash
 leaves that record behind forever. The resume path already handled this
 honestly — and said so in a comment that names the exact missing piece:
 
     Boot is deliberately read-only. A pending checkpoint can still belong to
-    another live OPai window or CLI run; **without an owner lease, process
+    another live Vesta window or CLI run; **without an owner lease, process
     death cannot be inferred safely**. Preserve it verbatim and let the user
     make the explicit resume/start-fresh choice.
 
-That is the right call while the information is absent, but it means OPai cannot
+That is the right call while the information is absent, but it means Vesta cannot
 distinguish "another window is working on this" from "this died three days ago",
 and so cannot tell the user which one it is. #295 asks for exactly this:
 invariant 4, *one active owner — each run and external process has exactly one
@@ -25,7 +25,7 @@ is stale no matter what its pid says. A reused pid cannot refresh a lease it
 does not know about, so the heartbeat is the only signal that can be trusted.
 
 The pid and a per-process boot id are still recorded, for two narrower jobs they
-*can* do honestly: recognising OPai's own lease (``owned_by_this_process``) so a
+*can* do honestly: recognising Vesta's own lease (``owned_by_this_process``) so a
 process never treats its own work as abandoned, and giving a human something to
 identify in a diagnostic.
 

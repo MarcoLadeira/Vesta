@@ -49,7 +49,7 @@ EVENT_OPERATION_INTENT = "operation_intent"
 EVENT_MODEL_CALL_STARTED = "model_call_started"
 EVENT_MODEL_CALL_USAGE_OBSERVED = "model_call_usage_observed"
 # A pre-dispatch identity whose adapter later proved that no provider request
-# left OPai. This closes the open item without inventing usage or counting a
+# left Vesta. This closes the open item without inventing usage or counting a
 # model call.
 EVENT_MODEL_CALL_NOT_DISPATCHED = "model_call_not_dispatched"
 # A dispatched call retired without ever learning its cost (#685). Terminal and
@@ -84,7 +84,7 @@ OUTCOME_SCHEMA_VERSION = 1
 # Terminal classes. Every turn ends in exactly one; there is no "running" state
 # in the ledger because only terminal outcomes are recorded.
 OUTCOME_CATEGORIES = {"completed", "partial", "failed", "blocked", "cancelled"}
-# Sentinel for a value OPai has not measured. Distinct from a real 0 (e.g. zero
+# Sentinel for a value Vesta has not measured. Distinct from a real 0 (e.g. zero
 # tokens because no model call happened), which is a fact, not a guess.
 UNKNOWN = "unknown"
 
@@ -92,10 +92,10 @@ UNKNOWN = "unknown"
 # boundary. Client readiness (how many clients are wired) is NOT capture — a
 # 5/5 readiness never means 100% of sessions are measured.
 CAPTURE_RATE_DEFINITION = {
-    "numerator": "capture_session events with captured=true (a session OPai measured)",
+    "numerator": "capture_session events with captured=true (a session Vesta measured)",
     "denominator": "all observed capture_session events (measurable sessions)",
     "excludes": (
-        "Direct unwrapped agent launches OPai never sees are unmeasurable and are "
+        "Direct unwrapped agent launches Vesta never sees are unmeasurable and are "
         "not in the denominator. Client readiness is not capture."
     ),
     "unit": "percent of observed proxy sessions",
@@ -1537,7 +1537,7 @@ def unresolved_model_calls(project_root: Path) -> list[dict[str, Any]]:
     """Provider turns that were dispatched but whose result never landed (#619).
 
     A ``model_call_started`` with no matching ``model_call_finalized`` means the
-    request left OPai — the provider may well have billed for it — and then the
+    request left Vesta — the provider may well have billed for it — and then the
     process died, the machine slept, or the write failed. The work happened; the
     cost is simply unknown.
 
@@ -1607,7 +1607,7 @@ def reconcile_abandoned_calls(
     Calls this process started are never retired, so running the sweep
     mid-turn is safe.
 
-    Records ``cost_unknown`` — never a number. An abandoned call is spend OPai
+    Records ``cost_unknown`` — never a number. An abandoned call is spend Vesta
     could not measure, and #619 AC5 is explicit that unknown is unavailable and
     never zero. Ageing changes what may be *gated on*, not what is *reported*.
     """
@@ -1679,7 +1679,7 @@ def cost_reconciliation(
     reconciled", never a confident total that silently omits it.
 
     Ageing a call out (#685) does not change that. An abandoned call is still
-    spend OPai could not measure, so it still counts against ``verified`` and
+    spend Vesta could not measure, so it still counts against ``verified`` and
     still appears here — permanently. What ageing changes is only whether a
     call is an *open item* a gate may act on.
 
@@ -1847,7 +1847,7 @@ def record_model_call(
         # `measurement` describes where the *usage* numbers came from, and
         # opaihub/usage.py reads it to decide whether a window is measured or
         # estimated. Price availability is a different fact — a provider can
-        # report exact tokens for a tier OPai has no price for — so it gets
+        # report exact tokens for a tier Vesta has no price for — so it gets
         # its own field rather than overloading this one. Conflating them
         # would report provider-measured usage as unmeasured, which is the
         # kind of contradiction #619 AC4 exists to prevent.
@@ -2026,9 +2026,9 @@ def summarize_ledger(project_root: Path) -> dict[str, Any]:
         "context_tokens_saved": int(_sum(routes, "context_tokens_saved")),
         "capture": {
             "observed_sessions": len(capture_sessions),
-            # Measurable = sessions OPai actually observed (the denominator).
+            # Measurable = sessions Vesta actually observed (the denominator).
             # Pass-through = observed but not captured (fail-open/unsupported).
-            # Unmeasured = direct unwrapped launches OPai never saw: unknown by
+            # Unmeasured = direct unwrapped launches Vesta never saw: unknown by
             # definition, so they are NOT counted here (#9).
             "measurable_sessions": len(capture_sessions),
             "captured_sessions": captured_sessions,
@@ -2044,7 +2044,7 @@ def summarize_ledger(project_root: Path) -> dict[str, Any]:
                 else "No proxy sessions observed"
             ),
             "outcomes": dict(sorted(outcomes.items())),
-            "scope": "Observed OPai proxy sessions only",
+            "scope": "Observed Vesta proxy sessions only",
             "caveat": (
                 "Direct unwrapped agent launches are not measurable yet and are not "
                 "included in this rate. Client readiness is not session capture."
@@ -2109,7 +2109,7 @@ def summarize_outcomes(project_root: Path) -> dict[str, Any]:
 
     completed = by_category["completed"]
     # Authoritative spend — identical to summarize_ledger's headline (#286): the
-    # single source of truth for what OPai actually spent.
+    # single source of truth for what Vesta actually spent.
     authoritative_spend = _sum(model_calls, "estimated_actual_usd")
     cost_per_completed = (
         round(authoritative_spend / completed, 6) if completed else UNKNOWN

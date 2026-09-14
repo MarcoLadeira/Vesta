@@ -6,7 +6,7 @@
 
 ## Context
 
-OPai has good persistence *primitives* — atomic replacement, interprocess locks,
+Vesta has good persistence *primitives* — atomic replacement, interprocess locks,
 versioned state — and no single ordered history. Trust-critical state lives in
 per-subsystem JSON and JSONL files, each individually plausible.
 
@@ -202,4 +202,4 @@ to solve it.
 2. **Restore cannot replace a journal another process holds open.** On Windows
    an open handle blocks the replace. The refusal is the safe outcome and it
    names the real cause (`journal_in_use`) rather than blaming the backup, but
-   a restore still means closing OPai first.
+   a restore still means closing Vesta first.

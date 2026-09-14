@@ -1,6 +1,6 @@
-# OPai 10x Money-Saving Roadmap
+# Vesta 10x Money-Saving Roadmap
 
-This is the working surface for the **OPai 10x Money-Saving Roadmap** milestone
+This is the working surface for the **Vesta 10x Money-Saving Roadmap** milestone
 (#49-#55). Everything here is local, privacy-safe (one-way hashes, no prompts,
 no telemetry), and tested.
 
@@ -28,7 +28,7 @@ opai budget panic                        # deterministic/local-only until disabl
 opai budget panic --off
 ```
 
-The gate checks the *escalation target* (`recommend_model`) because OPai's local
+The gate checks the *escalation target* (`recommend_model`) because Vesta's local
 router never self-escalates. Panic mode blocks every paid/cloud route.
 
 ## #51 10x Context Engine
@@ -44,7 +44,7 @@ opai context pack --changed      # tiny redacted pack of changed files + adjacen
 
 `opai doctor` reports active/broken/missing for Claude, Codex, Cursor, Cline,
 and Copilot; `opai activate --repair` fixes stale paths. Reproducible
-baseline-vs-OPai demos: [CLIENT_DEMOS.md](CLIENT_DEMOS.md).
+baseline-vs-Vesta demos: [CLIENT_DEMOS.md](CLIENT_DEMOS.md).
 
 ## #53 Free Public Alpha Distribution
 
@@ -74,5 +74,5 @@ opai benchmark gate --min-effectiveness-index 95   # CI proof gate
 ```
 
 Provider-backed harnesses (promptfoo, SWE-bench, Terminal-Bench, Aider Polyglot)
-are opt-in and clearly separated from local OPai proof. Run them under a budget
+are opt-in and clearly separated from local Vesta proof. Run them under a budget
 (`opai budget`) and panic mode to keep provider spend gated.

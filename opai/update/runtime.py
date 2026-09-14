@@ -1,4 +1,4 @@
-"""Composition of OPai's canonical run and lease truth for update safety."""
+"""Composition of Vesta's canonical run and lease truth for update safety."""
 
 from __future__ import annotations
 

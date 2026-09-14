@@ -1,6 +1,6 @@
-# OPai / OP AI Hub Overview
+# Vesta / OP AI Hub Overview
 
-OPai 0.2.0 alpha.1 is the branded CLI and install layer for OP AI Hub. OP AI Hub is a modular, local-first AI tools platform. It is not a single giant agent. It is a registry and routing layer that helps decide which tool, agent, workflow, MCP server, or model tier should handle a task.
+Vesta 0.2.0 alpha.1 is the branded CLI and install layer for OP AI Hub. OP AI Hub is a modular, local-first AI tools platform. It is not a single giant agent. It is a registry and routing layer that helps decide which tool, agent, workflow, MCP server, or model tier should handle a task.
 
 The hub builds on the existing OPcoding system:
 
@@ -11,7 +11,7 @@ Core rule: use deterministic/local tools before AI reasoning, and ask before pai
 
 Phase 1 provides metadata and inspection. The Phase 2 foundation adds project overlays, registry validation, safe workflow planning, MCP rendering, health history, local model discovery, and dashboard generation.
 
-Phase 3 adds the public OPai brand CLI, local install scripts, tool discovery, analytics summaries, command sandbox classification, manual schedules, static HTML dashboard output, and disabled-by-default team/cloud config.
+Phase 3 adds the public Vesta brand CLI, local install scripts, tool discovery, analytics summaries, command sandbox classification, manual schedules, static HTML dashboard output, and disabled-by-default team/cloud config.
 
 Start with:
 

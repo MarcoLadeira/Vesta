@@ -1,6 +1,6 @@
 """Every model family gets the same standing project instructions.
 
-The defect: OPai's account models run through their vendor CLIs, which read
+The defect: Vesta's account models run through their vendor CLIs, which read
 `AGENTS.md` / `CLAUDE.md` themselves, while local and free-tier models went
 through a prompt built from languages, markers, test commands, and git status —
 with the instruction files explicitly excluded from context. So a rule the user
@@ -21,7 +21,7 @@ from opaihub.project_instructions import (
     load_project_instructions,
 )
 
-BASE = "You are OPai's local-first coding assistant."
+BASE = "You are Vesta's local-first coding assistant."
 
 
 class LoadTests(unittest.TestCase):
@@ -47,8 +47,8 @@ class LoadTests(unittest.TestCase):
         self._write("AGENTS.md", "Always run the tests before claiming done.")
         prompt = build_system_prompt(BASE, self.root)
         self.assertIn("Always run the tests before claiming done.", prompt)
-        # OPai's own rules stay first: the project may direct the work, it does
-        # not get to overrule OPai's safety and honesty rules.
+        # Vesta's own rules stay first: the project may direct the work, it does
+        # not get to overrule Vesta's safety and honesty rules.
         self.assertLess(prompt.index(BASE), prompt.index("Always run the tests"))
 
     def test_every_supported_filename_is_read(self) -> None:

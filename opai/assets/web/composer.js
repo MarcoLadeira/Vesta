@@ -1,4 +1,4 @@
-/* OPai Composer Redesign controller.
+/* Vesta Composer Redesign controller.
  *
  * Implements the three explored directions from the design doc
  * (docs/design/opai-prompt-composer-redesign.md) as one switchable card:
@@ -24,11 +24,11 @@
   var DEFAULT_STYLE = "toolbar";
 
   // The menu Claude Code presents, in its order and its words, rendered with
-  // OPai's own rows. Four graded modes, numbered so they can be picked from
+  // Vesta's own rows. Four graded modes, numbered so they can be picked from
   // the keyboard, and Bypass sitting apart from the ladder rather than one
   // more step along it -- reaching it should be a decision, not a drift.
   var MODE_MENU = [
-    { id: "safe-auto", label: "Auto", desc: "OPai handles permission decisions" },
+    { id: "safe-auto", label: "Auto", desc: "Vesta handles permission decisions" },
     { id: "approve-edits", label: "Manual", desc: "Always ask before making changes" },
     { id: "auto-edits", label: "Accept edits", desc: "Automatically accept all file edits" },
     { id: "plan", label: "Plan", desc: "Create a plan before making changes" },
@@ -49,7 +49,7 @@
     ask: "Answer questions without changing files.",
     plan: "Create a plan before making changes",
     "approve-edits": "Always ask before making changes",
-    "safe-auto": "OPai handles permission decisions",
+    "safe-auto": "Vesta handles permission decisions",
     "auto-edits": "Automatically accept all file edits",
     "full-auto": "Run everything, including pushes, without asking",
   };
@@ -76,7 +76,7 @@
     if (m.provider === "claude") return "Claude";
     if (m.provider === "codex" || m.provider === "openai") return "GPT";
     if (m.provider === "copilot") return "Copilot";
-    var lbl = String(m.label || "").replace(/^OPai\s*·\s*/, "");
+    var lbl = String(m.label || "").replace(/^Vesta\s*·\s*/, "");
     return lbl.split(/[\s·]+/)[0] || "Model";
   }
   function routesLocal(m) {
@@ -207,7 +207,7 @@
       '<button type="button" role="menuitem" class="cpop-row" data-act="repo"><span class="cpop-ico">' + icon("workspace") + '</span><span class="cpop-body"><span class="cpop-title">Use this repository</span></span><span class="cpop-meta" title="' + esc(repo) + '">' + esc(repo) + "</span></button>" +
       '<div class="cpop-sep"></div>' +
       '<div class="cpop-input"><span>›</span><input id="ctxPathDraft" placeholder="Type a path and press Enter" aria-label="Add a path" autocomplete="off" /></div>' +
-      '<p class="cpop-note">OPai links to your files — it sends their location, not their contents.</p>';
+      '<p class="cpop-note">Vesta links to your files — it sends their location, not their contents.</p>';
     pop.querySelector('[data-act="repo"]').onclick = function () { useRepo(); closePopovers(); };
     pop.querySelector('[data-act="file"]').onclick = function () { pickContext("file"); };
     pop.querySelector('[data-act="image"]').onclick = function () { pickImages(); };
@@ -233,8 +233,8 @@
         if (result.rejected && typeof api.notify === "function") {
           api.notify(
             result.rejected === 1
-              ? "One file was not an image OPai can send."
-              : result.rejected + " files were not images OPai can send."
+              ? "One file was not an image Vesta can send."
+              : result.rejected + " files were not images Vesta can send."
           );
         }
         closePopovers();
@@ -390,14 +390,14 @@
     return "";
   }
   function modelName(m) {
-    // Strip the "OPai · " / "Provider · " prefix and the "(free tier)" suffix so
+    // Strip the "Vesta · " / "Provider · " prefix and the "(free tier)" suffix so
     // the flat row reads as a clean model name; the provider is its own column.
     return String(m.label || "")
-      .replace(/^OPai\s*·\s*/, "")
+      .replace(/^Vesta\s*·\s*/, "")
       .replace(/\s*\(free tier\)\s*$/i, "")
       .trim() || (m.id || "Model");
   }
-  // Exact remaining credit for a model's provider, when OPai knows it —
+  // Exact remaining credit for a model's provider, when Vesta knows it —
   // "€85.00 left" from a live balance, the user's manual entry, or an
   // observed refusal. Unknown balances show nothing (never a made-up number).
   var BALANCE_SYMBOLS = { USD: "$", EUR: "€", GBP: "£", CNY: "¥", JPY: "¥" };
@@ -410,7 +410,7 @@
   }
   // Out-of-credit models are removed from selection entirely; this builds the
   // one-line explanation of what was hidden and why (per provider, deduped).
-  // A model that works for Ask and Plan but that OPai will refuse to hand
+  // A model that works for Ask and Plan but that Vesta will refuse to hand
   // repository write access (Copilot's CLI today, because it cannot expose a
   // bounded edit-tool set). It stays fully selectable — read-only work is a
   // legitimate use — but the row says so up front instead of letting the user

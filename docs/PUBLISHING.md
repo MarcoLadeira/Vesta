@@ -4,7 +4,7 @@
 > not a public download page. Do not invent or advertise an install command
 > until a verified release artifact is actually published.
 
-OPai is released from this repository, `MarcoLadeira/OPai`. It must not be
+Vesta is released from this repository, `MarcoLadeira/OPai`. It must not be
 released from a parent website repository or a copied working directory.
 
 ## Maintainer checks
@@ -42,7 +42,7 @@ op status
 
 The normal editable install resolves declared core runtime dependencies. Use
 `--no-deps` only for an intentional maintainer check that supplies dependencies
-separately. Both `op` and `opai` launch OPai; the legacy OPcoding CLI remains
+separately. Both `op` and `opai` launch Vesta; the legacy OPcoding CLI remains
 available as `opcoding`.
 
 ## Public release handoff
@@ -57,7 +57,7 @@ product path.
 
 ## Superpowers
 
-OPai activation treats Superpowers as part of OPai when Superpowers exists
+Vesta activation treats Superpowers as part of Vesta when Superpowers exists
 under:
 
 ```text

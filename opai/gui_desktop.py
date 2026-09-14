@@ -1,4 +1,4 @@
-"""OPai desktop app — a premium, user-controlled AI workspace.
+"""Vesta desktop app — a premium, user-controlled AI workspace.
 
 `opai gui` opens one window with four zones: a grouped left sidebar (new chat,
 workspace views, dashboards, prompt library, settings), a header with a real
@@ -177,12 +177,16 @@ def build_chat_job(
             kwargs["focus_hint"] = focus_hint
         if output_instruction is not None:
             kwargs["output_instruction"] = output_instruction
-        return handle_gui_message(root, message, **kwargs)
+        # Passed at the call rather than folded into `kwargs` so it is
+        # visible to a reader and checkable by the ratchet in
+        # tests/test_journal_run_origin.py. A required identity hidden
+        # inside a dict is exactly how this one went missing (#818 AC2).
+        return handle_gui_message(root, message, surface="gui", **kwargs)
 
     return job, cancel
 
 
-# OPai's own dark identity: a cool charcoal with an emerald accent (the savings /
+# Vesta's own dark identity: a cool charcoal with an emerald accent (the savings /
 # cost-firewall signal) - deliberately not Claude's warm coral. One typeface only.
 BG = "#1b1d21"  # main conversation surface (cool charcoal)
 SIDEBAR = "#16181b"  # left sidebar + right control panel (a touch darker)
@@ -195,7 +199,7 @@ BORDER_HI = "#3a414b"
 INK = "#e8eaee"  # cool off-white
 MUTED = "#9aa2af"
 FAINT = "#69707d"
-ACCENT = "#34d399"  # emerald - OPai primary action / brand
+ACCENT = "#34d399"  # emerald - Vesta primary action / brand
 ACCENT_HI = "#28bd86"
 GREEN = "#34d399"
 AMBER = "#e0a458"
@@ -391,7 +395,7 @@ def _run_gui(
     )
 
     def _load_app_fonts() -> None:
-        # Load the crisp typeface that ships with OPai so every machine renders
+        # Load the crisp typeface that ships with Vesta so every machine renders
         # the same premium UI, regardless of what system fonts are installed.
         fonts_dir = Path(__file__).resolve().parent / "assets" / "fonts"
         for name in [
@@ -460,7 +464,7 @@ def _run_gui(
             )
             self._current_view = DEFAULT_VIEW
             self._nav_buttons: dict[str, Any] = {}
-            self.setWindowTitle(f"OPai · {self.root.name}")
+            self.setWindowTitle(f"Vesta · {self.root.name}")
             self.setMinimumSize(1000, 680)
             self.resize(1320, 860)
             self.setStyleSheet(_stylesheet())
@@ -523,7 +527,7 @@ def _run_gui(
             self.dot = QtWidgets.QLabel("●")
             self.dot.setStyleSheet(f"color:{GREEN}; font-size:13px;")
             brand.addWidget(self.dot)
-            brand.addWidget(self._lbl("OPai", name="Brand"))
+            brand.addWidget(self._lbl("Vesta", name="Brand"))
             brand.addStretch(1)
             col.addLayout(brand)
             col.addSpacing(6)
@@ -612,7 +616,7 @@ def _run_gui(
             self.root = resolve_gui_workspace(Path(path))
             add_recent_workspace(self.root)
             self._preferences = load_gui_preferences(self.root)
-            self.setWindowTitle(f"OPai · {self.root.name}")
+            self.setWindowTitle(f"Vesta · {self.root.name}")
             self.ws_btn.setText(workspace_label(self.root))
             self.ws_btn.setMenu(self._workspace_menu())
             self._load_models()
@@ -652,7 +656,7 @@ def _run_gui(
             bl.setSpacing(10)
             self.input = Composer()
             self.input.setObjectName("Input")
-            self.input.setPlaceholderText("Reply to OPai…")
+            self.input.setPlaceholderText("Reply to Vesta…")
             self.input.setFixedHeight(56)
             self.input.submit.connect(self._send)
             bl.addWidget(self.input)
@@ -1432,7 +1436,7 @@ def _run_gui(
             box.setWindowTitle("Pin Full Auto?")
             box.setText("Pin Full Auto?")
             box.setInformativeText(
-                "Full Auto lets OPai edit files and run commands without asking "
+                "Full Auto lets Vesta edit files and run commands without asking "
                 "first. It stays on until you unpin it. Pushing to a remote still "
                 "asks for your approval each time, and destructive actions — "
                 "force-push, deletes, deploys — are refused rather than run."
@@ -1486,6 +1490,7 @@ def _run_gui(
                     self.mode.currentText(),
                     ins["budget"]["spent_today"],
                     saved=sav["estimated_savings_usd"],
+                    spend_complete=bool(ins["budget"].get("spend_complete", True)),
                 )
             )
             connected = [a["label"] for a in self._accounts if a["connected"]]
@@ -1558,7 +1563,7 @@ def _run_gui(
             el.addWidget(title)
             connected = [a["label"] for a in self._accounts if a["connected"]]
             sub = self._lbl(
-                f"{' and '.join(connected)} connected · OPai picks the cheapest safe path."
+                f"{' and '.join(connected)} connected · Vesta picks the cheapest safe path."
                 if connected
                 else "Connect your Claude or Codex account, then just type.",
                 name="HeroSub",
@@ -1807,7 +1812,7 @@ def _run_gui(
                 parent = self._pending.parentWidget()
                 (parent or self._pending).setParent(None)
                 self._pending = None
-            self._say("BotBubble", "OPai", "Stopped.", role_color=MUTED)
+            self._say("BotBubble", "Vesta", "Stopped.", role_color=MUTED)
 
         def closeEvent(self, event) -> None:  # noqa: N802 - Qt override
             # Quitting must never leave a paid CLI running in the background,
@@ -1841,7 +1846,7 @@ def _run_gui(
                 role = opt.get("label", "Account").split(" · ")[0]
                 color = PROVIDER_COLOR.get(opt.get("provider"), ACCENT)
             else:
-                role, color = "OPai", MUTED
+                role, color = "Vesta", MUTED
             self._pending = self._bubble(
                 "BotBubble",
                 role,
@@ -1882,14 +1887,14 @@ def _run_gui(
                 else:
                     self._say(
                         "BotBubble",
-                        "OPai",
+                        "Vesta",
                         str(result.get("answer") or result.get("error") or result),
                         role_color=MUTED,
                     )
             except Exception as exc:  # noqa: BLE001
                 self._say(
                     "BotBubble",
-                    "OPai",
+                    "Vesta",
                     f"Render error: {safe_detail(exc)}",
                     role_color=RED,
                 )
@@ -1901,7 +1906,7 @@ def _run_gui(
             receipt = result.get("receipt") or {}
             warnings = result.get("warnings") or []
             answer = result.get("answer") or ""
-            role, color = "OPai", INK
+            role, color = "Vesta", INK
             if status == "blocked":
                 role, color = "Safe Auto", AMBER
             elif status == "account_timeout":
@@ -1909,7 +1914,7 @@ def _run_gui(
             elif status in {"needs_model", "needs_confirmation"}:
                 role, color = "Action needed", AMBER
             elif status not in {"answered", "cache_hit"}:
-                role, color = "OPai", RED
+                role, color = "Vesta", RED
             if warnings:
                 self._say(
                     "ToolBubble",
@@ -1921,7 +1926,7 @@ def _run_gui(
             self._say(
                 "BotBubble",
                 role,
-                answer or "OPai didn't return a response for that one.",
+                answer or "Vesta didn't return a response for that one.",
                 role_color=color,
             )
             # Show the real diff when files actually changed (important).

@@ -1,4 +1,4 @@
-# OPai Desktop — Feature Roadmap
+# Vesta Desktop — Feature Roadmap
 
 Status legend: **Done** (shipped this redesign) · **Partial** (usable, narrower
 than full scope) · **Roadmap** (designed, not built).

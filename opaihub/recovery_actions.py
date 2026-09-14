@@ -241,7 +241,7 @@ def build_recovery_actions(
         _action(
             REPLAN,
             "Re-plan",
-            "Keep the evidence and any changes; ask OPai for a new plan with a "
+            "Keep the evidence and any changes; ask Vesta for a new plan with a "
             "narrower approach.",
             available=True,
         ),
@@ -255,7 +255,7 @@ def build_recovery_actions(
         _action(
             ASK,
             "Ask a question",
-            "Pause and ask OPai about what happened before deciding.",
+            "Pause and ask Vesta about what happened before deciding.",
             available=True,
         ),
         _action(

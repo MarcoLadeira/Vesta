@@ -1,4 +1,4 @@
-"""OPai finishing its own update by restarting into it.
+"""Vesta finishing its own update by restarting into it.
 
 Claude Code and Codex both stop one step short: the new version is on disk
 and you are told to run the command again. The failure mode this file guards
@@ -26,7 +26,7 @@ def test_module_launch_is_rerun_through_the_same_interpreter():
     """`pythonw -m opai gui` must come back as `pythonw -m opai gui`.
 
     Reusing ``sys.executable`` is what keeps a windowed process windowed on
-    Windows, and what keeps a virtualenv's OPai from being replaced by some
+    Windows, and what keeps a virtualenv's Vesta from being replaced by some
     other Python's.
     """
     command = relaunch_command(

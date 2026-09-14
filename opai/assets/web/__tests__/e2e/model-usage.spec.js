@@ -46,17 +46,17 @@ test("account providers show a calm no-usage-API state with the official-usage l
   await expect(link).toHaveAttribute("href", "https://claude.ai/settings/usage");
   await expect(link).toHaveAttribute("data-ext", "1");
   await expect(link).not.toHaveAttribute("target", "_blank");
-  // With no official figure, OPai's own tracked count is the headline stat —
+  // With no official figure, Vesta's own tracked count is the headline stat —
   // same size/weight class as a real percentage or credit figure — clearly
   // labelled, never presented as the provider's number.
   await expect(card.locator("[data-usage-primary]")).toHaveText("12 calls tracked");
   await expect(card.locator(".usage2-headline")).toHaveClass(/tracked/);
   // All-time, not window-bound — Claude's rolling 5-hour window almost never
-  // has OPai-routed activity in it, since most usage goes through the bare
-  // CLI directly (which OPai's ledger never sees). A "last used" freshness
+  // has Vesta-routed activity in it, since most usage goes through the bare
+  // CLI directly (which Vesta's ledger never sees). A "last used" freshness
   // readout and an explicit clarification prevent the count from being
   // mistaken for real Claude usage.
-  await expect(card).toContainText("All time via OPai", seen);
+  await expect(card).toContainText("All time via Vesta", seen);
   await expect(card).toContainText(/last used \d+ d ago/, seen);
   await expect(card).toContainText("not the claude CLI used directly", seen);
 });

@@ -1,8 +1,8 @@
-"""The model list can be corrected without shipping a new OPai.
+"""The model list can be corrected without shipping a new Vesta.
 
 `opai/model_registry.py` is a table compiled into the release, so it goes stale
 the moment a provider ships something new: the model exists, the user's CLI
-accepts it, and OPai's picker does not offer it. That coupling is wrong —
+accepts it, and Vesta's picker does not offer it. That coupling is wrong —
 provider model names change far more often than this app does.
 
 These cover the layer that fixes it: a JSON file the user owns, merged over the
@@ -222,9 +222,15 @@ class SaveTests(_Temp):
         self.assertEqual(report["providers"]["codex"]["models"][0]["id"], "gpt-custom")
         self.assertEqual(report["hidden"]["codex"], ["gpt-old"])
 
-    def test_unsafe_full_payload_is_refused_without_replacing_existing_file(self) -> None:
+    def test_unsafe_full_payload_is_refused_without_replacing_existing_file(
+        self,
+    ) -> None:
         save_override_payload(
-            {"providers": {"codex": {"models": [{"id": "keep", "capability": "best"}]}}},
+            {
+                "providers": {
+                    "codex": {"models": [{"id": "keep", "capability": "best"}]}
+                }
+            },
             path=self.path,
         )
         previous = self.path.read_text(encoding="utf-8")

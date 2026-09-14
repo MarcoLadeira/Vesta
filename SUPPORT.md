@@ -1,6 +1,6 @@
 # Support
 
-OPai is `0.1.1` pre-alpha.
+Vesta is `0.1.1` pre-alpha.
 
 Use GitHub Issues for reproducible bugs and safety problems.
 

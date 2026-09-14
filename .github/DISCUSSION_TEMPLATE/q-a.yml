@@ -5,7 +5,7 @@ body:
     id: question
     attributes:
       label: Question
-      description: What are you trying to do with OPai?
+      description: What are you trying to do with Vesta?
     validations:
       required: true
   - type: textarea

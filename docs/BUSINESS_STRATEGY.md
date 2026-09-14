@@ -3,14 +3,14 @@
 Last updated: 2026-06-20
 
 > **Archived on 2026-07-12.** This research and packaging proposal assumes a
-> paid/open-core launch. OPai's alpha is fully free, so this document must not
+> paid/open-core launch. Vesta's alpha is fully free, so this document must not
 > be used to introduce a checkout, entitlement, license, private-access
 > requirement, or paid feature gate. Retain it only as a post-launch hypothesis
 > bank, to revisit after real free-alpha evidence exists.
 >
 > This document must not be used as current launch policy.
 
-OPai should become the AI coding cost firewall: the local-first control plane developers install before they use Claude, Codex, Copilot, Cursor, Cline, OpenHands, Kilo, or future coding agents.
+Vesta should become the AI coding cost firewall: the local-first control plane developers install before they use Claude, Codex, Copilot, Cursor, Cline, OpenHands, Kilo, or future coding agents.
 
 The business goal is not to win by being another agent. The business goal is to own the layer underneath agents: activation, policy, context slimming, routing, spend visibility, safety gates, evidence, and team governance.
 
@@ -22,7 +22,7 @@ AI coding tools are moving from autocomplete to autonomous workflows. That creat
 - Risk becomes harder to govern because every developer may use a different agent, MCP server, prompt, plugin, or cloud workspace.
 - Proof becomes scarce because teams need to know what the agent saw, what it changed, why it escalated, and whether it followed policy.
 
-OPai's wedge is to solve those pains without asking users to abandon the agents they already like.
+Vesta's wedge is to solve those pains without asking users to abandon the agents they already like.
 
 The category to own:
 
@@ -39,12 +39,12 @@ The AI coding cost firewall.
 The product promise:
 
 ```text
-Use any AI coding agent. OPai makes it cheaper, safer, and project-aware by default.
+Use any AI coding agent. Vesta makes it cheaper, safer, and project-aware by default.
 ```
 
-## What OPai Is Exactly
+## What Vesta Is Exactly
 
-OPai is a local-first operating layer for AI-assisted software development.
+Vesta is a local-first operating layer for AI-assisted software development.
 
 It is:
 
@@ -68,7 +68,7 @@ It is not:
 The simplest analogy:
 
 ```text
-OPai is the local policy, routing, and evidence layer for agentic coding.
+Vesta is the local policy, routing, and evidence layer for agentic coding.
 ```
 
 ## Market Reality
@@ -88,15 +88,15 @@ The macro conclusion: the agent layer is huge, but agent usage is becoming expen
 
 ## Competitor Map
 
-| Category | Examples | What They Sell | What OPai Should Avoid | OPai Opening |
+| Category | Examples | What They Sell | What Vesta Should Avoid | Vesta Opening |
 | --- | --- | --- | --- | --- |
 | Agent/editor | Cursor, Claude Code, Codex, Cline, Kilo, Copilot | The coding agent experience itself | Competing head-on as another editor | Make every agent cheaper and safer |
 | App builder | Lovable, Replit, Bolt | Prompt-to-app creation and hosting | Becoming a generic app-builder too early | Help app builders and devs avoid costly agent chaos |
 | Model gateway | LiteLLM, Portkey, OpenRouter | Provider routing, keys, budgets, spend tracking | Becoming only API infrastructure | Apply routing to real coding workflows and repo context |
 | Enterprise agent platform | Devin/Cognition, OpenHands Enterprise, Tabnine | Controlled autonomous engineering workflows | Starting cloud-first before trust is earned | Local-first install, then team governance |
-| Code review/security | CodeRabbit, Qodo, Secure Code Warrior, Snyk, Checkmarx | Review, code quality, security governance | Narrowing OPai to review only | Become the broader pre-agent control layer |
+| Code review/security | CodeRabbit, Qodo, Secure Code Warrior, Snyk, Checkmarx | Review, code quality, security governance | Narrowing Vesta to review only | Become the broader pre-agent control layer |
 
-The important insight is that OPai's best path is not "beat Cursor at Cursor." The best path is "make Cursor, Claude, Codex, Copilot, and Cline easier to govern."
+The important insight is that Vesta's best path is not "beat Cursor at Cursor." The best path is "make Cursor, Claude, Codex, Copilot, and Cline easier to govern."
 
 ## Where The Money Is
 
@@ -112,9 +112,9 @@ Evidence:
 - Tabnine's Agentic Platform is USD 59/user/month annually and emphasizes architecture context, organizational standards, MCP tools, and safe production operation. Source: <https://www.tabnine.com/pricing/>
 - Qodo Enterprise adds SSO/SAML, audit logs, governance analytics, BYOK, single-tenant SaaS or on-prem, and dedicated support. Source: <https://www.qodo.ai/pricing/>
 
-OPai implication:
+Vesta implication:
 
-Enterprise OPai should sell governance, audit, private registries, signed evidence, and self-hosted/team policy. This can become USD 24k-250k+ annual contract value if OPai proves value in teams first.
+Enterprise Vesta should sell governance, audit, private registries, signed evidence, and self-hosted/team policy. This can become USD 24k-250k+ annual contract value if Vesta proves value in teams first.
 
 ### 2. Team-Level Seat Revenue
 
@@ -128,9 +128,9 @@ Evidence:
 - Amazon Q Developer Pro is USD 19/user/month, with pooled transformation line allocations and overage pricing. Source: <https://aws.amazon.com/q/developer/pricing/>
 - CodeRabbit Pro is USD 24/user/month annually and Pro Plus is USD 48/user/month annually. Source: <https://www.coderabbit.ai/pricing>
 
-OPai implication:
+Vesta implication:
 
-Team OPai should start around USD 19/user/month, then add a higher Governance tier around USD 29-39/user/month once audit, dashboards, shared policies, and private registries exist.
+Team Vesta should start around USD 19/user/month, then add a higher Governance tier around USD 29-39/user/month once audit, dashboards, shared policies, and private registries exist.
 
 ### 3. Usage, Credits, And Spend Management
 
@@ -142,33 +142,33 @@ Evidence:
 - GitHub AI Credits meter token-heavy agent interactions, and long frontier-model sessions cost more because they do more work. Source: <https://docs.github.com/copilot/concepts/billing/usage-based-billing-for-organizations-and-enterprises>
 - LiteLLM tracks spend across 100+ LLMs and supports provider budget routing. Sources: <https://docs.litellm.ai/docs/proxy/cost_tracking> and <https://docs.litellm.ai/docs/proxy/provider_budget_routing>
 
-OPai implication:
+Vesta implication:
 
-OPai should not start by reselling tokens. It should start by reducing token waste. Later, OPai can optionally integrate LiteLLM/OpenRouter/provider keys and take revenue from team/enterprise controls, not from encouraging more spend.
+Vesta should not start by reselling tokens. It should start by reducing token waste. Later, Vesta can optionally integrate LiteLLM/OpenRouter/provider keys and take revenue from team/enterprise controls, not from encouraging more spend.
 
 ### 4. App Builder And Hosting Revenue
 
-This is massive but less natural for OPai today.
+This is massive but less natural for Vesta today.
 
 Evidence:
 
 - Lovable and Replit show that app-building platforms can scale to hundreds of millions in annualized revenue when they own the creation workflow, hosting, and user distribution.
 
-OPai implication:
+Vesta implication:
 
-Do not chase this first. OPai can later support "one prompt to build, one prompt to ship" workflows, but the immediate wedge is control and cost around existing coding agents.
+Do not chase this first. Vesta can later support "one prompt to build, one prompt to ship" workflows, but the immediate wedge is control and cost around existing coding agents.
 
 ### 5. Marketplace And Workflow Packs
 
 This can become meaningful after distribution exists.
 
-OPai implication:
+Vesta implication:
 
-Signed registries, workflow packs, MCP profiles, mobile readiness packs, release preflight packs, and security packs should become the marketplace foundation. Do not launch a marketplace before OPai has active installs and a trust story.
+Signed registries, workflow packs, MCP profiles, mobile readiness packs, release preflight packs, and security packs should become the marketplace foundation. Do not launch a marketplace before Vesta has active installs and a trust story.
 
-## How OPai Stands Out
+## How Vesta Stands Out
 
-OPai should own a position no competitor can easily copy without changing its business model:
+Vesta should own a position no competitor can easily copy without changing its business model:
 
 ```text
 Agent-neutral, local-first, cost-aware governance for AI coding.
@@ -176,18 +176,18 @@ Agent-neutral, local-first, cost-aware governance for AI coding.
 
 The strongest differentiators:
 
-- OPai is cross-client. It does not require users to choose one AI vendor.
-- OPai starts local. That makes it safer for developers and more believable for security-conscious teams.
-- OPai reduces spend instead of monetizing spend first.
-- OPai has a real install surface: wrappers, status, project instructions, AI ignore files, skills, and `opai doctor`.
-- OPai has a registry architecture for tools, agents, workflows, MCP servers, model routing, permissions, and budgets.
-- OPai has a guarded workflow proof point in mobile readiness: two readiness scores, bounded remediation queues, path locks, signed evidence, CI lanes, and no auto-push/upload/submit.
+- Vesta is cross-client. It does not require users to choose one AI vendor.
+- Vesta starts local. That makes it safer for developers and more believable for security-conscious teams.
+- Vesta reduces spend instead of monetizing spend first.
+- Vesta has a real install surface: wrappers, status, project instructions, AI ignore files, skills, and `opai doctor`.
+- Vesta has a registry architecture for tools, agents, workflows, MCP servers, model routing, permissions, and budgets.
+- Vesta has a guarded workflow proof point in mobile readiness: two readiness scores, bounded remediation queues, path locks, signed evidence, CI lanes, and no auto-push/upload/submit.
 
 The most important product story:
 
 ```text
-Before OPai, each agent sees too much and costs too much.
-After OPai, every agent starts from the same local evidence, budget, and safety policy.
+Before Vesta, each agent sees too much and costs too much.
+After Vesta, every agent starts from the same local evidence, budget, and safety policy.
 ```
 
 ## Buyer Segments
@@ -204,7 +204,7 @@ Pain:
 
 Offer:
 
-- Free core plus OPai Pro.
+- Free core plus Vesta Pro.
 
 Message:
 
@@ -230,7 +230,7 @@ Pain:
 
 Offer:
 
-- OPai Team.
+- Vesta Team.
 
 Message:
 
@@ -256,7 +256,7 @@ Pain:
 
 Offer:
 
-- OPai Enterprise.
+- Vesta Enterprise.
 
 Message:
 
@@ -272,9 +272,9 @@ Target conversion:
 
 ## Product Strategy
 
-OPai should evolve in five layers.
+Vesta should evolve in five layers.
 
-### Layer 1: OPai Core
+### Layer 1: Vesta Core
 
 Free and open core.
 
@@ -290,9 +290,9 @@ Free and open core.
 
 Success test:
 
-- A new user can install OPai, activate a project, and understand what OPai changed in under 10 minutes.
+- A new user can install Vesta, activate a project, and understand what Vesta changed in under 10 minutes.
 
-### Layer 2: OPai Savings
+### Layer 2: Vesta Savings
 
 Power-user Pro tier.
 
@@ -308,7 +308,7 @@ Success test:
 
 - A user can see estimated tokens avoided, cloud escalations avoided, and contexts slimmed.
 
-### Layer 3: OPai Team
+### Layer 3: Vesta Team
 
 Paid team tier.
 
@@ -324,7 +324,7 @@ Success test:
 
 - A team lead can answer: who used what, which agents followed policy, what spend was avoided, and which repos are safe.
 
-### Layer 4: OPai Trust
+### Layer 4: Vesta Trust
 
 Enterprise tier.
 
@@ -340,7 +340,7 @@ Success test:
 
 - A security or platform team can allow AI coding at scale with evidence and enforceable defaults.
 
-### Layer 5: OPai Marketplace
+### Layer 5: Vesta Marketplace
 
 Later-stage ecosystem.
 
@@ -353,7 +353,7 @@ Later-stage ecosystem.
 
 Success test:
 
-- OPai becomes the place teams standardize AI coding workflows, not just the tool they install.
+- Vesta becomes the place teams standardize AI coding workflows, not just the tool they install.
 
 ## Product Packaging
 
@@ -367,7 +367,7 @@ Pricing hypothesis:
 | Team Governance | USD 29-39/user/month | security-aware teams | audit logs, approved MCP profiles, CI gates, evidence exports |
 | Enterprise | custom, starting around USD 24k/year | platform/security orgs | SSO/RBAC, self-host/private, signed registries, support, compliance docs |
 
-Keep the free core strong. OPai needs trust and distribution before it can charge deeply.
+Keep the free core strong. Vesta needs trust and distribution before it can charge deeply.
 
 Do not put basic local safety behind a paywall. Charge for history, governance, dashboards, shared policy, audit, private registries, signed evidence, hosted sync, and support.
 
@@ -384,7 +384,7 @@ AI coding is getting powerful, but the bill and risk are getting weird.
 Then offer the simple fix:
 
 ```text
-Install OPai once. Make every coding agent start local-first.
+Install Vesta once. Make every coding agent start local-first.
 ```
 
 ### First Funnel
@@ -400,19 +400,19 @@ page visit -> install command -> opai status -> opai doctor -> opai route -> fir
 The page should not try to explain every feature. It should make one thing unforgettable:
 
 ```text
-OPai is the AI coding cost firewall.
+Vesta is the AI coding cost firewall.
 ```
 
 ### Content Engine
 
 Create proof-driven content, not vague AI hype:
 
-- "Claude Code with OPai: same bug, less context."
-- "Cursor with OPai: stop sending generated caches to your model."
-- "Codex with OPai: local evidence before cloud escalation."
+- "Claude Code with Vesta: same bug, less context."
+- "Cursor with Vesta: stop sending generated caches to your model."
+- "Codex with Vesta: local evidence before cloud escalation."
 - "Copilot usage-based billing means token discipline matters."
 - "What your coding agent saw before it changed your repo."
-- "How OPai blocks risky commands during agentic coding."
+- "How Vesta blocks risky commands during agentic coding."
 - "Mobile release readiness: a guarded AI workflow that does not push, upload, or submit."
 
 ### Launch Channels
@@ -529,21 +529,21 @@ Do not build first:
 
 ## Strategic Moats
 
-OPai can build moats in places that agent vendors have weaker incentives to own:
+Vesta can build moats in places that agent vendors have weaker incentives to own:
 
-- Agent neutrality: every vendor wants lock-in; OPai should support many clients.
-- Spend reduction: model vendors benefit from usage; OPai benefits from trust and savings.
-- Local-first trust: users can verify OPai behavior on disk.
+- Agent neutrality: every vendor wants lock-in; Vesta should support many clients.
+- Spend reduction: model vendors benefit from usage; Vesta benefits from trust and savings.
+- Local-first trust: users can verify Vesta behavior on disk.
 - Policy artifacts: instructions, ignore files, route history, budgets, permissions, evidence.
 - Workflow evidence: signed packets and audit bundles for release readiness.
 - Registry graph: tools, agents, MCP servers, workflows, skills, models, permissions, and budgets in one system.
 
 ## Key Risks
 
-- If OPai is hard to install, nothing else matters.
-- If OPai cannot show savings, the cost-firewall message becomes weak.
-- If OPai tries to become a full agent too early, it enters the most crowded part of the market.
-- If OPai stores sensitive prompts or telemetry by default, it loses its trust advantage.
+- If Vesta is hard to install, nothing else matters.
+- If Vesta cannot show savings, the cost-firewall message becomes weak.
+- If Vesta tries to become a full agent too early, it enters the most crowded part of the market.
+- If Vesta stores sensitive prompts or telemetry by default, it loses its trust advantage.
 - If team features are only docs and not working controls, enterprise buyers will not believe the story.
 - If the product is too broad, users will not understand what to do first.
 
@@ -581,10 +581,10 @@ Trust metrics:
 
 ## CEO Decision
 
-OPai should commit to this identity:
+Vesta should commit to this identity:
 
 ```text
-OPai is the local-first control plane for AI coding.
+Vesta is the local-first control plane for AI coding.
 ```
 
 It should lead publicly with this message:
@@ -604,7 +604,7 @@ It should monetize in this order:
 The most important next product promise:
 
 ```text
-Install OPai, run one command, and see what AI spend and risk it helped you avoid.
+Install Vesta, run one command, and see what AI spend and risk it helped you avoid.
 ```
 
-If OPai can prove that promise, it becomes more than a utility. It becomes the neutral control layer for a world where every software team uses multiple AI agents.
+If Vesta can prove that promise, it becomes more than a utility. It becomes the neutral control layer for a world where every software team uses multiple AI agents.

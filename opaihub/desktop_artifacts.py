@@ -1,4 +1,4 @@
-"""Deterministic evidence contracts for source-free OPai desktop artifacts."""
+"""Deterministic evidence contracts for source-free Vesta desktop artifacts."""
 
 from __future__ import annotations
 

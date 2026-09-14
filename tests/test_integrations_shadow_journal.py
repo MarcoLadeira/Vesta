@@ -2,7 +2,7 @@
 
 ``opai/integrations.py`` is Stage 1's "approvals: connected-service consent".
 ``~/.opai/global.json`` records which AI clients the user has agreed to let
-OPai manage, so losing or silently altering it changes what OPai is permitted
+Vesta manage, so losing or silently altering it changes what Vesta is permitted
 to touch on someone's machine.
 
 One placement decision worth pinning: the mirror sits at the manifest call

@@ -314,7 +314,7 @@ def _appcast_xml(
     ElementTree.register_namespace("sparkle", sparkle)
     rss = ElementTree.Element("rss", {"version": "2.0"})
     channel_node = ElementTree.SubElement(rss, "channel")
-    ElementTree.SubElement(channel_node, "title").text = "OPai updates"
+    ElementTree.SubElement(channel_node, "title").text = "Vesta updates"
     item = ElementTree.SubElement(channel_node, "item")
     ElementTree.SubElement(item, "title").text = title
     ElementTree.SubElement(item, f"{{{sparkle}}}releaseNotesLink").text = notes_url

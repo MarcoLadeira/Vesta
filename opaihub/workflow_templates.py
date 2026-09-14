@@ -1,4 +1,4 @@
-"""Versioned coding-workflow templates bundled with OPai."""
+"""Versioned coding-workflow templates bundled with Vesta."""
 
 from __future__ import annotations
 

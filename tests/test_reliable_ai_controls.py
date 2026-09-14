@@ -154,7 +154,7 @@ class ProviderAdapterRegressionTests(unittest.TestCase):
 
         error = {
             "code": "PROVIDER_RATE_LIMITED",
-            "title": "OPai is being rate limited.",
+            "title": "Vesta is being rate limited.",
             "userMessage": "Wait, then retry.",
             "recoveryActions": ["retry"],
         }

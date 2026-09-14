@@ -1,4 +1,4 @@
-"""Durable OPai worktree lease tests (#537)."""
+"""Durable Vesta worktree lease tests (#537)."""
 
 from __future__ import annotations
 

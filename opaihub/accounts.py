@@ -1,13 +1,13 @@
 """Connected AI accounts - route through the CLIs you're already logged into.
 
-OPai's "connect your Claude/Codex/Copilot account" does not handle API keys or
+Vesta's "connect your Claude/Codex/Copilot account" does not handle API keys or
 credentials. It detects the AI CLIs you already authenticated (`claude`,
 `codex`, `copilot`) and runs a task through them on demand. Detection is
 presence-based (an auth file on disk or token env var + the CLI on PATH);
 execution shells out to the CLI in a read-only answer mode by default, with an
 explicit opt-in for edits.
 
-These are paid/cloud calls (they spend your subscription), so OPai treats them
+These are paid/cloud calls (they spend your subscription), so Vesta treats them
 as the gated tier: never auto-fired by Auto routing, recorded to the ledger,
 and blocked under panic mode. Nothing here runs unless the user picks the
 account model and sends.
@@ -70,7 +70,7 @@ _CODEX_MODEL_CACHE: dict[str, list[tuple[str, str, str]]] = {}
 _CODEX_MODEL_FINGERPRINT_CACHE: dict[str, str] = {}
 _CODEX_CURRENT_DEFAULT_MIN_VERSION = (0, 143, 0)
 
-# What a provider CLI can do is a property of the *machine*, not of one OPai
+# What a provider CLI can do is a property of the *machine*, not of one Vesta
 # process. Keeping the answer only in the in-process caches above meant the
 # model picker enumerated an unknown CLI as fully capable on every cold start:
 # Codex looked selectable, the user picked it, and the run hard-failed with
@@ -78,7 +78,7 @@ _CODEX_CURRENT_DEFAULT_MIN_VERSION = (0, 143, 0)
 # whether some earlier code path in that same process had happened to probe —
 # which is exactly the "sometimes it works, sometimes it doesn't" experience.
 #
-# So the verdict is persisted next to OPai's other machine-scoped state, keyed
+# So the verdict is persisted next to Vesta's other machine-scoped state, keyed
 # by the executable's identity (path + size + mtime). An upgrade changes that
 # identity and invalidates the entry immediately; otherwise the entry is
 # trusted for _CLI_PROBE_TTL_SECONDS. Steady state costs one small file read;
@@ -396,7 +396,7 @@ def _hidden_run(
     decoded as UTF-8 with replacement so odd bytes can't crash the GUI.
     ``env`` (when given) is the sanitized child environment from
     :func:`opaihub.proc.provider_child_env` — parent AI-session variables must
-    never leak into a provider CLI OPai owns.
+    never leak into a provider CLI Vesta owns.
     """
     kwargs: dict[str, Any] = {
         "cwd": cwd,
@@ -695,7 +695,7 @@ def list_connected_accounts(home: Path | None = None) -> list[dict[str, Any]]:
     """Detect which AI accounts are connected via their installed CLIs.
 
     Connected = the CLI is on PATH *and* an auth file exists. Never reads the
-    auth file contents - presence is enough, and OPai must not touch secrets.
+    auth file contents - presence is enough, and Vesta must not touch secrets.
     """
     user_home = (home or Path.home()).expanduser()
     accounts: list[dict[str, Any]] = []
@@ -772,7 +772,7 @@ def connection_for_account(
             (error or {}).get("technicalMessage") or "Connection check failed."
         )
     if env_overrides_removed:
-        # Names only — explains why OPai's verdict can differ from a terminal
+        # Names only — explains why Vesta's verdict can differ from a terminal
         # that still carries a parent AI session's variables.
         diagnostic += " Ignored inherited session overrides: " + ", ".join(
             env_overrides_removed
@@ -780,7 +780,7 @@ def connection_for_account(
     return {
         "providerId": str(account.get("id") or "unknown"),
         "displayName": str(account.get("label") or account.get("id") or "Provider"),
-        "userFacingName": "OPai",
+        "userFacingName": "Vesta",
         "authStatus": auth_status,
         "credentialSource": "user_account",
         # Safe, normalized classification from an account status command. It
@@ -796,8 +796,8 @@ def connection_for_account(
         "cliPresent": cli_present,
         "detected": authenticated,
         "loginHint": account.get("login_hint"),
-        # Names (never values) of parent-session env vars OPai stripped before
-        # probing/running this CLI, so diagnostics can explain why OPai's
+        # Names (never values) of parent-session env vars Vesta stripped before
+        # probing/running this CLI, so diagnostics can explain why Vesta's
         # verdict may differ from a contaminated terminal's.
         "envOverridesRemoved": list(env_overrides_removed or []),
     }
@@ -812,7 +812,7 @@ def invalidate_connection_cache(
     ``_CONNECTION_CACHE_TTL`` (5 minutes) so repeated messages don't re-shell
     out on every send. But a Claude/Codex OAuth session can die *between*
     messages — the cached check said connected, yet the next real completion
-    call gets a genuine 401 from the provider. Without invalidation, OPai
+    call gets a genuine 401 from the provider. Without invalidation, Vesta
     would keep telling the user "connected" (from cache) for up to 5 more
     minutes while every send keeps failing. Call this the moment a live
     completion comes back with an auth-shaped error, so the next check (an
@@ -1009,7 +1009,7 @@ def test_account_connection(
         if account_id == "codex":
             # Authentication and capability are distinct local facts.  A CLI
             # that has a verified sign-in remains connected even when its
-            # version cannot run OPai's current default model; the model
+            # version cannot run Vesta's current default model; the model
             # picker carries that compatibility restriction separately.
             if not selected_cli_version:
                 _account_cli_version(account, run=run, home=home, force=force)
@@ -1833,7 +1833,7 @@ def interactive_provider_login(
                         "signedIn": False,
                         "status": "cancelled",
                         "errorCode": "LOGIN_CANCELLED",
-                        "message": "Sign-in was cancelled when OPai closed.",
+                        "message": "Sign-in was cancelled when Vesta closed.",
                         "envOverridesRemoved": removed,
                     }
                 remaining = deadline - time.monotonic()
@@ -1900,7 +1900,7 @@ def interactive_provider_login(
     }
 
 
-# Each provider's own sanctioned, non-interactive sign-out. OPai never touches
+# Each provider's own sanctioned, non-interactive sign-out. Vesta never touches
 # a credential file directly — only a documented CLI subcommand. Copilot has
 # no such command (verified: its --help lists `login` but no `logout`), so it
 # is deliberately absent here rather than guessed at.
@@ -1913,9 +1913,9 @@ _LOGOUT_ARGV: dict[str, list[str]] = {
 def disconnect_account(account_id: str, *, home: Path | None = None) -> dict[str, Any]:
     """Sign out of a connected AI account using its own CLI's logout command.
 
-    This is the real fix for the "OPai says connected but the real request
+    This is the real fix for the "Vesta says connected but the real request
     401s" gap: a session can go stale (expired, revoked elsewhere) in a way
-    OPai's local checks cannot detect in advance. Signing out and back in via
+    Vesta's local checks cannot detect in advance. Signing out and back in via
     the provider's own flow clears it. Never reads or writes credential files
     directly; always shells out to the CLI's documented sign-out command.
     """
@@ -2230,7 +2230,7 @@ def claude_hook_command() -> str:
 
 
 def build_claude_hook_settings() -> dict[str, Any]:
-    """The ``--settings`` payload wiring OPai's gate into Claude Code hooks."""
+    """The ``--settings`` payload wiring Vesta's gate into Claude Code hooks."""
     return {
         "hooks": {
             "PreToolUse": [
@@ -2253,7 +2253,7 @@ def claude_hook_settings_path() -> Path:
 class ClaudeHookSettingsError(RuntimeError):
     """The PreToolUse gate could not be published as a complete document.
 
-    Raised only when OPai can neither publish valid settings nor clear known-
+    Raised only when Vesta can neither publish valid settings nor clear known-
     invalid content off the deterministic path. Callers must refuse to spawn
     Full Auto rather than hand the CLI a file that may silently fail to load
     (#481).
@@ -2261,7 +2261,7 @@ class ClaudeHookSettingsError(RuntimeError):
 
 
 #: The settings file lives in a shared temp directory, so keep it readable by
-#: this user only -- the claude CLI OPai spawns runs as the same user.
+#: this user only -- the claude CLI Vesta spawns runs as the same user.
 _CLAUDE_HOOK_SETTINGS_MODE = 0o600
 #: A refresh only ever rewrites a small file. Waiting a whole minute behind a
 #: peer's lock would stall a run for longer than simply re-verifying what is
@@ -2347,7 +2347,7 @@ def ensure_claude_hook_settings(path: Path | None = None) -> Path:
 
     A refresh that cannot complete keeps a previously verified document; if
     none exists the invalid remains are cleared so the CLI fails closed on a
-    missing file. The returned path never refers to content OPai knows to be
+    missing file. The returned path never refers to content Vesta knows to be
     invalid; when it cannot even be cleared, `ClaudeHookSettingsError` is
     raised instead of returning that path.
     """
@@ -2376,20 +2376,20 @@ def ensure_claude_hook_settings(path: Path | None = None) -> Path:
 def _hook_gate_unavailable_error(
     provider: str, model: str | None, cause: Exception
 ) -> dict[str, Any]:
-    """The provider-error payload for a Full Auto run OPai refused to start.
+    """The provider-error payload for a Full Auto run Vesta refused to start.
 
     The stable error `code` is left as normalization classified it so every
     consumer keeps working; only the user-facing wording is replaced, because
-    "OPai could not complete this request" hides the one fact that matters --
+    "Vesta could not complete this request" hides the one fact that matters --
     the run was blocked deliberately, not lost.
     """
 
     from opai.provider_contract import normalize_provider_error
 
     normalized = normalize_provider_error(provider, cause, model=model)
-    normalized["title"] = "OPai blocked Full Auto: its safety gate is unavailable."
+    normalized["title"] = "Vesta blocked Full Auto: its safety gate is unavailable."
     normalized["userMessage"] = (
-        "OPai could not publish the command-approval gate that Full Auto runs "
+        "Vesta could not publish the command-approval gate that Full Auto runs "
         "behind, so it did not start this run. Retry, or use a mode that does "
         "not skip permissions."
     )
@@ -2453,10 +2453,10 @@ def _guard_int_env(name: str, default: int) -> int:
 # unpushed. Pushing now." / "Push succeeded. Creating the PR." Four sentences
 # that are all narration and no information -- the user learns what happened
 # only at the end, buried under a transcript of intentions, and every one of
-# those lines was already visible in OPai's own activity feed as it happened.
+# those lines was already visible in Vesta's own activity feed as it happened.
 #
 # The activity feed is the play-by-play. The reply is the conclusion. Saying so
-# is the only lever OPai has over an account CLI's prose, so it says it plainly
+# is the only lever Vesta has over an account CLI's prose, so it says it plainly
 # and briefly: a long style lecture spends the user's tokens on every turn.
 _RESPONSE_STYLE = (
     "Reporting style: the user watches a live activity feed of every step, so "
@@ -2497,7 +2497,7 @@ def _codex_safety_preamble() -> str:
         else (
             "For a git push: tell the user to enable pushes once in Settings -> "
             "Providers & Connections (connect a GitHub token, then click "
-            '"Enable pushes & PRs"). After that OPai can push, and will ask '
+            '"Enable pushes & PRs"). After that Vesta can push, and will ask '
             "them to approve each push."
         )
     )
@@ -2818,7 +2818,7 @@ class AccountRunner:
             try:
                 ensure_claude_hook_settings()
             except ClaudeHookSettingsError as exc:
-                # Never spawn --dangerously-skip-permissions behind a gate OPai
+                # Never spawn --dangerously-skip-permissions behind a gate Vesta
                 # cannot vouch for (#481).
                 return {
                     "text": "",
@@ -3008,7 +3008,7 @@ class AccountRunner:
             try:
                 ensure_claude_hook_settings()
             except ClaudeHookSettingsError as exc:
-                # Never spawn --dangerously-skip-permissions behind a gate OPai
+                # Never spawn --dangerously-skip-permissions behind a gate Vesta
                 # cannot vouch for (#481).
                 if out_path:
                     Path(out_path).unlink(missing_ok=True)
@@ -3556,7 +3556,7 @@ class AccountRunner:
                 "returncode": returncode,
             }
         # Nothing to say and nothing done. This used to return a clean, empty,
-        # *successful* result — the blank reply that looks like OPai working
+        # *successful* result — the blank reply that looks like Vesta working
         # and isn't (#295 gate 10). A run that produced neither an answer nor a
         # single tool step did not succeed, so it is reported as NO_RESPONSE:
         # the vocabulary already had the code, nothing was emitting it.

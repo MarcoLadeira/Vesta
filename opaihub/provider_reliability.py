@@ -1,4 +1,4 @@
-"""Provider reliability memory for OPai Auto routing.
+"""Provider reliability memory for Vesta Auto routing.
 
 Auto records the recent outcome (success / failure) of every provider it calls
 so it can:

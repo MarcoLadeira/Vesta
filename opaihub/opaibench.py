@@ -938,12 +938,12 @@ def render_parity_markdown(report: dict[str, Any]) -> str:
     baseline_tasks = baseline.get("tasks") or {}
     system = _markdown_system_name(baseline.get("system"))
     rows = [
-        "# OPaiBench parity: OPai vs baseline",
+        "# OPaiBench parity: Vesta vs baseline",
         "",
-        f"Harness: `{report.get('harness')}`. OPai uses a scripted offline provider; "
+        f"Harness: `{report.get('harness')}`. Vesta uses a scripted offline provider; "
         "baseline numbers are imported offline and are not invoked by this run.",
         "",
-        f"| Task | Category | OPai completion | OPai edits | OPai tests | OPai steps | OPai cost | {system} completion | {system} edits | {system} tests | {system} steps | {system} cost |",
+        f"| Task | Category | Vesta completion | Vesta edits | Vesta tests | Vesta steps | Vesta cost | {system} completion | {system} edits | {system} tests | {system} steps | {system} cost |",
         "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for task in report.get("tasks") or []:
@@ -971,7 +971,7 @@ def render_parity_markdown(report: dict[str, Any]) -> str:
     rows.extend(
         (
             "",
-            f"OPai passed {report['totals']['passed']}/{report['totals']['total']} tasks. "
+            f"Vesta passed {report['totals']['passed']}/{report['totals']['total']} tasks. "
             "This hermetic contract run measures pipeline/edit/test behavior; it is not a claim of model-intelligence parity.",
             "",
         )
@@ -1010,9 +1010,9 @@ def render_parity_html(report: dict[str, Any]) -> str:
 <title>OPaiBench parity</title><style>
 body{{font-family:system-ui,sans-serif;margin:32px;color:#17211d}} table{{border-collapse:collapse;width:100%}}
 th,td{{border:1px solid #d7dfda;padding:7px;text-align:left}} th{{background:#eef4f0}} .note{{color:#53635b}}
-</style></head><body><h1>OPai vs {system}</h1>
-<p class="note">Hermetic-contract OPai run; baseline is offline only. N/A means no imported evidence.</p>
-<table><thead><tr><th>Task</th><th>Category</th><th>OPai completion</th><th>OPai edits</th><th>OPai tests</th><th>OPai steps</th><th>OPai cost</th><th>{system} completion</th><th>{system} edits</th><th>{system} tests</th><th>{system} steps</th><th>{system} cost</th></tr></thead><tbody>{"".join(rows)}</tbody></table>
+</style></head><body><h1>Vesta vs {system}</h1>
+<p class="note">Hermetic-contract Vesta run; baseline is offline only. N/A means no imported evidence.</p>
+<table><thead><tr><th>Task</th><th>Category</th><th>Vesta completion</th><th>Vesta edits</th><th>Vesta tests</th><th>Vesta steps</th><th>Vesta cost</th><th>{system} completion</th><th>{system} edits</th><th>{system} tests</th><th>{system} steps</th><th>{system} cost</th></tr></thead><tbody>{"".join(rows)}</tbody></table>
 </body></html>"""
 
 
@@ -1032,7 +1032,7 @@ def run_parity_benchmark(
     runner_factory: Callable[[str], Any] = _ScriptedParityRunner,
     process_runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
 ) -> dict[str, Any]:
-    """Run packaged coding tasks through OPai's real pipeline, fully offline."""
+    """Run packaged coding tasks through Vesta's real pipeline, fully offline."""
 
     suite = _load_parity_suite()
     requested = set(task_ids or ())

@@ -1,4 +1,4 @@
-"""Immutable verification evidence and verdicts for managed OPai work (#539)."""
+"""Immutable verification evidence and verdicts for managed Vesta work (#539)."""
 
 from __future__ import annotations
 

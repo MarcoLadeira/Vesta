@@ -28,7 +28,7 @@ from .provider_invocation import (
 from .project_instructions import build_system_prompt
 
 SYSTEM_PROMPT = (
-    "You are OPai's local-first coding assistant. Reply directly to the user's "
+    "You are Vesta's local-first coding assistant. Reply directly to the user's "
     "message. The project context below is background you may use ONLY when it "
     "is relevant to what they asked. For a greeting, small talk, or a general "
     "question, respond naturally and briefly and do NOT bring up the project, "
@@ -220,7 +220,7 @@ def run_ask(
             "capability": "edit_files",
             "provider": str(getattr(active, "name", "local")),
             "reason": (
-                "The selected local runner can answer, but OPai has no bounded "
+                "The selected local runner can answer, but Vesta has no bounded "
                 "repository-tool adapter for it yet."
             ),
             "hint": (
@@ -399,8 +399,6 @@ def _call_tool_loop(
     return plan.invoke(task, compiled)
 
 
-
-
 def run_explicit_model(
     project_root: Path,
     task: str,
@@ -553,7 +551,7 @@ def run_explicit_model(
                 "code": exc.code,
                 "userMessage": (
                     "The selected provider adapter is incompatible with this "
-                    "OPai runtime. Update the provider integration and try again."
+                    "Vesta runtime. Update the provider integration and try again."
                 ),
                 "technicalMessage": redact(str(exc)),
             },
@@ -645,12 +643,12 @@ def _build_turn_guard(
 def render_ask(result: dict[str, Any]) -> str:
     status = result.get("status")
     if status in {"answered_locally", "cache_hit"}:
-        header = f"[OPai · {result.get('source')} · {result.get('tier')} · free]"
+        header = f"[Vesta · {result.get('source')} · {result.get('tier')} · free]"
         return f"{header}\n{result.get('answer', '')}"
     if status == "confirmation_required":
-        return f"[OPai] {result.get('reason')}"
+        return f"[Vesta] {result.get('reason')}"
     if status == "no_local_model":
-        return f"[OPai] No local model available. {result.get('hint')}\nTry: {result.get('next_command')}"
+        return f"[Vesta] No local model available. {result.get('hint')}\nTry: {result.get('next_command')}"
     if status == "runner_error":
-        return f"[OPai] Local model error: {result.get('error')}"
-    return f"[OPai] {status}"
+        return f"[Vesta] Local model error: {result.get('error')}"
+    return f"[Vesta] {status}"

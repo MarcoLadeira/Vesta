@@ -150,19 +150,31 @@ def test_every_autonomy_level_is_reachable_from_the_menu():
 
 
 def test_the_panel_row_mirrors_the_matrix_it_claims_to_mirror():
-    """gui_permissions and command_policy must agree about the new mode."""
-    from opaihub.command_policy import ASK, AUTONOMY_RULES, RUN, Capability
+    """gui_permissions and command_policy must agree about the new mode.
+
+    The two tables describe different things about it, and the difference is
+    the whole mode. Accept Edits auto-accepts *file edits*; a command is not a
+    file edit -- `git commit`, `npm install` and a test runner can each do far
+    more than the edit tools can -- so commands keep asking. 40d6dc0 settled
+    that ("the command row now matches NORMAL, and the whole difference
+    between Manual and Accept Edits lives in the edit capability"), and this
+    assertion was left describing the behaviour it replaced: it read the
+    *command* matrix and expected the answer for edits.
+    """
+    from opaihub.command_policy import ASK, AUTONOMY_RULES, Capability
     from opai.gui_permissions import _MODE_RULES
 
     level = AUTONOMY_RULES["auto-edits"]
     row = _MODE_RULES["auto-edits"]
 
-    assert level[Capability.WRITE_LOCAL] == RUN
+    # The edit capability is the panel's own, and it is what "Accept Edits"
+    # names: edits apply without asking.
     assert row["edit"] == "allow" and row["create"] == "allow"
+    # Everything the command matrix governs still asks, and the panel says so.
+    assert level[Capability.WRITE_LOCAL] == ASK
+    assert row["run_any"] == "ask"
     assert level[Capability.WRITE_REMOTE] == ASK
     assert row["push"] == "ask"
-    # A command can do anything a push can, so it is not local work.
-    assert row["run_any"] == "ask"
 
 
 def test_modes_are_ordered_from_strict_to_permissive():

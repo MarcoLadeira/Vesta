@@ -199,7 +199,7 @@ def route_task(
 def route_context_sizes(decision_full: dict[str, Any]) -> dict[str, int]:
     """Measure full vs compact route payload size in characters.
 
-    This is the real, observable compaction OPai applies to AI-facing output:
+    This is the real, observable compaction Vesta applies to AI-facing output:
     full evidence versus the compact summary an agent actually consumes.
     """
     full_chars = len(json.dumps(decision_full, sort_keys=True, default=str))

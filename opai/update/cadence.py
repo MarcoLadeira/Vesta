@@ -28,7 +28,7 @@ from .models import InstallType
 CADENCE_POLICY_VERSION = 1
 
 # The interval every installation used to share, and the value already sitting
-# in policy.json on every machine that has run OPai before this change.
+# in policy.json on every machine that has run Vesta before this change.
 LEGACY_INTERVAL_SECONDS = 4 * 60 * 60
 
 _SOURCE_CHECKOUT_SECONDS = 10 * 60

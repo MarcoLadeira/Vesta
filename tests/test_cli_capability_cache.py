@@ -140,7 +140,9 @@ class CliProbePersistenceTests(unittest.TestCase):
                 "codex-cli 0.153.0",
             )
 
-        self.assertEqual(calls, [[str(self.cli), "--version"], [str(self.cli), "--version"]])
+        self.assertEqual(
+            calls, [[str(self.cli), "--version"], [str(self.cli), "--version"]]
+        )
 
     def test_codex_catalog_keeps_only_cli_visible_models(self) -> None:
         payload = json.dumps(
@@ -212,7 +214,9 @@ class CliProbePersistenceTests(unittest.TestCase):
         )
 
         with mock.patch.object(
-            accounts, "_hidden_run", side_effect=lambda *_a, **_k: _Result(next(payloads))
+            accounts,
+            "_hidden_run",
+            side_effect=lambda *_a, **_k: _Result(next(payloads)),
         ):
             first = accounts._codex_cli_models(self.account, home=self.home)
             self.cli.write_text("replacement binary", encoding="utf-8")

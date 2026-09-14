@@ -1,4 +1,4 @@
-"""Structural and safety validation for OPai's skill catalogue.
+"""Structural and safety validation for Vesta's skill catalogue.
 
 `opaihub validate` already gates the tools, agents, workflows, mcp_servers, and
 models registries in CI. Skills were the one registry it did not cover: 36
@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import Any
 from .boundary_errors import safe_detail
 
-# Registry fields every skill entry must carry. `cost_policy` is OPai-specific
+# Registry fields every skill entry must carry. `cost_policy` is Vesta-specific
 # and required rather than optional: the cost firewall is the product's core
 # promise, so a skill that does not declare its tier is not shippable.
 REQUIRED_REGISTRY_FIELDS = (

@@ -235,6 +235,7 @@ def main(argv=None) -> int:
         result = handle_gui_message(
             Path(packet["worktree"]),
             packet["prompt"],
+            surface="agent",
             model_id=packet.get("model_id"),
             local_model_endpoint=packet["routing"].get("endpoint"),
             mode=packet["mode"],

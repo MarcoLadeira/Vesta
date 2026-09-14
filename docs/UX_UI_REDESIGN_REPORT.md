@@ -1,4 +1,4 @@
-# OPai Desktop — Premium Workspace Redesign
+# Vesta Desktop — Premium Workspace Redesign
 
 > **Follow-up: the surface now renders in Chromium, not Qt.** After this Qt/QSS
 > redesign, the rendering quality still read "crusty/outdated" next to
@@ -29,7 +29,7 @@ tokens" are Python colour constants + QSS._
 
 ## Why it isn't a fake skin
 
-The biggest unlock was that OPai already computes far more than the chat ever
+The biggest unlock was that Vesta already computes far more than the chat ever
 showed. `gui_view_model.build_view_model()` produces 8 full dashboard sections;
 `app_state.inspector_state()` exposes real budget/workspace telemetry;
 `cost_firewall()` knows the gates. The redesign **surfaces existing real data**

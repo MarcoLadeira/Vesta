@@ -9,11 +9,16 @@ read from durable evidence rather than estimated after the fact.
 
 from __future__ import annotations
 
+import json
 import tempfile
 import threading
 import unittest
+from unittest import mock
 from pathlib import Path
 
+from opaihub import journal_runtime
+from opaihub.journal_runtime import record_admission, record_terminal
+from opaihub.journal_store import open_store
 from opaihub.cancellation_lifecycle import CancelPhase, CancellationTracker, is_terminal
 from opaihub.run_state import RunState, canonical_for_cancel_phase
 
@@ -227,6 +232,198 @@ class ScopeSafetyTests(_Temp):
             with self.subTest(bad=bad):
                 with self.assertRaises(ValueError):
                     CancellationTracker(self.root, bad)
+
+
+class CancellationPhasesReachTheCanonicalJournalTests(unittest.TestCase):
+    """#818: "make cancellation explicitly two-phase", and "cancellation and
+    teardown evidence" among the things a canonical record must reconstruct.
+
+    The phases were already modelled properly and already durable -- in a
+    *different* journal. So a reader of the canonical record could see that a
+    run ended and not whether the stop was asked for, seen, or confirmed, and
+    answering that meant consulting a second record. Two authorities for one
+    question is the shape #818 exists to remove.
+
+    `cancellation_lifecycle` stays the authority: it holds the lock that makes
+    two racing cancellations converge. This only mirrors what it already
+    decided.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        self.fence = record_admission(
+            self.root,
+            task_id="t",
+            run_id="r1",
+            task="a run",
+            now="2026-09-08T10:00:00+00:00",
+            surface="background",
+        )
+
+    def _tracker(self, **kwargs) -> CancellationTracker:
+        return CancellationTracker(self.root, "background-r1", **kwargs)
+
+    def _phases(self) -> list[tuple[str, str]]:
+        store = open_store(self.root)
+        try:
+            return [
+                (
+                    json.loads(row["payload"])["phase"],
+                    json.loads(row["payload"])["reason_code"],
+                )
+                for row in store.execute(
+                    "SELECT payload FROM events WHERE run_id = 'r1'"
+                    " AND event_type = ? ORDER BY sequence",
+                    (journal_runtime.EVENT_CANCEL_PHASE,),
+                )
+            ]
+        finally:
+            store.close()
+
+    def test_each_accepted_phase_is_recorded_in_order(self):
+        tracker = self._tracker(journal_run_id="r1")
+
+        tracker.request()
+        tracker.acknowledge()
+        tracker.mark_terminated()
+
+        self.assertEqual(
+            [phase for phase, _reason in self._phases()],
+            ["requested", "acknowledged", "terminated"],
+        )
+
+    def test_the_reason_travels_with_the_phase(self):
+        tracker = self._tracker(journal_run_id="r1")
+
+        tracker.request(reason_code="user_requested")
+
+        self.assertEqual(self._phases()[0], ("requested", "user_requested"))
+
+    def test_an_idempotent_repeat_does_not_duplicate_the_evidence(self):
+        """Two callers racing to cancel must converge, not double-record."""
+
+        tracker = self._tracker(journal_run_id="r1")
+
+        tracker.request()
+        tracker.request()
+        tracker.request()
+
+        self.assertEqual(len(self._phases()), 1)
+
+    def test_a_scope_that_is_not_a_journalled_run_records_nothing(self):
+        """Scope ids are namespaced per caller and only some name a run.
+
+        Guessing would write under a foreign key that does not exist or --
+        worse -- one that does and belongs to something else.
+        """
+
+        tracker = self._tracker()
+
+        with mock.patch.object(journal_runtime, "record_cancellation_phase") as mirror:
+            self.assertEqual(tracker.request(), CancelPhase.REQUESTED)
+
+        # Asserted on the *call*, not only on the absence of a row. A blank
+        # run id is refused by the store too, so checking the table alone
+        # passes even with this guard removed -- which it did, until this line.
+        mirror.assert_not_called()
+        self.assertEqual(self._phases(), [])
+
+    def test_an_unknown_run_is_refused_by_the_store_not_invented(self):
+        tracker = CancellationTracker(
+            self.root, "background-ghost", journal_run_id="no-such-run"
+        )
+
+        self.assertEqual(tracker.request(), CancelPhase.REQUESTED)
+        self.assertEqual(self._phases(), [])
+
+    def test_a_broken_mirror_never_breaks_the_stop(self):
+        """The one property that matters more than the evidence itself."""
+
+        tracker = self._tracker(journal_run_id="r1")
+
+        with mock.patch.object(
+            journal_runtime,
+            "record_cancellation_phase",
+            side_effect=RuntimeError("journal on fire"),
+        ):
+            phase = tracker.request()
+
+        self.assertEqual(phase, CancelPhase.REQUESTED)
+        self.assertEqual(tracker.phase(), CancelPhase.REQUESTED)
+
+    def test_a_terminated_phase_after_the_run_was_filed_still_lands(self):
+        """Confirmed teardown routinely arrives after the verdict."""
+
+        tracker = self._tracker(journal_run_id="r1")
+        tracker.request()
+        record_terminal(
+            self.root,
+            run_id="r1",
+            event_type=journal_runtime.EVENT_CANCELLED,
+            verdict="cancelled",
+            reason="user",
+            now="2026-09-08T10:00:00+00:00",
+            fence=self.fence,
+        )
+
+        tracker.mark_terminated()
+
+        self.assertIn("terminated", [phase for phase, _ in self._phases()])
+
+    def test_a_real_background_run_names_its_journal_run(self):
+        """The wiring, not just the mechanism.
+
+        `_background_cancellation_tracker` is the one caller that knows a
+        scope is a journalled run. Removing the argument it passes left every
+        other test here green, because they construct the tracker themselves.
+        """
+
+        from opaihub import background_runs
+        from opaihub.run_state import RunState
+
+        run = background_runs.enqueue_automation(
+            self.root, "refactor", "a task", run_id="bg-run"
+        )
+        background_runs._transition_run(
+            self.root, run.run_id, target=RunState.RUNNING, reason_code="started"
+        )
+
+        tracker = background_runs._background_cancellation_tracker(
+            self.root, run.run_id
+        )
+        self.assertEqual(tracker.journal_run_id, run.run_id)
+
+        tracker.request()
+
+        store = open_store(self.root)
+        try:
+            phases = [
+                json.loads(row["payload"])["phase"]
+                for row in store.execute(
+                    "SELECT payload FROM events WHERE run_id = ?"
+                    " AND event_type = ? ORDER BY sequence",
+                    (run.run_id, journal_runtime.EVENT_CANCEL_PHASE),
+                )
+            ]
+        finally:
+            store.close()
+
+        self.assertEqual(phases, ["requested"])
+
+    def test_blank_identifiers_are_refused(self):
+        for run_id, phase in (("", "requested"), ("r1", "")):
+            with self.subTest(run_id=run_id, phase=phase):
+                self.assertFalse(
+                    journal_runtime.record_cancellation_phase(
+                        self.root,
+                        run_id=run_id,
+                        phase=phase,
+                        reason_code="x",
+                        now="2026-09-08T10:00:00+00:00",
+                    )
+                )
 
 
 if __name__ == "__main__":  # pragma: no cover

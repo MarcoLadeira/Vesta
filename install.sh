@@ -37,7 +37,7 @@ if [ -n "$script_root" ] && [ -f "$script_root/pyproject.toml" ]; then
   ROOT="$script_root"
 else
   if ! command -v git >/dev/null 2>&1; then
-    printf "Git is required for the one-command OPai installer. Install Git, then re-run this command.\n" >&2
+    printf "Git is required for the one-command Vesta installer. Install Git, then re-run this command.\n" >&2
     exit 127
   fi
 
@@ -47,7 +47,7 @@ else
     git -C "$OPAI_INSTALL_ROOT" pull --ff-only origin "$OPAI_BRANCH"
   elif [ -e "$OPAI_INSTALL_ROOT" ]; then
     if [ ! -f "$OPAI_INSTALL_ROOT/pyproject.toml" ]; then
-      printf "Install target exists but is not an OPai checkout: %s\n" "$OPAI_INSTALL_ROOT" >&2
+      printf "Install target exists but is not a Vesta checkout: %s\n" "$OPAI_INSTALL_ROOT" >&2
       exit 1
     fi
   else
@@ -74,10 +74,10 @@ fi
 
 "$OPAI_PYTHON" -m opai install --project "$OPAI_PROJECT_ROOT" $INSTALL_ARGS
 
-INSTALLED_VERSION="$("$OPAI_PYTHON" -m opai version 2>/dev/null || echo "OPai installed")"
+INSTALLED_VERSION="$("$OPAI_PYTHON" -m opai version 2>/dev/null || echo "Vesta installed")"
 printf "\n%s installed permanently.\n" "$INSTALLED_VERSION"
 printf "Source: %s\n" "$ROOT"
 printf "Activated project: %s\n" "$OPAI_PROJECT_ROOT"
 printf "Restart terminals and AI clients once so aliases and skills reload.\n"
 printf "Use in any repo: op status\n"
-printf "Launch with OPai: op launch codex\n"
+printf "Launch with Vesta: op launch codex\n"

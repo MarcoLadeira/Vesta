@@ -1,5 +1,5 @@
 name: Feature request
-description: Suggest a capability for OPai.
+description: Suggest a capability for Vesta.
 title: "[Feature]: "
 labels: ["enhancement"]
 body:
@@ -7,7 +7,7 @@ body:
     id: problem
     attributes:
       label: Problem
-      description: What workflow should OPai make easier, cheaper, or safer?
+      description: What workflow should Vesta make easier, cheaper, or safer?
     validations:
       required: true
   - type: textarea

@@ -154,7 +154,7 @@ class RemoteWriteTests(unittest.TestCase):
                 self.assertEqual(capability_of(command), Capability.WRITE_REMOTE)
 
     def test_non_github_forges_are_classified_too(self) -> None:
-        # OPai must not assume GitHub: Azure DevOps and GitLab reach a remote
+        # Vesta must not assume GitHub: Azure DevOps and GitLab reach a remote
         # through their own CLIs, and plain `git push` covers every other host.
         self.assertEqual(
             capability_of("az repos pr create --title x"), Capability.WRITE_REMOTE
@@ -302,9 +302,9 @@ if __name__ == "__main__":
 
 
 class ClaudeCodeModeParityTests(unittest.TestCase):
-    """Each OPai run mode must mean what the same word means in Claude Code.
+    """Each Vesta run mode must mean what the same word means in Claude Code.
 
-    | Claude Code        | OPai mode              | edits  | commands |
+    | Claude Code        | Vesta mode              | edits  | commands |
     |--------------------|------------------------|--------|----------|
     | Plan               | plan / ask             | block  | block    |
     | Normal ("manual")  | safe-auto/approve-edits| ask    | ask      |

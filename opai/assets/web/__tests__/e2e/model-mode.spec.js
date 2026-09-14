@@ -32,7 +32,7 @@ test("model selector exposes Auto, Claude, Codex, Copilot, free, and local choic
   expect(groupLabels).toContain("Codex");
   expect(groupLabels).toContain("Copilot");
   expect(groupLabels).toContain("Free models");
-  expect(groupLabels).toContain("OPai routing");
+  expect(groupLabels).toContain("Vesta routing");
   expect(groupLabels).toContain("Local models");
 });
 
@@ -125,7 +125,7 @@ test("selecting Full Auto just selects it, with no confirmation card", async ({ 
 });
 
 test("a picked mode is saved as the durable default, Full Auto included", async ({ page }) => {
-  // The reported bug: OPai forgot the chosen mode on every restart. It is
+  // The reported bug: Vesta forgot the chosen mode on every restart. It is
   // persisted through the ordinary savePref path now, like any other setting,
   // rather than through a dedicated pin slot guarded by a modal.
   await openApp(page);

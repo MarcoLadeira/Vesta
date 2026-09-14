@@ -1,6 +1,6 @@
-# Guarded Workflows — OPai's Trust Moat
+# Guarded Workflows — Vesta's Trust Moat
 
-Competitors race toward more autonomous agents. OPai's edge is making autonomy
+Competitors race toward more autonomous agents. Vesta's edge is making autonomy
 **safer, bounded, auditable, and human-controlled** (issue #39). Every guarded
 workflow follows one shared contract and risky actions **fail closed**.
 

@@ -1,8 +1,8 @@
-/* OPai — the cost-aware AI coding cockpit.
+/* Vesta — the cost-aware AI coding cockpit.
    Visual language: Cockpit × Honest Ledger. Deep instrument-panel surfaces,
    glass pods, an emerald money-signal gradient, mono type reserved for truth
    surfaces (commands, receipts, the CLI mirror), and motion that only moves
-   when OPai is genuinely working. Chromium-rendered: real font smoothing,
+   when Vesta is genuinely working. Chromium-rendered: real font smoothing,
    depth, and transitions. */
 
 @font-face {
@@ -107,7 +107,7 @@ code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas
   background: linear-gradient(180deg, transparent, rgba(52, 211, 153, 0.14) 30%, transparent 80%);
   pointer-events: none;
 }
-/* OPai Build entry (#276): quieter sibling of New chat. */
+/* Vesta Build entry (#276): quieter sibling of New chat. */
 
 /* Build mode (#276): composer toggle + result card. */
 .build-pill {
@@ -668,7 +668,7 @@ kbd {
 .tool-card .t { font-size: var(--type-caption); font-weight: 700; margin-bottom: var(--space-1); }
 .tool-card pre { font-size: var(--type-caption); color: var(--muted); white-space: pre-wrap; user-select: text; }
 
-/* The receipt strip — OPai's signature footer: torn-edge dashes, mono truth.
+/* The receipt strip — Vesta's signature footer: torn-edge dashes, mono truth.
    Click (or Enter) copies the receipt. */
 .footer-note {
   color: var(--muted); font-size: var(--type-caption); margin-top: var(--space-2); padding-top: var(--space-2);
@@ -1639,7 +1639,7 @@ body.ai-working .header-on-dot { animation: pulse 1.3s ease-in-out infinite; }
 .usage-meta { margin-top: var(--space-2); color: var(--faint); font-size: var(--type-caption); }
 .config-repair { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-top: var(--space-3); padding: var(--space-3) var(--space-3); border: 1px solid rgba(251,113,133,.4); border-radius: var(--r-md); background: rgba(251,113,133,.06); }
 
-/* ---------- settings redesign (OPai Settings design doc) ---------- */
+/* ---------- settings redesign (Vesta Settings design doc) ---------- */
 /* Per-pane hero: title, one-sentence purpose, honest scope chips. */
 .pane-hero { margin-bottom: var(--space-2); }
 .pane-title { font-size: var(--type-title); font-weight: 750; letter-spacing: -0.026em; }
@@ -1839,7 +1839,7 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
 .usage2-pill.muted { color: var(--muted); }
 /* One consistent headline + subtext + optional bar, for every provider
    regardless of whether the number is a real percentage, a credit amount, or
-   OPai's own tracked count — same size/weight/color, only the tone modifier
+   Vesta's own tracked count — same size/weight/color, only the tone modifier
    (credit/tracked) shifts color, never scale. This is the fix for the two
    states that used to look like different products (a Kimi-style credit
    figure vs. a bare "N calls tracked" line): both are now the same headline. */
@@ -1852,7 +1852,7 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
 /* The progress bar mirrors the Claude reference: rounded, brand-filled. */
 .usage2-track { height: 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
 .usage2-track span { display: block; height: 100%; background: var(--brand-gradient); border-radius: inherit; transition: width 0.3s var(--ease); }
-/* OPai-tracked caption: one consistent small row wherever it appears
+/* Vesta-tracked caption: one consistent small row wherever it appears
    (alongside a real bar or a credit figure) — never the headline itself
    there, so it can never be mistaken for the provider's own number. */
 .usage2-tracked { display: flex; align-items: center; gap: var(--space-2); color: var(--faint); font-size: var(--type-caption); flex-wrap: wrap; }
@@ -2453,7 +2453,7 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
   border-radius: 6px;
   object-fit: cover;
   background: var(--panel);
-  border: 1px solid var(--line);
+  border: 1px solid var(--border);
   flex: 0 0 auto;
 }
 .context-image-name {

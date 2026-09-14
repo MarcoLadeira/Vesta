@@ -8,7 +8,7 @@ test.beforeEach(async ({ page }) => {
   await page.waitForSelector("#input");
 });
 
-test("empty state speaks OPai, not the generic prompt", async ({ page }) => {
+test("empty state speaks Vesta, not the generic prompt", async ({ page }) => {
   await expect(page.locator("#empty h1")).toHaveText("Better. Faster. Cheaper.");
   // The claim stands on its own: no second sentence describing the product
   // to someone already looking at it.

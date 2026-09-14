@@ -64,7 +64,7 @@ class BoundaryErrorContractTests(unittest.TestCase):
                 code="UNKNOWN",
                 source="tool_loop",
                 detail=f"do not persist {self.SECRET}",
-                user_message="OPai could not safely prepare the diagnostic.",
+                user_message="Vesta could not safely prepare the diagnostic.",
             )
 
         payload = error.to_dict()

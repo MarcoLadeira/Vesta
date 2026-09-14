@@ -59,7 +59,7 @@ def run(argv: list[str], cwd: Path, *, env: Mapping[str, str] | None = None) -> 
 
 
 def wheel_build_command(python: Path, root: Path, wheelhouse: Path) -> list[str]:
-    """Build OPai and every declared runtime dependency into one wheelhouse."""
+    """Build Vesta and every declared runtime dependency into one wheelhouse."""
 
     return [
         str(python),
@@ -150,7 +150,7 @@ def isolated_environment(
     base: Mapping[str, str] | None = None,
     executable_dir: Path | None = None,
 ) -> dict[str, str]:
-    """Return a clean-user child environment without external OPai state."""
+    """Return a clean-user child environment without external Vesta state."""
 
     child = dict(os.environ if base is None else base)
     for name in EXTERNAL_STATE_ENV:
@@ -197,7 +197,7 @@ def project_version(root: Path) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Build and smoke-test an isolated OPai wheel install."
+        description="Build and smoke-test an isolated Vesta wheel install."
     )
     parser.add_argument(
         "--keep-venv", action="store_true", help="Keep the temporary smoke-test venv"
@@ -242,7 +242,7 @@ def main() -> int:
             reverse=True,
         )
         if not wheels:
-            raise SystemExit(f"No OPai {version} wheel was built.")
+            raise SystemExit(f"No Vesta {version} wheel was built.")
 
         venv_root = work_dir / "smoke-install-venv"
         if venv_root.exists():
@@ -317,7 +317,7 @@ def main() -> int:
     finally:
         if created_work_dir and not args.keep_venv:
             shutil.rmtree(work_dir, ignore_errors=True)
-    print("OPai isolated install smoke passed.")
+    print("Vesta isolated install smoke passed.")
     return 0
 
 

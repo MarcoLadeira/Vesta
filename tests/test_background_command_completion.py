@@ -1,6 +1,6 @@
 """A backgrounded command's result must reach the completion check (#486).
 
-The witness run: OPai was asked to fix an issue, it started a full pytest suite
+The witness run: Vesta was asked to fix an issue, it started a full pytest suite
 and waited for it, and the turn ended on *"Partial — required verification
 evidence is missing, unavailable, or damaged"* instead of on the test result.
 Two separate defects produced that one sentence.
@@ -13,7 +13,7 @@ Two separate defects produced that one sentence.
 
 2. When a turn genuinely does end with a command still running, the verdict saw
    only the absence of a result and reported the evidence as missing. That names
-   OPai's own bookkeeping as the problem when the real state is knowable and
+   Vesta's own bookkeeping as the problem when the real state is knowable and
    different: the command has not finished yet.
 
 These tests pin both: a command that finishes after a delay longer than the idle

@@ -1,14 +1,14 @@
-# OPai Roadmap
+# Vesta Roadmap
 
 ## Free Public Alpha
 
-Every implemented OPai alpha capability is free. The roadmap distinguishes
+Every implemented Vesta alpha capability is free. The roadmap distinguishes
 work that is available now from work that still needs safe implementation; it
 does not define paid access tiers or self-declared entitlements.
 
 ## Milestone: Cost-Control Control Plane (in progress)
 
-Foundations delivered toward "OPai is the AI coding cost firewall":
+Foundations delivered toward "Vesta is the AI coding cost firewall":
 
 - **#35 Activation reliability** — five-client detection (Claude, Codex,
   Copilot, Cursor, Cline) with active/broken/missing readiness, stale-path
@@ -25,11 +25,11 @@ Foundations delivered toward "OPai is the AI coding cost firewall":
 - **#40 Market proof** — cost-firewall positioning, grounded before/after proof,
   quickstart, and launch checklist.
 - **Benchmarking layer** — `opai benchmark` compares normal AI use with
-  OPai-routed local-first use and produces an OPai Efficiency Score.
+  Vesta-routed local-first use and produces a Vesta Efficiency Score.
 
 ## Near Term
 
-- Publish OPai as an installable Python package.
+- Publish Vesta as an installable Python package.
 - Add `opai tool install <id>` with per-tool confirmations.
 - Add richer project adapters for Node, Python, .NET, Go, Rust, and full-stack apps.
 - Add a local dashboard server with no telemetry.

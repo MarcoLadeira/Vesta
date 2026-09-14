@@ -1,4 +1,4 @@
-"""Capability- and cost-aware candidate ordering for OPai Auto mode.
+"""Capability- and cost-aware candidate ordering for Vesta Auto mode.
 
 Auto's job: pick the **cheapest model that can actually complete the task**,
 and if that model fails, move on to the next one *without* dead-ending or
@@ -75,7 +75,7 @@ _UNAVAILABLE_ACCOUNT_STATUSES = frozenset(
 # answer: a blip, a dropped stream, a slow endpoint. Gemini's free tier in
 # particular returns "provider temporarily unavailable" intermittently, and the
 # identical prompt succeeds a second later. Abandoning the provider on the first
-# blip is what makes OPai feel random, so these earn one immediate re-attempt on
+# blip is what makes Vesta feel random, so these earn one immediate re-attempt on
 # the SAME provider before the chain advances.
 TRANSIENT_ERROR_CODES = frozenset(
     {
@@ -149,7 +149,7 @@ def _provider_of_entry(item: dict[str, Any]) -> str:
 def can_edit_repository(item: dict[str, Any]) -> bool:
     """Whether this catalog entry may be given repository write access.
 
-    The catalog sets ``repo_editing`` to False for a CLI OPai will refuse to
+    The catalog sets ``repo_editing`` to False for a CLI Vesta will refuse to
     launch with write access (Copilot's, today, because it cannot expose a
     bounded edit-tool set). Routing an editing task there is a guaranteed
     refusal, so Auto must know *before* it picks, not after it fails. Missing
@@ -263,7 +263,7 @@ def resolve_auto_chain(
     # Unlike a reliability cooldown (a heuristic that only *deprioritizes*),
     # exhaustion is observed fact, so these are excluded outright. The verdict
     # expires (provider_balance.EXHAUSTED_TTL_SECONDS) so a recharge made
-    # outside OPai is rediscovered automatically.
+    # outside Vesta is rediscovered automatically.
     def has_credit(item: dict[str, Any]) -> bool:
         if item.get("out_of_credit") is True:
             return False
@@ -272,7 +272,7 @@ def resolve_auto_chain(
     # Same logic as out-of-credit, for the other class of guaranteed refusal:
     # a CLI too old for its model, a broken provider config, or (for editing
     # turns only) a provider that cannot be sandboxed for repository writes.
-    # Calling these spends a fallback step on a refusal OPai has already seen.
+    # Calling these spends a fallback step on a refusal Vesta has already seen.
     def is_usable(item: dict[str, Any]) -> bool:
         if needs_edit and not can_edit_repository(item):
             return False
@@ -349,7 +349,7 @@ def best_alternative(
     """The best model that can still run after another one failed.
 
     This exists so a failure is never a dead end. When a provider refuses —
-    capped, stale CLI, write-incapable, or simply down — OPai can name one
+    capped, stale CLI, write-incapable, or simply down — Vesta can name one
     concrete model the user can continue with in a single click instead of
     leaving them to guess in the picker. Cheapest-first, same ordering policy as
     the Auto chain: on-device, then free, then paid.
@@ -412,7 +412,7 @@ def routing_blockers(
     """Why each configured provider cannot serve this turn, in plain language.
 
     When Auto runs out of candidates the honest answer is not "no model
-    available" — OPai knows exactly which provider is capped, which CLI is
+    available" — Vesta knows exactly which provider is capped, which CLI is
     stale, and which cannot be given write access. Listing that turns a dead
     end into a short, fixable to-do list.
 

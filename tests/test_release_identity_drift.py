@@ -144,7 +144,7 @@ def test_site_release_identity_drift_is_actionable(tmp_path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         projection = module.render_documentation_projection(release, surface=surface)
         if surface == "site/index.html":
-            projection = projection.replace(release.display_name, "OPai 9.9.9")
+            projection = projection.replace(release.display_name, "Vesta 9.9.9")
         path.write_text(projection + "\n", encoding="utf-8")
 
     drift = _validation_module().validate_release_identity(root)
@@ -153,5 +153,5 @@ def test_site_release_identity_drift_is_actionable(tmp_path: Path) -> None:
     )
 
     assert release.display_name in documentation.expected
-    assert "OPai 9.9.9" in documentation.actual
+    assert "Vesta 9.9.9" in documentation.actual
     assert documentation.remediation.endswith("generate_release_identity.py")

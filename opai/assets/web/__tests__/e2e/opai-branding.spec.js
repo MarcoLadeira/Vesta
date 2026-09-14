@@ -11,17 +11,17 @@ import {
 
 test.beforeEach(async ({ page }) => openApp(page));
 
-test("primary workspace consistently presents the OPai identity", async ({ page }) => {
-  await expect(page.locator(".header-brand")).toContainText("OPai");
+test("primary workspace consistently presents the Vesta identity", async ({ page }) => {
+  await expect(page.locator(".header-brand")).toContainText("Vesta");
   await expect(page.locator("#empty h1")).toHaveText("Better. Faster. Cheaper.");
   await expect(page.locator("#emptySub")).toBeHidden();
 });
 
-test("workspace tooltip retains the OPai tagline", async ({ page }) => {
+test("workspace tooltip retains the Vesta tagline", async ({ page }) => {
   await expect(page.locator("#wsSwitch")).toHaveAttribute("title", /Every step visible\. Every dollar accounted\./);
 });
 
-test("error cards use human OPai language instead of route internals", async ({ page }) => {
+test("error cards use human Vesta language instead of route internals", async ({ page }) => {
   const id = await sendPrompt(page);
   await finishRequest(page, id, { status: "runner_error", answer: "The local model could not finish." });
   await expect(page.locator(".error-card .ec-t")).toHaveText("Local model couldn't answer");
@@ -31,7 +31,7 @@ test("error cards use human OPai language instead of route internals", async ({ 
 test("provider route IDs stay out of ordinary user and assistant bubbles", async ({ page }) => {
   await page.selectOption("#modelSel", "account:claude:opus");
   const id = await sendPrompt(page, "Keep this human-readable");
-  await finishRequest(page, id, { answer: "OPai completed the request." });
+  await finishRequest(page, id, { answer: "Vesta completed the request." });
   await expectNoRawProviderIds(page);
   await expect(page.locator(".msg.bot .role")).toContainText("Claude Opus 4.8");
 });

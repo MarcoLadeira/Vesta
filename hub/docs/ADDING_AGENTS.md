@@ -25,4 +25,4 @@ Start from `hub/templates/opai-agent.yaml`, then validate:
 opai hub validate --registry agents
 ```
 
-Good OPai agents avoid vague authority. They gather local evidence, produce small artifacts, and stop before paid models or risky tools unless a policy explicitly allows escalation.
+Good Vesta agents avoid vague authority. They gather local evidence, produce small artifacts, and stop before paid models or risky tools unless a policy explicitly allows escalation.

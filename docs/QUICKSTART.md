@@ -1,6 +1,6 @@
-# OPai Quickstart
+# Vesta Quickstart
 
-OPai is the AI coding cost firewall. The alpha launches fully free: there is no
+Vesta is the AI coding cost firewall. The alpha launches fully free: there is no
 checkout, license, invitation, or private-access requirement for alpha
 functionality.
 
@@ -39,7 +39,7 @@ opai activate --repair
 opai route "fix the failing test in the auth module"
 ```
 
-OPai collects local evidence (git diff, tests, project profile) and picks the
+Vesta collects local evidence (git diff, tests, project profile) and picks the
 cheapest safe tier. It does **not** write anything unless you ask it to.
 
 ## 4. Prove the savings
@@ -85,7 +85,7 @@ opai guard action "git push"     # fail-closed: denied without --confirm
 | `opai guard list\|check\|action` | Guarded-workflow contract |
 | `opai slim --clean` | Strip generated context bloat |
 | `opai update` / `opai update --apply` | Check for an update, or fetch/fast-forward/reinstall it |
-| `opai uninstall` | Cleanly remove OPai |
+| `opai uninstall` | Cleanly remove Vesta |
 
 Troubleshooting PATH, Superpowers discovery, and aliases is covered in
 [INSTALL_PROOF.md](INSTALL_PROOF.md).

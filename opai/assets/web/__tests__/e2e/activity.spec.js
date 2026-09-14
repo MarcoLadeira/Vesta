@@ -31,7 +31,7 @@ test("generation shows a compact status row, model, timer and stop", async ({ pa
   await expect(page.locator(".gen-time")).toHaveText(/0\d:\d\d/);
   await expect(page.locator(".gen-stop")).toBeVisible();
   await expect(page.locator("body")).toHaveClass(/ai-working/);
-  await expect(page.locator(".msg.bot .role")).toContainText("OPai");
+  await expect(page.locator(".msg.bot .role")).toContainText("Vesta");
 
   const id = await reqId(page);
   await page.evaluate((id) => window.__mock.emitReply(id, { status: "answered", answer: "Hi there", receipt: {} }), id);
@@ -214,14 +214,14 @@ test("provider error shows a recoverable error card", async ({ page }) => {
     answer: "Reconnect the provider account or update its credentials in Settings.",
     error: {
       code: "AUTH_INVALID",
-      title: "OPai could not authenticate this connection.",
+      title: "Vesta could not authenticate this connection.",
       userMessage: "Reconnect the provider account or update its credentials in Settings.",
       recoveryActions: ["open_settings", "reconnect", "show_details"],
       technicalMessage: "401 Invalid authentication credentials",
     },
   }), id);
   await expect(page.locator(".error-card")).toBeVisible();
-  await expect(page.locator(".error-card")).toContainText("OPai could not authenticate");
+  await expect(page.locator(".error-card")).toContainText("Vesta could not authenticate");
   await expect(page.locator('.error-card [data-a="settings"]')).toBeVisible();
   await expect(page.locator('.error-card [data-a="details"]')).toBeVisible();
   await expect(page.locator(".error-card .ec-w")).not.toContainText("401 Invalid authentication credentials");
@@ -233,11 +233,11 @@ test("provider error shows a recoverable error card", async ({ page }) => {
   expect(await page.evaluate(() => window.__mock.sendCount)).toBe(2);
 });
 
-test("normal chat and status are OPai-first", async ({ page }) => {
+test("normal chat and status are Vesta-first", async ({ page }) => {
   await sendPrompt(page);
-  await expect(page.locator("#statusLine")).toContainText("OPai");
-  await expect(page.locator("#modelSel option:checked")).toContainText("OPai");
-  await expect(page.locator(".msg.bot .role")).toContainText("OPai");
+  await expect(page.locator("#statusLine")).toContainText("Vesta");
+  await expect(page.locator("#modelSel option:checked")).toContainText("Vesta");
+  await expect(page.locator(".msg.bot .role")).toContainText("Vesta");
   await expect(page.locator("#view-chat")).not.toContainText("account:claude");
 });
 
