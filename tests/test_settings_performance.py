@@ -11,7 +11,12 @@ from opaihub import ledger, provider_usage, usage
 
 class SettingsPerformanceTests(unittest.TestCase):
     def test_settings_payload_shares_one_ledger_snapshot(self) -> None:
-        models = {"accounts": [], "connections": [], "models": []}
+        models = {
+            "accounts": [],
+            "connections": [],
+            "models": [],
+            "modelOverrides": {},
+        }
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             with (

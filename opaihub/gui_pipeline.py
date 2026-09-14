@@ -410,8 +410,9 @@ def request_tool_authority(
 
 def _mode_label(mode: str) -> str:
     # Labels come from the single autonomy source (#400); an unknown mode falls
-    # back to Safe Auto here because the pipeline never runs a mode it can't map.
-    return MODE_LABELS.get(mode, "Safe Auto")
+    # back to Safe Auto's label -- read from that source too, because the
+    # hardcoded "Safe Auto" outlived the mode's rename to "Auto".
+    return MODE_LABELS.get(mode, MODE_LABELS["safe-auto"])
 
 
 def _plan_payload(mode: str, status: str, answer: str) -> dict[str, Any]:

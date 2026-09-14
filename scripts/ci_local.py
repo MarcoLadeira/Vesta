@@ -24,7 +24,7 @@ import subprocess  # nosec B404 - fixed argv, never a shell
 import sys
 import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -1084,6 +1084,19 @@ def main(argv: list[str] | None = None) -> int:
         "--source-sha",
         help="Source head SHA; when different, it must parent the tested merge.",
     )
+    parser.add_argument(
+        "--timeout-scale",
+        type=float,
+        default=1.0,
+        help=(
+            "Multiply every step's time budget (>= 1). For a machine slower than"
+            " the one the budgets were sized on: the unit stage alone takes about"
+            " 32 minutes on some developer machines, against a 30-minute budget,"
+            " and a timeout reports no failing test at all. Each check's"
+            " recorded timeout_seconds is the scaled budget, so a scaled run is"
+            " never mistaken for a default one."
+        ),
+    )
     compatibility = parser.add_mutually_exclusive_group()
     compatibility.add_argument("--fast", action="store_true", help=argparse.SUPPRESS)
     compatibility.add_argument("--full", action="store_true", help=argparse.SUPPRESS)
@@ -1094,6 +1107,13 @@ def main(argv: list[str] | None = None) -> int:
         steps = _select_steps(profile, args.component)
     except ValueError as error:
         parser.error(str(error))
+    if not args.timeout_scale >= 1.0:  # also refuses NaN
+        parser.error("--timeout-scale must be at least 1")
+    if args.timeout_scale != 1.0:
+        steps = [
+            replace(step, timeout_seconds=step.timeout_seconds * args.timeout_scale)
+            for step in steps
+        ]
     started_at = _now()
     started = time.monotonic()
     revision = _git_revision()

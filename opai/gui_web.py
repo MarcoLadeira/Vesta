@@ -3087,11 +3087,14 @@ def _run_gui(
             """
 
             from opaihub.attachments import AttachmentError, store_image
+            from opaihub.command_runner import redact
 
             try:
                 stored = store_image(self.root, data, name=name)
             except AttachmentError as exc:
-                return json.dumps({"ok": False, "error": str(exc)})
+                # The message is written for the user; redact() leaves it as
+                # written and still scrubs anything secret-shaped (#622).
+                return json.dumps({"ok": False, "error": redact(str(exc))})
             except Exception:  # noqa: BLE001 - never leak a host path or trace
                 _LOG.debug("Attachment storage failed", exc_info=True)
                 return json.dumps(
