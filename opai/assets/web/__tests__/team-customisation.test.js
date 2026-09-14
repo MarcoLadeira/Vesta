@@ -46,7 +46,7 @@ describe('large team map compression', () => {
     const positions = map.arrange(objective), before = structuredClone(positions);
     const normal = map.graphHtml(objective, positions);
     expect((normal.html.match(/data-map-node=/g) || [])).toHaveLength(3);
-    expect(normal.html).toContain('3 agents · ✓ 3 done');
+    expect(normal.html).toContain('✓ Complete');
     expect(positions).toEqual(before);
     expect((map.graphHtml(objective, positions, { editing: true }).html.match(/data-map-node=/g) || [])).toHaveLength(9);
     const traced = map.graphHtml(objective, positions, { focusId: 'a0' });
@@ -57,7 +57,7 @@ describe('large team map compression', () => {
   });
   it('keeps approval and failed work visible, and does not compress overlapping group bands', () => {
     const attention = structuredClone(objective); attention.assignments[4].pending_approval = { tool: 'edit' };
-    expect(map.graphHtml(attention, map.arrange(attention)).html).toContain('Approval needed');
+    expect(map.graphHtml(attention, map.arrange(attention)).html).toContain('Needs you');
     const overlap = Object.fromEntries(objective.assignments.map((a, i) => [a.assignment_id, { x: i * 280, y: 64 }]));
     const html = map.graphHtml(objective, overlap).html;
     expect(html).toContain('left:0px;top:20px');
@@ -68,9 +68,20 @@ describe('large team map compression', () => {
 it('shows the recorded attention reason before activity and preserves canonical approval controls', () => {
   const agent = { assignment_id: 'a', title: 'Review payment retries', status: 'blocked', pending_approval: { reason: '<img onerror="bad()">', command: ['git', 'diff'], request_id: 'request-1' }, allowed_actions: ['approve', 'stop'] };
   const html = team.panelHtml({ assignments: [agent] }, 'a');
-  expect(html.indexOf('Needs your approval')).toBeLessThan(html.indexOf('class="team-feed"'));
+  expect(html.indexOf('Needs you')).toBeLessThan(html.indexOf('class="team-feed"'));
   expect(html).toContain('&lt;img'); expect(html).not.toContain('<img');
   expect((html.match(/data-team-action="approve"/g) || [])).toHaveLength(1);
   expect(team.attentionHtml({ status: 'failed', role: 'reviewer', blocked_reason: 'Review checks failed' })).toContain('Review checks failed');
   expect(team.attentionHtml({ status: 'running' })).toBe('');
+});
+
+
+it('uses only explicitly running work for the current update', () => {
+  expect(team.currentActivity({ status: 'running', activity: 'Read auth.ts' })).toBeNull();
+  expect(team.currentActivity({ status: 'running', activity: JSON.stringify({ status: 'success', title: 'Checked token expiry' }) })).toBeNull();
+  const activity = { status: 'running', title: 'Running sign-in checks', timestamp: 1789400000000 };
+  expect(team.currentActivity({ status: 'running', activity: JSON.stringify(activity) })).toEqual({ title: activity.title, timestamp: activity.timestamp });
+  expect(team.currentActivity({ status: 'completed', activity })).toBeNull();
+  expect(map.status({ status: 'failed' }, {}).kind).toBe('failed');
+  expect(map.status({ status: 'blocked' }, {}).label).toBe('Needs you');
 });

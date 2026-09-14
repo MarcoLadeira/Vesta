@@ -199,3 +199,12 @@ A single Team View composer explicitly targets Team (a new objective) or a selec
 The supplied essay's future policy inheritance, arbitrary roles/tools, bulk natural-language configuration and new collaboration semantics are not represented as working controls. This pass simplifies the supported UI and dispatches existing agent-message operations only.
 
 Validation: 10 scoped JavaScript checks and 3 focused browser flows passed, including recipient routing, duplicate-submit fencing, failed acknowledgements, newer-draft preservation, timestamps/menu controls and narrow-screen access. The populated screenshot flow also passed. Syntax, design-token and diff checks passed. No provider calls or expanded release qualification were performed.
+
+
+## September 14 selection and execution clarity
+
+Team cards use a neutral selection outline, with execution status inside each card. Needs you is consistent across the map and inspector, while failure has a distinct label and symbol. Cards are 100px tall; expanded groups summarize only active work and problems, and completed groups become quiet Complete rows. Edges remain neutral and reveal their relationship labels on hover or keyboard focus. The objective names the map; View contains Fit/actual size/zoom, with F and blank-canvas double-click shortcuts. The avatar strip remains globally available.
+
+The inspector separates agent identity, current/last task, recorded running activity and historical events. Completed events and unstructured messages are never presented as current progress; missing live details are explicit. Scope reveals all recorded paths on demand. Follow-up composition and acknowledgement state that messages run after the current task. Contextual Ctrl+K commands and card right-click expose existing agent controls without permanent new buttons or new execution semantics.
+
+Validation: 11 scoped JavaScript checks and 3 browser flows passed for contextual commands, message fencing/drafts and narrow-screen access. The populated 12-agent demo checks collapsed scope, selected relationships, current progress, Fit and sidebar restoration. Syntax, design-token and diff checks passed. No provider calls or expanded release qualification.

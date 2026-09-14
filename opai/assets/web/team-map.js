@@ -4,6 +4,7 @@
   const team = () => global.OPaiAgentsTeam;
   const id = (a) => team().actorId(a);
   const list = (o) => team().agents(o);
+  const CARD_HEIGHT = 100;
   function edges(objective) {
     const assignments = objective.assignments || [];
     return assignments.flatMap((target) => (target.depends_on || []).map((key) => {
@@ -42,19 +43,22 @@
     }));
   }
   function status(agent, objective) {
-    if (agent.pending_approval) return { kind: 'attention', label: 'Approval needed', icon: '!' };
-    if (agent.status === 'failed') return { kind: 'attention', label: /review|critic/i.test(agent.role || '') ? 'Review failed' : 'Task failed', icon: '!' };
-    if (['blocked', 'needs-attention'].includes(agent.status)) return { kind: 'attention', label: 'Decision needed', icon: '!' };
+    if (agent.pending_approval) return { kind: 'attention', label: 'Needs you', icon: '!' };
+    if (agent.status === 'failed') return { kind: 'failed', label: 'Failed', icon: '×' };
+    if (['blocked', 'needs-attention'].includes(agent.status)) return { kind: 'attention', label: 'Needs you', icon: '!' };
     if (agent.status === 'completed') return { kind: 'done', label: 'Done', icon: '✓' };
     if (agent.status === 'running') return { kind: 'active', label: 'Working', icon: '◉' };
     if (agent.held) return { kind: 'waiting', label: 'Ready to start', icon: 'Ⅱ' };
     const waiting = (agent.depends_on || []).map((key) => (objective.assignments || []).find((a) => a.name === key || a.assignment_id === key)).filter((a) => a && a.status !== 'completed');
     return { kind: 'waiting', label: waiting.length === 1 && team().name(waiting[0], 0).length <= 18 ? 'Waiting on ' + team().name(waiting[0], 0) : waiting.length ? 'Waiting on ' + waiting.length + ' agents' : agent.status === 'cancelled' ? 'Stopped' : 'Queued', icon: '◷' };
   }
-  function groupSummary(members, objective) {
+  function groupSummary(members, objective, collapsed) {
     const counts = new Map();
     members.forEach((a) => { const kind = status(a, objective).kind; counts.set(kind, (counts.get(kind) || 0) + 1); });
-    return members.length + ' agents' + ['active', 'attention', 'waiting', 'done'].filter((kind) => counts.has(kind)).map((kind) => ' · ' + ({ active: '◉ ', attention: '! ', waiting: '◷ ', done: '✓ ' })[kind] + counts.get(kind) + ' ' + ({ active: 'working', attention: counts.get(kind) === 1 ? 'needs attention' : 'need attention', waiting: 'waiting', done: 'done' })[kind]).join('');
+    if (counts.get('done') === members.length) return '✓ Complete';
+    const kinds = collapsed ? ['attention', 'failed', 'active', 'waiting', 'done'] : ['attention', 'failed', 'active'];
+    const summary = kinds.filter((kind) => counts.has(kind)).map((kind) => ({ active: '● ', attention: '! ', failed: '× ', waiting: '○ ', done: '✓ ' })[kind] + counts.get(kind) + ' ' + ({ active: 'working', attention: counts.get(kind) === 1 ? 'needs you' : 'need you', failed: 'failed', waiting: 'waiting', done: 'done' })[kind]).join(' · ');
+    return summary || members.length + ' agents';
   }
   function graphHtml(objective, positions, view = {}) {
     positions = safePositions(objective, positions);
@@ -77,20 +81,20 @@
     const boxes = Array.from(groups, ([name, members]) => {
       const points = members.map((a) => positions[id(a)]);
       const x = Math.max(0, Math.min(...points.map((p) => p.x)) - 16), y = Math.max(0, Math.min(...points.map((p) => p.y)) - 44);
-      const bottom = Math.max(...points.map((p) => p.y)) + 148;
+      const bottom = Math.max(...points.map((p) => p.y)) + CARD_HEIGHT + 20;
       const automatic = agents.length > 7 && members.every((a) => ['done', 'waiting'].includes(status(a, objective).kind));
       const collapsed = !view.editing && (view.collapsed?.has(name) ? view.collapsed.get(name) : automatic) && !members.some((a) => related.has(id(a)));
       return { name, members, x, y, width: Math.max(...points.map((p) => p.x)) + 256 - x, height: bottom - y, bottom, collapsed };
     }).sort((a, b) => a.y - b.y);
-    const bands = boxes.filter((box) => box.collapsed && !boxes.some((other) => other !== box && other.y < box.bottom && other.bottom > box.y) && !agents.some((a) => a.group !== box.name && original[id(a)].y + 128 > box.y && original[id(a)].y < box.bottom));
+    const bands = boxes.filter((box) => box.collapsed && !boxes.some((other) => other !== box && other.y < box.bottom && other.bottom > box.y) && !agents.some((a) => a.group !== box.name && original[id(a)].y + CARD_HEIGHT > box.y && original[id(a)].y < box.bottom));
     const offset = (y) => bands.filter((box) => box.bottom <= y).reduce((sum, box) => sum + box.height - 64, 0);
     agents.forEach((a) => { positions[id(a)].y = original[id(a)].y - offset(original[id(a)].y); });
     boxes.forEach((box) => { box.displayY = box.y - offset(box.y); });
     const collapsedFor = (agent) => boxes.find((box) => box.collapsed && box.name === agent.group);
     const visible = agents.filter((a) => !collapsedFor(a));
     const width = Math.max(480, ...visible.map((a) => positions[id(a)].x + 280), ...boxes.map((b) => b.x + b.width + 20));
-    const height = Math.max(240, ...visible.map((a) => positions[id(a)].y + 166), ...boxes.map((b) => b.displayY + (b.collapsed ? 64 : b.height) + 20));
-    let html = boxes.map((box) => '<section class="team-map-group' + (box.collapsed ? ' is-collapsed' : '') + (box.members.every((a) => status(a, objective).kind === 'done') ? ' is-done' : '') + (box.members.some((a) => status(a, objective).kind === 'attention') ? ' has-attention' : '') + (focused && !box.members.some((a) => related.has(id(a))) ? ' is-muted' : '') + '" style="left:' + box.x + 'px;top:' + box.displayY + 'px;width:' + box.width + 'px;height:' + (box.collapsed ? 64 : box.height) + 'px"><header><button type="button" data-map-collapse="' + esc(box.name) + '" aria-expanded="' + !box.collapsed + '"' + (view.editing ? ' disabled' : '') + '><span aria-hidden="true">' + (box.collapsed ? '›' : '⌄') + '</span><strong>' + esc(box.name) + '</strong><span class="team-group-summary">' + esc(groupSummary(box.members, objective)) + '</span></button><button type="button" data-map-group="' + esc(box.name) + '" class="team-group-handle" aria-label="Move ' + esc(box.name) + ' group" title="Drag group or use arrow keys">⠿</button></header></section>').join('');
+    const height = Math.max(240, ...visible.map((a) => positions[id(a)].y + CARD_HEIGHT + 38), ...boxes.map((b) => b.displayY + (b.collapsed ? 64 : b.height) + 20));
+    let html = boxes.map((box) => '<section class="team-map-group' + (box.collapsed ? ' is-collapsed' : '') + (box.members.every((a) => status(a, objective).kind === 'done') ? ' is-done' : '') + (box.members.some((a) => ['attention', 'failed'].includes(status(a, objective).kind)) ? ' has-attention' : '') + (focused && !box.members.some((a) => related.has(id(a))) ? ' is-muted' : '') + '" style="left:' + box.x + 'px;top:' + box.displayY + 'px;width:' + box.width + 'px;height:' + (box.collapsed ? 64 : box.height) + 'px"><header><button type="button" data-map-collapse="' + esc(box.name) + '" aria-expanded="' + !box.collapsed + '"' + (view.editing ? ' disabled' : '') + '><span aria-hidden="true">' + (box.collapsed ? '›' : '⌄') + '</span><strong>' + esc(box.name) + '</strong><span class="team-group-summary">' + esc(groupSummary(box.members, objective, box.collapsed)) + '</span></button><button type="button" data-map-group="' + esc(box.name) + '" class="team-group-handle" aria-label="Move ' + esc(box.name) + ' group" title="Drag group or use arrow keys">⠿</button></header></section>').join('');
     html += '<svg class="team-map-links" width="' + width + '" height="' + height + '" aria-label="Result handoffs"><defs><marker id="team-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" /></marker></defs>' + links.map(({ source, target }, index) => {
       const from = collapsedFor(source), to = collapsedFor(target);
       if (from && from === to) return '';
@@ -98,16 +102,16 @@
       const relevant = focused && related.has(id(source)) && related.has(id(target));
       if (agents.length > 7 && !view.showAll && !view.editing && (focused ? !relevant : cross || (source.status !== 'running' && target.status !== 'running'))) return '';
       const a = from ? { x: from.x, y: from.displayY } : positions[id(source)], b = to ? { x: to.x, y: to.displayY } : positions[id(target)];
-      const aw = from ? from.width : 240, bw = to ? to.width : 240, ah = from ? 64 : 128, bh = to ? 64 : 128;
+      const aw = from ? from.width : 240, bw = to ? to.width : 240, ah = from ? 64 : CARD_HEIGHT, bh = to ? 64 : CARD_HEIGHT;
       const forward = b.x >= a.x + aw;
       const x1 = a.x + (forward ? aw : aw / 2), y1 = a.y + (forward ? ah / 2 : ah);
       const x2 = b.x + (forward ? 0 : bw / 2), y2 = b.y + (forward ? bh / 2 : 0);
       let path = forward ? 'M' + x1 + ',' + y1 + ' C' + (x1 + 40) + ',' + y1 + ' ' + (x2 - 40) + ',' + y2 + ' ' + x2 + ',' + y2 : 'M' + x1 + ',' + y1 + ' C' + x1 + ',' + (y1 + 35) + ' ' + x2 + ',' + (y2 - 35) + ' ' + x2 + ',' + y2;
-      const obstructed = forward && visible.some((node) => id(node) !== id(source) && id(node) !== id(target) && positions[id(node)].x < x2 && positions[id(node)].x + 240 > x1 && positions[id(node)].y < Math.max(y1, y2) + 8 && positions[id(node)].y + 128 > Math.min(y1, y2) - 8);
+      const obstructed = forward && visible.some((node) => id(node) !== id(source) && id(node) !== id(target) && positions[id(node)].x < x2 && positions[id(node)].x + 240 > x1 && positions[id(node)].y < Math.max(y1, y2) + 8 && positions[id(node)].y + CARD_HEIGHT > Math.min(y1, y2) - 8);
       const lane = Math.max(a.y + ah, b.y + bh) + 18;
       if (obstructed) path = 'M' + x1 + ',' + y1 + ' C' + (x1 + 20) + ',' + y1 + ' ' + (x1 + 20) + ',' + lane + ' ' + (x1 + 32) + ',' + lane + ' L' + (x2 - 32) + ',' + lane + ' C' + (x2 - 20) + ',' + lane + ' ' + (x2 - 20) + ',' + y2 + ' ' + x2 + ',' + y2;
       const label = /review|critic/i.test(target.role || '') ? 'Review' : 'Hand off';
-      return '<g class="team-map-link' + (focused && !relevant ? ' is-muted' : '') + '"><text class="team-edge-label" x="' + ((x1 + x2) / 2) + '" y="' + (obstructed ? lane + 14 : (y1 + y2) / 2 - 12) + '">' + label + '</text><path class="team-map-edge' + (relevant ? ' is-active' : '') + '" d="' + path + '" marker-end="url(#team-arrow)" data-map-edge="' + index + '" tabindex="0" role="button" aria-label="' + esc(team().name(source, 0) + ' sends results to ' + team().name(target, 0)) + '"><title>' + esc(source.title + ' → ' + target.title) + '</title></path></g>';
+      return '<g class="team-map-link' + (focused && !relevant ? ' is-muted' : '') + '"><text class="team-edge-label" x="' + ((x1 + x2) / 2) + '" y="' + (obstructed ? lane + 14 : (y1 + y2) / 2 - 12) + '">' + label + '</text><path class="team-map-edge' + (relevant ? ' is-related' : '') + '" d="' + path + '" marker-end="url(#team-arrow)" data-map-edge="' + index + '" tabindex="0" role="button" aria-label="' + esc(team().name(source, 0) + ' sends results to ' + team().name(target, 0)) + '"><title>' + esc(source.title + ' → ' + target.title) + '</title></path></g>';
     }).join('') + '</svg>';
     html += visible.map((a, index) => {
       const point = positions[id(a)], current = status(a, objective);
@@ -119,13 +123,14 @@
   function mount(element, objective, options) {
     if (!objective) return;
     if (element._objectiveId !== objective.objective_id) {
-      element.innerHTML = '<header class="team-map-header"><button type="button" class="team-quiet" data-map-back>← Back to chat</button><h2>Your team</h2><span class="team-map-overview" data-map-overview></span><button type="button" class="team-map-attention" data-map-attention hidden></button><button type="button" class="btn" data-map-edit aria-pressed="false">Configure</button><div class="team-actions team-map-edit-actions" hidden><button type="button" class="team-quiet" data-map-add>+ Add agent</button><button type="button" class="team-quiet" data-map-connect>Connect</button><button type="button" class="team-quiet" data-map-group-mode>Group</button><button type="button" class="team-quiet" data-map-arrange>Auto arrange</button></div></header><p class="team-map-hint" role="status"></p><form class="team-map-group-form" hidden><label>Group name<input name="groupName" maxlength="40" required placeholder="e.g. Authentication"></label><button type="submit" class="btn">Group selected</button><span data-group-count>0 selected</span></form><div class="team-map-viewport"><div class="team-map-canvas"></div></div><footer class="team-map-footer"><span data-map-link-hint></span><div><details class="team-view-menu"><summary>View</summary><div><button type="button" class="team-quiet" data-map-clear hidden>Clear focus</button><button type="button" class="team-quiet" data-map-links aria-pressed="false">Relevant links</button><details class="team-map-zoom-control"><summary>Zoom</summary><div><button type="button" class="team-quiet" data-map-zoom="-1" aria-label="Zoom out">−</button><output class="team-map-zoom">100%</output><button type="button" class="team-quiet" data-map-zoom="1" aria-label="Zoom in">+</button></div></details></div></details><button type="button" class="btn team-fit" data-map-fit aria-label="Fit"><span aria-hidden="true">⛶</span> Fit</button></div></footer>';
+      element.innerHTML = '<header class="team-map-header"><button type="button" class="team-quiet" data-map-back>← Back to chat</button><h2 data-map-title></h2><span class="team-map-overview" data-map-overview></span><button type="button" class="team-map-attention" data-map-attention hidden></button><button type="button" class="btn" data-map-edit aria-pressed="false">Configure</button><div class="team-actions team-map-edit-actions" hidden><button type="button" class="team-quiet" data-map-add>+ Add agent</button><button type="button" class="team-quiet" data-map-connect>Connect</button><button type="button" class="team-quiet" data-map-group-mode>Group</button><button type="button" class="team-quiet" data-map-arrange>Auto arrange</button></div></header><p class="team-map-hint" role="status"></p><form class="team-map-group-form" hidden><label>Group name<input name="groupName" maxlength="40" required placeholder="e.g. Authentication"></label><button type="submit" class="btn">Group selected</button><span data-group-count>0 selected</span></form><div class="team-map-viewport"><div class="team-map-canvas"></div></div><footer class="team-map-footer"><span data-map-link-hint></span><div><details class="team-view-menu"><summary>View</summary><div><button type="button" class="team-quiet team-fit" data-map-fit aria-label="Fit" aria-keyshortcuts="F">⛶ Fit to view <kbd>F</kbd></button><button type="button" class="team-quiet" data-map-actual>Actual size</button><button type="button" class="team-quiet" data-map-clear hidden>Clear focus</button><button type="button" class="team-quiet" data-map-links aria-pressed="false">Relevant links</button><details class="team-map-zoom-control"><summary>Zoom</summary><div><button type="button" class="team-quiet" data-map-zoom="-1" aria-label="Zoom out">−</button><output class="team-map-zoom">100%</output><button type="button" class="team-quiet" data-map-zoom="1" aria-label="Zoom in">+</button></div></details></div></details></div></footer>';
       element.querySelector('.team-map-hint').textContent = 'Select an agent to follow its work. Click empty space to return.';
       try { if (sessionStorage.getItem('opai.teamMap.learned')) element.querySelector('.team-map-hint').textContent = ''; } catch (_) {}
       element._objectiveId = objective.objective_id; element._positions = {}; element._zoom = 1; element._collapsed = new Map(); element._focusId = null; element._showAll = false;
       element._layoutPending = null; element._layoutQueued = null; element._dragging = false; element._editing = false; element.classList.remove("is-editing"); element._selected = new Set(); element._grouping = false; element._connecting = false; element._source = null;
     }
     element._objective = objective; element._options = options;
+    element.querySelector('[data-map-title]').textContent = objective.objective || 'Your team';
     if (options.selectedId && options.selectedId !== element._inspectedId) element._focusId = id((objective.assignments || []).find((a) => a.assignment_id === options.selectedId) || {});
     element._inspectedId = options.selectedId;
     const defaults = arrange(objective);
@@ -133,10 +138,10 @@
     const canvas = element.querySelector('.team-map-canvas'), viewport = element.querySelector('.team-map-viewport');
     const hint = (text) => { element.querySelector('.team-map-hint').textContent = text; };
     const learn = () => { if (!element._editing) hint(''); try { sessionStorage.setItem('opai.teamMap.learned', '1'); } catch (_) {} };
-    const people = list(objective), attention = people.filter((a) => status(a, objective).kind === 'attention');
+    const people = list(objective), attention = people.filter((a) => ['attention', 'failed'].includes(status(a, objective).kind));
     element.querySelector('[data-map-overview]').textContent = people.length + ' agents · ' + people.filter((a) => status(a, objective).kind === 'active').length + ' working';
     const attentionButton = element.querySelector('[data-map-attention]');
-    attentionButton.hidden = !attention.length; attentionButton.textContent = attention.length + ' needs you →';
+    attentionButton.hidden = !attention.length; attentionButton.textContent = attention.length + (attention.length === 1 ? ' needs you →' : ' need you →');
     attentionButton.onclick = () => { const next = attention[(attention.findIndex((a) => id(a) === element._focusId) + 1) % attention.length]; if (next) { element._focusId = id(next); learn(); paint(); options.onSelect(next.assignment_id); } };
 
     const control = (action, value, assignmentId) => options.onControl({ objective_id: element._objective.objective_id, ...(assignmentId ? { assignment_id: assignmentId } : {}), action, value: { revision: element._objective.team_revision || 0, ...value } });
@@ -206,10 +211,15 @@
     element.querySelector('[data-map-clear]').onclick = clearFocus;
     viewport.onclick = (event) => { if (element._focusId && !element._editing && (event.target === viewport || event.target === canvas || event.target.matches('.team-map-group'))) clearFocus(); };
     element.querySelector('[data-map-links]').onclick = (event) => { element._showAll = !element._showAll; event.currentTarget.setAttribute('aria-pressed', String(element._showAll)); event.currentTarget.textContent = element._showAll ? 'All links' : 'Relevant links'; paint(); };
-    element.querySelector('[data-map-fit]').onclick = () => {
+    const fit = () => {
       element._zoom = Math.min(1.15, Math.max(.02, Math.min((viewport.clientWidth - 24) / parseFloat(canvas.style.width), (viewport.clientHeight - 24) / parseFloat(canvas.style.height))));
       canvas.style.zoom = element._zoom; viewport.scrollTo(0, 0); element.querySelector('.team-map-zoom').textContent = Math.round(element._zoom * 100) + '%';
     };
+    element.querySelector('[data-map-fit]').onclick = () => { fit(); element.querySelector('.team-view-menu').open = false; };
+    element.querySelector('[data-map-actual]').onclick = () => { element._zoom = 1; canvas.style.zoom = 1; element.querySelector('.team-map-zoom').textContent = '100%'; element.querySelector('.team-view-menu').open = false; };
+    viewport.tabIndex = 0;
+    viewport.setAttribute('aria-label', 'Team map. Press F to fit.');
+    viewport.ondblclick = (event) => { if (event.target === viewport || event.target === canvas || event.target.matches('.team-map-group')) { event.preventDefault(); fit(); } };
     element.querySelector('[data-map-arrange]').onclick = () => { element._positions = arrange(element._objective); paint(); save(); };
     element.querySelectorAll('[data-map-zoom]').forEach((button) => { button.onclick = () => { element._zoom = Math.min(1.5, Math.max(.5, element._zoom + Number(button.dataset.mapZoom) * .1)); canvas.style.zoom = element._zoom; element.querySelector('.team-map-zoom').textContent = Math.round(element._zoom * 100) + '%'; }; });
     canvas.onclick = (event) => {
@@ -236,6 +246,12 @@
         const { source, target } = edges(element._objective)[Number(edge.dataset.mapEdge)];
         connectionDialog(element._objective, source, target, { ...options, editing: element._editing });
       }
+    };
+    canvas.oncontextmenu = (event) => {
+      const button = event.target.closest('[data-map-select]');
+      if (!button || element._editing) return;
+      event.preventDefault();
+      button.click(); options.onAgentOptions?.();
     };
     const moveIds = (handle) => handle.dataset.mapGroup !== undefined ? list(element._objective).filter((a) => a.group === handle.dataset.mapGroup).map(id) : [handle.dataset.mapMove];
     const translate = (ids, start, dx, dy) => {
@@ -266,7 +282,7 @@
       if (event.target.matches('[data-map-edge]') && ['Enter', ' '].includes(event.key)) { event.preventDefault(); event.target.dispatchEvent(new MouseEvent('click', { bubbles: true })); }
     };
     canvas.onkeyup = (event) => { if (element._dragging && event.key.startsWith('Arrow')) { element._dragging = false; save(); } };
-    element.onkeydown = (event) => { if (event.key === 'Escape' && element._focusId && !element._editing) { event.preventDefault(); event.stopPropagation(); clearFocus(); return; } if (event.key === 'Escape' && (element._connecting || element._grouping)) { event.stopPropagation(); element._connecting = false; element._source = null; element.querySelector('[data-map-connect]').setAttribute('aria-pressed', 'false'); element._grouping = false; element._selected = new Set(); groupForm.hidden = true; element.querySelector('[data-map-group-mode]').setAttribute('aria-pressed', 'false'); paint(); hint('Selection cancelled.'); } };
+    element.onkeydown = (event) => { if (event.key.toLowerCase() === 'f' && !event.ctrlKey && !event.metaKey && !event.altKey && !event.target.closest('input, textarea, select, [contenteditable]')) { event.preventDefault(); fit(); return; } if (event.key === 'Escape' && element._focusId && !element._editing) { event.preventDefault(); event.stopPropagation(); clearFocus(); return; } if (event.key === 'Escape' && (element._connecting || element._grouping)) { event.stopPropagation(); element._connecting = false; element._source = null; element.querySelector('[data-map-connect]').setAttribute('aria-pressed', 'false'); element._grouping = false; element._selected = new Set(); groupForm.hidden = true; element.querySelector('[data-map-group-mode]').setAttribute('aria-pressed', 'false'); paint(); hint('Selection cancelled.'); } };
   }
   function dialog(title, html, objective, options) {
     document.querySelector('.team-edit-dialog')?.close();

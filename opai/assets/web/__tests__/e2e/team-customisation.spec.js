@@ -280,3 +280,27 @@ test('targeted composer fences messages and keeps recipient drafts across acknow
   await expect(page.locator('#input')).toHaveValue('Team draft');
   expectNoFatalErrors(diagnostics);
 });
+
+
+test('team view uses contextual commands and keeps view controls out of the way', async ({ page }) => {
+  await page.setViewportSize({ width: 1500, height: 980 });
+  const diagnostics = await start(page);
+  await page.getByRole('button', { name: 'Organise team', exact: true }).click();
+  await page.locator('[data-map-select="alex"]').click({ button: 'right' });
+  await expect(page.locator('.team-agent-menu')).toHaveAttribute('open', '');
+  await page.locator('.team-agent-menu > summary').click();
+  await expect(page.locator('.team-current-action')).toContainText('Waiting for the next progress update');
+  await expect(page.locator('[data-map-fit]')).toBeHidden();
+  await page.locator('.team-map-viewport').focus();
+  await page.keyboard.press('f');
+  const fitted = await page.locator('.team-map-canvas').evaluate((node) => node.style.zoom);
+  expect(Number(fitted)).toBeGreaterThan(0);
+  await page.keyboard.press('Control+k');
+  await page.locator('#paletteInput').fill('Message Alex');
+  await page.locator('#paletteList [data-id="team_message"]').click();
+  await expect(page.locator('#input')).toBeFocused();
+  await expect(page.locator('#input')).toHaveAttribute('placeholder', /queued after the current task/);
+  await page.locator('#input').fill('f');
+  expect(await page.locator('.team-map-canvas').evaluate((node) => node.style.zoom)).toBe(fitted);
+  expectNoFatalErrors(diagnostics);
+});

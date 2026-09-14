@@ -28,8 +28,8 @@
   function state(agent, assignments) {
     const upstream = dependencies(agent, assignments).filter((a) => a.status !== "completed");
     const waiting = ["pending", "queued", "blocked"].includes(agent.status) && upstream.length;
-    let label = agent.held ? "Ready when you are" : agent.pending_approval ? "Needs your approval" : waiting ? "Waiting for " + upstream.map((a) => name(a, assignments.indexOf(a))).join(", ") : agent.blocked_reason || agent.admission?.reason || ({ running: "Working", completed: "Done", failed: "Needs attention", pending: "Queued", blocked: "Needs attention" })[agent.status] || String(agent.status || "Queued").replace(/[-_]/g, " ");
-    const tone = agent.pending_approval ? "attention" : waiting ? "waiting" : agent.status === "running" ? "active" : agent.status === "completed" ? "done" : ["failed", "needs-attention", "blocked"].includes(agent.status) ? "attention" : "waiting";
+    let label = agent.held ? "Ready when you are" : agent.pending_approval ? "Needs you" : waiting ? "Waiting for " + upstream.map((a) => name(a, assignments.indexOf(a))).join(", ") : agent.blocked_reason || agent.admission?.reason || ({ running: "Working", completed: "Done", failed: "Failed", pending: "Queued", blocked: "Needs you" })[agent.status] || String(agent.status || "Queued").replace(/[-_]/g, " ");
+    const tone = agent.pending_approval ? "attention" : waiting ? "waiting" : agent.status === "running" ? "active" : agent.status === "completed" ? "done" : agent.status === "failed" ? "failed" : ["needs-attention", "blocked"].includes(agent.status) ? "attention" : "waiting";
     const automatic = !agent.held && waiting && upstream.every((a) => a.status === "running" && !a.pending_approval);
     if (automatic) label += " · OPai will continue";
     return '<span class="team-state team-state-' + tone + '"><i aria-hidden="true"></i>' + esc(label) + '</span>';
@@ -99,7 +99,7 @@
     let previousGroup = null;
     return '<button type="button" class="team-strip-open" aria-label="Expand AI Team" title="Your AI teams"><span>' + (people.length || '✧') + '</span><span class="team-strip-label">' + (people.length === 1 ? 'agent' : 'agents') + '</span></button><nav class="team-shortcuts" aria-label="Agent shortcuts">' + people.map(({ agent, index, objective: o }) => {
       const label = name(agent, index);
-      const status = agent.held ? 'Ready to start' : agent.pending_approval ? 'Needs approval' : ({ running: 'Working', completed: 'Done', pending: 'Waiting', failed: 'Needs attention', blocked: 'Blocked' })[agent.status] || agent.status || 'Waiting';
+      const status = agent.held ? 'Ready to start' : agent.pending_approval ? 'Needs you' : ({ running: 'Working', completed: 'Done', pending: 'Waiting', failed: 'Failed', blocked: 'Needs you' })[agent.status] || agent.status || 'Waiting';
       const symbol = agent.pending_approval || ['failed', 'blocked', 'needs-attention'].includes(agent.status) ? '!' : agent.status === 'completed' ? '✓' : agent.status === 'running' ? '●' : '·';
       const group = o.objective_id + ':' + (agent.group || '');
       const separator = group !== previousGroup ? '<span class="team-shortcut-group" role="separator" aria-label="' + esc(agent.group || o.objective) + '" title="' + esc(agent.group || o.objective) + '">' + esc((agent.group || 'Team').slice(0, 3)) + '</span>' : '';
@@ -109,17 +109,17 @@
   }
   function attentionHtml(agent) {
     if (!agent.pending_approval && !['blocked', 'failed', 'needs-attention'].includes(agent.status)) return '';
-    const title = agent.pending_approval ? 'Needs your approval' : agent.status === 'failed' ? (/review|critic/i.test(agent.role || '') ? 'Review failed' : 'Task failed') : 'Waiting for a decision';
+    const title = agent.status === 'failed' && !agent.pending_approval ? 'Failed' : 'Needs you';
     const reason = agent.pending_approval?.reason || agent.blocked_reason || agent.admission?.reason || agent.result?.handoff?.summary || 'No explanation was recorded. Inspect the recorded work before deciding how to continue.';
     const approval = agent.pending_approval;
     const evidence = approval && (approval.command || approval.files);
-    return '<section class="team-attention-detail"><strong>' + esc(title) + '</strong><p>' + esc(reason) + '</p>' + (evidence ? '<pre>' + esc(JSON.stringify(evidence, null, 2)) + '</pre>' : '') + '<div class="team-actions">' + rows(agent.allowed_actions).filter((action) => ['approve', 'retry'].includes(action)).map((action) => '<button type="button" class="btn" data-team-action="' + action + '">' + (action === 'approve' ? 'Approve once' : 'Retry') + '</button>').join('') + '</div></section>';
+    return '<section class="team-attention-detail' + (title === 'Failed' ? ' is-failed' : '') + '"><strong>' + esc(title) + '</strong><p>' + esc(reason) + '</p>' + (evidence ? '<pre>' + esc(JSON.stringify(evidence, null, 2)) + '</pre>' : '') + '<div class="team-actions">' + rows(agent.allowed_actions).filter((action) => ['approve', 'retry'].includes(action)).map((action) => '<button type="button" class="btn" data-team-action="' + action + '">' + (action === 'approve' ? 'Approve once' : 'Retry') + '</button>').join('') + '</div></section>';
   }
   function focusContext(objective, agent) {
     const assignments = rows(objective.assignments), parents = dependencies(agent, assignments).filter((a) => a.status !== 'completed');
     const next = agents(objective).filter((a) => !['completed', 'cancelled'].includes(a.status) && dependencies(a, assignments).some((source) => actorId(source) === actorId(agent)));
-    const paths = rows(agent.intended_paths).slice(0, 4);
-    return '<dl class="team-focus-context">' + (paths.length ? '<dt>Scope</dt><dd>' + paths.map((path) => '<code>' + esc(path) + '</code>').join('') + '</dd>' : '') + (parents.length ? '<dt>Waiting on</dt><dd>' + parents.map((a) => esc(name(a, assignments.indexOf(a)))).join(', ') + '</dd>' : '') + (next.length ? '<dt>Next</dt><dd>Hand off to ' + next.map((a) => esc(name(a, assignments.indexOf(a)))).join(', ') + '</dd>' : '') + '</dl><div class="team-focus-actions"><button type="button" class="team-quiet" data-team-view-work>View work</button>' + (agent.team_controls?.can_message ? '<button type="button" class="team-quiet" data-team-message-focus>Message ' + esc(name(agent, assignments.indexOf(agent))) + '</button>' : '') + '</div>';
+    const paths = rows(agent.intended_paths);
+    return '<dl class="team-focus-context">' + (paths.length ? '<dt>Scope</dt><dd><details class="team-explanation team-scope"><summary>' + paths.length + (paths.length === 1 ? ' path' : ' paths') + '</summary>' + paths.map((path) => '<code>' + esc(path) + '</code>').join('') + '</details></dd>' : '') + (parents.length ? '<dt>Waiting on</dt><dd>' + parents.map((a) => esc(name(a, assignments.indexOf(a)))).join(', ') + '</dd>' : '') + (next.length ? '<dt>Next</dt><dd>Hand off to ' + next.map((a) => esc(name(a, assignments.indexOf(a)))).join(', ') + '</dd>' : '') + '</dl><div class="team-focus-actions"><button type="button" class="team-quiet" data-team-view-work>View work</button>' + (agent.team_controls?.can_message ? '<button type="button" class="team-quiet" data-team-message-focus>Message ' + esc(name(agent, assignments.indexOf(agent))) + '</button>' : '') + '</div>';
   }
   function panelHtml(objective, selectedId, unavailable, models) {
     const assignments = rows(objective && objective.assignments);
@@ -180,12 +180,25 @@
         feed.innerHTML = '<h4>Activity</h4>' + feedHtml({ ...objective, timeline: events.slice(-3), timeline_truncated: false }, agent.assignment_id) + (events.length > 3 ? '<details class="team-explanation"><summary>View all activity</summary>' + feedHtml(objective, agent.assignment_id) + '</details>' : '');
       } else feed.innerHTML = '<p class="team-empty">No activity received yet.</p>';
     }
-    const latest = activities(agent).at(-1);
-    if (latest && !agent.pending_approval && agent.status === 'running') {
-      const current = document.createElement('p'); current.className = 'team-current-action'; current.textContent = latest;
-      element.querySelector('.team-detail > .team-state')?.replaceWith(current);
+    const taskLabel = document.createElement('p'); taskLabel.className = 'team-task-label'; taskLabel.textContent = ['completed', 'cancelled'].includes(agent.status) ? 'Last task' : 'Current task';
+    element.querySelector('.team-detail > h3').before(taskLabel);
+    if (!agent.pending_approval && agent.status === 'running') {
+      const current = document.createElement('div'); current.className = 'team-current-action';
+      const report = currentActivity(agent);
+      current.innerHTML = '<span class="team-current-label">Current</span><p>' + esc(report?.title || 'Waiting for the next progress update…') + '</p>';
+      if (report?.timestamp) { const stamp = global.OPaiChatTime?.stamp(report.timestamp); if (stamp) current.innerHTML += '<time datetime="' + esc(new Date(report.timestamp).toISOString()) + '">Reported ' + esc(stamp.label) + '</time>'; }
+      element.querySelector('.team-detail > .team-state')?.after(current);
     }
   }
+  function currentActivity(agent) {
+    if (agent.status !== 'running' || agent.pending_approval) return null;
+    let value = agent.activity;
+    if (typeof value === 'string') { try { value = JSON.parse(value); } catch (_) { return null; } }
+    const report = Array.isArray(value) ? value.at(-1) : value;
+    if (!report || report.status !== 'running' || report.channel === 'status' || typeof report.title !== 'string') return null;
+    return { title: report.title, timestamp: report.timestamp };
+  }
+
   function mountPanel(element, objective, selectedId, options) {
     const key = JSON.stringify([objective, selectedId, options.unavailable, options.models, options.unifiedComposer]);
     if (element._teamKey === key) return;
@@ -303,5 +316,5 @@
     element._teamPending = null;
   }
   function assignmentsFor(objective) { return rows(objective && objective.assignments); }
-  global.OPaiAgentsTeam = { feedHtml, panelHtml, mountPanel, stripHtml, name, avatar, agents, actorId, modelOptions, state, settle, conversationHtml, activities, attentionHtml };
+  global.OPaiAgentsTeam = { feedHtml, panelHtml, mountPanel, stripHtml, name, avatar, agents, actorId, modelOptions, state, settle, conversationHtml, activities, currentActivity, attentionHtml };
 })(typeof window !== "undefined" ? window : globalThis);

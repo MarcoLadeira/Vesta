@@ -4378,14 +4378,14 @@ function syncTeamRecipient(objective) {
     applyPanel(); input.focus();
   };
   $('#composer').classList.toggle('to-agent', !!target);
-  input.placeholder = target ? 'Ask ' + (agent ? window.OPaiAgentsTeam.name(agent, 0) : 'this agent') + ' or give the next task…' : enabled ? 'Give your team a new objective…' : teamComposer.placeholder;
+  input.placeholder = target ? 'Ask ' + (agent ? window.OPaiAgentsTeam.name(agent, 0) : 'this agent') + ' · queued after the current task…' : enabled ? 'Give your team a new objective…' : teamComposer.placeholder;
   updateComposerAvailability();
 }
 function sendAgentMessage(target) {
   const message = $('#input').value.trim();
   if (composerBlockReason() || !target.agent || !target.objective) return;
   const request = { objective_id: target.objective.objective_id, assignment_id: target.agent.assignment_id, action: 'agent_message', value: { revision: target.objective.team_revision || 0, message } };
-  teamComposer.pending = { ...request, key: teamComposer.key, root: state.boot.workspace?.root };
+  teamComposer.pending = { ...request, key: teamComposer.key, name: window.OPaiAgentsTeam.name(target.agent, 0), root: state.boot.workspace?.root };
   teamComposer.drafts.set(teamComposer.key, $('#input').value);
   try { teamControl(request); } catch (_) { teamComposer.pending = null; toast('Could not queue the message. Your draft is still here.'); }
   updateComposerAvailability();
@@ -4397,7 +4397,7 @@ function settleTeamMessage(response) {
   if (response.ok) {
     if (teamComposer.drafts.get(pending.key)?.trim() === pending.value.message) teamComposer.drafts.delete(pending.key);
     if (teamComposer.key === pending.key && $('#input').value.trim() === pending.value.message) { $('#input').value = ''; autoSize(); }
-    toast('Message queued in the agent’s thread.');
+    toast('Queued for ' + pending.name + ' · starts after the current task.');
   }
   updateComposerAvailability();
 }
@@ -4416,6 +4416,7 @@ function teamMapOptions(objective) {
     onControl: teamControl,
     onAdd: () => window.OPaiTeamMap.addDialog(objective, teamMapOptions(objective)),
     onSelect: (assignmentId) => openAgentTeam(objective.objective_id, assignmentId),
+    onAgentOptions: () => { const menu = $('#agentsTeam .team-agent-menu'); if (menu) { menu.open = true; menu.querySelector('summary').focus(); } },
     onClearFocus: () => { state.teamOpen = false; state.teamAgentId = null; applyPanel(); },
     onBack: () => { state.teamMapOpen = false; paintAgentTeam(); $('#input')?.focus(); },
     onDialogClose: () => paintAgentTeam(),
@@ -4939,18 +4940,36 @@ function renderEditApprovalCard(el, r, sel) {
 }
 
 /* ---------- palette + shortcuts ---------- */
+function teamPaletteItems() {
+  if (state.view !== 'chat' || !state.teamMapOpen) return [];
+  const click = (selector) => () => $('#teamMap ' + selector)?.click();
+  const items = [
+    { id: 'team_fit', label: 'Fit team to view', hint: 'F', run: click('[data-map-fit]') },
+    { id: 'team_configure', label: $('#teamMap')?._editing ? 'Finish configuring team' : 'Configure team', hint: '', run: click('[data-map-edit]') },
+    { id: 'team_chat', label: 'Back to chat', hint: '', run: click('[data-map-back]') },
+  ];
+  const target = composerAgent();
+  if (target?.agent) {
+    const name = window.OPaiAgentsTeam.name(target.agent, 0);
+    items.unshift({ id: 'team_options', label: 'Options for ' + name, hint: 'Model · group · controls', run: () => teamMapOptions(target.objective).onAgentOptions() });
+    if (target.agent.team_controls?.can_message) items.unshift({ id: 'team_message', label: 'Message ' + name, hint: 'After the current task', run: () => $('#input').focus() });
+  }
+  return items;
+}
 function openPalette() {
   const ov = $("#palette"); ov.classList.add("open");
   const inp = $("#paletteInput"); inp.value = ""; renderPalette(""); inp.focus();
 }
 function renderPalette(q) {
   const list = $("#paletteList");
-  const items = PALETTE.filter((c) => (c.label + " " + c.id).toLowerCase().includes(q.toLowerCase()));
+  const items = [...teamPaletteItems(), ...PALETTE].filter((c) => (c.label + " " + c.id).toLowerCase().includes(q.toLowerCase()));
   list.innerHTML = items.map((c, i) => `<div class="opt${i === 0 ? " sel" : ""}" data-id="${c.id}"><span>${esc(c.label)}</span><span class="hint">${esc(c.hint)}</span></div>`).join("");
   $$("#paletteList .opt").forEach((o) => (o.onclick = () => runCommand(o.dataset.id)));
 }
 function runCommand(id) {
   $("#palette").classList.remove("open");
+  const teamCommand = teamPaletteItems().find((item) => item.id === id);
+  if (teamCommand) { teamCommand.run(); return; }
   switch (id) {
     case "new_chat": startNewChat(); break;
     case "focus_input": switchView("chat"); $("#input").focus(); break;
