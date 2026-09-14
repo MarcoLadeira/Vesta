@@ -173,7 +173,7 @@
     return html + '</div>';
   }
   function renderCompact(objective) {
-    const assignments = list(objective.assignments);
+    const assignments = global.OPaiAgentsTeam ? global.OPaiAgentsTeam.agents(objective) : list(objective.assignments);
     const working = assignments.filter((a) => a.status === 'running').length;
     const attention = assignments.filter(needsAttention).length;
     const summary = working ? working + (working === 1 ? ' agent working' : ' agents working') : objective.status === 'completed' ? 'Team finished' : objective.status === 'ready-to-integrate' ? 'Ready for combined checks' : objective.status === 'planning' || !assignments.length ? 'Putting your team together' : assignments.length + ' agents · ' + status(objective.status);

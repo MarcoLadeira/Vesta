@@ -56,7 +56,7 @@ const state = {
   mode: { id: "safe-auto", label: "Safe Auto" },
   focus: "general", format: "normal",
   multiAgentEnabled: false, agentsAllowCloud: false, agentsMaxParallel: 2, agentsSizing: "automatic", agentsBudgetUsd: "", agentsSnapshot: null, agentsSelection: null, agentsPollTimer: null, agentsRequests: new Map(),
-  teamOpen: false, teamObjectiveId: null, teamAgentId: null, teamPollTimer: null, teamRequest: null, teamRefreshError: '',
+  teamOpen: false, teamMapOpen: false, teamObjectiveId: null, teamAgentId: null, teamPollTimer: null, teamRequest: null, teamRefreshError: '',
   // Hidden until the boot payload (or the user) says otherwise, matching
   // gui_preferences' documented default. Starting true meant the shell
   // painted an empty inspector before any preference was known -- and, with
@@ -346,6 +346,7 @@ function applyBootSelection(b) {
   state.teamOpen = false;
   state.teamObjectiveId = null;
   state.teamAgentId = null;
+  state.teamMapOpen = false;
   const m = (b.models || []).find((x) => x.id === b.selectedModel) || (b.models || [])[0];
   if (m) state.model = { ...m, advancedLabel: m.advanced_label };
   const md = (b.modes || []).find((x) => x.id === b.prefs.mode) || (b.modes || [])[0];
@@ -1803,8 +1804,12 @@ function renderEmptyChips() {
   $$("#chips .chip").forEach((b) => (b.onclick = () => { setComposerDraft(b.dataset.p); send(); }));
 }
 function clearChat() {
+  state.teamMapOpen = false;
+  if ($("#teamMap")) $("#teamMap").hidden = true;
+  $("#chatScroll").hidden = false;
+  document.querySelector(".team-edit-dialog")?.close();
   const t = $("#thread");
-  t.querySelectorAll(".msg").forEach((m) => m.remove());
+  t.querySelectorAll(".msg, .chat-timestamp").forEach((m) => m.remove());
   $("#empty").style.display = "";
   state.followLatest = true;
   state.tlNodes = null;
@@ -1910,7 +1915,7 @@ function renderConversation(conv) {
     messages.forEach((m) => {
       const text = String(m.text || "");
       if (m.role === "user") {
-        appendMsg(userMessageHtml(text), "user");
+        appendMsg(userMessageHtml(text), "user", m.timestamp || null);
         return;
       }
       const el = appendMsg(
@@ -2105,7 +2110,7 @@ function buildResultHtml(r) {
   const msg = (r.error && (r.error.userMessage || r.error)) || r.answer || status;
   return `<div class="build-card error" role="group" aria-label="Build failed"><div class="bres-t">${uiIcon("error")} ${esc(String(msg)).slice(0, 400)}</div></div>`;
 }
-function appendMsg(html, cls) {
+function appendMsg(html, cls, timestamp) {
   $("#empty").style.display = "none";
   // Every path that puts a message on screen lights the room, not just send():
   // slash commands, a restored session and a queued message all arrive here.
@@ -2116,7 +2121,18 @@ function appendMsg(html, cls) {
   // animation at that point instead, which is the same stutter one frame late.
   d.className = "msg " + (cls || "") + (chatBatchDepth > 0 ? " no-entry" : "");
   d.innerHTML = html;
-  withChatScrollPreserved(() => $("#thread").appendChild(d));
+  withChatScrollPreserved(() => {
+    const thread = $("#thread");
+    const stamp = cls === "user" && window.OPaiChatTime?.stamp(timestamp === undefined ? new Date() : timestamp);
+    const previous = thread.querySelector(':scope > .chat-timestamp:last-of-type');
+    if (stamp && previous?.dataset.minute !== String(stamp.minute)) {
+      const time = document.createElement('time');
+      time.className = 'chat-timestamp'; time.dateTime = stamp.iso; time.title = stamp.title;
+      time.dataset.minute = stamp.minute; time.textContent = stamp.label;
+      thread.appendChild(time);
+    }
+    thread.appendChild(d);
+  });
   return d;
 }
 function roleHeader(label, color, opts) {
@@ -4308,11 +4324,42 @@ function openAgentTeam(objectiveId, assignmentId) {
   applyPanel();
   if (assignmentId) $('#agentsTeam [data-team-back]')?.focus({ preventScroll: true });
 }
+function teamModels() {
+  return Array.from($('#modelSel')?.options || []).filter((o) => !o.disabled).map((o) => ({ value: o.value, label: o.value === 'auto' ? 'Auto model' : o.textContent }));
+}
+function teamControl(payload) {
+  if (bridge.controlObjective) bridge.controlObjective(JSON.stringify(payload));
+  else toast('Team controls are unavailable in this host.');
+}
+function teamMapOptions(objective) {
+  const root = state.boot.workspace?.root;
+  return {
+    models: teamModels(),
+    getObjective: () => root === state.boot.workspace?.root && ((state.agentsSnapshot || {}).objectives || []).find((o) => o.objective_id === objective.objective_id),
+    onControl: teamControl,
+    onAdd: () => window.OPaiTeamMap.addDialog(objective, teamMapOptions(objective)),
+    onSelect: (assignmentId) => openAgentTeam(objective.objective_id, assignmentId),
+    onBack: () => { state.teamMapOpen = false; paintAgentTeam(); $('#input')?.focus(); },
+    onDialogClose: () => paintAgentTeam(),
+  };
+}
+function openTeamMap(objective) {
+  if (!objective) return;
+  state.teamMapOpen = true; state.teamObjectiveId = objective.objective_id;
+  state.teamOpen = false; applyPanel();
+  $('#teamMap [data-map-back]')?.focus();
+}
 function paintAgentTeam() {
   const element = $('#agentsTeam');
   if (!element || !window.OPaiAgentsTeam) return;
   const objectives = (state.agentsSnapshot || {}).objectives || [];
   const objective = objectives.find((o) => o.objective_id === state.teamObjectiveId) || objectives[0];
+  const map = $('#teamMap');
+  if (map) {
+    map.hidden = !state.teamMapOpen || !objective;
+    $('#chatScroll').hidden = !map.hidden;
+    if (!map.hidden && !document.querySelector('.team-edit-dialog[open]')) window.OPaiTeamMap.mount(map, objective, teamMapOptions(objective));
+  }
   const strip = $('#agentsTeamStrip');
   if (strip && !strip.hidden) {
     const html = window.OPaiAgentsTeam.stripHtml(objective);
@@ -4335,15 +4382,15 @@ function paintAgentTeam() {
       else Array.from(element.querySelectorAll('.team-person')).find((b) => b.dataset.teamSelect === previous)?.focus({ preventScroll: true });
       element.scrollTop = 0;
     },
+    models: teamModels(),
+    onMap: () => openTeamMap(objective),
+    onAdd: () => window.OPaiTeamMap.addDialog(objective, teamMapOptions(objective)),
     onArtifact: inspectAgentArtifact,
     onInspect: (assignmentId) => {
       state.agentsSelection = { objectiveId: objective.objective_id, assignmentId };
       switchView('agents'); paintAgentsWorkspace();
     },
-    onControl: (payload) => {
-      if (bridge.controlObjective) bridge.controlObjective(JSON.stringify(payload));
-      else toast('Team controls are unavailable in this host.');
-    },
+    onControl: teamControl,
   });
 }
 function mergeAgentsSnapshot(snapshot) {
@@ -4358,7 +4405,7 @@ function mergeAgentsSnapshot(snapshot) {
   state.agentsSnapshot = { ...snapshot, objectives: merged };
 }
 function wantsAgentTeamUpdates() {
-  return state.view === 'chat' && (state.teamOpen || !!document.querySelector('[data-agent-chat-objective]'));
+  return state.view === 'chat' && (state.teamOpen || state.teamMapOpen || !!document.querySelector('[data-agent-chat-objective]'));
 }
 function syncAgentTeamPolling() {
   if (!wantsAgentTeamUpdates()) {
@@ -4417,6 +4464,7 @@ function onObjectiveReady(json) {
   state.agentsSelection = { objectiveId: d.objective.objective_id };
   state.teamObjectiveId = d.objective.objective_id;
   state.teamAgentId = null;
+  state.teamMapOpen = false;
   state.teamOpen = true;
   stopTimer(); cancelTokenRender();
   state.currentRequest = null;
@@ -4435,6 +4483,8 @@ function onObjectiveReady(json) {
 function onObjectiveControlReady(json) {
   let d; try { d = JSON.parse(json); } catch (_e) { return; }
   if (!d || d.workspaceRoot !== (state.boot.workspace || {}).root) return;
+  window.OPaiTeamMap?.settle(d);
+  window.OPaiAgentsTeam?.settle($('#agentsTeam'), d);
   if (!d.ok) { toast(safeStateReason(d.error, "Objective control failed.")); return; }
   // Invalidate a pre-control poll so it cannot overwrite the newer snapshot.
   state.dashRequest = null;

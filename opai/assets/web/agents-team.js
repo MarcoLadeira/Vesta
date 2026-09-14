@@ -6,6 +6,20 @@
   const palettes = [["#bde9f6", "#b87850", "#242e43"], ["#dacdf8", "#f0c39c", "#2e243b"], ["#c8e6e5", "#e0a77c", "#32333b"], ["#ffe1b2", "#9d613f", "#29242d"]];
   const profileIndex = (agent, index) => Number.isInteger(agent.avatar_index) && agent.avatar_index >= 0 && agent.avatar_index < 32 ? agent.avatar_index : index;
   const name = (agent, index) => agent.display_name || names[profileIndex(agent, index) % names.length] + (profileIndex(agent, index) >= names.length ? " " + (Math.floor(profileIndex(agent, index) / names.length) + 1) : "");
+  const actorId = (agent) => agent.agent_id || agent.assignment_id;
+  function agents(objective) {
+    const assignments = rows(objective?.assignments), profiles = new Map();
+    assignments.forEach((a) => {
+      const previous = profiles.get(actorId(a));
+      if (!previous || (previous.status !== 'running' && (a.status === 'running' || (a.team_order || 0) >= (previous.team_order || 0)))) profiles.set(actorId(a), a);
+    });
+    return Array.from(profiles.values());
+  }
+  function modelOptions(current, models) {
+    const available = rows(models).filter((m) => m.value);
+    if (!available.some((m) => m.value === current)) available.unshift({ value: current || 'auto', label: current === 'auto' || !current ? 'Auto model' : current });
+    return available.map((m) => '<option value="' + esc(m.value) + '"' + (m.value === current ? ' selected' : '') + '>' + esc(m.label) + '</option>').join('');
+  }
   function avatar(index) {
     const [background, skin, hair] = palettes[index % palettes.length];
     const long = index % 2 === 1;
@@ -14,9 +28,9 @@
   function state(agent, assignments) {
     const upstream = dependencies(agent, assignments).filter((a) => a.status !== "completed");
     const waiting = ["pending", "queued", "blocked"].includes(agent.status) && upstream.length;
-    let label = agent.pending_approval ? "Needs your approval" : waiting ? "Waiting for " + upstream.map((a) => name(a, assignments.indexOf(a))).join(", ") : agent.blocked_reason || agent.admission?.reason || ({ running: "Working", completed: "Done", failed: "Needs attention", pending: "Queued", blocked: "Needs attention" })[agent.status] || String(agent.status || "Queued").replace(/[-_]/g, " ");
+    let label = agent.held ? "Ready when you are" : agent.pending_approval ? "Needs your approval" : waiting ? "Waiting for " + upstream.map((a) => name(a, assignments.indexOf(a))).join(", ") : agent.blocked_reason || agent.admission?.reason || ({ running: "Working", completed: "Done", failed: "Needs attention", pending: "Queued", blocked: "Needs attention" })[agent.status] || String(agent.status || "Queued").replace(/[-_]/g, " ");
     const tone = agent.pending_approval ? "attention" : waiting ? "waiting" : agent.status === "running" ? "active" : agent.status === "completed" ? "done" : ["failed", "needs-attention", "blocked"].includes(agent.status) ? "attention" : "waiting";
-    const automatic = waiting && upstream.every((a) => a.status === "running" && !a.pending_approval);
+    const automatic = !agent.held && waiting && upstream.every((a) => a.status === "running" && !a.pending_approval);
     if (automatic) label += " · OPai will continue";
     return '<span class="team-state team-state-' + tone + '"><i aria-hidden="true"></i>' + esc(label) + '</span>';
   }
@@ -35,6 +49,7 @@
     return '<div class="team-connection"><span aria-hidden="true">' + (reviewing ? '◇' : '↳') + '</span><span>' + (reviewing ? 'Reviews work from ' : 'Receives work from ') + upstream.map((a) => '<button type="button" data-team-select="' + esc(a.assignment_id) + '">' + esc(name(a, assignments.indexOf(a))) + '</button>').join(', ') + '</span></div>';
   }
   function eventText(event, agent, assignments) {
+    if (event.kind === 'team-updated' && event.message) return event.message;
     if (event.kind === 'activity') return activities({ activity: event.activity }).join(' · ');
     if (event.kind === 'claimed') {
       const upstream = dependencies(agent, assignments);
@@ -45,8 +60,9 @@
   }
   function feedHtml(objective, selectedId) {
     const assignments = rows(objective.assignments);
-    const events = rows(objective.timeline).filter((e) => !selectedId || e.assignment_id === selectedId);
-    let previous = '';
+    const selectedActor = actorId(assignments.find((a) => a.assignment_id === selectedId) || {});
+    const events = rows(objective.timeline).filter((e) => !selectedId || actorId(assignments.find((a) => a.assignment_id === e.assignment_id) || {}) === selectedActor);
+    let previous = '', previousMinute = null;
     const timeline = events.map((event) => {
       const agent = assignments.find((a) => a.assignment_id === event.assignment_id);
       if (!agent) return '';
@@ -56,34 +72,54 @@
       previous = signature;
       const date = new Date(event.occurred_at);
       const time = Number.isNaN(date.valueOf()) ? '' : '<time datetime="' + esc(event.occurred_at) + '" title="' + esc(date.toLocaleString()) + '">' + esc(date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })) + '</time>';
-      return '<li><button type="button" class="team-update" data-team-select="' + esc(agent.assignment_id) + '" data-team-event="' + esc(event.sequence) + '">' + avatar(profileIndex(agent, assignments.indexOf(agent))) + '<span class="team-update-body"><strong class="team-event-work">' + esc(text) + '</strong><span class="team-event-by">' + esc(name(agent, assignments.indexOf(agent))) + time + '</span>' + (event.summary ? '<span class="team-current">' + esc(event.summary) + '</span>' : '') + (event.verification_summary ? '<span class="team-check">' + esc(event.verification_summary) + '</span>' : '') + '</span></button></li>';
+      const stamp = global.OPaiChatTime?.stamp(event.occurred_at);
+      const separator = stamp && (previousMinute === null || stamp.minute - previousMinute >= 5) ? '<li class="team-time"><time class="chat-timestamp" datetime="' + esc(stamp.iso) + '" title="' + esc(stamp.title) + '">' + esc(stamp.label) + '</time></li>' : '';
+      if (separator) previousMinute = stamp.minute;
+      const fromUser = event.kind === 'team-updated' && event.message;
+      return separator + '<li><button type="button" class="team-update' + (fromUser ? ' team-user-message' : '') + '" data-team-select="' + esc(agent.assignment_id) + '" data-team-event="' + esc(event.sequence) + '">' + avatar(profileIndex(agent, assignments.indexOf(agent))) + '<span class="team-update-body"><strong class="team-event-work">' + esc(text) + '</strong><span class="team-event-by">' + esc(fromUser ? 'You → ' + name(agent, assignments.indexOf(agent)) : name(agent, assignments.indexOf(agent))) + time + '</span>' + (event.summary ? '<span class="team-current">' + esc(event.summary) + '</span>' : '') + (event.verification_summary ? '<span class="team-check">' + esc(event.verification_summary) + '</span>' : '') + '</span></button></li>';
     }).join('');
     return '<section class="team-feed" aria-label="Team updates">' + (objective.timeline_truncated ? '<p class="team-empty">Recent activity · earlier events remain in the journal</p>' : '') + (timeline ? '<ol class="team-timeline">' + timeline + '</ol>' : '<p class="team-empty">' + (assignments.length ? 'Waiting for recorded activity.' : 'Your team is getting ready.') + '</p>') + '</section>';
   }
+  function conversationHtml(objective, selected) {
+    const chain = rows(objective.assignments).filter((a) => actorId(a) === actorId(selected)).sort((a, b) => (a.team_order || 0) - (b.team_order || 0));
+    if (!chain.some((a) => a.user_message)) return '';
+    const time = (value) => { const stamp = global.OPaiChatTime?.stamp(value); return stamp ? '<time class="chat-timestamp" datetime="' + esc(stamp.iso) + '">' + esc(stamp.label) + '</time>' : ''; };
+    return '<section class="team-conversation" aria-label="Agent conversation">' + chain.map((a) => {
+      const reply = a.result?.handoff?.summary;
+      return time(a.created_at) + '<div class="team-conversation-message team-conversation-user"><span>' + (a.user_message ? 'You' : 'Task') + '</span><p>' + esc(a.user_message || a.objective) + '</p></div>' + (reply ? time(a.finished_at) + '<div class="team-conversation-message"><span>' + esc(name(a, 0)) + '</span><p>' + esc(reply) + '</p></div>' : '<p class="team-message-hint">' + (a.held ? 'Ready to start' : a.status === 'pending' ? 'Queued after earlier work' : a.status === 'running' ? 'Working on this message…' : 'No reply recorded') + '</p>');
+    }).join('') + '</section>';
+  }
   function stripHtml(objective) {
-    const assignments = rows(objective?.assignments);
+    const assignments = agents(objective);
     return '<button type="button" class="team-strip-open" aria-label="Expand AI Team"><span aria-hidden="true">' + assignments.slice(0, 3).map((a, index) => avatar(profileIndex(a, index))).join('') + '</span><span>' + assignments.length + '</span></button>';
   }
-  function panelHtml(objective, selectedId, unavailable) {
+  function panelHtml(objective, selectedId, unavailable, models) {
     const assignments = rows(objective && objective.assignments);
     const selected = assignments.find((a) => a.assignment_id === selectedId);
     let html = '<header class="team-header"><h2>AI Team</h2><button type="button" class="team-quiet" data-team-close aria-label="Collapse AI Team">Collapse</button></header>';
     if (!objective) return html + '<p class="team-empty">' + esc(unavailable || 'Send an objective and your team will get to work. Each agent will appear here.') + '</p>';
     if (unavailable) html += '<p class="team-empty" role="status">' + esc(unavailable) + '</p>';
     html += '<p class="team-objective">' + esc(objective.objective) + '</p><nav class="team-roster" aria-label="Your agents"' + (selected ? ' hidden' : '') + '>';
-    html += assignments.map((a, index) => '<button type="button" class="team-person" data-team-select="' + esc(a.assignment_id) + '" aria-pressed="' + (a === selected) + '">' + avatar(profileIndex(a, index)) + '<span><strong>' + esc(name(a, index)) + '</strong><span class="team-current">' + esc(a.title || a.objective) + '</span>' + state(a, assignments) + '</span></button>').join('');
+    html += agents(objective).map((a, index) => '<button type="button" class="team-person" data-team-select="' + esc(a.assignment_id) + '" aria-pressed="' + (a === selected) + '">' + avatar(profileIndex(a, index)) + '<span><strong>' + esc(name(a, index)) + '</strong><span class="team-current">' + esc(a.title || a.objective) + '</span>' + state(a, assignments) + '</span></button>').join('');
     html += '</nav>';
+    if (!selected && objective.team_controls) html += '<div class="team-actions"><button type="button" class="team-quiet" data-team-add' + (objective.team_controls.can_add ? '' : ' disabled') + '>+ Add agent</button><button type="button" class="team-quiet" data-team-map>Organise team</button></div>';
     if (!assignments.length) html += '<p class="team-empty">Putting your team together…</p>';
     if (selected) {
       const index = assignments.indexOf(selected);
       html += '<section class="team-detail" aria-label="Agent details"><button type="button" class="team-quiet" data-team-back>← Back to team</button><h3>' + esc(selected.title || selected.objective) + '</h3><header><span class="team-detail-person">' + avatar(profileIndex(selected, index)) + esc(name(selected, index)) + '</span><details class="team-name-editor"><summary>Rename</summary><form data-team-rename><label>Agent name<input name="agentName" aria-label="Agent name" maxlength="40" required value="' + esc(name(selected, index)) + '"></label><button type="submit" class="btn">Save name</button></form></details></header>';
       html += state(selected, assignments) + connection(selected, assignments);
       if (selected.rationale) html += '<details class="team-explanation"><summary>Why this task</summary><p>' + esc(selected.rationale) + '</p></details>';
-      html += feedHtml(objective, selectedId);
+      const conversation = conversationHtml(objective, selected);
+      html += conversation ? conversation + '<details class="team-explanation"><summary>Recent work activity</summary>' + feedHtml(objective, selectedId) + '</details>' : feedHtml(objective, selectedId);
+      if (selected.team_controls) {
+        html += '<details class="team-explanation team-settings"><summary>Model & group</summary><form data-team-settings><label>AI model<select name="agentModel" aria-label="AI model">' + modelOptions(selected.preferred_model || selected.model || 'auto', models) + '</select></label><p class="team-empty">Applies to unstarted and future work. This objective’s permissions and budget still apply.</p><label>Group<input name="agentGroup" maxlength="40" list="teamGroups" placeholder="No group" value="' + esc(selected.group || '') + '"></label><datalist id="teamGroups">' + Array.from(new Set(assignments.map((a) => a.group).filter(Boolean))).map((g) => '<option value="' + esc(g) + '"></option>').join('') + '</datalist><button type="submit" class="btn">Save settings</button></form></details>';
+        if (selected.team_controls.can_start) html += '<button type="button" class="btn primary" data-team-start>Start agent</button>';
+        html += '<form class="team-message-form" data-team-message><label>Message ' + esc(name(selected, index)) + '<textarea name="agentMessage" rows="2" maxlength="8000" required placeholder="Ask a question or give the next task…"' + (selected.team_controls.can_message ? '' : ' disabled') + '></textarea></label><div class="team-message-hint">' + (selected.team_controls.can_message ? 'Queued after current work, in this agent’s thread.' : 'Resolve the current task first, or start a new objective if this team is full.') + '</div><button type="submit" class="btn"' + (selected.team_controls.can_message ? '' : ' disabled') + '>Send to agent</button></form>';
+      }
       if (selected.pending_approval) html += '<div class="team-approval"><strong>Needs your approval</strong><p>' + esc(selected.pending_approval.reason) + '</p><pre>' + esc(JSON.stringify(selected.pending_approval.command || selected.pending_approval.files, null, 2)) + '</pre></div>';
       if (selected.blocked_reason) html += '<p class="team-empty">' + esc(selected.blocked_reason) + '</p>';
       const findings = selected.result && selected.result.handoff && selected.result.handoff.summary;
-      if (findings) html += '<p class="team-result">' + esc(findings) + '</p>';
+      if (findings && !conversation) html += '<p class="team-result">' + esc(findings) + '</p>';
       if (rows(selected.changed_files).length) html += '<details class="team-explanation"><summary>' + rows(selected.changed_files).length + (selected.changed_files.length === 1 ? ' changed file' : ' changed files') + '</summary><ul>' + selected.changed_files.map((v) => '<li>' + esc(typeof v === 'string' ? v : v.path) + '</li>').join('') + '</ul></details>';
       const checks = selected.verification;
       if (checks && (checks.status || typeof checks.passed === 'boolean')) html += '<p class="team-check">Checks: ' + esc(checks.status || (checks.passed ? 'passed' : 'failed')) + '</p>';
@@ -93,8 +129,13 @@
     return html;
   }
   function mountPanel(element, objective, selectedId, options) {
-    const key = JSON.stringify([objective, selectedId, options.unavailable]);
+    const key = JSON.stringify([objective, selectedId, options.unavailable, options.models]);
     if (element._teamKey === key) return;
+    element._messageDrafts ||= new Map();
+    const oldMessage = element.querySelector('[name="agentMessage"]');
+    if (oldMessage && element._draftKey) element._messageDrafts.set(element._draftKey, oldMessage.value);
+    const profile = rows(objective?.assignments).find((a) => a.assignment_id === selectedId);
+    const nextDraftKey = JSON.stringify([objective?.objective_id, actorId(profile || {})]);
     const sameAgent = element._teamAgent === selectedId && element._teamObjective === objective?.objective_id;
     const active = element.contains(document.activeElement) ? document.activeElement : null;
     const focusKey = (node) => JSON.stringify(Object.keys(node.dataset).length ? [node.tagName, { ...node.dataset }] : [node.tagName, node.className, node.textContent]);
@@ -103,8 +144,9 @@
     const draft = edit && edit.querySelector('input');
     const savedDraft = draft ? { value: draft.value, focused: draft === active, start: draft.selectionStart, end: draft.selectionEnd } : null;
     const open = sameAgent ? Array.from(element.querySelectorAll('.team-explanation[open]')).map((d) => d.querySelector('summary').textContent) : [];
+    const formDrafts = sameAgent ? Array.from(element.querySelectorAll('.team-message-form textarea, .team-settings[open] input, .team-settings[open] select')).filter((input) => input.name === 'agentMessage' || input.value !== input.dataset.initial).map((input) => ({ name: input.name, value: input.value, focused: input === active, start: input.selectionStart, end: input.selectionEnd })) : [];
     const scrollTop = element.scrollTop;
-    element.innerHTML = panelHtml(objective, selectedId, options.unavailable);
+    element.innerHTML = panelHtml(objective, selectedId, options.unavailable, options.models);
     element._teamKey = key; element._teamAgent = selectedId; element._teamObjective = objective?.objective_id;
     element.scrollTop = scrollTop;
     if (savedDraft) {
@@ -117,6 +159,37 @@
     }
     element.querySelectorAll('.team-explanation').forEach((d) => { d.open = open.includes(d.querySelector('summary').textContent); });
     if (previousFocus && !savedDraft?.focused) Array.from(element.querySelectorAll('button, summary')).find((node) => focusKey(node) === previousFocus)?.focus({ preventScroll: true });
+    element.querySelectorAll('.team-settings input, .team-settings select').forEach((input) => { input.dataset.initial = input.value; });
+    formDrafts.forEach((draft) => {
+      const input = element.querySelector('[name="' + draft.name + '"]');
+      if (!input) return;
+      input.value = draft.value;
+      if (draft.focused) { input.focus({ preventScroll: true }); if (typeof draft.start === 'number') input.setSelectionRange(draft.start, draft.end); }
+    });
+    element._draftKey = nextDraftKey;
+    const messageInput = element.querySelector('[name="agentMessage"]');
+    if (messageInput && !sameAgent) messageInput.value = element._messageDrafts.get(nextDraftKey) || '';
+    while (element._messageDrafts.size > 128) element._messageDrafts.delete(element._messageDrafts.keys().next().value);
+    const teamControl = (action, value = {}) => {
+      element._teamPending = { objectiveId: objective.objective_id, assignmentId: selectedId, action, revision: objective.team_revision || 0, draftKey: nextDraftKey, value };
+      options.onControl({ objective_id: objective.objective_id, assignment_id: selectedId, action, value: { revision: objective.team_revision || 0, ...value } });
+    };
+    const add = element.querySelector('[data-team-add]'); if (add) add.onclick = options.onAdd;
+    const map = element.querySelector('[data-team-map]'); if (map) map.onclick = options.onMap;
+    const start = element.querySelector('[data-team-start]'); if (start) start.onclick = () => teamControl('start_agent');
+    const message = element.querySelector('[data-team-message]');
+    if (message) message.onsubmit = (event) => {
+      event.preventDefault(); if (!message.reportValidity()) return;
+      teamControl('agent_message', { message: message.elements.agentMessage.value.trim() });
+    };
+    const settings = element.querySelector('[data-team-settings]');
+    if (settings) settings.onsubmit = (event) => {
+      event.preventDefault(); if (!settings.reportValidity()) return;
+      const value = {};
+      if (settings.elements.agentModel.value !== settings.elements.agentModel.dataset.initial) value.model = settings.elements.agentModel.value;
+      if (settings.elements.agentGroup.value.trim() !== settings.elements.agentGroup.dataset.initial) value.group = settings.elements.agentGroup.value.trim();
+      if (Object.keys(value).length) teamControl('agent_settings', value);
+    };
     element.querySelector('[data-team-close]').onclick = options.onClose;
     element.onkeydown = (event) => {
       if (event.key !== 'Escape' || event.defaultPrevented) return;
@@ -151,6 +224,17 @@
       element.querySelector('.team-name-editor').open = false;
     };
   }
+  function settle(element, response) {
+    const pending = element?._teamPending;
+    if (!pending || !response.ok || response.objective?.objective_id !== pending.objectiveId || response.control?.assignment_id !== pending.assignmentId || response.control?.action !== pending.action || response.control?.revision !== pending.revision) return;
+    if (pending.action === 'agent_message' && element._messageDrafts?.get(pending.draftKey)?.trim() === pending.value.message) element._messageDrafts.delete(pending.draftKey);
+    if (element._teamAgent === pending.assignmentId) {
+      const input = element.querySelector('[name="agentMessage"]');
+      if (pending.action === 'agent_message' && input?.value.trim() === pending.value.message) input.value = '';
+      if (pending.action === 'agent_settings') element.querySelector('.team-settings')?.removeAttribute('open');
+    }
+    element._teamPending = null;
+  }
   function assignmentsFor(objective) { return rows(objective && objective.assignments); }
-  global.OPaiAgentsTeam = { feedHtml, panelHtml, mountPanel, stripHtml, name, avatar };
+  global.OPaiAgentsTeam = { feedHtml, panelHtml, mountPanel, stripHtml, name, avatar, agents, actorId, modelOptions, state, settle, conversationHtml };
 })(typeof window !== "undefined" ? window : globalThis);

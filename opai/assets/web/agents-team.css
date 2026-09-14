@@ -80,3 +80,70 @@
 .team-enable[aria-pressed="true"] { color: var(--accent); background: var(--glass-hi); }
 @media (prefers-reduced-motion: reduce) { .agents-team, .agents-team *, .team-feed * { animation: none !important; transition: none !important; } }
 :root[data-motion="off"] .agents-team, :root[data-motion="off"] .agents-team *, :root[data-motion="off"] .team-feed * { animation: none !important; transition: none !important; }
+
+.chat-timestamp { display: block; text-align: center; margin: var(--space-5) 0; color: var(--muted); font-size: var(--type-caption); }
+.team-timeline > .team-time { padding: 0; border: 0; list-style: none; }
+.team-time .chat-timestamp { margin: var(--space-3) 0; }
+
+.team-timeline > .team-time::before { display: none; }
+.team-user-message { background: var(--glass-hi); border-radius: var(--r-md); padding: var(--space-3); }
+.team-message-form, .team-settings form { display: grid; gap: var(--space-3); margin-top: var(--space-4); }
+.team-message-form label, .team-settings label, .team-edit-dialog label { display: grid; gap: var(--space-2); font-size: var(--type-label); color: var(--muted); }
+.team-message-form textarea, .team-settings input, .team-settings select, .team-edit-dialog textarea, .team-edit-dialog input:not([type="checkbox"]), .team-edit-dialog select { width: 100%; min-width: 0; color: var(--ink); background: var(--bg); border: 1px solid var(--border-strong); border-radius: var(--r-md); padding: var(--space-3); font: inherit; }
+.team-message-form textarea, .team-edit-dialog textarea { resize: vertical; max-height: 240px; }
+.team-message-hint { color: var(--muted); font-size: var(--type-caption); line-height: 1.6; }
+.team-message-form .btn { justify-self: end; }
+.team-edit-dialog { width: min(520px, calc(100vw - 32px)); overflow-y: auto; }
+.team-edit-dialog > form { display: grid; gap: var(--space-4); padding: var(--space-5); }
+.team-edit-dialog h2 { font-size: var(--type-body-lg); }
+.team-edit-dialog summary { cursor: pointer; color: var(--muted); font-size: var(--type-label); padding-bottom: var(--space-3); }
+.team-edit-dialog details label + label { margin-top: var(--space-3); }
+.team-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+.team-edit-dialog .team-form-check { display: flex; align-items: center; gap: var(--space-2); }
+.team-edit-dialog .team-empty { margin: 0; }
+.team-form-error:empty { display: none; }
+.team-edit-dialog > .btn { margin: var(--space-4); align-self: start; }
+.team-map { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: var(--space-4) var(--space-5); }
+.team-map[hidden], #chatScroll[hidden] { display: none; }
+.team-map-header { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); }
+.team-map-header h2 { font-size: var(--type-body-lg); flex: 1; margin: 0; }
+.team-map-header .team-actions { margin: 0; }
+.team-map-hint, .team-map-footer { color: var(--muted); font-size: var(--type-caption); line-height: 1.6; }
+.team-map-hint { min-height: 2.8em; margin: var(--space-2) 0; }
+.team-map-viewport { flex: 1; min-height: 0; overflow: auto; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--bg); overscroll-behavior: contain; }
+.team-map-canvas { position: relative; isolation: isolate; }
+.team-map-node { position: absolute; width: 240px; height: 128px; border: 1px solid var(--border-strong); background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--shadow-sm); }
+.team-map-node:hover { border-color: var(--accent); }
+.team-map-person { display: flex; align-items: start; gap: var(--space-2); padding: var(--space-5) var(--space-3) var(--space-3); width: 100%; height: 100%; background: transparent; color: var(--ink); border: 0; text-align: left; cursor: pointer; border-radius: inherit; }
+.team-map-person > span { min-width: 0; }
+.team-map-person strong { font-size: var(--type-label); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.team-map-person .team-avatar { width: 30px; height: 30px; }
+.team-map-person .team-state { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.team-map-handle { position: absolute; top: 0; right: var(--space-2); color: var(--muted); background: transparent; border: 0; cursor: grab; touch-action: none; padding: 0 var(--space-2); min-width: 32px; min-height: 24px; font-size: var(--type-body-lg); }
+.team-map-handle:active, .team-map-group button:active { cursor: grabbing; }
+.team-map-links { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
+.team-map-edge { fill: none; stroke: var(--border-strong); stroke-width: 2; pointer-events: stroke; cursor: pointer; }
+.team-map-edge:hover, .team-map-edge:focus, .team-map-edge.is-active { stroke: var(--accent); stroke-width: 3; outline: none; }
+.team-map-links marker path { fill: var(--accent); }
+.team-map-group { position: absolute; border: 1px dashed var(--border-strong); border-radius: var(--r-lg); background: var(--glass); }
+.team-map-group button { margin: var(--space-1) var(--space-3); max-width: calc(100% - 32px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 0; color: var(--muted); background: transparent; font-size: var(--type-caption); cursor: grab; touch-action: none; }
+.team-map-footer { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); }
+.team-map-footer > div { display: flex; align-items: center; gap: var(--space-3); }
+.team-map-footer button { min-width: 32px; font-size: var(--type-body-lg); }
+.team-map button:focus-visible, .team-edit-dialog button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 700px) { .team-map { padding: var(--space-3); } .team-map-header { gap: var(--space-2); } .team-map-header .team-actions { width: 100%; } .team-form-row { grid-template-columns: minmax(0, 1fr); } }
+
+.team-map-group-form { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: end; margin-bottom: var(--space-3); }
+.team-map-group-form[hidden] { display: none; }
+.team-map-group-form label { display: grid; gap: var(--space-1); color: var(--muted); font-size: var(--type-caption); }
+.team-map-group-form input { padding: var(--space-2); color: var(--ink); background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--r-md); }
+.team-map-group-form > span { color: var(--muted); font-size: var(--type-caption); }
+.team-map-person[aria-pressed="true"] { outline: 2px solid var(--accent); background: var(--glass-hi); }
+.team-conversation-message { font-size: var(--type-label); padding: var(--space-3); line-height: 1.6; overflow-wrap: anywhere; }
+.team-conversation-message > span { font-size: var(--type-caption); color: var(--muted); }
+.team-conversation-message p { white-space: pre-wrap; margin: var(--space-1) 0 0; }
+.team-conversation-user { background: var(--glass-hi); border-radius: var(--r-md); }
+
+.team-edit-dialog details[open] { display: grid; gap: var(--space-3); }
+.team-edit-dialog details label + label { margin-top: 0; }
+.team-map-edge { stroke: color-mix(in srgb, var(--accent) 40%, var(--border-strong)); }
