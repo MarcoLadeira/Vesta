@@ -159,6 +159,7 @@ def validate_plan(assignments):
             )[index % 8]
             + (f" {index // 8 + 1}" if index >= 8 else ""),
             avatar_index=index,
+            group=_text(raw.get("group", ""), "Group", 40, empty=True),
             title=_text(raw.get("title", name), "title", 300),
             objective=_text(raw.get("objective", raw.get("title", "")), "objective"),
             role=_text(raw.get("role", "implementer"), "role", 100),
@@ -372,6 +373,9 @@ class ObjectiveStore:
 
     def _insert_plan(self, db, obj, assignments):
         for position, item in enumerate(assignments):
+            item.setdefault("agent_id", item["assignment_id"])
+            item.setdefault("team_order", position)
+            item.setdefault("created_at", _now())
             self._identity(
                 db, item["task_id"], item["run_id"], item["objective"], item["model"]
             )
@@ -478,6 +482,7 @@ class ObjectiveStore:
                 key: val
                 for key, val in item.items()
                 if key not in {"assignment_id", "task_id", "run_id"}
+                and not (key == "group" and not val)
             }
             for item in validated
         ]
@@ -731,6 +736,9 @@ class ObjectiveStore:
                 in {"completed", "ready-to-integrate", "needs-attention"}
             ):
                 obj["allowed_actions"].append("request_review")
+            from .agent_team import projection
+
+            projection(obj)
             from .receipt import _content_hash, build_objective_receipts
 
             costs = [
@@ -759,10 +767,16 @@ class ObjectiveStore:
             return obj
 
     def _timeline(self, db, obj):
-        kinds = ("agents.claimed", "agents.activity", "agents.assignment-finished")
+        kinds = (
+            "agents.claimed",
+            "agents.activity",
+            "agents.assignment-finished",
+            "agents.team-updated",
+        )
         recorded = db.execute(
             "SELECT sequence,occurred_at,event_type,payload FROM events "
-            "WHERE run_id=? AND event_type IN (?,?,?) "
+            "WHERE run_id=? AND event_type IN (?,?,?,?) "
+            "AND (event_type <> 'agents.team-updated' OR json_type(payload,'$.message') = 'text') "
             "AND CASE WHEN json_valid(json_extract(payload,'$.activity')) "
             "THEN COALESCE(json_extract(json_extract(payload,'$.activity'),'$.channel'),'feed') "
             "ELSE 'feed' END <> 'status' ORDER BY sequence DESC LIMIT 81",
@@ -780,7 +794,14 @@ class ObjectiveStore:
                 "kind": row["event_type"].removeprefix("agents."),
                 "assignment_id": payload["assignment_id"],
             }
-            for field in ("activity", "status", "summary", "verification_summary"):
+            for field in (
+                "activity",
+                "status",
+                "summary",
+                "verification_summary",
+                "message",
+                "action",
+            ):
                 if isinstance(payload.get(field), str):
                     entry[field] = payload[field][:2000]
             entries.append(entry)
@@ -818,6 +839,8 @@ class ObjectiveStore:
             ]
             if obj["status"] not in {"ready", "running"}:
                 reason = "Objective " + obj["status"].replace("-", " ")
+            elif item.get("held"):
+                reason = "Ready when you are · start this agent to begin"
             elif dependencies:
                 reason = "Waiting for dependencies: " + ", ".join(dependencies)
                 blockers = [
@@ -884,7 +907,7 @@ class ObjectiveStore:
             total, complete = self._costs(db, objective_id)
             states = {item["name"]: item["status"] for item in items}
             for item in items:
-                if item["status"] != "pending":
+                if item["status"] != "pending" or item.get("held"):
                     continue
                 if any(
                     states[dep] in _TERMINAL - {"completed"}
@@ -1127,6 +1150,7 @@ class ObjectiveStore:
                 verification=verification or {},
                 result=result or {},
                 activity="Worker terminated",
+                finished_at=_now(),
             )
             item.pop("pending_approval", None)
             item.pop("approval_grant", None)
@@ -1544,6 +1568,13 @@ class ObjectiveStore:
         return self.snapshot(objective_id)
 
     def control(self, objective_id, action, assignment_id=None, value=None):
+        from .agent_team import TEAM_ACTIONS, TeamControlError, actor, control_team
+
+        if action in TEAM_ACTIONS:
+            try:
+                return control_team(self, objective_id, action, assignment_id, value)
+            except ValueError as exc:
+                raise TeamControlError(str(exc)) from exc
         if action == "rename":
             display_name = _text(value, "Agent name", 40)
             if any(ord(char) < 32 for char in display_name):
@@ -1560,8 +1591,10 @@ class ObjectiveStore:
                 )
                 if item is None:
                     raise ValueError("Choose an assignment in this objective")
-                item["display_name"] = display_name
-                self._save_assignment(db, item)
+                for member in self._assignments(db, objective_id):
+                    if actor(member) == actor(item):
+                        member["display_name"] = display_name
+                        self._save_assignment(db, member)
                 self._event(
                     db,
                     obj,

@@ -76,6 +76,9 @@ def control_objective_payload(root: Path, payload: dict[str, Any]) -> dict[str, 
         "retry": "retry",
         "request_review": "request_review",
     }
+    from opaihub.agent_team import TEAM_ACTIONS
+
+    actions.update({name: name for name in TEAM_ACTIONS})
     if action not in actions:
         raise ValueError("Unsupported objective control")
     value = payload.get("value")
@@ -93,7 +96,16 @@ def control_objective_payload(root: Path, payload: dict[str, Any]) -> dict[str, 
         assignment_id=payload.get("assignment_id"),
         value=value,
     )
-    return {"ok": True, "objective": result, "workspaceRoot": str(root.resolve())}
+    return {
+        "ok": True,
+        "objective": result,
+        "workspaceRoot": str(root.resolve()),
+        "control": {
+            "action": action,
+            "assignment_id": payload.get("assignment_id"),
+            "revision": value.get("revision") if isinstance(value, dict) else None,
+        },
+    }
 
 
 def objectives_payload(root: Path) -> dict[str, Any]:

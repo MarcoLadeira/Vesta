@@ -2677,6 +2677,7 @@ def _run_gui(
             def job():
                 from opai.agents_bridge import control_objective_payload
 
+                payload = {}
                 try:
                     payload = json.loads(payload_json)
                     from opaihub.objective_execution import ObjectiveExecutor
@@ -2709,16 +2710,41 @@ def _run_gui(
                         "approve",
                         "retry",
                         "request_review",
-                    }:
+                        "add_agent",
+                        "agent_message",
+                        "connect_agents",
+                        "start_agent",
+                    } or (
+                        payload.get("action") == "agent_settings"
+                        and isinstance(payload.get("value"), dict)
+                        and "model" in payload["value"]
+                        and any(
+                            a["status"] == "pending"
+                            for a in result["objective"]["assignments"]
+                        )
+                    ):
                         self.objectiveControlReady.emit(json.dumps(result, default=str))
                         result["objective"] = ObjectiveExecutor(
                             turn_root, on_event=emit_snapshot
                         ).run(payload["objective_id"], cancel=cancel)
                     return result
                 except Exception as exc:  # noqa: BLE001
+                    from opaihub.agent_team import TeamControlError
+
                     return {
                         "ok": False,
-                        "error": safe_detail(exc),
+                        "error": {"userMessage": str(exc)}
+                        if isinstance(exc, TeamControlError)
+                        else safe_detail(exc),
+                        "control": {
+                            "action": payload.get("action"),
+                            "revision": payload.get("value", {}).get("revision")
+                            if isinstance(payload.get("value"), dict)
+                            else None,
+                            "objective_id": payload.get("objective_id"),
+                        }
+                        if isinstance(payload, dict)
+                        else None,
                         "workspaceRoot": str(turn_root),
                     }
 

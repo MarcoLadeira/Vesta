@@ -561,7 +561,7 @@ def _clean_messages(
         status = str(item.get("status") or "complete").strip().lower()
         if status not in _THREAD_STATUSES:
             status = "complete"
-        timestamp = str(item.get("timestamp") or "").strip()[:64] or _now()
+        timestamp = str(item.get("timestamp") or "").strip()[:64]
         candidate: dict[str, Any] = {
             "role": role,
             "text": text,
