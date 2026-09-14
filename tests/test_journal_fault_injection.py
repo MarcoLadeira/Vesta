@@ -101,9 +101,11 @@ def _interrupted_migration(marker="CREATE TABLE IF NOT EXISTS cost_events"):
 
     real_connect = journal_store._connect
 
-    def failing(path):
+    def failing(path, **kwargs):
+        # `**kwargs` so the stub keeps matching `_connect`'s signature: it grew
+        # a `timeout` when heartbeats needed to give up rather than wait.
         return _FailingConnection(
-            real_connect(path),
+            real_connect(path, **kwargs),
             fail_on=marker,
             error=sqlite3.OperationalError("disk I/O error"),
         )
@@ -432,7 +434,7 @@ class InterruptedMigrationTests(unittest.TestCase):
         report = check_integrity(store)
 
         self.assertEqual(report.state, INTEGRITY_COMPLETE)
-        self.assertEqual(report.schema_version, journal_store.SCHEMA_VERSION)
+        self.assertEqual(report.schema_version, journal_store.compatibility_version())
 
 
 class ProtectionSurvivesFailureTests(_FaultFixture):

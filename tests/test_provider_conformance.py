@@ -598,8 +598,15 @@ class DefectsTheMatrixFoundTests(unittest.TestCase):
         def boom(_chunk):
             raise RuntimeError("a rendering bug in the activity line")
 
-        result = self._claude(Script(chunks=("a", "b"), cost=0.01), on_text=boom)
-        self.assertEqual(result["text"], "ab")
+        script = Script(chunks=("a", "b"), cost=0.01)
+        result = self._claude(script, on_text=boom)
+        # Compared with the same run and no listener, not with a hard-coded
+        # join: how messages are joined is d4b3fbb's decision, and what this
+        # test guards is that the broken listener changed nothing at all.
+        unobserved = self._claude(script)
+        self.assertEqual(result["text"], unobserved["text"])
+        self.assertIn("a", result["text"])
+        self.assertIn("b", result["text"])
         self.assertIsNone(result.get("error"))
 
 

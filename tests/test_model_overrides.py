@@ -222,9 +222,15 @@ class SaveTests(_Temp):
         self.assertEqual(report["providers"]["codex"]["models"][0]["id"], "gpt-custom")
         self.assertEqual(report["hidden"]["codex"], ["gpt-old"])
 
-    def test_unsafe_full_payload_is_refused_without_replacing_existing_file(self) -> None:
+    def test_unsafe_full_payload_is_refused_without_replacing_existing_file(
+        self,
+    ) -> None:
         save_override_payload(
-            {"providers": {"codex": {"models": [{"id": "keep", "capability": "best"}]}}},
+            {
+                "providers": {
+                    "codex": {"models": [{"id": "keep", "capability": "best"}]}
+                }
+            },
             path=self.path,
         )
         previous = self.path.read_text(encoding="utf-8")

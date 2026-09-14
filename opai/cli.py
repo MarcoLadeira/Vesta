@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import contextlib
 from hashlib import sha256
 import json
 import os
@@ -717,16 +716,90 @@ def cmd_journal(args: argparse.Namespace) -> int:
         migration = journal.get("migration", {})
         backup = journal.get("backup", {})
         print(f"runtime journal: {integrity.get('state', 'unknown')}")
-        print(f"  runs recorded:  {migration.get('runs_recorded', 0)}")
+        if migration.get("runs_recorded_known", False):
+            print(f"  runs recorded:  {migration.get('runs_recorded', 0)}")
+        else:
+            why = migration.get("runs_recorded_unknown_because") or "unreadable"
+            print(f"  runs recorded:  unknown ({why})")
         print(f"  legacy runs:    {migration.get('legacy_runs', 0)}")
         print(f"  compared:       {migration.get('compared_runs', 0)}")
         print(f"  retirement:     {migration.get('retirement', 'unknown')}")
         for blocker in migration.get("blockers", []) or []:
             print(f"    - {blocker}")
-        unterminated = migration.get("unterminated_runs", 0)
-        print(f"  unfinished:     {unterminated}", end="")
-        held = migration.get("unterminated_runs_holding_a_lease", 0)
-        print(f" ({held} still holding a lease)" if unterminated else "")
+        # A missing key is "not checked", never a reassuring default.
+        if not migration.get("unterminated_runs_known", False):
+            why = migration.get("unterminated_runs_unknown_because") or "unreadable"
+            print(f"  unfinished:     unknown ({why})")
+        else:
+            unterminated = migration.get("unterminated_runs", 0)
+            print(f"  unfinished:     {unterminated}", end="")
+            held = migration.get("unterminated_runs_holding_a_lease", 0)
+            print(f" ({held} still holding a lease)" if unterminated else "")
+        # Narrower than "unfinished" on purpose: only runs whose owning process
+        # is provably gone. Everything else is either being worked on or cannot
+        # be judged, and neither is something to hand a user as a chore.
+        abandoned = migration.get("unterminated_runs_abandoned", 0)
+        if abandoned:
+            print(f"  abandoned:      {abandoned} (owning process is gone)")
+        # Named separately from "unfinished": these runs *ended*, and said they
+        # succeeded. What they have not got is anything to show for it.
+        if migration.get("completed_runs_known", False):
+            bare = int(migration.get("completed_runs_without_evidence", 0))
+            unverified = int(migration.get("completed_runs_without_verification", 0))
+            total = int(migration.get("completed_runs", 0))
+            if bare:
+                print(
+                    f"  unevidenced:    {bare} of {total} completed runs have no"
+                    " verification, manifest or cost"
+                )
+            if unverified:
+                print(
+                    f"  unverified:     {unverified} of {total} completed runs have"
+                    " no verification (AC6 asks for this one)"
+                )
+        if migration.get("cancelled_runs_known", False):
+            unconfirmed = int(migration.get("cancelled_runs_unconfirmed", 0))
+            cancelled = int(migration.get("cancelled_runs", 0))
+            if unconfirmed:
+                print(
+                    f"  unconfirmed:    {unconfirmed} of {cancelled} cancelled runs"
+                    " have no phase reaching 'terminated'"
+                )
+        # Two recordings of one history. Silence when they agree; a count when
+        # they do not; and "could not check" said out loud rather than implied.
+        if not migration.get("event_table_parity_known", False):
+            why = migration.get("event_table_parity_unknown_because") or "unreadable"
+            print(f"  event parity:   unknown ({why})")
+        elif migration.get("event_table_disagreements", 0):
+            count = int(migration["event_table_disagreements"])
+            print(
+                f"  event parity:   {count} run(s) where the events and the runs"
+                " table disagree"
+            )
+        # Across surfaces: the journal versus the saved conversation.
+        if not migration.get("turn_parity_known", False):
+            why = migration.get("turn_parity_unknown_because") or "unreadable"
+            print(f"  turn parity:    unknown ({why})")
+        else:
+            disagreed = int(migration.get("turn_parity_disagreements", 0))
+            joined_runs = int(migration.get("turn_parity_joined", 0))
+            unjoinable = int(migration.get("turn_parity_unjoinable", 0))
+            if disagreed:
+                print(
+                    f"  turn parity:    {disagreed} of {joined_runs} turns disagree"
+                    " with the journal about how they ended"
+                )
+            elif joined_runs:
+                print(f"  turn parity:    {joined_runs} turns agree with the journal")
+            if unjoinable:
+                # Not a failure: these were saved before a turn recorded the
+                # journal run that produced it, so there is no key to join on.
+                print(f"  unjoinable:     {unjoinable} saved turn(s) predate run ids")
+            journal_shape = migration.get("turn_outcomes_journal") or {}
+            chat_shape = migration.get("turn_outcomes_conversations") or {}
+            if journal_shape and chat_shape and journal_shape != chat_shape:
+                print(f"  outcomes (lead): journal {journal_shape}")
+                print(f"                   chats   {chat_shape}")
         print(f"  backups:        {backup.get('backups', 0)}", end="")
         print(f" (latest {backup['latest']})" if backup.get("latest") else "")
         return 0
@@ -754,7 +827,7 @@ def cmd_journal(args: argparse.Namespace) -> int:
         return 0
 
     if action == "pending":
-        from opaihub import journal_operations, journal_runtime
+        from opaihub import journal_liveness, journal_operations, journal_runtime
 
         runs = journal_runtime.unterminated_runs(root)
         operations = journal_operations.unreconciled_operations(root)
@@ -770,18 +843,47 @@ def cmd_journal(args: argparse.Namespace) -> int:
                 f"run {entry['run_id']}  attempt {entry['attempt']}  "
                 f"{entry['observed_state']}  {held}  since {entry['created_at']}"
             )
+            # #818: the lease now names a process, so this line can say who has
+            # it rather than leaving the reader to go and find out.
+            print(f"    {journal_liveness.describe(entry['owner_liveness'])}")
         for entry in operations:
             print(
                 f"operation {entry['operation_key']}  {entry['kind']}  "
                 f"since {entry['created_at']}"
             )
-        # Reported, never concluded: a lease is released by a terminal record,
-        # not by a process exiting, so a held lease means "running now" and
-        # "died without saying so" equally. Only the caller can tell.
-        print(
-            "\nA held lease means the run is either still going or was abandoned "
-            "by a process that died; this record cannot tell those apart."
-        )
+
+        # Reported rather than concluded. A pid that is gone is conclusive; the
+        # rest are not, and they are not-conclusive for different reasons that
+        # ask different things of the reader -- so each is counted and
+        # explained on its own, never lumped under one "cannot verify" whose
+        # explanation is only true of some of them (#818 review finding 14).
+        def owners(verdict: str) -> list[dict[str, object]]:
+            return [entry for entry in runs if entry["owner_liveness"] == verdict]
+
+        stale = owners(journal_liveness.OWNER_STALE)
+        unverified = owners(journal_liveness.OWNER_UNVERIFIED)
+        unrecorded = owners(journal_liveness.OWNER_UNKNOWN)
+        if stale:
+            print(
+                f"\n{len(stale)} run(s) had an owner that stopped responding. "
+                "It may be stuck, or busy with something that reports nothing. "
+                "OPai will not end them for you, because a run that is merely "
+                "quiet may still be working."
+            )
+        if unverified:
+            print(
+                f"\n{len(unverified)} run(s) have an owner OPai cannot verify. "
+                "Their process id is still in use, but ids get reused, so it may "
+                "belong to something else entirely; OPai will not call that work "
+                "finished or abandoned."
+            )
+        if unrecorded:
+            print(
+                f"\n{len(unrecorded)} run(s) never recorded which process owned "
+                "them (they predate that record, or this system would not say). "
+                "With nothing to check, OPai will not call them finished or "
+                "abandoned."
+            )
         return 0
 
     if action == "compact":
@@ -862,6 +964,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     stale = status["stale_paths"]
     validation = validate_all(root)
     journal = _journal_doctor(root)
+    launchers = _launcher_doctor()
     readiness = (
         "ready"
         if (
@@ -869,6 +972,12 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             and not summary["missing"]
             and stale["ok"]
             and not _journal_needs_attention(journal)
+            # A dead desktop icon is not a footnote. Every other surface can be
+            # perfectly healthy while the way the user actually opens OPai does
+            # nothing at all, so an unstartable launcher has to reach the
+            # top-line verdict or doctor is reporting on a machine it did not
+            # check.
+            and not _launchers_need_attention(launchers)
         )
         else "attention"
     )
@@ -895,6 +1004,9 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         # #613 AC10: database health, migration status and degraded
         # integrity are visible here rather than only to the store.
         "runtime_journal": journal,
+        # What the installed launchers will really spawn, read from the
+        # launchers themselves rather than assumed from this process.
+        "launchers": launchers,
         "next_steps": [
             "Run opai activate --repair to fix broken or missing client integrations.",
             "Restart AI clients after global skill changes.",
@@ -903,6 +1015,61 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     }
     print_json(payload)
     return 0
+
+
+def _launcher_doctor() -> dict[str, object]:
+    """What the installed launchers will spawn, or why that is unknown.
+
+    Doctor runs when something is already wrong, so this degrades rather than
+    raises -- but it degrades to ``available: False``, never to a claim of
+    health. "I could not check the launchers" and "the launchers are fine"
+    are different answers and only one of them is reassuring.
+    """
+
+    try:
+        from opaihub import launcher_health
+    except Exception as exc:  # noqa: BLE001 - doctor never raises
+        return {
+            "available": False,
+            "healthy": False,
+            "reason": type(exc).__name__,
+            "launchers": [],
+        }
+    try:
+        reports = launcher_health.inspect_launchers()
+        payload = dict(launcher_health.summary(reports))
+    except Exception as exc:  # noqa: BLE001 - doctor never raises
+        return {
+            "available": False,
+            "healthy": False,
+            "reason": type(exc).__name__,
+            "launchers": [],
+        }
+    payload["launchers"] = [
+        {
+            "name": report.name,
+            "status": report.status,
+            "interpreter": report.interpreter,
+            "windowed": report.windowed,
+            "detail": report.describe(),
+        }
+        for report in reports
+    ]
+    return payload
+
+
+def _launchers_need_attention(launchers: dict[str, object]) -> bool:
+    """True only when a launcher was read and found unstartable.
+
+    An unreadable or uncheckable install is *not* treated as broken here:
+    doctor already reports it as unavailable, and turning "I could not look"
+    into a red verdict would be the same overconfidence in the other
+    direction.
+    """
+
+    if not launchers.get("available"):
+        return False
+    return bool(launchers.get("broken"))
 
 
 def _journal_migration(root: Path) -> dict[str, object]:
@@ -920,27 +1087,61 @@ def _journal_migration(root: Path) -> dict[str, object]:
     permission.
     """
 
+    # Every fact starts as "not checked". They used to share one suppress
+    # block, so when the store refused to open -- a journal written by a newer
+    # OPai -- nothing after that point was ever set, `opai journal status` fell
+    # back to its defaults, and it printed "unfinished: 0" over a real
+    # unfinished run (#818 review finding 5). Now each report stands alone and
+    # a report that cannot look says so.
     facts: dict[str, object] = {
         "runs_recorded": 0,
+        "runs_recorded_known": False,
+        "runs_recorded_unknown_because": "not checked",
         "unreconciled_operations": 0,
         "retirement": "unknown",
+        "unterminated_runs_known": False,
+        "unterminated_runs_unknown_because": "not checked",
+        "completed_runs_known": False,
+        "cancelled_runs_known": False,
+        "event_table_parity_known": False,
+        "event_table_parity_unknown_because": "not checked",
+        "turn_parity_known": False,
+        "turn_parity_unknown_because": "not checked",
     }
-    with contextlib.suppress(Exception):  # noqa: BLE001 - doctor never raises
-        from opaihub import journal_operations, journal_store
+    try:
+        from opaihub import journal_store
+    except Exception:  # noqa: BLE001 - doctor never raises
+        return facts
+    if not journal_store.journal_path(root).exists():
+        facts["retirement"] = "not_started"
+        return facts
 
-        if not journal_store.journal_path(root).exists():
-            facts["retirement"] = "not_started"
-            return facts
-        connection = journal_store.open_store(root)
+    def count_runs() -> None:
+        try:
+            connection = journal_store.open_store(root)
+        except Exception as exc:  # noqa: BLE001
+            facts["runs_recorded_unknown_because"] = (
+                "incompatible"
+                if journal_store.written_by_a_newer_opai(root)
+                else journal_store.describe_open_failure(exc)
+            )
+            return
         try:
             facts["runs_recorded"] = int(
                 connection.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
             )
+            facts["runs_recorded_known"] = True
+            facts["runs_recorded_unknown_because"] = ""
         finally:
             connection.close()
+
+    def operations() -> None:
+        from opaihub import journal_operations
+
         summary = journal_operations.operation_summary(root)
         facts["unreconciled_operations"] = int(summary.get("unreconciled", 0))
 
+    def unfinished() -> None:
         # The other half of "what did not finish". #613 opens by describing a
         # run that "may appear active with no worker"; operations had an answer
         # for that and runs did not.
@@ -949,7 +1150,80 @@ def _journal_migration(root: Path) -> dict[str, object]:
         pending = journal_runtime.unterminated_summary(root)
         facts["unterminated_runs"] = int(pending.get("unterminated", 0))
         facts["unterminated_runs_holding_a_lease"] = int(pending.get("lease_held", 0))
+        facts["unterminated_runs_abandoned"] = int(pending.get("abandoned", 0))
+        # Zero unfinished runs and "could not read the journal" are different
+        # answers, and only one of them is reassuring.
+        facts["unterminated_runs_known"] = bool(pending.get("available"))
+        facts["unterminated_runs_unknown_because"] = str(
+            pending.get("unavailable_reason") or ""
+        )
 
+    def completions() -> None:
+        # #818 AC6 asks that `completed` be impossible without the required
+        # evidence. It is not yet -- the store records whatever verdict a
+        # caller hands it -- so the honest intermediate step is to count the
+        # completions that have nothing behind them.
+        from opaihub import journal_runtime
+
+        evidence = journal_runtime.unevidenced_completions(root)
+        facts["completed_runs_known"] = bool(evidence.get("available"))
+        facts["completed_runs"] = int(evidence.get("completed", 0))
+        facts["completed_runs_without_evidence"] = int(evidence.get("unevidenced", 0))
+        # The number AC6 actually asks about. Reported separately because the
+        # one above flatters: every real turn records a cost, so counting cost
+        # as evidence reads as a clean bill of health for a criterion that is
+        # plainly unmet.
+        facts["completed_runs_without_verification"] = int(
+            evidence.get("without_verification", 0)
+        )
+
+    def cancellations() -> None:
+        # AC5's counterpart to AC6: a `cancelled` verdict with no phase
+        # reaching `terminated` is a claim that the work stopped, with nothing
+        # showing that it did.
+        from opaihub import journal_runtime
+
+        stopped = journal_runtime.unconfirmed_cancellations(root)
+        facts["cancelled_runs_known"] = bool(stopped.get("available"))
+        facts["cancelled_runs"] = int(stopped.get("cancelled", 0))
+        facts["cancelled_runs_unconfirmed"] = int(stopped.get("unconfirmed", 0))
+
+    def event_parity() -> None:
+        # Migration step 2's parity assertion: the journal against itself.
+        # The `runs` table and the `events` table are written by the same
+        # calls in the same transactions, so a disagreement is the store
+        # contradicting itself.
+        from opaihub import journal_projections
+
+        parity = journal_projections.run_table_parity(root, now=_iso_now_for_journal())
+        facts["event_table_parity_known"] = bool(parity.get("comparable"))
+        facts["event_table_parity_unknown_because"] = str(parity.get("reason") or "")
+        facts["event_table_disagreements"] = int(parity.get("disagreement_count", 0))
+
+    def turn_parity() -> None:
+        # Across surfaces: does the journal agree with the saved conversation
+        # about how each turn ended? Comparing those two records is what found
+        # the journal filing partial turns as completed.
+        from opaihub import journal_conversations
+
+        turns = journal_conversations.turn_parity(root)
+        facts["turn_parity_known"] = bool(turns.get("available"))
+        facts["turn_parity_unknown_because"] = str(turns.get("reason") or "")
+        joined = turns.get("joined") or {}
+        facts["turn_parity_joined"] = int(joined.get("runs", 0))
+        facts["turn_parity_disagreements"] = int(joined.get("disagreement_count", 0))
+        facts["turn_parity_unjoinable"] = int(turns.get("unjoinable_turns", 0))
+        facts["turn_parity_in_progress"] = int(turns.get("in_progress", 0))
+        # Reported separately and labelled as a lead: two populations can share
+        # a shape without sharing members, so this is never a join.
+        facts["turn_outcomes_journal"] = dict(
+            (turns.get("aggregate") or {}).get("journal") or {}
+        )
+        facts["turn_outcomes_conversations"] = dict(
+            (turns.get("aggregate") or {}).get("conversations") or {}
+        )
+
+    def retirement() -> None:
         from opaihub import journal_background, journal_retirement
 
         corpus = journal_background.legacy_runs(root)
@@ -961,6 +1235,23 @@ def _journal_migration(root: Path) -> dict[str, object]:
         facts["journal_reads"] = report.journal_reads
         facts["legacy_reads"] = report.legacy_reads
         facts["detail"] = report.detail
+
+    for name, report in (
+        ("runs", count_runs),
+        ("operations", operations),
+        ("unfinished", unfinished),
+        ("completions", completions),
+        ("cancellations", cancellations),
+        ("event_parity", event_parity),
+        ("turn_parity", turn_parity),
+        ("retirement", retirement),
+    ):
+        try:
+            report()
+        except Exception as exc:  # noqa: BLE001 - doctor never raises
+            errors = facts.setdefault("report_errors", {})
+            if isinstance(errors, dict):
+                errors[name] = type(exc).__name__
     return facts
 
 
@@ -1017,13 +1308,37 @@ def _journal_doctor(root: Path) -> dict[str, object]:
     """
 
     try:
-        from opaihub.journal_store import SCHEMA_VERSION, store_health
+        from opaihub.journal_store import reading_only
+    except Exception:  # noqa: BLE001 - doctor reports a stable safe category
+        return {
+            "schema_version": 1,
+            "available": False,
+            "error_category": "journal_unavailable",
+        }
+    # Doctor looks; it does not upgrade. Every report below reaches the store
+    # through open_store, which inside this block refuses to migrate rather
+    # than doing it as a side effect (#818 review finding 16).
+    with reading_only():
+        return _journal_doctor_payload(root)
+
+
+def _journal_doctor_payload(root: Path) -> dict[str, object]:
+    try:
+        from opaihub.journal_store import (
+            SCHEMA_VERSION,
+            compatibility_version,
+            store_health,
+        )
 
         health = store_health(root)
         return {
             "schema_version": 1,
             "available": True,
-            "expected_store_version": SCHEMA_VERSION,
+            # What a healthy journal from this build is stamped with. Not the
+            # newest migration: a migration older builds can ignore does not
+            # raise the stamp (journal_store._OLDER_BUILDS_CAN_IGNORE).
+            "expected_store_version": compatibility_version(),
+            "newest_store_version": SCHEMA_VERSION,
             # #613 Stages 6-7: how far this installation has actually got.
             # Without it the migration is only observable by writing code, and
             # a migration nobody can see the state of is one nobody can finish.
@@ -1061,6 +1376,12 @@ def _journal_needs_attention(journal: dict[str, object]) -> bool:
 
     if not journal.get("available") or not journal.get("present"):
         return False
+    # A journal OPai cannot open is the loudest problem there is, and it is
+    # invisible to an integrity check: the file can be structurally perfect
+    # while every write is silently discarded. `openable` is absent on payloads
+    # from older builds, so its default is the non-escalating one.
+    if journal.get("openable") is False:
+        return True
     integrity = journal.get("integrity")
     if not isinstance(integrity, dict):
         return True

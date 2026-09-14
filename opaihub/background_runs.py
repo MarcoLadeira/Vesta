@@ -278,7 +278,14 @@ def _phase_is_proven_stopped(phase: Any) -> bool:
 def _background_cancellation_tracker(project_root: Path, run_id: str) -> Any:
     from .cancellation_lifecycle import CancellationTracker
 
-    return CancellationTracker(project_root, f"background-{_valid_run_id(run_id)}")
+    return CancellationTracker(
+        project_root,
+        f"background-{_valid_run_id(run_id)}",
+        # #818: this scope really is a journalled run, so its cancellation
+        # phases can reach the canonical record rather than living only in the
+        # per-scope file the tracker keeps.
+        journal_run_id=_valid_run_id(run_id),
+    )
 
 
 def _confirmed_background_cancellation(tracker: Any) -> dict[str, Any]:
@@ -1061,8 +1068,38 @@ class BackgroundRunner:
         return finished
 
 
+def runs_owned_by_a_live_process(project_root: Path) -> frozenset[str]:
+    """Run ids the canonical journal says somebody may still be working on.
+
+    #818. ``active_run_ids`` can only ever name runs *this* process started,
+    so a run being executed by a different, live OPai is invisible to it --
+    and ``opaihub/cli.py`` passes nothing at all. The journal knows better,
+    because a lease now records the process that took it.
+
+    A run this cannot speak for -- absent from the journal, no process
+    recorded, an unreadable store -- is simply not in the set. That is not the
+    same as saying it is dead; it means recovery falls back to the judgement
+    it made before, which is the only answer that does not strand every
+    pre-#818 run in ``running`` forever.
+    """
+
+    try:
+        from . import journal_liveness, journal_runtime
+
+        return frozenset(
+            str(entry.get("run_id") or "")
+            for entry in journal_runtime.unterminated_runs(project_root, limit=10_000)
+            if journal_liveness.may_be_alive(entry)
+        ) - {""}
+    except Exception:  # noqa: BLE001 - recovery runs when things are already wrong
+        return frozenset()
+
+
 def recover_interrupted_runs(
-    project_root: Path, *, active_run_ids: tuple[str, ...] = ()
+    project_root: Path,
+    *,
+    active_run_ids: tuple[str, ...] = (),
+    left_alone: list[str] | None = None,
 ) -> list[AutomationRun]:
     """Reconcile orphaned 'running' runs (e.g. after a crash).
 
@@ -1081,11 +1118,31 @@ def recover_interrupted_runs(
     NEEDS_ATTENTION with "cancellation_unconfirmed" instead, carrying
     whatever teardown evidence was durably recorded before the crash, so
     recovery never claims a stop nobody observed.
+
+    **It will not reconcile a run somebody is still running.** A terminal
+    verdict written onto live work is not a recovery, it is a false record,
+    and the message this used to write -- "the owning session ended before it
+    finished" -- was simply untrue when the owning session was still there.
+    Runs whose owner the journal says may be alive are left exactly as they
+    are; ``opai journal pending`` reports them, and they recover on a later
+    sweep once their owner is genuinely gone. Their ids are appended to
+    ``left_alone`` when the caller passes a list -- exactly the runs this
+    sweep skipped, and nothing else the journal happens to know about.
     """
 
     recovered = []
+    # #818: reproduced before this line existed -- a second OPai running
+    # `automation recover` wrote "failed: the owning session ended before it
+    # finished" onto a run whose owning process was demonstrably still alive.
+    # `active_run_ids` could not have caught it: it names only this process's
+    # own work, and the CLI passes none.
+    owned_elsewhere = runs_owned_by_a_live_process(project_root)
     for run in list_runs(project_root, status="running"):
         if run.run_id in active_run_ids:
+            continue
+        if run.run_id in owned_elsewhere:
+            if left_alone is not None:
+                left_alone.append(run.run_id)
             continue
         if _is_terminal_run(run):
             continue
@@ -1161,6 +1218,8 @@ def pipeline_executor(
             mode=mode,
             cancel=cancel_event,
             allow_cloud=run.allow_cloud,
+            # Nobody is sitting in front of this one (#818 AC2).
+            surface="background",
         )
 
     return _execute

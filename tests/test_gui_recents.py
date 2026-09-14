@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -11,10 +12,14 @@ from _helpers import isolated_home
 from opai.gui_recents import (
     MAX_RECENTS,
     add_recent,
+    begin_thread_turn,
     clear_recents,
+    current_conversation_id,
     legacy_recents_path,
     load_recents,
+    load_thread,
     recents_path,
+    thread_path,
 )
 
 
@@ -126,6 +131,45 @@ class ClearAndMigrationTests(unittest.TestCase):
             self.assertFalse(legacy_recents_path().exists())
             state_files = list((Path.home() / ".opai").rglob("*.json"))
         self.assertEqual([item.parent.name for item in state_files], ["recents"])
+
+
+class CurrentConversationIdTests(unittest.TestCase):
+    """#818: the identity the journal mirror needs, read without a lock.
+
+    Unlocked on purpose. The caller is the journal mirror on the admission
+    path, and a mirror must never be able to slow -- let alone deadlock -- the
+    turn it mirrors. The thread file is replaced by an atomic rename, so an
+    unlocked reader sees a whole document or the previous whole document.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+
+    def test_no_thread_yet_names_no_conversation(self):
+        self.assertEqual(current_conversation_id(self.root), "")
+
+    def test_a_started_turn_names_its_conversation(self):
+        begin_thread_turn(self.root, request_id="req-1", text="hello", mode="ask")
+
+        conversation = current_conversation_id(self.root)
+
+        self.assertTrue(conversation)
+        self.assertEqual(conversation, load_thread(self.root)["conversation_id"])
+
+    def test_a_second_turn_names_the_same_conversation(self):
+        begin_thread_turn(self.root, request_id="req-1", text="hello", mode="ask")
+        first = current_conversation_id(self.root)
+        begin_thread_turn(self.root, request_id="req-2", text="again", mode="ask")
+
+        self.assertEqual(current_conversation_id(self.root), first)
+
+    def test_an_unreadable_thread_names_nothing_rather_than_raising(self):
+        begin_thread_turn(self.root, request_id="req-1", text="hello", mode="ask")
+        thread_path(self.root).write_text("{not json", encoding="utf-8")
+
+        self.assertEqual(current_conversation_id(self.root), "")
 
 
 if __name__ == "__main__":

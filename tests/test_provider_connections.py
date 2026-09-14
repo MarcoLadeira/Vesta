@@ -35,7 +35,9 @@ class ProviderConnectionTests(unittest.TestCase):
             with (
                 mock.patch("opaihub.accounts._which", return_value=None),
                 mock.patch.dict(
-                    "os.environ", {"LOCALAPPDATA": str(local_app_data), "PATH": ""}, clear=False
+                    "os.environ",
+                    {"LOCALAPPDATA": str(local_app_data), "PATH": ""},
+                    clear=False,
                 ),
             ):
                 candidates = accounts._codex_cli_candidates(Path(tmp) / "home")
@@ -199,9 +201,7 @@ class ProviderConnectionTests(unittest.TestCase):
                     "codex", home=home, run=run, force=True
                 )
             stored = json.loads(
-                (home / ".opai" / "connection_history.json").read_text(
-                    encoding="utf-8"
-                )
+                (home / ".opai" / "connection_history.json").read_text(encoding="utf-8")
             )
 
         self.assertEqual(connection["authStatus"], "connected")
@@ -290,9 +290,7 @@ class ProviderConnectionTests(unittest.TestCase):
         api_key = account_models(accounts=[account], account_types={"codex": "api_key"})
 
         self.assertEqual([option["id"] for option in chatgpt], ["account:codex"])
-        self.assertIn(
-            "account:codex:gpt-5.6-sol", [option["id"] for option in api_key]
-        )
+        self.assertIn("account:codex:gpt-5.6-sol", [option["id"] for option in api_key])
 
     def test_codex_picker_disables_a_known_outdated_cli(self):
         account = {

@@ -177,7 +177,11 @@ def build_chat_job(
             kwargs["focus_hint"] = focus_hint
         if output_instruction is not None:
             kwargs["output_instruction"] = output_instruction
-        return handle_gui_message(root, message, **kwargs)
+        # Passed at the call rather than folded into `kwargs` so it is
+        # visible to a reader and checkable by the ratchet in
+        # tests/test_journal_run_origin.py. A required identity hidden
+        # inside a dict is exactly how this one went missing (#818 AC2).
+        return handle_gui_message(root, message, surface="gui", **kwargs)
 
     return job, cancel
 
@@ -1486,6 +1490,7 @@ def _run_gui(
                     self.mode.currentText(),
                     ins["budget"]["spent_today"],
                     saved=sav["estimated_savings_usd"],
+                    spend_complete=bool(ins["budget"].get("spend_complete", True)),
                 )
             )
             connected = [a["label"] for a in self._accounts if a["connected"]]

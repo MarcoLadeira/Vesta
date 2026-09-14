@@ -231,13 +231,31 @@ def set_budget(
         return {"status": "updated", **caps, "path": str(path)}
 
 
+def utc_today() -> str:
+    """Today's date in UTC, the day every "today" figure is counted in."""
+
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+def spend_prefix(complete: bool) -> str:
+    """How a spend total the ledger knows is partial is said.
+
+    Words rather than a ``+`` sign -- a symbol the reader has to decode is not
+    honesty, and this is about money. One place, because three surfaces each
+    built it themselves and a fourth would have been a matter of time.
+    """
+
+    return "" if complete else "at least "
+
+
 def _spent(
     project_root: Path,
     *,
     period: str,
     events: Iterable[dict[str, Any]] | None = None,
+    today: str | None = None,
 ) -> float:
-    today = datetime.now(timezone.utc).date().isoformat()
+    today = today or utc_today()
     month = today[:7]
     total = 0.0
     for event in read_events(project_root) if events is None else events:
@@ -259,6 +277,7 @@ def _unpriced_calls(
     *,
     period: str,
     events: Iterable[dict[str, Any]] | None = None,
+    today: str | None = None,
 ) -> int:
     """In-window model calls whose cost could not be priced (#619 AC5/AC8).
 
@@ -269,7 +288,7 @@ def _unpriced_calls(
     rather than present it as authoritative.
     """
 
-    today = datetime.now(timezone.utc).date().isoformat()
+    today = today or utc_today()
     month = today[:7]
     unpriced = 0
     for event in read_events(project_root) if events is None else events:
@@ -292,6 +311,7 @@ def _abandoned_calls(
     *,
     period: str,
     events: Iterable[dict[str, Any]] | None = None,
+    today: str | None = None,
 ) -> int:
     """In-window calls dispatched whose outcome never arrived (#685).
 
@@ -301,7 +321,7 @@ def _abandoned_calls(
     orphaned last month and swept today is today's news exactly once.
     """
 
-    today = datetime.now(timezone.utc).date().isoformat()
+    today = today or utc_today()
     month = today[:7]
     abandoned = 0
     for event in read_events(project_root) if events is None else events:
@@ -326,16 +346,35 @@ def budget_status(
     root = project_root.expanduser().resolve()
     caps = load_budget(root)
     ledger_events = read_events(root) if events is None else list(events)
-    spent_day = _spent(root, period="day", events=ledger_events)
-    spent_month = _spent(root, period="month", events=ledger_events)
-    unpriced_day = _unpriced_calls(root, period="day", events=ledger_events)
-    unpriced_month = _unpriced_calls(root, period="month", events=ledger_events)
-    abandoned_day = _abandoned_calls(root, period="day", events=ledger_events)
-    abandoned_month = _abandoned_calls(root, period="month", events=ledger_events)
+    # One reading of the clock for the whole report. Each helper used to take
+    # its own, so a report assembled across UTC midnight counted "today" as
+    # two different days -- spend from one, its completeness from the next.
+    today = utc_today()
+    window = {"events": ledger_events, "today": today}
+    spent_day = _spent(root, period="day", **window)
+    spent_month = _spent(root, period="month", **window)
+    unpriced_day = _unpriced_calls(root, period="day", **window)
+    unpriced_month = _unpriced_calls(root, period="month", **window)
+    abandoned_day = _abandoned_calls(root, period="day", **window)
+    abandoned_month = _abandoned_calls(root, period="month", **window)
     # Status is a report, so it stays read-only and does not sweep. A call
     # retirable but not yet retired is counted here as unaccounted rather than
     # being written away behind a status read (#685).
     reconciliation = cost_reconciliation(root, events=ledger_events)
+    # `unaccounted_calls` is deliberately all-time (#685: "still appears here
+    # -- permanently"), which is right for the reconciliation report and wrong
+    # for qualifying a figure labelled "today". A call dispatched three weeks
+    # ago and never closed does not make *today's* total a lower bound, and a
+    # hedge that can never clear is one nobody reads.
+    #
+    # Counted by dispatch date, and only the still-open ones: a call abandoned
+    # today is already `abandoned_day`, so including it here would count the
+    # same hole twice.
+    unresolved_today = sum(
+        1
+        for item in reconciliation.get("unresolved", []) or []
+        if str(item.get("started_at") or "").startswith(today)
+    )
 
     def remaining(limit: Any, spent: float) -> Any:
         return round(float(limit) - spent, 6) if limit is not None else None
@@ -383,6 +422,14 @@ def budget_status(
             # only *gating* uses the self-clearing daily window.
             "abandoned_calls_today": abandoned_day,
             "abandoned_calls_month": abandoned_month,
+            # Dispatched today, no outcome yet. Distinct from `abandoned`,
+            # which has been swept; this one is still in flight.
+            "unresolved_calls_today": unresolved_today,
+            # Whether *today's* number specifically is the whole story. A
+            # surface showing a figure labelled "today" must qualify it with
+            # this rather than with `complete`, which answers the same question
+            # about all of history.
+            "complete_today": not (unpriced_day or abandoned_day or unresolved_today),
         },
         "remaining": {
             "today_usd": remaining(caps.get("daily_usd_limit"), spent_day),

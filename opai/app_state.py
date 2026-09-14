@@ -283,11 +283,31 @@ def inspector_state(project_root: Path, *, mode: str = "safe-auto") -> dict[str,
     budget = budget_status(root)
     daily = budget["caps"].get("daily_usd_limit")
     spent = float(budget["spent"].get("today_usd") or 0.0)
+    # #818: `budget_status` already measures whether this total is the whole
+    # story -- unpriced calls, calls dispatched that never reported an outcome
+    # -- and says in its own notes that such a total is "a lower bound, not a
+    # complete figure". This function used to take the number and drop that
+    # judgement, so every GUI surface downstream presented a lower bound as if
+    # it were complete. The ledger's own verdict travels with the number now.
+    completeness = budget.get("spend_completeness") or {}
+    # `complete_today`, not `complete`. The number beside it is labelled
+    # "today", and `complete` answers the same question about all of history --
+    # so one unreconciled call from three weeks ago hedges today's figure
+    # forever, and a hedge that can never clear is one nobody reads. Seen in
+    # the running app: "at least $0.00 today" on a day with no calls at all,
+    # because four operations from a fortnight earlier were still open.
+    # Falls back for a ledger that has not been taught the narrower key.
+    complete = bool(
+        completeness.get("complete_today", completeness.get("complete", True))
+    )
+    from opaihub.budget import spend_prefix
+
+    prefix = spend_prefix(complete)
     if isinstance(daily, (int, float)) and daily > 0:
         pct = max(0, min(100, int(round(100 * spent / daily))))
-        budget_text = f"${spent:.2f} / ${daily:.2f} today"
+        budget_text = f"{prefix}${spent:.2f} / ${daily:.2f} today"
     else:
-        pct, budget_text = 0, f"${spent:.2f} today · no cap set"
+        pct, budget_text = 0, f"{prefix}${spent:.2f} today · no cap set"
     ws = workspace_summary(root)
     ws_text = f"{ws['file_count']} files indexed" + (
         f" · {ws['branch']}" if ws["branch"] else ""
@@ -299,6 +319,11 @@ def inspector_state(project_root: Path, *, mode: str = "safe-auto") -> dict[str,
             "pct": pct,
             "text": budget_text,
             "panic": bool(budget.get("panic")),
+            "spend_complete": complete,
+            "unpriced_calls_today": int(completeness.get("unpriced_calls_today") or 0),
+            "abandoned_calls_today": int(
+                completeness.get("abandoned_calls_today") or 0
+            ),
         },
         "workspace": {**ws, "text": ws_text},
         "mode": {"id": mode, "capability": MODE_CAPABILITY.get(mode, "")},

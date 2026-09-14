@@ -35,12 +35,20 @@ and guarantee the drift Stage 4 is meant to detect.
 from __future__ import annotations
 
 import contextlib
+import json
+import os
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator, Mapping
+from typing import Any, Callable, Iterator, Mapping
 
-from . import journal_store
+from . import (
+    call_reconciliation,
+    generated_lifecycle,
+    journal_liveness,
+    journal_store,
+    owner_lease,
+)
 from .journal_store import (
     JournalStoreError,
     StaleWriterError,
@@ -55,6 +63,13 @@ from .journal_store import (
 EVENT_ADMITTED = "run.admitted"
 EVENT_STARTED = "run.started"
 EVENT_CANCELLED = "run.cancelled"
+#: One step of a cancellation, not the whole of it. #818 asks for cancellation
+#: to be "explicitly two-phase: requested/acknowledged/terminated/reconciled",
+#: and `cancellation_lifecycle` already models that properly -- in a *different*
+#: journal. This is the canonical store learning the same phases, so a reader
+#: of one record does not have to consult the other to know whether a stop was
+#: asked for, seen, or confirmed.
+EVENT_CANCEL_PHASE = "run.cancel_phase"
 EVENT_FINISHED = "run.finished"
 EVENT_VERIFIED = "run.verified"
 EVENT_COSTED = "run.cost_recorded"
@@ -83,9 +98,10 @@ EVENT_PRIVACY = {
     EVENT_STARTED: PRIVACY_INTERNAL,
     EVENT_TRANSITIONED: PRIVACY_INTERNAL,
     EVENT_COSTED: PRIVACY_INTERNAL,
-    # These three carry a reason or a detail, which is free-form by design.
+    # These carry a reason or a detail, which is free-form by design.
     EVENT_FINISHED: PRIVACY_SENSITIVE,
     EVENT_CANCELLED: PRIVACY_SENSITIVE,
+    EVENT_CANCEL_PHASE: PRIVACY_SENSITIVE,
     EVENT_VERIFIED: PRIVACY_SENSITIVE,
 }
 
@@ -96,12 +112,39 @@ def privacy_class_for(event_type: str) -> str:
     return EVENT_PRIVACY.get(str(event_type), PRIVACY_SENSITIVE)
 
 
+#: How much of a terminal reason the `runs` row keeps. The event payload keeps
+#: more (``journal_store.MAX_PAYLOAD_STRING``), so anything comparing the two --
+#: ``journal_projections.run_table_parity`` -- has to compare this much.
+TERMINAL_REASON_CHARS = 500
+
+#: Run states that mean a process is *executing* the run, not just describing
+#: it. A process that saves one of these is the run's owner from then on.
+#:
+#: Read from the lifecycle contract rather than listed: active states whose
+#: work is in progress -- preparing, running, verifying -- and not `queued`,
+#: which is active but waiting for somebody to pick it up. A hand-written set
+#: here was a second lifecycle vocabulary, which `test_lifecycle_authority`
+#: exists to refuse.
+_EXECUTING_STATES = frozenset(
+    state
+    for state, spec in generated_lifecycle.STATE_SPECS.items()
+    if spec.get("classification") == "active"
+    and spec.get("presentation_category") == "progress"
+)
+
+
 class _TerminalRunReadmitted(Exception):
     """Internal: a finished run was admitted again. Rolls the transaction back."""
 
 
+#: A heartbeat's patience for the write lock. See :func:`beat_lease`.
+HEARTBEAT_BUSY_TIMEOUT_SECONDS = 0.05
+
+
 @contextmanager
-def _store(root: Path) -> Iterator[sqlite3.Connection | None]:
+def _store(
+    root: Path, *, timeout: float = journal_store.BUSY_TIMEOUT_SECONDS
+) -> Iterator[sqlite3.Connection | None]:
     """Open the journal, yielding ``None`` when it cannot be opened.
 
     Callers treat ``None`` as "skip the mirror", which is the whole
@@ -110,7 +153,7 @@ def _store(root: Path) -> Iterator[sqlite3.Connection | None]:
 
     connection = None
     try:
-        connection = open_store(root)
+        connection = open_store(root, timeout=timeout)
     except (sqlite3.DatabaseError, JournalStoreError, OSError, ValueError):
         yield None
         return
@@ -257,19 +300,53 @@ def _admit_on(
             " ON CONFLICT(run_id) DO NOTHING",
             (run_id, task_id, resolved_attempt, route, model, now, now),
         )
-    fence = acquire_lease(store, run_id=run_id, owner=surface, now=now)
-    append_event(
-        store,
-        event_type=EVENT_ADMITTED,
-        payload={"mode": mode, "model": model, "route": route},
-        privacy_class=privacy_class_for(EVENT_ADMITTED),
-        occurred_at=now,
-        recorded_at=now,
-        producer=surface,
-        run_id=run_id,
-        expected_fence=fence,
-    )
+        # Lease and admitted event inside the same transaction as the rows:
+        # the module docstring promised "together, or none of them", and until
+        # _transaction could be joined these were two more commits after it.
+        fence = _take_lease(store, run_id=run_id, surface=surface, now=now)
+        append_event(
+            store,
+            event_type=EVENT_ADMITTED,
+            payload={"mode": mode, "model": model, "route": route},
+            privacy_class=privacy_class_for(EVENT_ADMITTED),
+            occurred_at=now,
+            recorded_at=now,
+            producer=surface,
+            run_id=run_id,
+            expected_fence=fence,
+        )
     return fence
+
+
+def _take_lease(
+    store: sqlite3.Connection, *, run_id: str, surface: str, now: str
+) -> int:
+    """Take (or take over) ``run_id``'s lease for *this* process."""
+
+    return acquire_lease(
+        store,
+        run_id=run_id,
+        owner=surface,
+        now=now,
+        # The surface says "gui"; this says which gui. Reusing owner_lease's
+        # boot id rather than minting a second one is deliberate: the two
+        # authorities #818 has to reconcile now name the same process with the
+        # same identifier, so a later comparison between them is a comparison
+        # and not a translation.
+        owner_pid=os.getpid(),
+        owner_boot=owner_lease.boot_id(),
+    )
+
+
+def _held_by_this_process(store: sqlite3.Connection, run_id: str) -> bool:
+    row = store.execute(
+        "SELECT owner_pid, owner_boot FROM leases WHERE run_id = ?", (run_id,)
+    ).fetchone()
+    if row is None:
+        return False
+    return row["owner_pid"] == os.getpid() and str(row["owner_boot"] or "") == str(
+        owner_lease.boot_id()
+    )
 
 
 def record_event(
@@ -361,7 +438,12 @@ def _terminal_on(
     fence: int | None = None,
     producer: str = "gui",
 ) -> None:
-    """The terminal write on an already-open connection. See :func:`_admit_on`."""
+    """The terminal write on an already-open connection. See :func:`_admit_on`.
+
+    Verdict, event and lease release are one transaction. They were three, so
+    a crash after the first left a run the `runs` table called finished and
+    the event log did not -- and a lease still held on it.
+    """
 
     with journal_store._transaction(store):
         # The fence is checked *before* the update, inside the same
@@ -381,21 +463,27 @@ def _terminal_on(
         store.execute(
             "UPDATE runs SET observed_state = ?, terminal_verdict = ?,"
             " terminal_reason = ?, updated_at = ? WHERE run_id = ?",
-            (verdict, verdict, journal_store.redact(str(reason))[:500], now, run_id),
+            (
+                verdict,
+                verdict,
+                journal_store.redact(str(reason))[:TERMINAL_REASON_CHARS],
+                now,
+                run_id,
+            ),
         )
-    append_event(
-        store,
-        event_type=event_type,
-        payload={"verdict": verdict, "reason": reason},
-        privacy_class=privacy_class_for(event_type),
-        occurred_at=now,
-        recorded_at=now,
-        producer=producer,
-        run_id=run_id,
-        expected_fence=fence,
-    )
-    if fence is not None:
-        journal_store.release_lease(store, run_id=run_id, fence=fence, now=now)
+        append_event(
+            store,
+            event_type=event_type,
+            payload={"verdict": verdict, "reason": reason},
+            privacy_class=privacy_class_for(event_type),
+            occurred_at=now,
+            recorded_at=now,
+            producer=producer,
+            run_id=run_id,
+            expected_fence=fence,
+        )
+        if fence is not None:
+            journal_store.release_lease(store, run_id=run_id, fence=fence, now=now)
 
 
 def live_fence(root: Path, run_id: str) -> int | None:
@@ -489,17 +577,41 @@ def record_run_snapshot(
                     attempt=None,
                 )
             else:
-                append_event(
-                    store,
-                    event_type=EVENT_TRANSITIONED,
-                    payload={"state": state, **details},
-                    privacy_class=privacy_class_for(EVENT_TRANSITIONED),
-                    occurred_at=now,
-                    recorded_at=now,
-                    producer=surface,
-                    run_id=run_id,
-                    expected_fence=fence,
-                )
+                with journal_store._transaction(store):
+                    if state in _EXECUTING_STATES and not _held_by_this_process(
+                        store, run_id
+                    ):
+                        # #818 review finding 1, reproduced: the lease named
+                        # whoever *first* saved the run. For a background run
+                        # that is `automation enqueue`, which exits at once --
+                        # `automation run` executes it in a second process
+                        # that never took the lease over. A concurrent
+                        # `automation recover` then saw the owner gone and
+                        # wrote "the owning session ended" onto a live run,
+                        # the exact false record the liveness check exists
+                        # to prevent. The reverse held too: a GUI that only
+                        # queued a run kept it looking owned for hours after
+                        # the process running it had died.
+                        #
+                        # The process executing a run owns it. Only these
+                        # states transfer ownership: a cancel request or a
+                        # recovery sweep from another process describes the
+                        # run without running it, and must not fence out the
+                        # process that is.
+                        fence = _take_lease(
+                            store, run_id=run_id, surface=surface, now=now
+                        )
+                    append_event(
+                        store,
+                        event_type=EVENT_TRANSITIONED,
+                        payload={"state": state, **details},
+                        privacy_class=privacy_class_for(EVENT_TRANSITIONED),
+                        occurred_at=now,
+                        recorded_at=now,
+                        producer=surface,
+                        run_id=run_id,
+                        expected_fence=fence,
+                    )
 
             if verdict:
                 _terminal_on(
@@ -526,6 +638,33 @@ def _is_settled(store: sqlite3.Connection, run_id: str) -> bool:
         "SELECT terminal_verdict FROM runs WHERE run_id = ?", (run_id,)
     ).fetchone()
     return bool(row is not None and row["terminal_verdict"])
+
+
+def _fence_for_late_evidence(
+    store: sqlite3.Connection, run_id: str, fence: int | None
+) -> tuple[int | None, bool]:
+    """Which fence a piece of after-the-fact evidence should be written under.
+
+    Evidence does not always arrive before the run it describes ends. #818's
+    qualification names two of these outright -- "late provider completion" and
+    "delayed usage reporting" -- and a provider CLI reporting its usage after
+    OPai has already filed the turn is the ordinary way to reach them.
+
+    ``record_terminal`` releases the lease, so a fenced append is refused from
+    that moment on. That refusal is right for a *stale* writer and wrong here:
+    there is no current holder for a settled run to be stale relative to. A
+    writer fenced out by a genuine takeover is a different shape entirely --
+    takeover leaves a new, unreleased lease, so the run is not settled and this
+    path is never taken.
+
+    Returns the fence to use and whether the run had already ended, so the
+    caller can say so in the payload rather than filing late evidence as though
+    it arrived on time.
+    """
+
+    if not _is_settled(store, run_id):
+        return fence, False
+    return None, True
 
 
 def record_run_cost(
@@ -557,6 +696,10 @@ def record_run_cost(
 
     with _store(root) as store:
         if store is None:
+            return False
+        try:
+            fence, after_terminal = _fence_for_late_evidence(store, run_id, fence)
+        except (sqlite3.DatabaseError, JournalStoreError):
             return False
         try:
             journal_store.record_operation(
@@ -593,6 +736,10 @@ def record_run_cost(
                 "amount_usd": float(amount_usd),
                 "measurement_kind": measurement_kind,
                 "model": model,
+                # Recorded rather than hidden: a reader replaying this history
+                # must be able to tell spend that arrived while the run was
+                # live from spend that turned up after it was filed.
+                "after_terminal": after_terminal,
             },
             producer=producer,
         )
@@ -618,10 +765,16 @@ def record_verification(
     keep that pairing.
     """
 
+    after_terminal = False
     with _store(root) as store:
         if store is None:
             return False
         try:
+            # Resolved before the artifact write, because that write asserts
+            # the fence too -- and a settled run has no live lease to assert
+            # against, so leaving it until afterwards refused the whole record
+            # rather than only its event.
+            fence, after_terminal = _fence_for_late_evidence(store, run_id, fence)
             with journal_store._transaction(store):
                 if fence is not None:
                     journal_store._assert_fence(store, run_id, fence)
@@ -647,6 +800,10 @@ def record_verification(
                 "verdict": verdict,
                 "policy_digest": policy_digest,
                 "manifest_digest": manifest_digest,
+                # A verification that lands after the verdict is a
+                # contradiction worth keeping, not one to drop silently: it is
+                # evidence that the terminal state was reached without it.
+                "after_terminal": after_terminal,
             },
             producer=producer,
         )
@@ -654,7 +811,126 @@ def record_verification(
     )
 
 
-def unterminated_runs(root: Path, *, limit: int = 100) -> list[dict[str, Any]]:
+def beat_lease(root: Path, *, run_id: str, now: str) -> bool:
+    """Restamp the heartbeat on a lease **this process holds**. Never raises.
+
+    The identity check is the whole guard, and it is the rule ``owner_lease``
+    states for the file it keeps: "refreshing someone else's lease would keep a
+    dead owner looking alive forever, which is the exact failure this module
+    exists to prevent". So the update matches on pid *and* boot id, and a
+    process that has been superseded restamps nothing.
+
+    No fence is needed for the same reason. A fence proves you were the current
+    holder at acquisition; the identity proves you are the process that
+    acquired it, which is the stronger claim here -- a lease taken over by
+    somebody else no longer carries our identity, so the update simply matches
+    no rows.
+
+    Best-effort, like every other mirror on this path: a heartbeat that cannot
+    be written costs evidence, never the turn it describes.
+
+    **It never waits for the write lock.** It runs on the turn's own thread,
+    between streamed chunks, and it used to open the store with the ordinary
+    ten-second busy timeout -- so a backup, compaction or migration holding
+    the lock froze a streaming answer for about eleven seconds (#818 review
+    finding 8, reproduced). A beat that finds the lock taken is skipped; the
+    next one comes a heartbeat interval later, and a missed beat is exactly as
+    harmless as the docstring above says a failed one is.
+    """
+
+    if not str(run_id).strip():
+        return False
+    if not journal_store.journal_path(root).exists():
+        return False
+    with _store(root, timeout=HEARTBEAT_BUSY_TIMEOUT_SECONDS) as store:
+        if store is None:
+            return False
+        try:
+            with journal_store._transaction(store):
+                cursor = store.execute(
+                    "UPDATE leases SET heartbeat_at = ?"
+                    " WHERE run_id = ? AND released_at IS NULL"
+                    " AND owner_pid = ? AND owner_boot = ?",
+                    (now, run_id, os.getpid(), owner_lease.boot_id()),
+                )
+                return cursor.rowcount > 0
+        except (sqlite3.DatabaseError, JournalStoreError, TypeError, ValueError):
+            return False
+
+
+def record_cancellation_phase(
+    root: Path,
+    *,
+    run_id: str,
+    phase: str,
+    reason_code: str,
+    now: str,
+    producer: str = "cancellation",
+) -> bool:
+    """Mirror one accepted cancellation phase into the canonical journal.
+
+    The phases themselves are decided and made durable by
+    ``cancellation_lifecycle``, which is deliberately left as the authority:
+    it holds the lock that makes two racing cancellations converge, and a
+    mirror that tried to re-decide anything would be a second opinion on the
+    one question #380 exists to give a single answer to.
+
+    So this records, and only records. It is called after the transition has
+    already been accepted, outside that lock, and every failure is swallowed --
+    a cancellation must never be slowed or refused by its own bookkeeping.
+
+    A scope with no journalled run simply writes nothing: the event table's
+    ``run_id`` is a foreign key, so an unknown run is refused by the store
+    rather than inventing a row for it.
+    """
+
+    if not str(run_id).strip() or not str(phase).strip():
+        return False
+    if not journal_store.journal_path(root).exists():
+        return False
+    # One connection, one transaction. This used to read the fence, close the
+    # store, and open it again to append -- twice the cost, and room for the
+    # fence to change between the reading and the writing.
+    with _store(root) as store:
+        if store is None:
+            return False
+        try:
+            with journal_store._transaction(store):
+                fence, after_terminal = _fence_for_late_evidence(
+                    store, run_id, _live_fence_on(store, run_id)
+                )
+                append_event(
+                    store,
+                    event_type=EVENT_CANCEL_PHASE,
+                    payload={
+                        "phase": str(phase),
+                        "reason_code": str(reason_code or ""),
+                        # A `terminated` that lands after the run was filed is
+                        # the normal shape of a confirmed teardown, not an
+                        # anomaly -- but replay still has to be able to see
+                        # which side of the verdict it arrived on.
+                        "after_terminal": after_terminal,
+                    },
+                    privacy_class=privacy_class_for(EVENT_CANCEL_PHASE),
+                    occurred_at=now,
+                    recorded_at=now,
+                    producer=producer,
+                    run_id=run_id,
+                    expected_fence=fence,
+                )
+            return True
+        except StaleWriterError:
+            return False
+        except (sqlite3.DatabaseError, JournalStoreError, TypeError, ValueError):
+            return False
+
+
+def unterminated_runs(
+    root: Path,
+    *,
+    limit: int = 100,
+    is_pid_running: Callable[[int], bool | None] = call_reconciliation.pid_is_running,
+) -> list[dict[str, Any]]:
     """Runs this installation admitted and never recorded an ending for.
 
     #613 opens by describing this exact state:
@@ -670,14 +946,22 @@ def unterminated_runs(root: Path, *, limit: int = 100) -> list[dict[str, Any]]:
 
     **It reports rather than concludes.** An unterminated run with a lease
     still held is either running right now or was abandoned by a process that
-    died before releasing it, and nothing in this database can tell those
-    apart: a lease is released by ``record_terminal``, not by a process
-    exiting. So each row carries the owner and the heartbeat and lets the
-    caller decide, because the caller can look at whether that process still
-    exists and this module cannot.
+    died before releasing it: a lease is released by ``record_terminal``, not
+    by a process exiting.
 
-    Inventing the distinction here is precisely the failure this issue exists
-    to remove -- a plausible answer with nothing behind it.
+    This used to be unanswerable, and said so -- each row carried "the owner",
+    which was the string ``"gui"``, and told the caller to go and check whether
+    that process still existed. It could not. #818 gives the lease a real
+    process identity, so ``owner_liveness`` can now answer, in the closed
+    vocabulary ``journal_liveness`` owns.
+
+    What has not changed is the refusal. A pid that is not running is
+    conclusive; a pid that is running is not, because pids get reused, and that
+    case reports ``owner_unverified`` rather than being rounded up to "alive".
+    A lease written before the identity columns existed reports ``unknown``.
+    Inventing the distinction where the evidence does not reach is still the
+    failure this issue exists to remove -- a plausible answer with nothing
+    behind it.
     """
 
     if not journal_store.journal_path(root).exists():
@@ -690,7 +974,9 @@ def unterminated_runs(root: Path, *, limit: int = 100) -> list[dict[str, Any]]:
                 "SELECT r.run_id, r.task_id, r.attempt, r.observed_state,"
                 " r.created_at, r.updated_at,"
                 " l.owner AS lease_owner, l.heartbeat_at AS lease_heartbeat_at,"
-                " l.released_at AS lease_released_at"
+                " l.released_at AS lease_released_at,"
+                " l.acquired_at AS lease_acquired_at,"
+                " l.owner_pid, l.owner_boot"
                 " FROM runs r LEFT JOIN leases l ON l.run_id = r.run_id"
                 " WHERE r.terminal_verdict IS NULL OR r.terminal_verdict = ''"
                 " ORDER BY r.created_at LIMIT ?",
@@ -702,24 +988,102 @@ def unterminated_runs(root: Path, *, limit: int = 100) -> list[dict[str, Any]]:
     for row in rows:
         entry = dict(row)
         # Named for what it is: somebody still holds the lease. Whether that
-        # somebody is alive is a question for a caller with a process table.
+        # somebody is alive is a separate question, answered below.
         entry["lease_held"] = bool(
             entry.get("lease_owner") and not entry.get("lease_released_at")
+        )
+        # #818: the caller no longer has to go and find the process itself.
+        # The lease names one, so the question can be asked here -- and the
+        # vocabulary keeps its refusals: `unknown` for a pre-migration lease
+        # with no pid, `owner_unverified` for a pid that exists but cannot be
+        # proved to be the same process. Neither is upgraded into "alive".
+        entry["owner_liveness"] = journal_liveness.owner_liveness(
+            entry, is_pid_running=is_pid_running
         )
         pending.append(entry)
     return pending
 
 
-def unterminated_summary(root: Path) -> dict[str, Any]:
-    """Counts for doctor, without a verdict attached to them."""
+def _why_unopenable(root: Path) -> str:
+    """The word for a journal that would not open.
 
-    facts: dict[str, Any] = {"available": False, "unterminated": 0, "lease_held": 0}
+    ``_store`` swallows every open failure alike, and the two that matter need
+    different words: "a newer OPai wrote this" points at an upgrade;
+    "unreadable" points at a corrupt file, and sending someone to the wrong
+    one of those wastes their evening.
+    """
+
+    if journal_store.written_by_a_newer_opai(root):
+        return "incompatible"
+    # Inside `reading_only` a journal needing a migration is refused rather
+    # than upgraded; everywhere else it would have opened.
+    if journal_store.migration_pending(root):
+        return "migration pending"
+    return "unreadable"
+
+
+def unterminated_summary(
+    root: Path,
+    *,
+    is_pid_running: Callable[[int], bool | None] = call_reconciliation.pid_is_running,
+) -> dict[str, Any]:
+    """Counts for doctor, and now a breakdown by who still owns the work.
+
+    ``abandoned`` is the count a recovery pass can act on: runs whose owning
+    process is provably gone. It is deliberately narrower than "not owned
+    here" -- an unverified owner is excluded, because offering to recover work
+    another OPai is doing is the mistake this whole mechanism is built to
+    avoid.
+    """
+
+    facts: dict[str, Any] = {
+        "available": False,
+        # Why the counts below are not an answer, when they are not one.
+        # "" means they are.
+        "unavailable_reason": "",
+        "unterminated": 0,
+        "lease_held": 0,
+        "abandoned": 0,
+        "by_owner": {verdict: 0 for verdict in journal_liveness.VERDICTS},
+    }
     if not journal_store.journal_path(root).exists():
+        facts["unavailable_reason"] = "no_journal"
         return facts
-    pending = unterminated_runs(root, limit=10_000)
+
+    # `available` means the store was *read*, not that a file exists. It used
+    # to mean the latter, so an unreadable journal reported
+    # `available: True, unterminated: 0` -- indistinguishable from a healthy
+    # journal with nothing pending. This is the report a recovery pass makes
+    # after a crash, which is the worst possible moment to answer "nothing to
+    # worry about" when the truth is "I could not look".
+    #
+    # Found by running an older build against a journal a newer one had
+    # migrated -- a downgrade this branch's schema bump makes reachable.
+    # `store_health` said "incompatible" loudly and this said zero.
+    with _store(root) as store:
+        if store is None:
+            facts["unavailable_reason"] = _why_unopenable(root)
+            return facts
+        try:
+            report = journal_store.check_integrity(store)
+        except (sqlite3.DatabaseError, JournalStoreError):
+            facts["unavailable_reason"] = "unreadable"
+            return facts
+    if not report.usable:
+        # `usable` already treats `degraded` as serviceable -- some rows are
+        # unreadable and the critical state is not unknown -- so only corrupt
+        # and incompatible stop the count meaning anything.
+        facts["unavailable_reason"] = report.state
+        return facts
+
+    pending = unterminated_runs(root, limit=10_000, is_pid_running=is_pid_running)
     facts["available"] = True
     facts["unterminated"] = len(pending)
     facts["lease_held"] = sum(1 for entry in pending if entry["lease_held"])
+    for entry in pending:
+        verdict = str(entry.get("owner_liveness") or journal_liveness.OWNER_UNKNOWN)
+        facts["by_owner"][verdict] = facts["by_owner"].get(verdict, 0) + 1
+    facts["abandoned"] = facts["by_owner"][journal_liveness.OWNER_GONE]
     return facts
 
 
@@ -742,11 +1106,181 @@ def _summary(task: str, *, limit: int = 200) -> str:
     return journal_store.redact(text)[:limit]
 
 
+def unevidenced_completions(root: Path) -> dict[str, Any]:
+    """Which runs are recorded as completed with nothing behind the verdict.
+
+    #818 AC6 asks that ``completed`` be impossible without the required
+    objective, verification and delivery evidence. It is not: the store
+    accepts whatever verdict a caller hands it, and a run admitted and
+    immediately terminated as ``completed`` -- no verification event, no
+    artifact, no cost, no recorded ending beyond the verdict itself -- is
+    written without complaint. Measured, not inferred.
+
+    This does not refuse the write, and that restraint is deliberate. Every
+    mirror in this module records rather than re-decides, because the layer
+    that *can* decide is the completion machinery in ``opaihub.completion``
+    which has the answer, the diff and the policy in front of it. A journal
+    that started overruling verdicts would be a second opinion on the one
+    question the epic exists to give a single answer to -- and refusing to
+    record a terminal state would leave the run reading as unfinished, which
+    is a worse lie than an unevidenced completion.
+
+    So it counts, and makes the gap addressable. Enforcement is Stage 5's, and
+    it needs these numbers to be zero first.
+
+    **Two numbers, because one of them flatters.** ``unevidenced`` is the weak
+    bar: a run with no trace of any kind -- no ``run.verified`` event, no
+    verification manifest, no recorded cost. ``without_verification`` is the
+    bar AC6 actually sets, which names objective, verification and delivery
+    evidence and does not mention cost at all.
+
+    The distinction is not academic. On the journal of the machine this was
+    written on: 21 completed runs, **0** unevidenced, **20** with no
+    verification. Every real turn records a cost, so the weak number reads as
+    a clean bill of health for a criterion that is plainly unmet. Reporting
+    only that would have been this epic's own failure -- a confident answer
+    with the inconvenient half left out.
+    """
+
+    # Every key present on every path: a caller must not have to know which
+    # branch produced a report to read it.
+    empty: dict[str, Any] = {
+        "available": False,
+        "unavailable_reason": "",
+        "completed": 0,
+        "unevidenced": 0,
+        "without_verification": 0,
+        "run_ids": [],
+        "unverified_run_ids": [],
+    }
+    with _store(root) as store:
+        if store is None:
+            empty["unavailable_reason"] = _why_unopenable(root)
+            return empty
+        try:
+            rows = store.execute(
+                "SELECT r.run_id AS run_id,"
+                " (SELECT COUNT(*) FROM events e WHERE e.run_id = r.run_id"
+                "  AND e.event_type = ?) AS verifications,"
+                " (SELECT COUNT(*) FROM artifacts a WHERE a.identity = r.run_id"
+                "  AND a.kind = 'verification_manifest') AS manifests,"
+                " (SELECT COUNT(*) FROM events e WHERE e.run_id = r.run_id"
+                "  AND e.event_type = ?) AS costs"
+                " FROM runs r WHERE r.terminal_verdict = 'completed'"
+                " ORDER BY r.run_id",
+                (EVENT_VERIFIED, EVENT_COSTED),
+            ).fetchall()
+        except (sqlite3.DatabaseError, JournalStoreError):
+            empty["unavailable_reason"] = "unreadable"
+            return empty
+
+    bare = [
+        str(row["run_id"])
+        for row in rows
+        if not (row["verifications"] or row["manifests"] or row["costs"])
+    ]
+    # AC6 names objective, verification and delivery evidence. It does not
+    # name cost, and every real turn records one -- so counting cost as
+    # evidence makes the weak number read as zero on a journal where the
+    # criterion is plainly unmet.
+    unverified = [
+        str(row["run_id"])
+        for row in rows
+        if not (row["verifications"] or row["manifests"])
+    ]
+    return {
+        "available": True,
+        "unavailable_reason": "",
+        "completed": len(rows),
+        "unevidenced": len(bare),
+        "without_verification": len(unverified),
+        # Bounded: a report is for acting on, and a thousand ids is a dump.
+        "run_ids": bare[:50],
+        "unverified_run_ids": unverified[:50],
+    }
+
+
+def unconfirmed_cancellations(root: Path) -> dict[str, Any]:
+    """Runs recorded as cancelled with nothing showing the work stopped.
+
+    #818 AC5 asks that ``cancelled`` be impossible while owned controllable
+    work is still alive. It is not. Measured with two real processes: a
+    process holding no fence for a run can write ``cancelled`` for it while
+    the owning process is demonstrably still running, and the store accepts it.
+
+    And on this repository's own journal, all six cancelled runs carry no
+    cancellation-phase evidence at all -- every one says the run stopped, and
+    not one records that anything did.
+
+    Evidence here means a ``run.cancel_phase`` event that reached
+    ``terminated``. ``cancellation_lifecycle`` already models the full ladder
+    (requested, acknowledged, draining, force_terminating, terminated), and
+    ``terminated`` is the phase that means *confirmed stopped* rather than
+    *asked to stop*. A terminal ``cancelled`` verdict with no terminated phase
+    behind it is a claim about the world nobody checked.
+
+    Like :func:`unevidenced_completions` this counts rather than refuses, and
+    for a stronger reason than consistency: a Stop that OPai declined to
+    record would be a Stop the user pressed and did not get. Refusing here
+    would trade a reporting fault for a blocking one, which is the wrong
+    trade in every case. So the write stands and the gap is made visible.
+    """
+
+    empty: dict[str, Any] = {
+        "available": False,
+        "unavailable_reason": "",
+        "cancelled": 0,
+        "unconfirmed": 0,
+        "run_ids": [],
+    }
+    with _store(root) as store:
+        if store is None:
+            empty["unavailable_reason"] = _why_unopenable(root)
+            return empty
+        try:
+            rows = store.execute(
+                "SELECT run_id FROM runs WHERE terminal_verdict = 'cancelled'"
+                " ORDER BY run_id"
+            ).fetchall()
+            confirmed: set[str] = set()
+            for event in store.execute(
+                "SELECT run_id, payload FROM events WHERE event_type = ?",
+                (EVENT_CANCEL_PHASE,),
+            ):
+                run_id = str(event["run_id"] or "")
+                if not run_id:
+                    continue
+                # The payload is JSON text and an unreadable one proves
+                # nothing, so it simply does not count as evidence.
+                try:
+                    phase = str(
+                        (json.loads(event["payload"] or "{}") or {}).get("phase") or ""
+                    )
+                except (TypeError, ValueError):
+                    continue
+                if phase == "terminated":
+                    confirmed.add(run_id)
+        except (sqlite3.DatabaseError, JournalStoreError):
+            empty["unavailable_reason"] = "unreadable"
+            return empty
+
+    bare = [str(row["run_id"]) for row in rows if str(row["run_id"]) not in confirmed]
+    return {
+        "available": True,
+        "unavailable_reason": "",
+        "cancelled": len(rows),
+        "unconfirmed": len(bare),
+        # Bounded: a report is for acting on, not for dumping.
+        "run_ids": bare[:50],
+    }
+
+
 __all__ = (
     "EVENT_ADMITTED",
     "EVENT_PRIVACY",
     "EVENT_COSTED",
     "EVENT_CANCELLED",
+    "EVENT_CANCEL_PHASE",
     "EVENT_FINISHED",
     "EVENT_STARTED",
     "EVENT_VERIFIED",
@@ -754,8 +1288,12 @@ __all__ = (
     "record_admission",
     "unterminated_runs",
     "unterminated_summary",
+    "unevidenced_completions",
+    "unconfirmed_cancellations",
     "record_run_cost",
     "record_verification",
+    "record_cancellation_phase",
     "record_event",
     "record_terminal",
+    "beat_lease",
 )

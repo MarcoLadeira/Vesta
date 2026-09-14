@@ -109,9 +109,7 @@ _REGISTRY: dict[str, tuple[ModelSpec, ...]] = {
         ),
     ),
     "codex": (
-        ModelSpec(
-            "gpt-5.6-sol", "GPT-5.6 Sol", "GPT-5.6 Sol", "best", ("gpt-5.6",)
-        ),
+        ModelSpec("gpt-5.6-sol", "GPT-5.6 Sol", "GPT-5.6 Sol", "best", ("gpt-5.6",)),
         ModelSpec("gpt-5.6-terra", "GPT-5.6 Terra", "GPT-5.6 Terra", "balanced"),
         ModelSpec("gpt-5.6-luna", "GPT-5.6 Luna", "GPT-5.6 Luna", "fast"),
         ModelSpec("gpt-5.5", "GPT-5.5", "GPT-5.5", "best"),

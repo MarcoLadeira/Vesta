@@ -399,8 +399,6 @@ def _call_tool_loop(
     return plan.invoke(task, compiled)
 
 
-
-
 def run_explicit_model(
     project_root: Path,
     task: str,

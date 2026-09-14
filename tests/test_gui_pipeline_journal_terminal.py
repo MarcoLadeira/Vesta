@@ -20,13 +20,20 @@ from __future__ import annotations
 
 import contextlib
 import tempfile
+import sqlite3
 import unittest
 from pathlib import Path
 from unittest import mock
 
 from opaihub import gui_pipeline, journal_runtime
-from opaihub.journal_runtime import EVENT_ADMITTED, EVENT_CANCELLED, EVENT_FINISHED
-from opaihub.journal_store import open_store, read_events
+from opaihub.cost_telemetry import normalize_account_result
+from opaihub.journal_runtime import (
+    EVENT_ADMITTED,
+    EVENT_CANCELLED,
+    EVENT_FINISHED,
+    record_admission,
+)
+from opaihub.journal_store import journal_path, open_store, read_events
 
 NOW = "2026-08-25T12:00:00+00:00"
 _UNSET = object()
@@ -70,7 +77,10 @@ class _TerminalFixture(unittest.TestCase):
 
 class EveryExitClosesTheRunTests(_TerminalFixture):
     def test_a_completed_turn_records_a_finish(self):
-        self._run_wrapper(result={"status": "completed", "answer": "done"})
+        # The engine's own canonical state, as every decorated result carries.
+        self._run_wrapper(
+            result={"status": "completed", "run_state": "completed", "answer": "done"}
+        )
 
         self.assertEqual(self._events(), [EVENT_ADMITTED, EVENT_FINISHED])
         self.assertEqual(self._verdict(), "completed")
@@ -109,29 +119,55 @@ class EveryExitClosesTheRunTests(_TerminalFixture):
         self.assertEqual(self._events().count(EVENT_FINISHED), 1)
 
 
-class UnknownStatusesAreNotGuessedAsFailuresTests(_TerminalFixture):
+class UnknownStatusesAreNotGuessedTests(_TerminalFixture):
     """A fabricated verdict would look exactly like a real contradiction.
 
     Stage 4 compares journal against legacy. Inventing "failed" for a status
     nobody mapped would produce a difference that is entirely this module's
     fault, and would be indistinguishable from the real divergences the
     comparison exists to surface.
+
+    That reasoning was right and this class used to stop halfway through it.
+    It concluded that the ending should therefore be recorded as *completed* --
+    which is equally fabricated, and fabricated in the direction that matters,
+    because #818's closing evidence has to show zero false completion. Seven
+    of the status strings the pipeline actually emits fell through that
+    default, `timeout` and `provider_blocked` among them.
+
+    ``unknown`` is the answer the argument actually supports: not a success,
+    not a failure, so it cannot invent a contradiction of either kind. The run
+    ended; how it ended is not known.
     """
 
-    def test_an_unrecognised_status_is_treated_as_a_completion(self):
+    def test_an_unrecognised_status_is_recorded_as_unknown(self):
         self._run_wrapper(result={"status": "some_new_status_nobody_mapped"})
 
-        self.assertEqual(self._verdict(), "completed")
+        self.assertEqual(self._verdict(), "unknown")
 
-    def test_a_result_with_no_status_is_treated_as_a_completion(self):
+    def test_an_unrecognised_status_is_not_recorded_as_a_success(self):
+        self._run_wrapper(result={"status": "some_new_status_nobody_mapped"})
+
+        self.assertNotEqual(self._verdict(), "completed")
+
+    def test_an_unrecognised_status_is_not_recorded_as_a_failure(self):
+        self._run_wrapper(result={"status": "some_new_status_nobody_mapped"})
+
+        self.assertNotEqual(self._verdict(), "failed")
+
+    def test_a_result_with_no_status_is_not_a_completion(self):
+        """#818 review finding 15: the wrapper defaulted a missing status to
+        "completed". A turn that says nothing about how it ended did not
+        thereby succeed."""
+
         self._run_wrapper(result={"answer": "done"})
 
-        self.assertEqual(self._verdict(), "completed")
+        self.assertEqual(self._verdict(), "unknown")
 
     def test_a_none_result_does_not_crash_the_wrapper(self):
         self._run_wrapper(result=None)
 
-        self.assertEqual(self._verdict(), "completed")
+        # Ended, unnamed -- never a success, and never left running.
+        self.assertEqual(self._verdict(), "unknown")
 
     def test_a_duplicate_request_is_recorded_as_such(self):
         """Not an error and not a fresh run: it attached to one in flight."""
@@ -189,6 +225,100 @@ class BookkeepingNeverFailsAFinishedTurnTests(_TerminalFixture):
         ):
             with self.assertRaises(RuntimeError):
                 self._run_wrapper(error=RuntimeError("the real problem"))
+
+
+class TheJournalRecordsHowWellItKnowsACostTests(unittest.TestCase):
+    """#818: "unknown cost is never represented as zero", in the store itself.
+
+    `CostTelemetry` already reports how the number was arrived at --
+    `normalize_account_result` returns "actual" when a provider gave a real
+    dollar figure (Claude does) and "estimated" when it did not (Codex). The
+    mirror hard-coded "estimated" over the top, which is why every cost event
+    in a real journal reads as an estimate and not one reads as actual.
+
+    The zero mattered more. `cost_usd` is deliberately `None` for a call whose
+    price nobody measured, and `or 0.0` turned that into a recorded $0.00. The
+    store has had an `unavailable` measurement kind since v1, with no writer.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        self.fence = record_admission(
+            self.root,
+            task_id="t",
+            run_id="r1",
+            task="a turn",
+            now="2026-09-08T10:00:00+00:00",
+            surface="gui",
+        )
+
+    def _record(self, telemetry, *, key: str) -> None:
+        token = gui_pipeline._JOURNAL_RUN.set({"run_id": "r1", "fence": self.fence})
+        try:
+            gui_pipeline._journal_cost(self.root, telemetry, operation_key=key)
+        finally:
+            gui_pipeline._JOURNAL_RUN.reset(token)
+
+    def _cost_rows(self):
+        connection = sqlite3.connect(journal_path(self.root))
+        connection.row_factory = sqlite3.Row
+        try:
+            return {
+                str(row["operation_key"]): (
+                    float(row["amount"]),
+                    str(row["measurement_kind"]),
+                )
+                for row in connection.execute(
+                    "SELECT operation_key, amount, measurement_kind FROM cost_events"
+                )
+            }
+        finally:
+            connection.close()
+
+    def test_a_measured_cost_is_recorded_as_actual(self):
+        self._record(
+            normalize_account_result("claude", {"cost_usd": 0.0421}, model="sonnet"),
+            key="r1:claude",
+        )
+
+        self.assertEqual(self._cost_rows()["r1:claude"], (0.0421, "actual"))
+
+    def test_an_unmeasured_cost_is_not_recorded_as_zero_spend(self):
+        """The one that matters. A provider that reported no dollars must not
+        be filed as having cost nothing."""
+
+        self._record(
+            normalize_account_result("codex", {"tokens": 900}, model="gpt-5"),
+            key="r1:codex",
+        )
+
+        _amount, kind = self._cost_rows()["r1:codex"]
+        self.assertEqual(kind, "unavailable")
+        self.assertNotEqual(kind, "estimated")
+
+    def test_a_genuine_zero_is_still_a_measurement(self):
+        """A provider that reported exactly $0.00 measured something."""
+
+        self._record(
+            normalize_account_result("claude", {"cost_usd": 0.0}, model="sonnet"),
+            key="r1:free",
+        )
+
+        self.assertEqual(self._cost_rows()["r1:free"], (0.0, "actual"))
+
+    def test_the_kind_is_one_the_store_accepts(self):
+        """A kind outside the store's vocabulary is refused at the boundary,
+        so a typo here would silently drop the cost instead of raising."""
+
+        for key, telemetry in (
+            ("a", normalize_account_result("claude", {"cost_usd": 1.5})),
+            ("b", normalize_account_result("codex", {})),
+        ):
+            with self.subTest(key=key):
+                self._record(telemetry, key=f"r1:{key}")
+                self.assertIn(key := f"r1:{key}", self._cost_rows(), key)
 
 
 if __name__ == "__main__":  # pragma: no cover - convenience

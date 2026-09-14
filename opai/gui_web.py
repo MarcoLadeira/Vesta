@@ -440,11 +440,20 @@ def _status(root: Path, model_label: str, mode_label: str) -> dict[str, Any]:
         spent = ins["budget"]["spent_today"]
         saved = o["savings"]["estimated_savings_usd"]
         on = bool(o.get("on"))
+        complete = bool(ins["budget"].get("spend_complete", True))
     except Exception:  # noqa: BLE001
-        spent, saved, on = 0.0, 0.0, False
+        # #818: `None`, not `0.0`. This handler catches every way the ledger
+        # can fail to answer, and answering "$0.00 today" to "I could not
+        # read the ledger" is the exact substitution the epic forbids.
+        # `on` stays False because that one really is a different fact:
+        # nothing is running if we cannot see that anything is.
+        spent, saved, on = None, None, False
+        complete = True
     return {
         "on": on,
-        "line": header_status(model_label, mode_label, spent, saved=saved),
+        "line": header_status(
+            model_label, mode_label, spent, saved=saved, spend_complete=complete
+        ),
         "spent": spent,
         "saved": saved,
     }
@@ -527,9 +536,26 @@ def _workspace_refresh(root: Path) -> dict[str, Any]:
 
 
 def _github_row_value(readiness: dict[str, Any]) -> str:
-    """A concise, honest push-readiness line for the inspector (#300)."""
+    """A concise, honest push-readiness line for the inspector (#300).
+
+    "Ready to push & open PRs" is a claim about the future, and it used to be
+    made from ``bool(token)`` -- an expired, revoked, wrong-scope or mistyped
+    token produced the identical line, and the user found out after a run had
+    done all the work. It is now only said when a live check actually said so.
+    """
     if readiness.get("ready"):
-        return "Ready to push & open PRs"
+        verification = str(readiness.get("verification") or "unknown")
+        if verification == "valid" and readiness.get("verification_fresh"):
+            return "Ready to push & open PRs"
+        if verification == "valid":
+            # Checked, but not recently: a token can be revoked a second after
+            # it was verified, so an old check is cited as old, not as ready.
+            return "Token connected \u00b7 last verified over a day ago"
+        if verification == "rejected":
+            return "GitHub rejected this token \u2014 reconnect in Settings"
+        if verification == "unreachable":
+            return "Token connected \u00b7 last check couldn't reach GitHub"
+        return "Token connected \u00b7 not verified yet"
     connect_message = "Connect a token in Settings"
     return {
         "no_token": connect_message,
@@ -723,7 +749,9 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
     # lazily, on the first comparison -- would fingerprint whatever happens to
     # be on disk by then and conclude, permanently and wrongly, that this
     # process is current.
-    try:
+    # suppress() rather than try/except/pass: same intent -- a staleness hint
+    # may never break boot -- and the bare form is what bandit's B110 flags.
+    with contextlib.suppress(Exception):  # noqa: BLE001
         from pathlib import Path as _Path
 
         import opai as _opai
@@ -731,8 +759,6 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
         from opai.update.running_build import prime as _prime_running_build
 
         _prime_running_build(_Path(_opai.__file__).parent / "assets")
-    except Exception:  # noqa: BLE001 - a staleness hint may never break boot
-        pass
     root = root.expanduser().resolve()
     prefs = load_gui_preferences(root)
     # Central autonomy decision (#137): boot into the effective mode, which is
@@ -935,15 +961,21 @@ def _beat_lease(root: Path, request_id: str) -> None:
         pass
 
 
-def _persist_turn_start(root: Path, request_id: str, text: str, mode: str) -> None:
-    """Best-effort durability must never prevent the actual user request."""
+def _persist_turn_start(root: Path, request_id: str, text: str, mode: str) -> str:
+    """Best-effort durability must never prevent the actual user request.
+
+    Returns the conversation the turn was recorded in, or ``""`` when it could
+    not be recorded -- which is what the journal is then told, rather than a
+    guess read back from the thread file (#818 review finding 10).
+    """
 
     from opai.gui_recents import begin_thread_turn
 
     try:
-        begin_thread_turn(root, request_id=request_id, text=text, mode=mode)
+        started = begin_thread_turn(root, request_id=request_id, text=text, mode=mode)
     except (OSError, TypeError, ValueError):
-        pass
+        return ""
+    return str((started or {}).get("conversation_id") or "")
 
 
 def _safe_result_path(value: Any) -> str:
@@ -1315,8 +1347,14 @@ def _persist_turn_result(
     *,
     mode: str,
     build: bool = False,
+    run_id: str = "",
 ) -> None:
-    """Persist the user-visible outcome, excluding provider/tool internals."""
+    """Persist the user-visible outcome, excluding provider/tool internals.
+
+    ``run_id`` is the journal run that produced the turn, when the pipeline
+    reported one; it is saved with the turn so the two records can be compared
+    turn by turn.
+    """
 
     from opai.gui_recents import finish_thread_turn, thread_status_for_result
 
@@ -1396,6 +1434,7 @@ def _persist_turn_result(
             plan=plan,
             changed_files=changed_files,
             presentation=presentation or None,
+            run_id=run_id,
         )
     except (OSError, TypeError, ValueError):
         pass
@@ -2671,7 +2710,9 @@ def _run_gui(
             )
             cancel = threading.Event()
             self._cancels[request_id] = cancel
-            _persist_turn_start(turn_root, request_id, text, str(mode))
+            conversation_id = _persist_turn_start(
+                turn_root, request_id, text, str(mode)
+            )
 
             # Activity batching (#226): worker threads append events to a
             # lock-guarded buffer; a GUI-thread QTimer drains it into ONE
@@ -2713,6 +2754,9 @@ def _run_gui(
                 )
 
             setattr(emit_text, "accepts_block_start", True)
+            # Filled by the pipeline on the worker thread, read by _done after
+            # the worker finishes. Out of band so the reply is untouched.
+            reported_run: dict[str, str] = {}
 
             def job() -> dict[str, Any]:
                 return handle_gui_message(
@@ -2735,6 +2779,12 @@ def _run_gui(
                     allow_command=str(payload.get("allowCommand") or "") or None,
                     allow_edits_once=bool(payload.get("allowEditsOnce", False)),
                     resume_context=resume_context,
+                    # Named rather than defaulted, so a caller that
+                    # forgets records "unknown" instead of quietly
+                    # claiming to be the desktop (#818 AC2).
+                    surface="gui",
+                    conversation_id=conversation_id,
+                    on_journal_run=lambda run: reported_run.update(run_id=run),
                 )
 
             worker = Worker(job)
@@ -2760,6 +2810,7 @@ def _run_gui(
                         result,
                         mode=str(mode),
                         build=False,
+                        run_id=reported_run.get("run_id", ""),
                     ),
                 )
                 self.replyReady.emit(

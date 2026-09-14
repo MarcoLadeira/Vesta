@@ -16,7 +16,53 @@ from __future__ import annotations
 import os
 import subprocess  # nosec B404 - this module only computes flags, never runs a shell
 import sys
+from collections.abc import Callable
+from pathlib import Path
 from typing import Any
+
+
+_WINDOWED_PREFIX = "pythonw"
+_CONSOLE_PREFIX = "python"
+
+
+def console_interpreter(
+    executable: str | None = None,
+    *,
+    exists: "Callable[[str], bool] | None" = None,
+) -> str:
+    """Return a *console* Python to hand to ``-m pip``, never the windowed one.
+
+    OPai's desktop app runs under ``pythonw.exe``, and its updater reinstalls
+    OPai with ``sys.executable -m pip install -e .``. That is enough to brick
+    the desktop icon. For a ``gui_scripts`` entry point pip's vendored distlib
+    derives the windowed interpreter by substring substitution --- literally
+    ``fn.replace("python", "pythonw")`` --- so an already-windowed
+    ``pythonw.exe`` becomes ``pythonww.exe``, which is not a file. The
+    generated ``.exe`` then exits 1 with no window, no dialog and no log: the
+    icon simply does nothing. Console entry points are damaged more quietly,
+    inheriting ``pythonw.exe`` and so printing nothing in a terminal.
+
+    Neither failure is hypothetical --- both were measured on a machine whose
+    launchers OPai had reinstalled from inside its own GUI.
+
+    So when the running interpreter is windowed and its console sibling really
+    exists, return the sibling. Otherwise return what we were given: a shebang
+    that is merely suboptimal beats refusing to install at all.
+    """
+    current = sys.executable if executable is None else executable
+    if not current:
+        return ""
+    probe = os.path.exists if exists is None else exists
+    path = Path(current)
+    stem = path.stem
+    if not stem.lower().startswith(_WINDOWED_PREFIX):
+        return current
+    # "pythonw" -> "python", "pythonw3.13" -> "python3.13"; the leading
+    # characters keep their original case because only the "w" is dropped.
+    console = path.with_name(
+        stem[: len(_CONSOLE_PREFIX)] + stem[len(_WINDOWED_PREFIX) :] + path.suffix
+    )
+    return str(console) if probe(str(console)) else current
 
 
 def no_window_kwargs() -> dict[str, Any]:
@@ -126,7 +172,7 @@ def provider_child_env(
     grant — which would put pushing back to the dead end it used to be.
     An inherited session id is preserved when no explicit one is given.
     """
-    from .command_consent import consent_dir
+    from .command_consent import RUN_ENV, consent_dir, current_run
 
     source = dict(os.environ if base_env is None else base_env)
     exact = _ENV_DENY_EXACT.get(str(provider or "").lower(), frozenset())
@@ -140,6 +186,20 @@ def provider_child_env(
         env[name] = value
     env[AGENT_SESSION_ENV] = session_id or source.get(AGENT_SESSION_ENV) or "1"
     env[COMMAND_CONSENT_DIR_ENV] = str(consent_dir())
+    # Which run this child is working for, so the hook it launches can prove a
+    # one-shot approval was issued to *this* run before spending it (#818 AC8).
+    # Read from command_consent rather than passed in: the value would
+    # otherwise have to be threaded through AccountRunner and every provider
+    # adapter, and consent_dir is already resolved exactly this way.
+    #
+    # An inherited value is dropped when this process has no run of its own,
+    # for the same reason autonomy is: a stale identity from a parent session
+    # must never let a child spend an approval nobody granted it.
+    this_run = current_run()
+    if this_run:
+        env[RUN_ENV] = this_run
+    else:
+        env.pop(RUN_ENV, None)
     if autonomy is None:
         # Never let a stale value inherited from this process grant a child an
         # autonomy level its caller did not ask for: an unspecified level must

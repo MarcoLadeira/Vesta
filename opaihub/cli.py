@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -387,7 +388,24 @@ def cmd_automation(args: argparse.Namespace) -> int:
         elif args.automation_command == "schedules":
             print_json(list_automation_schedules(root))
         elif args.automation_command == "recover":
-            print_json([run.to_dict() for run in recover_interrupted_runs(root)])
+            left_alone: list[str] = []
+            recovered = recover_interrupted_runs(root, left_alone=left_alone)
+            # stdout keeps the shape it has always had -- a JSON list of the
+            # runs this sweep reconciled -- because scripts parse it. An object
+            # here broke every one of them (#818 review finding 11).
+            print_json([run.to_dict() for run in recovered])
+            if left_alone:
+                # The other half, because an empty list is ambiguous: "all was
+                # well" and "someone is still running all of it" look the same
+                # and call for opposite reactions. On stderr, so it cannot
+                # break a parser -- and only the runs this sweep skipped, where
+                # the first version listed every live journal run, chat turns
+                # included.
+                print(
+                    f"left {len(left_alone)} running run(s) to the process still"
+                    f" running them: {', '.join(sorted(left_alone))}",
+                    file=sys.stderr,
+                )
     except (ValueError, FileExistsError, FileNotFoundError, RuntimeError) as exc:
         print_json({"status": "error", "message": safe_detail(exc)})
         return 2

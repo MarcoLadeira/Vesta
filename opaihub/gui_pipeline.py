@@ -13,7 +13,7 @@ from typing import Any
 
 from opai.release_identity import surface_identity_payload
 
-from . import command_consent
+from . import command_consent, owner_lease
 from .agent_policy import (
     AgentMode,
     build_capability_contract,
@@ -77,6 +77,7 @@ from .repository_safety import (
     capture_repository_handle,
     save_repository_handle,
 )
+from .generated_lifecycle import LEGACY_STATUS_MAP, TERMINAL_STATE_IDS
 from .run_state import RunState, is_awaiting_input, run_state_for_verdict
 from .run_summary import build_run_summary
 from .task_packet import build_task_packet
@@ -96,7 +97,34 @@ from .workflow_state import WorkflowState, load_workflow_state, save_workflow_st
 from .boundary_errors import safe_detail
 
 
-_EDITING_MODES = {"safe-auto", "full-auto"}
+# Every run mode that may change the repository, however it asks first
+# (40d6dc0's contract): Manual asks before each edit, Auto asks through the
+# provider's gate, Accept Edits and Bypass Permissions apply edits directly.
+# Plan and Ask are read-only. This used to list only Auto and Bypass, so a
+# Manual or Accept Edits turn that asked for a fix ran read-only -- the mode
+# the user picked could not do the one thing it is named after.
+_EDIT_CAPABLE_MODES = frozenset(
+    {"safe-auto", "approve-edits", "auto-edits", "full-auto"}
+)
+
+# The mode that asks before *each* edit rather than once per mode.
+_ASKS_BEFORE_EACH_EDIT = "approve-edits"
+
+
+def _tool_loop_may_edit(
+    selected_mode: str, *, may_edit: bool, edit_grant: bool
+) -> bool:
+    """May OPai's own tool loop (free and local models) edit on this turn?
+
+    The account CLIs can ask before an edit: Claude refuses it, and the
+    pipeline turns that refusal into an "Allow edits once" card. OPai's own
+    tool loop cannot stop at an edit and ask, so in Manual it edits only once
+    the user has granted it -- never by default. Every other edit-capable
+    mode keeps exactly the authority it had.
+    """
+
+    return may_edit and (selected_mode != _ASKS_BEFORE_EACH_EDIT or edit_grant)
+
 
 # Terminal statuses where the turn ended because a *model* could not serve it.
 # These earn a named "continue with <other model>" offer, so no provider failure
@@ -334,6 +362,7 @@ def request_tool_authority(
     repo_root: Path,
     focus_hint: str | None = None,
     github_public_read: bool = False,
+    edit_grant: bool = False,
 ) -> RequestToolAuthority:
     """Resolve which tools a request may call, and whether it may mutate.
 
@@ -356,7 +385,11 @@ def request_tool_authority(
 
     discovery = is_discovery_request(message)
     smalltalk = is_smalltalk_request(message)
-    allow_edits = (selected_mode in _EDITING_MODES) and not discovery
+    allow_edits = _tool_loop_may_edit(
+        selected_mode,
+        may_edit=selected_mode in _EDIT_CAPABLE_MODES and not discovery,
+        edit_grant=edit_grant,
+    )
     allow_github_public_read = True if (discovery or github_public_read) else None
     tool_names = (
         ()
@@ -717,6 +750,11 @@ def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+#: How often a running turn restamps its journal lease. Borrowed from
+#: ``owner_lease`` rather than chosen again: two intervals for one heartbeat
+#: would let the two records disagree about whether the same run is healthy.
+_HEARTBEAT_INTERVAL_SECONDS = owner_lease.HEARTBEAT_INTERVAL_SECONDS
+
 #: The journal identity of the turn running on this thread, or ``None``.
 #:
 #: Set by :func:`_handle_gui_message` once admission has been mirrored, read by
@@ -726,20 +764,123 @@ _JOURNAL_RUN: ContextVar[dict[str, Any] | None] = ContextVar(
     "_opai_journal_run", default=None
 )
 
-#: How a turn's reported status maps onto a terminal journal event.
+#: What a turn's ending is recorded as in the journal.
 #:
-#: Anything not listed here is treated as a completion, because a turn that
-#: returned *something* did finish. Guessing "failed" for an unrecognised
-#: status would invent a verdict the run never reached, which is worse than a
-#: coarse one -- Stage 4 compares these against the legacy record, and a
-#: fabricated failure would look exactly like a real contradiction.
-_TERMINAL_EVENTS: dict[str, tuple[str, str]] = {
-    "cancelled": (journal_runtime.EVENT_CANCELLED, "cancelled"),
-    "duplicate_request": (journal_runtime.EVENT_FINISHED, "duplicate"),
-    "failed": (journal_runtime.EVENT_FINISHED, "failed"),
-    "error": (journal_runtime.EVENT_FINISHED, "failed"),
-    "blocked": (journal_runtime.EVENT_FINISHED, "blocked"),
-}
+#: The first version mapped five statuses and defaulted everything else to
+#: "completed" -- measured on this repository's own journal, five of twenty-one
+#: runs recorded as completed were partial turns. The second version was a
+#: hand-written table of legacy status strings and verdict names, and it
+#: drifted the moment it was written: 10 of the 13 statuses the lifecycle calls
+#: AWAITING_INPUT were missing from it, and for every approval card the verdict
+#: it preferred says BLOCKED, so "shall I push?" was filed as a permanent
+#: `blocked` -- the thing #379's own comment at the `run_state` field warns
+#: against.
+#:
+#: Neither was necessary. Every decorated result already carries the engine's
+#: canonical `run_state` (#379), computed once from the verdict with the one
+#: exception only the status knows about: a turn that handed control back to
+#: the user is AWAITING_INPUT. That field is what every surface is meant to
+#: read, so it is what the journal records. A result without it -- the
+#: exception path, a result from an older build -- is derived the same way,
+#: through the one generated status map every surface shares.
+_JOURNAL_ENDINGS = frozenset(TERMINAL_STATE_IDS) | {RunState.AWAITING_INPUT.value}
+
+#: Statuses with no lifecycle state that are still not an unknown ending.
+_JOURNAL_ONLY_STATUSES = {"duplicate_request": "duplicate"}
+
+#: What an ending nobody can name becomes. Not "completed": a name we do not
+#: recognise is not evidence that the work succeeded, and this epic exists to
+#: stop exactly that substitution. Not "failed" either -- that would invent a
+#: failure Stage 4 could not tell from a real contradiction. The run *ended*;
+#: how it ended is unknown, and saying so is the only answer supported by what
+#: is actually known.
+_UNKNOWN_ENDING = "unknown"
+
+
+def _journal_ending(result: Any) -> tuple[str, str]:
+    """``(event type, verdict)`` for how this turn ended."""
+
+    payload = result if isinstance(result, Mapping) else {}
+    status = str(payload.get("status") or "").strip().lower()
+    state = str(payload.get("run_state") or "").strip().lower()
+    if state:
+        ending = state if state in _JOURNAL_ENDINGS else _UNKNOWN_ENDING
+    elif is_awaiting_input(status):
+        ending = RunState.AWAITING_INPUT.value
+    elif status in _JOURNAL_ONLY_STATUSES:
+        ending = _JOURNAL_ONLY_STATUSES[status]
+    else:
+        completion = payload.get("completion_verdict")
+        verdict = (
+            str(completion.get("verdict") or "").strip().lower()
+            if isinstance(completion, Mapping)
+            else ""
+        )
+        if verdict:
+            # The verdict outranks the status derived from it. One this build
+            # cannot name is unknown -- not an excuse to fall back to a stale
+            # "answered".
+            ending = verdict if verdict in _JOURNAL_ENDINGS else _UNKNOWN_ENDING
+        else:
+            canonical = LEGACY_STATUS_MAP.get(status) or (
+                status if status in _JOURNAL_ENDINGS else ""
+            )
+            if canonical == RunState.COMPLETED.value:
+                # #618's rule, which the saved conversation already follows: a
+                # bare "the provider answered" is transport, not completion.
+                # With no verdict behind it, it cannot claim more than "this
+                # could not be verified" -- and the conversation records the
+                # same turn that way, so the two records agree.
+                ending = RunState.NEEDS_ATTENTION.value
+            else:
+                ending = canonical or _UNKNOWN_ENDING
+    event = (
+        journal_runtime.EVENT_CANCELLED
+        if ending == RunState.CANCELLED.value
+        else journal_runtime.EVENT_FINISHED
+    )
+    return event, ending
+
+
+def _due_for_a_beat(last: float, now: float, *, has_run: bool) -> bool:
+    """Is this the moment to restamp the turn's lease?
+
+    Only once there is a run to beat. A turn's first events fire before
+    admission, and spending the throttle on them left the first real beat a
+    whole interval late (#818 review finding 20).
+
+    `now` is passed in rather than read here, so the caller stamps the same
+    instant it measured -- it used to read the clock twice, and the beat was
+    recorded a hair after the moment it was judged due.
+    """
+
+    return has_run and (now - last) >= _HEARTBEAT_INTERVAL_SECONDS
+
+
+def _journal_beat(root: Path) -> None:
+    """Restamp this turn's lease so a live run does not read as abandoned.
+
+    Until now nothing wrote ``leases.heartbeat_at`` between acquisition and
+    release, so the column recorded the moment a run *started* and nothing
+    else. A reader could tell that a lease was held; it could not tell whether
+    anyone was still holding it, and #818's "cancelled is impossible while
+    owned controllable work is still alive" rests on exactly that difference.
+
+    Called from the activity emitter, which fires as phases advance and as a
+    provider streams, and throttled there -- so the beat costs one small write
+    every ``HEARTBEAT_INTERVAL`` of a turn rather than one per event.
+
+    Best-effort in the strongest sense: a heartbeat that cannot be written
+    makes a run look quiet, and a heartbeat that raised would make it fail.
+    """
+
+    identity = _JOURNAL_RUN.get()
+    if not identity:
+        return
+    with contextlib.suppress(Exception):  # noqa: BLE001 - never block a turn
+        journal_runtime.beat_lease(
+            root, run_id=str(identity.get("run_id") or ""), now=_iso_now()
+        )
 
 
 def _journal_cost(root: Path, telemetry: Any, *, operation_key: str) -> None:
@@ -757,13 +898,27 @@ def _journal_cost(root: Path, telemetry: Any, *, operation_key: str) -> None:
     identity = _JOURNAL_RUN.get()
     if not identity or telemetry is None:
         return
+    # #818: the telemetry already knows how well it knows this number.
+    # `normalize_account_result` reports "actual" when a provider gave a real
+    # dollar figure (Claude does) and "estimated" when it did not (Codex), and
+    # this used to hard-code "estimated" over the top -- which is why every
+    # cost event in a real journal reads as an estimate and not one reads as
+    # actual. The store has accepted the distinction since v1.
+    #
+    # The zero mattered more. `cost_usd` is deliberately None for a call whose
+    # price nobody measured, and `or 0.0` turned that into a recorded $0.00 --
+    # "unknown cost represented as zero", in the canonical record itself. The
+    # store's `unavailable` kind exists for exactly this and had no writer.
+    measured = getattr(telemetry, "cost_usd", None)
+    known = isinstance(measured, (int, float)) and not isinstance(measured, bool)
+    kind = str(getattr(telemetry, "cost_measurement", "") or "estimated")
     with contextlib.suppress(Exception):  # noqa: BLE001 - never block a turn
         journal_runtime.record_run_cost(
             root,
             run_id=str(identity["run_id"]),
             operation_key=operation_key,
-            amount_usd=float(getattr(telemetry, "cost_usd", 0.0) or 0.0),
-            measurement_kind="estimated",
+            amount_usd=float(measured) if known else 0.0,
+            measurement_kind=kind if known else "unavailable",
             now=_iso_now(),
             fence=identity.get("fence"),
             model=str(getattr(telemetry, "model", "") or ""),
@@ -796,31 +951,54 @@ def _journal_verification(root: Path, manifest_payload: Mapping[str, Any]) -> No
         )
 
 
-def _record_turn_ending(root: Path, status: str, reason: str) -> None:
+def _tell_journal_run(listener: Any) -> None:
+    """Hand this turn's journal run id to a caller that asked for it."""
+
+    identity = _JOURNAL_RUN.get()
+    if not identity or not callable(listener):
+        return
+    with contextlib.suppress(Exception):  # noqa: BLE001 - never fail a finished turn
+        listener(str(identity.get("run_id") or ""))
+
+
+def _record_turn_ending(root: Path, result: Any) -> None:
     """Close out the journalled run for this turn, if there is one.
 
     Best-effort like everything else in Stage 3: a turn that already produced
     its answer must not fail because its bookkeeping did. A run with no
     journal identity -- admission was not mirrored -- simply has nothing to
-    close.
+    close. See :func:`_journal_ending` for what the ending is.
     """
 
     identity = _JOURNAL_RUN.get()
     if not identity:
         return
-    event, verdict = _TERMINAL_EVENTS.get(
-        status, (journal_runtime.EVENT_FINISHED, "completed")
-    )
+    payload = result if isinstance(result, Mapping) else {}
     with contextlib.suppress(Exception):  # noqa: BLE001 - never fail a finished turn
+        event, verdict = _journal_ending(payload)
         journal_runtime.record_terminal(
             root,
             run_id=str(identity["run_id"]),
             event_type=event,
             verdict=verdict,
-            reason=reason or status,
+            reason=str(payload.get("reason") or payload.get("status") or ""),
             now=_iso_now(),
             fence=identity.get("fence"),
         )
+
+
+#: Surfaces the canonical journal recognises as an origin. A closed set on
+#: purpose: `origin_surface` is what a projection groups by, so a free-text
+#: value would fragment the very grouping it exists to make possible. Anything
+#: unrecognised is recorded as "unknown", which is honest -- it says the run
+#: came from somewhere this build cannot name, rather than silently filing it
+#: under whichever surface happened to be the default.
+KNOWN_SURFACES = ("gui", "cli", "background", "agent", "automation")
+
+
+def _normalized_surface(surface: Any) -> str:
+    value = str(surface or "").strip().lower()
+    return value if value in KNOWN_SURFACES else "unknown"
 
 
 def _handle_gui_message(
@@ -843,6 +1021,23 @@ def _handle_gui_message(
     allow_edits_once: bool = False,
     allowEditsOnce: bool = False,
     defer_checkpoint_finalization: bool = False,
+    # Which surface asked for this turn. The CLI, background automations
+    # and `opai build` all run through this exact pipeline, so an
+    # admission hardcoded to "gui" recorded every one of them as a
+    # desktop run -- and #818 AC2 asks for GUI, CLI and background
+    # projections built from one canonical state, which is impossible
+    # when the state cannot tell them apart.
+    #
+    # The default does not guess. A caller that does not say is recorded
+    # as "unknown", because a new surface silently inheriting the
+    # desktop's name is the same mistake in a fresh disguise.
+    surface: str = "",
+    # Which saved conversation this turn belongs to, from the caller that
+    # recorded the turn in it. Not looked up here: the workspace's thread
+    # file names whichever chat the GUI last had open, so every CLI,
+    # background and build turn used to be filed under it (#818 review
+    # finding 10). A turn nobody recorded in a conversation belongs to none.
+    conversation_id: str = "",
 ) -> dict[str, Any]:
     """Run one chat turn. With ``on_event``/``on_text``/``cancel`` supplied it
     emits live activity and streams account output; without them it behaves
@@ -857,7 +1052,20 @@ def _handle_gui_message(
     Edit/Write attempts refused by the provider's permission gate.
     """
 
+    # When this turn's lease was last restamped, on the monotonic clock so a
+    # system clock change cannot make the next beat look overdue or unreachable.
+    _last_beat = [0.0]
+
     def _emit(etype: str, status: str, title: str, **kw: Any) -> None:
+        # #818: the activity stream is the honest liveness signal available
+        # here -- if events are flowing, this turn is doing something. Beating
+        # on a timer instead would keep restamping a wedged run's lease and
+        # report it as healthy forever, which is the failure a heartbeat is
+        # supposed to expose rather than hide.
+        beat_at = time.monotonic()
+        if _due_for_a_beat(_last_beat[0], beat_at, has_run=bool(_JOURNAL_RUN.get())):
+            _last_beat[0] = beat_at
+            _journal_beat(root)
         if on_event:
             from opai.activity import make_event
 
@@ -990,7 +1198,12 @@ def _handle_gui_message(
     # most: a refusal recorded by the previous turn must not resurface as this
     # turn's approval card, and a grant the user issued earlier must not
     # authorize a push they were never asked about (Round 5 finding 1).
-    command_consent.begin_turn(command_grant)
+    # `run=turn_id` binds the approval to this turn. The handshake
+    # directory is one fixed per-user path shared by every OPai process on
+    # the machine, so without it a second window -- another repository,
+    # another run, a question its user was never asked -- could spend this
+    # window's push approval (#818 AC8).
+    command_consent.begin_turn(command_grant, run=turn_id)
     # One-shot edit grant from an edit-approval re-send (F26).
     edit_grant = bool(allow_edits_once or allowEditsOnce)
     prefs = load_gui_preferences(root)
@@ -1054,13 +1267,12 @@ def _handle_gui_message(
     # Auto's fallback chain and the dead-end fallback offer need it *before* a
     # provider is picked — a provider OPai cannot hand bounded edit tools is a
     # guaranteed refusal on an editing turn and a perfectly good choice on a
-    # read-only one. Plan / Ask / Approve-Edits are read-only; Safe Auto / Full
-    # Auto may edit, except for a discovery request ("find me an issue to
-    # solve"), which locates work rather than changing the repository.
-    will_edit = selected_mode in {
-        "safe-auto",
-        "full-auto",
-    } and not is_discovery_request(message)
+    # read-only one. Plan / Ask are read-only; every other mode may edit
+    # (Manual asking first), except for a discovery request ("find me an issue
+    # to solve"), which locates work rather than changing the repository.
+    will_edit = selected_mode in _EDIT_CAPABLE_MODES and not is_discovery_request(
+        message
+    )
     repo_context = resolve_repo_context(root)
     save_active_repo(root, repo_context)
     previous_workflow = load_workflow_state(root)
@@ -1083,13 +1295,24 @@ def _handle_gui_message(
     with contextlib.suppress(Exception):  # noqa: BLE001 - never block a turn
         from .journal_runtime import record_admission
 
+        # #818: which conversation this turn belongs to. `runtime.task_id`
+        # cannot answer that -- `gui_recents` documents it as falling back to
+        # the per-turn request id, which is why a 13-conversation history
+        # produced 27 journal tasks with nothing joining them. Recorded in
+        # `origin_session`, a column that existed and was never filled, so the
+        # journal and the saved conversations finally share an identifier.
+        #
+        # Deliberately not used as `task_id`: turns in a conversation are not
+        # retries of one objective, and making them attempts of one task would
+        # redefine `attempt` rather than record a fact.
         _journal_fence = record_admission(
             root,
             task_id=runtime.task_id,
             run_id=turn_id,
             task=message,
             now=_iso_now(),
-            surface="gui",
+            surface=_normalized_surface(surface),
+            session=str(conversation_id or "").strip()[:200],
             mode=mode,
             model=model_id,
         )
@@ -2607,11 +2830,16 @@ def _handle_gui_message(
             }
         )
 
-    # Plan / Ask / Approve-Edits are read-only; Safe Auto / Full Auto may edit.
-    # A discovery request ("find me an issue to solve") stays read-only even in
-    # an editing mode — it locates work, it does not change the repository.
-    # Same decision Auto's chain was built from, so routing and execution agree.
+    # Plan / Ask are read-only; every other mode may edit. A discovery request
+    # ("find me an issue to solve") stays read-only even in an editing mode — it
+    # locates work, it does not change the repository. Same decision Auto's
+    # chain was built from, so routing and execution agree.
     allow_edits = will_edit
+    # OPai's own tool loop cannot ask mid-run, so Manual edits there only with
+    # the user's one-shot grant (see _tool_loop_may_edit).
+    loop_allow_edits = _tool_loop_may_edit(
+        selected_mode, may_edit=will_edit, edit_grant=edit_grant
+    )
 
     while True:
         if selected_model.startswith("free:"):
@@ -2652,13 +2880,14 @@ def _handle_gui_message(
                 selected_mode=selected_mode,
                 repo_root=root,
                 focus_hint=focus_hint,
+                edit_grant=edit_grant,
             )
             result = A.ask(
                 root,
-                _tool_aware_message(allow_edits),
+                _tool_aware_message(loop_allow_edits),
                 selected_model,
                 allow_cloud=free_allow_cloud,
-                allow_edits=allow_edits,
+                allow_edits=loop_allow_edits,
                 tool_calling_enabled=authority.tool_calling_enabled,
                 allow_command=command_grant,
                 mode=selected_mode,
@@ -3022,10 +3251,16 @@ def _handle_gui_message(
                     }
                 )
             denied_edits = _edit_denials(result)
-            if denied_edits and selected_mode == "safe-auto" and not edit_grant:
+            if (
+                denied_edits
+                and selected_mode in {"safe-auto", _ASKS_BEFORE_EACH_EDIT}
+                and not edit_grant
+            ):
                 # F26: Safe Auto gates edits at the provider CLI, which cannot ask
                 # interactively. Surface an actionable in-context approval card —
-                # never a prose "should I proceed?" that ends the run.
+                # never a prose "should I proceed?" that ends the run. Manual
+                # gates edits the same way, and without this card it had no
+                # way to ask at all: the CLI refused the edit and the run ended.
                 _phase_close("warning", "Awaiting your approval")
                 _emit(
                     "file_edit",
@@ -3220,7 +3455,7 @@ def _handle_gui_message(
             cancel=cancel,
             runner=picked_runner,
             selected_model_id=selected_model if picked_runner is not None else None,
-            allow_edits=allow_edits,
+            allow_edits=loop_allow_edits,
         )
         if result.get("status") == "cancelled":
             _phase_close("cancelled", "Stopped by you")
@@ -3402,16 +3637,25 @@ def handle_gui_message(*args: Any, **kwargs: Any) -> dict[str, Any]:
     next on this thread.
     """
 
+    # Out of band on purpose. The journal's id for this turn is what lets the
+    # surface that saves the turn keep it -- the key turn parity joins on
+    # (#818 review finding 4) -- but putting it in the result would change
+    # what the user receives, and the journal is background-only: a turn's
+    # result is byte for byte what the turn produced, journal or no journal.
+    on_journal_run = kwargs.pop("on_journal_run", None)
     token = _JOURNAL_RUN.set(None)
     root = Path(args[0] if args else kwargs["project_root"])
     try:
         result = _handle_gui_message(*args, **kwargs)
     except BaseException as exc:  # noqa: BLE001 - re-raised immediately below
-        _record_turn_ending(root, "failed", type(exc).__name__)
+        _record_turn_ending(root, {"status": "failed", "reason": type(exc).__name__})
         raise
     else:
-        status = str((result or {}).get("status") or "completed")
-        _record_turn_ending(root, status, str((result or {}).get("reason") or ""))
+        # The whole result, not a status defaulted to "completed" when absent:
+        # a turn that returned no status did not thereby succeed (#818: zero
+        # false completion). _journal_ending reads the engine's run_state.
+        _record_turn_ending(root, result)
+        _tell_journal_run(on_journal_run)
         return result
     finally:
         _JOURNAL_RUN.reset(token)

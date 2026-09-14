@@ -23,7 +23,8 @@ from opai.compatibility import (
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "opai" / "assets"
-MARKDOWN_IT_SHA256 = "38c70a1e7ca91ab40e2d9e6e60129851a717ed1c7d4acbbdd41bf9503791cf68"
+# A public SHA-256 of the vendored markdown-it bundle, not a credential.
+MARKDOWN_IT_SHA256 = "38c70a1e7ca91ab40e2d9e6e60129851a717ed1c7d4acbbdd41bf9503791cf68"  # pragma: allowlist secret
 
 
 def _copy_assets(tmp_path: Path) -> Path:

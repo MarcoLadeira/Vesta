@@ -948,6 +948,9 @@ def run_build_request(
         allow_cloud=allow_cloud,
         allow_limit=allow_limit,
         resume_context=resume_context,
+        # `opai build` drives the same pipeline as chat, and the
+        # canonical record should say which one asked (#818 AC2).
+        surface="automation",
         defer_checkpoint_finalization=True,
     )
     status = str(result.get("status") or "error")

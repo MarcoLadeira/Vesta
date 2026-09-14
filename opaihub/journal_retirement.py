@@ -72,6 +72,11 @@ class RetirementReport:
     compared_runs: int = 0
     integrity: str = ""
     detail: str = ""
+    #: What each side actually holds. Without this, ``nothing_compared`` reads
+    #: as "not enough runs yet" -- a matter of time -- when it can equally mean
+    #: the two records describe populations that never overlap, which no amount
+    #: of waiting fixes. See :func:`_populations`.
+    populations: Mapping[str, Any] = field(default_factory=dict)
 
     @property
     def ready(self) -> bool:
@@ -89,7 +94,106 @@ class RetirementReport:
             "compared_runs": self.compared_runs,
             "integrity": self.integrity,
             "detail": self.detail,
+            "populations": dict(self.populations),
         }
+
+
+def _journal_runs_by_surface(project_root: Path) -> dict[str, int]:
+    """How many runs the journal holds, grouped by the surface that made them.
+
+    The grouping is the point. A legacy corpus is assembled from one specific
+    subsystem, and if the journal's runs came from a different one the two can
+    never overlap no matter how long anybody waits.
+    """
+
+    try:
+        connection = journal_store.open_store(project_root)
+    except Exception:  # noqa: BLE001 - a report must not raise
+        return {}
+    try:
+        rows = connection.execute(
+            "SELECT t.origin_surface AS surface, COUNT(*) AS n"
+            " FROM runs r JOIN tasks t ON t.task_id = r.task_id"
+            " GROUP BY t.origin_surface"
+        ).fetchall()
+        return {str(row["surface"] or "unknown"): int(row["n"]) for row in rows}
+    except Exception:  # noqa: BLE001
+        return {}
+    finally:
+        connection.close()
+
+
+def _tasks_with_an_origin_session(project_root: Path) -> tuple[int, int]:
+    """(tasks naming a session, tasks in total).
+
+    ``origin_session`` is what lets a journal task be matched to the record the
+    surface kept for it. Reported rather than assumed: a build that does not
+    populate it produces zero here, which is the honest reading of "no corpus
+    can be built for this population".
+    """
+
+    try:
+        connection = journal_store.open_store(project_root)
+    except Exception:  # noqa: BLE001 - a report must not raise
+        return (0, 0)
+    try:
+        row = connection.execute(
+            "SELECT COUNT(*) AS total,"
+            " SUM(CASE WHEN COALESCE(origin_session, '') <> '' THEN 1 ELSE 0 END)"
+            " AS linked FROM tasks"
+        ).fetchone()
+        return (int(row["linked"] or 0), int(row["total"] or 0))
+    except Exception:  # noqa: BLE001
+        return (0, 0)
+    finally:
+        connection.close()
+
+
+def _populations(
+    project_root: Path, legacy_runs: Mapping[str, Mapping[str, Any]], overlap: int
+) -> dict[str, Any]:
+    """The two records' sizes and shapes, so a block can explain itself."""
+
+    by_surface = _journal_runs_by_surface(project_root)
+    linked, total = _tasks_with_an_origin_session(project_root)
+    return {
+        "journal_runs": sum(by_surface.values()),
+        "journal_runs_by_surface": by_surface,
+        "legacy_corpus_runs": len(legacy_runs),
+        "runs_in_both": overlap,
+        # How many tasks name the session they came from. A GUI corpus can
+        # only ever be built for these, so this is the ceiling on any future
+        # comparison for that population -- and it was zero until #818 started
+        # recording it.
+        "tasks_with_a_session": linked,
+        "tasks": total,
+    }
+
+
+def _population_note(populations: Mapping[str, Any]) -> str:
+    """The sentence that turns a permanent block into an actionable one.
+
+    Reached when the journal holds runs, the legacy corpus holds none, and the
+    comparison therefore proved nothing. On a desktop installation that never
+    ran ``opai automation`` this is the *normal* state, not a transient one:
+    the only legacy corpus OPai assembles is background automation runs, and
+    the population actually being journalled is GUI turns. Reporting that as
+    "too few runs" invites someone to wait for a number that cannot arrive.
+    """
+
+    journal_runs = int(populations.get("journal_runs") or 0)
+    legacy = int(populations.get("legacy_corpus_runs") or 0)
+    if legacy or not journal_runs:
+        return ""
+    surfaces = populations.get("journal_runs_by_surface") or {}
+    described = ", ".join(
+        f"{count} from {surface}" for surface, count in sorted(surfaces.items())
+    )
+    return (
+        f"the legacy corpus is empty while the journal holds {journal_runs} run(s) "
+        f"({described}), so these are different populations and the comparison "
+        "cannot be satisfied by waiting"
+    )
 
 
 def assess(
@@ -153,6 +257,7 @@ def assess(
     # loader that failed and returned {} instead of raising, which is precisely
     # when deleting the fallback is most destructive.
     compared = reader.compared_runs()
+    populations = _populations(project_root, legacy_runs, compared)
     if compared < max(1, int(minimum_runs)):
         blockers.append(BLOCK_NO_COMPARISON)
 
@@ -173,7 +278,19 @@ def assess(
             unreconciled=unreconciled,
             compared_runs=compared,
             integrity=integrity,
-            detail="; ".join(_explain(name) for name in dict.fromkeys(blockers)),
+            populations=populations,
+            detail="; ".join(
+                part
+                for part in [
+                    *(_explain(name) for name in dict.fromkeys(blockers)),
+                    (
+                        _population_note(populations)
+                        if BLOCK_NO_COMPARISON in blockers
+                        else ""
+                    ),
+                ]
+                if part
+            ),
         )
     return RetirementReport(
         status=STATUS_READY,
@@ -182,6 +299,7 @@ def assess(
         unreconciled=unreconciled,
         compared_runs=compared,
         integrity=integrity,
+        populations=populations,
         detail=(
             f"{journal_reads} run(s) served from the journal, no legacy reads, "
             "no unreconciled operations"

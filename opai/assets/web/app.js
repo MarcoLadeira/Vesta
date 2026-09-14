@@ -4473,7 +4473,7 @@ function renderCommandApprovalCard(el, r, sel) {
 }
 
 // F26: in-chat approval for file edits the provider's permission gate refused
-// in Safe Auto. Mirrors the command-approval card: the card names the EXACT
+// in Auto or Manual. Mirrors the command-approval card: the card names the EXACT
 // files; "Allow edits once" re-sends the original message with
 // allowEditsOnce=true (Safe Auto keeps commands and destructive actions
 // gated); Deny changes nothing.
@@ -4487,7 +4487,7 @@ function renderEditApprovalCard(el, r, sel) {
     `<div class="approval-card edit-approval" role="group" aria-label="Edit approval required">
        <div class="ap-head"><span class="ap-badge">Edits blocked</span><span class="ap-risk">One-time approval</span></div>
        <div class="ap-title">Allow OPai to edit these files once?</div>
-       <div class="ap-why">In Auto, OPai asks before changing files. Commands and destructive actions stay gated.</div>
+       <div class="ap-why">OPai asks before changing files in this mode. Commands and destructive actions stay gated.</div>
        <div class="ap-scope"><span class="k">Files</span><span class="v"><ul class="ap-files">${rows || "<li>(paths unavailable)</li>"}</ul></span></div>
        <div class="ap-actions">
          <button class="btn primary" data-ap="approve">Allow edits once</button>

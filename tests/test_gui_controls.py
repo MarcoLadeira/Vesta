@@ -17,6 +17,8 @@ from opai.gui_controls import (
     empty_state,
     filter_commands,
     friendly_error,
+    UNKNOWN_SPEND,
+    _spend_phrase,
     header_status,
     model_badge,
     privacy_badges,
@@ -114,7 +116,143 @@ class HeaderStatusTests(unittest.TestCase):
 
     def test_bad_numbers_do_not_crash(self):
         line = header_status("Sonnet", "Ask", None)
+        self.assertIn("Sonnet", line)
+        self.assertIn("Ask", line)
+
+
+class UnknownSpendIsNotZeroTests(unittest.TestCase):
+    """#818: "unknown cost is never represented as zero".
+
+    ``gui_web._status`` catches every way the ledger can fail to answer. It
+    used to substitute ``0.0``, so an unreadable ledger produced a confident
+    "$0.00 today" in the line a user glances at to decide whether today has
+    been expensive -- the most reassuring possible way to be wrong.
+    """
+
+    def test_a_spend_that_could_not_be_read_does_not_read_as_zero(self):
+        line = header_status("Sonnet", "Ask", None)
+
+        self.assertNotIn("$0.00", line)
+        self.assertIn(UNKNOWN_SPEND, line)
+
+    def test_a_genuine_zero_still_reads_as_zero(self):
+        """Zero is a fact, and a useful one. Only absence is unknown."""
+
+        line = header_status("Sonnet", "Ask", 0)
+
         self.assertIn("$0.00 today", line)
+        self.assertNotIn(UNKNOWN_SPEND, line)
+
+    def test_values_that_are_not_numbers_are_unknown(self):
+        for value in (None, "", "lots", object(), [1]):
+            with self.subTest(value=value):
+                self.assertEqual(_spend_phrase(value), UNKNOWN_SPEND)
+
+    def test_nan_and_infinity_are_unknown_rather_than_rendered(self):
+        """A ledger that divided by zero must not print "$nan today"."""
+
+        for value in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(value=value):
+                self.assertEqual(_spend_phrase(value), UNKNOWN_SPEND)
+
+    def test_an_ordinary_amount_is_unaffected(self):
+        self.assertEqual(_spend_phrase(0.04), "$0.04 today")
+        self.assertEqual(_spend_phrase("0.5"), "$0.50 today")
+
+    def test_the_inspector_does_not_show_a_cap_it_cannot_measure_against(self):
+        """ "cost unknown / $5.00 today" invites the reader to fill in the blank."""
+
+        budget = _inspector_budget({"spent_today": None, "daily_limit": 5.0})
+
+        self.assertEqual(budget["text"], UNKNOWN_SPEND)
+        self.assertNotIn("5.00", budget["text"])
+
+    def test_the_inspector_still_shows_a_real_spend_against_its_cap(self):
+        budget = _inspector_budget({"spent_today": 1.25, "daily_limit": 5.0})
+
+        self.assertEqual(budget["text"], "$1.25 / $5.00 today")
+
+    def test_the_inspector_reports_an_uncapped_unknown_without_a_dollar_sign(self):
+        budget = _inspector_budget({"spent_today": None})
+
+        self.assertEqual(budget["text"], UNKNOWN_SPEND)
+        self.assertNotIn("$", budget["text"])
+
+
+class APartialTotalIsNotShownAsACompleteOneTests(unittest.TestCase):
+    """#818, and the other half of "unknown cost is never represented as zero".
+
+    ``budget_status`` already measures whether today's total is the whole
+    story -- calls with no known price, calls dispatched that never reported
+    an outcome -- and says in its own notes that such a total is "a lower
+    bound, not a complete figure". ``app_state.inspector_state`` took the
+    number and dropped that judgement, so every GUI surface downstream showed
+    a lower bound as if it were the whole figure.
+    """
+
+    def test_a_partial_total_says_at_least(self):
+        line = header_status("Sonnet", "Ask", 1.23, spend_complete=False)
+
+        self.assertIn("at least $1.23 today", line)
+
+    def test_a_complete_total_says_nothing_extra(self):
+        line = header_status("Sonnet", "Ask", 1.23, spend_complete=True)
+
+        self.assertIn("$1.23 today", line)
+        self.assertNotIn("at least", line)
+
+    def test_completeness_defaults_to_saying_nothing_extra(self):
+        """Callers that have not been taught about this must not start
+        hedging every figure."""
+
+        self.assertNotIn("at least", header_status("Sonnet", "Ask", 1.23))
+
+    def test_a_partial_zero_is_still_marked(self):
+        """The dangerous one. Nothing priced yet, and calls outstanding: the
+        figure is $0.00 and is emphatically not the whole story."""
+
+        line = header_status("Sonnet", "Ask", 0.0, spend_complete=False)
+
+        self.assertIn("at least $0.00 today", line)
+
+    def test_an_unreadable_spend_is_still_unknown_not_a_lower_bound(self):
+        """ "at least cost unknown" would be nonsense."""
+
+        line = header_status("Sonnet", "Ask", None, spend_complete=False)
+
+        self.assertIn(UNKNOWN_SPEND, line)
+        self.assertNotIn("at least", line)
+
+    def test_the_inspector_marks_a_partial_total_against_its_cap(self):
+        budget = _inspector_budget(
+            {"spent_today": 1.25, "daily_limit": 5.0, "spend_complete": False}
+        )
+
+        self.assertEqual(budget["text"], "at least $1.25 / $5.00 today")
+
+    def test_the_inspector_marks_a_partial_total_with_no_cap(self):
+        budget = _inspector_budget({"spent_today": 1.25, "spend_complete": False})
+
+        self.assertIn("at least $1.25 today", budget["text"])
+
+    def test_the_inspector_leaves_a_complete_total_alone(self):
+        budget = _inspector_budget(
+            {"spent_today": 1.25, "daily_limit": 5.0, "spend_complete": True}
+        )
+
+        self.assertEqual(budget["text"], "$1.25 / $5.00 today")
+
+
+def _inspector_budget(budget):
+    return session_inspector(
+        model_label="Sonnet",
+        model_kind="account",
+        run_mode_label="Ask",
+        task_summary={},
+        inspector={"budget": budget},
+        permission_summary="Bypass",
+        connected=True,
+    )["budget"]
 
 
 class StateMessageTests(unittest.TestCase):
