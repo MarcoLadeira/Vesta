@@ -91,12 +91,20 @@
   }
   function stripHtml(objective, objectives, selectedId) {
     const teams = rows(objectives).length ? rows(objectives) : objective ? [objective] : [];
-    const people = teams.flatMap((o) => agents(o).map((agent, index) => ({ agent, index, objective: o })));
-    return '<button type="button" class="team-strip-open" aria-label="Expand AI Team" title="Your AI teams"><span>' + (people.length || '✧') + '</span></button><nav class="team-shortcuts" aria-label="Agent shortcuts">' + people.map(({ agent, index, objective: o }) => {
+    const people = teams.flatMap((o) => {
+      const groups = new Map();
+      agents(o).forEach((agent, index) => { const key = agent.group || ''; if (!groups.has(key)) groups.set(key, []); groups.get(key).push({ agent, index, objective: o }); });
+      return Array.from(groups.values()).flat();
+    });
+    let previousGroup = null;
+    return '<button type="button" class="team-strip-open" aria-label="Expand AI Team" title="Your AI teams"><span>' + (people.length || '✧') + '</span><span class="team-strip-label">' + (people.length === 1 ? 'agent' : 'agents') + '</span></button><nav class="team-shortcuts" aria-label="Agent shortcuts">' + people.map(({ agent, index, objective: o }) => {
       const label = name(agent, index);
       const status = agent.held ? 'Ready to start' : agent.pending_approval ? 'Needs approval' : ({ running: 'Working', completed: 'Done', pending: 'Waiting', failed: 'Needs attention', blocked: 'Blocked' })[agent.status] || agent.status || 'Waiting';
       const symbol = agent.pending_approval || ['failed', 'blocked', 'needs-attention'].includes(agent.status) ? '!' : agent.status === 'completed' ? '✓' : agent.status === 'running' ? '●' : '·';
-      return '<button type="button" class="team-shortcut" data-team-shortcut="' + esc(agent.assignment_id) + '" data-team-objective="' + esc(o.objective_id) + '" aria-label="' + esc('Open ' + label + "’s agent chat") + '" aria-pressed="' + (selectedId === agent.assignment_id && objective?.objective_id === o.objective_id) + '" title="' + esc(label + ' · ' + status + '\n' + (agent.title || agent.objective) + '\n' + o.objective) + '">' + avatar(profileIndex(agent, index)) + '<span class="team-shortcut-status" aria-hidden="true">' + symbol + '</span></button>';
+      const group = o.objective_id + ':' + (agent.group || '');
+      const separator = group !== previousGroup ? '<span class="team-shortcut-group" role="separator" aria-label="' + esc(agent.group || o.objective) + '" title="' + esc(agent.group || o.objective) + '">' + esc((agent.group || 'Team').slice(0, 3)) + '</span>' : '';
+      previousGroup = group;
+      return separator + '<button type="button" class="team-shortcut" data-team-shortcut="' + esc(agent.assignment_id) + '" data-team-objective="' + esc(o.objective_id) + '" aria-label="' + esc('Open ' + label + "’s agent chat") + '" aria-pressed="' + (selectedId === agent.assignment_id && objective?.objective_id === o.objective_id) + '" title="' + esc(label + ' · ' + status + '\n' + (agent.title || agent.objective) + '\n' + (agent.group ? agent.group + ' · ' : '') + o.objective) + '">' + avatar(profileIndex(agent, index)) + '<span class="team-shortcut-status" aria-hidden="true">' + symbol + '</span></button>';
     }).join('') + '</nav>';
   }
   function panelHtml(objective, selectedId, unavailable, models) {

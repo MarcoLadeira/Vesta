@@ -4340,7 +4340,7 @@ function teamControl(payload) {
 function teamMapOptions(objective) {
   const root = state.boot.workspace?.root;
   return {
-    models: teamModels(),
+    models: teamModels(), selectedId: state.teamOpen ? state.teamAgentId : null,
     getObjective: () => root === state.boot.workspace?.root && ((state.agentsSnapshot || {}).objectives || []).find((o) => o.objective_id === objective.objective_id),
     onControl: teamControl,
     onAdd: () => window.OPaiTeamMap.addDialog(objective, teamMapOptions(objective)),
@@ -4366,6 +4366,7 @@ function paintAgentTeam() {
   if (map) {
     map.hidden = state.view !== 'chat' || !state.teamMapOpen || !objective;
     $('#chatScroll').hidden = !map.hidden;
+    $('#app').classList.toggle('team-map-active', !map.hidden);
     if (!map.hidden && !document.querySelector('.team-edit-dialog[open]')) window.OPaiTeamMap.mount(map, objective, teamMapOptions(objective));
   }
   const strip = $('#agentsTeamStrip');
