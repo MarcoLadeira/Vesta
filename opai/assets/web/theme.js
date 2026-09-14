@@ -1,7 +1,7 @@
 /**
  * Theme: Light, Viber Coder (OPai's original night sky, and the default), Dark
- * (midnight: black and grey, no colour), or whatever the operating system is
- * using.
+ * (midnight: black and grey, no colour), Vesta (the Vesta logo's cream, dusty
+ * rose and sky blue), or whatever the operating system is using.
  *
  * The whole mechanism is one attribute. design-tokens.css keys each palette on
  * [data-theme], so setting <html data-theme="light"> repaints every surface that
@@ -29,7 +29,7 @@
   "use strict";
 
   // Preferences a user can choose. Every one but "system" is a palette.
-  var THEMES = ["light", "viber-coder", "dark", "system"];
+  var THEMES = ["light", "viber-coder", "dark", "vesta", "system"];
   var DEFAULT_THEME = "viber-coder";
   var SYSTEM_DARK = "viber-coder";
   var EVENT = "opai:themechange";

@@ -5,14 +5,14 @@ import { auditThemeInPage } from "./helpers/theme-audit.js";
 
 
 // Themes (Settings › Appearance): Light, Viber Coder -- OPai's original night
-// sky and the default -- Dark, which is midnight with no colour at all, and
-// System. A theme is one attribute on <html>; these specs hold the promises
+// sky and the default -- Dark, which is midnight with no colour at all, Vesta,
+// the Vesta logo's cream, dusty rose and sky blue, and System. A theme is one attribute on <html>; these specs hold the promises
 // that attribute makes: it is chosen and remembered like any other appearance
 // setting, it changes softly, the star field shines in every theme, and it
 // reaches every surface of the app rather than most of them.
 
-const PALETTES = ["light", "viber-coder", "dark"];
-const PALETTE_BG = { light: "rgb(238, 241, 246)", "viber-coder": "rgb(4, 5, 15)", dark: "rgb(0, 0, 0)" };
+const PALETTES = ["light", "viber-coder", "dark", "vesta"];
+const PALETTE_BG = { light: "rgb(238, 241, 246)", "viber-coder": "rgb(4, 5, 15)", dark: "rgb(0, 0, 0)", vesta: "rgb(246, 239, 231)" };
 
 const theme = (page) => page.locator("html");
 const picker = (page) => page.locator('[data-appearance-key="theme"]');
@@ -27,13 +27,13 @@ async function openAppearance(page) {
   await expect(picker(page)).toBeVisible();
 }
 
-test("Appearance offers Light, Viber Coder, Dark and System, and Viber Coder stays the default", async ({ page }) => {
+test("Appearance offers Light, Viber Coder, Dark, Vesta and System, and Viber Coder stays the default", async ({ page }) => {
   await openApp(page);
   await expect(theme(page)).toHaveAttribute("data-theme", "viber-coder");
   expect(await bodyBackground(page)).toBe(PALETTE_BG["viber-coder"]);
   await openAppearance(page);
   await expect(picker(page)).toHaveAttribute("role", "radiogroup");
-  await expect(picker(page).getByRole("radio")).toHaveText(["Light", "Viber Coder", "Dark", "System"]);
+  await expect(picker(page).getByRole("radio")).toHaveText(["Light", "Viber Coder", "Dark", "Vesta", "System"]);
   await expect(option(page, "Viber Coder")).toHaveAttribute("aria-checked", "true");
   await expect(page.locator("#settingsPage")).not.toContainText("not shipped");
 });
@@ -67,6 +67,22 @@ test("choosing Dark goes to midnight: black, grey, and no colour", async ({ page
   expect(await token(page, "--space-star")).toBe("228, 228, 228");
   await expect.poll(() => page.evaluate(() => window.__mock.savedPrefs)).toContainEqual(["theme", "dark"]);
   await expect(option(page, "Dark")).toHaveAttribute("aria-checked", "true");
+});
+
+test("choosing Vesta wears the Vesta logo: cream, dusty rose and sky blue", async ({ page }) => {
+  await openApp(page);
+  await openAppearance(page);
+  await option(page, "Vesta").click();
+
+  await expect(theme(page)).toHaveAttribute("data-theme", "vesta");
+  await expect.poll(() => bodyBackground(page)).toBe(PALETTE_BG.vesta);
+  expect(await token(page, "--ink")).toBe("#231a1a");
+  expect(await token(page, "--accent")).toBe("#8f5a52");
+  expect(await token(page, "--accent-2")).toBe("#3d6ba3");
+  expect(await token(page, "--brand-gradient")).toBe("linear-gradient(135deg, #b89088, #a8c8f0)");
+  expect(await token(page, "--space-star")).toBe("156, 108, 100");
+  await expect.poll(() => page.evaluate(() => window.__mock.savedPrefs)).toContainEqual(["theme", "vesta"]);
+  await expect(option(page, "Vesta")).toHaveAttribute("aria-checked", "true");
 });
 
 test("a saved theme is worn from boot, before Settings ever opens", async ({ page }) => {
@@ -126,7 +142,7 @@ test("a theme that lands without the cross-fade lands everywhere at once", async
   // ease their own colours; an instant switch must start none of them.
   await page.emulateMedia({ reducedMotion: "reduce" });
   await openApp(page);
-  for (const next of ["dark", "light", "viber-coder"]) {
+  for (const next of ["dark", "vesta", "light", "viber-coder"]) {
     const started = await page.evaluate((palette) => {
       window.__opai.applyAppearance({ theme: palette });
       const colours = document
@@ -157,11 +173,11 @@ test("the theme picker is a keyboard radio group", async ({ page }) => {
   await expect(option(page, "System")).toHaveAttribute("aria-checked", "true");
 });
 
-test("Settings search takes “light mode”, “midnight” and “viber coder” straight to the theme picker", async ({ page }) => {
+test("Settings search takes “light mode”, “midnight”, “viber coder” and “vesta” straight to the theme picker", async ({ page }) => {
   await openApp(page);
   await openNav(page, "Settings");
   const search = page.locator("#settingsSearch");
-  for (const query of ["midnight", "viber coder", "light mode"]) {
+  for (const query of ["midnight", "vesta", "viber coder", "light mode"]) {
     await search.fill(query);
     await expect(page.locator("[data-settings-search-result]").first()).toContainText("Theme");
   }
@@ -288,7 +304,7 @@ test("every theme's stars have their own matching starlight", async ({ page }) =
 test("a theme change repaints the stars in the new theme's starlight", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await openApp(page);
-  for (const [name, palette] of [["Light", "light"], ["Dark", "dark"], ["Viber Coder", "viber-coder"]]) {
+  for (const [name, palette] of [["Light", "light"], ["Dark", "dark"], ["Vesta", "vesta"], ["Viber Coder", "viber-coder"]]) {
     await page.evaluate((next) => window.__opai.applyAppearance({ theme: next }), palette);
     await expect(theme(page)).toHaveAttribute("data-theme", palette);
     await expect
@@ -310,11 +326,11 @@ test("a theme change repaints the stars in the new theme's starlight", async ({ 
 
 // The floor each palette is held to. Text that ignores the theme lands near
 // 1:1 -- dark ink on a dark well, white on white -- so every floor catches a
-// bypass. Light and Dark were designed alongside this audit and meet 3:1
-// everywhere; Viber Coder keeps its existing look, whose faintest labels
+// bypass. Light, Dark and Vesta were designed alongside this audit and meet
+// 3:1 everywhere; Viber Coder keeps its existing look, whose faintest labels
 // (secondary text in the composer's menus) measure about 2.4:1, and is held
 // there rather than restyled.
-const MIN_CONTRAST = { light: 3, "viber-coder": 2.2, dark: 3 };
+const MIN_CONTRAST = { light: 3, "viber-coder": 2.2, dark: 3, vesta: 3 };
 
 // Dark promises no colour at all, so for Dark the audit also reports any
 // element painted with a hue.
@@ -433,7 +449,7 @@ async function bootIn(page, palette, viewport, overrides = {}) {
   await page.evaluate(() => document.fonts.ready);
 }
 
-for (const palette of ["light", "dark"]) {
+for (const palette of ["light", "dark", "vesta"]) {
   test(`${palette} theme gallery: a finished turn`, async ({ page }) => {
     await bootIn(page, palette, { width: 1440, height: 900 });
     const id = await sendPrompt(page, "Fix the updater");

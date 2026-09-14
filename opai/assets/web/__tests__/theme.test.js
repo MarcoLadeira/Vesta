@@ -58,12 +58,13 @@ afterEach(() => {
 });
 
 describe("theme preferences", () => {
-  it("knows Light, Viber Coder, Dark and System, and falls back to Viber Coder", async () => {
+  it("knows Light, Viber Coder, Dark, Vesta and System, and falls back to Viber Coder", async () => {
     const { theme } = await loadTheme();
-    expect(theme.THEMES).toEqual(["light", "viber-coder", "dark", "system"]);
+    expect(theme.THEMES).toEqual(["light", "viber-coder", "dark", "vesta", "system"]);
     expect(theme.DEFAULT_THEME).toBe("viber-coder");
     expect(theme.normalize("light")).toBe("light");
     expect(theme.normalize("dark")).toBe("dark");
+    expect(theme.normalize("vesta")).toBe("vesta");
     expect(theme.normalize("sepia")).toBe("viber-coder");
     expect(theme.normalize(undefined)).toBe("viber-coder");
   });
@@ -73,6 +74,7 @@ describe("theme preferences", () => {
     expect(theme.resolve("system")).toBe("light");
     expect(theme.resolve("system", false)).toBe("viber-coder");
     expect(theme.resolve("dark")).toBe("dark");
+    expect(theme.resolve("vesta", false)).toBe("vesta");
     expect(theme.resolve("viber-coder", true)).toBe("viber-coder");
     expect(theme.resolve("light", false)).toBe("light");
   });

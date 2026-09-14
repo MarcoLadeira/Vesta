@@ -99,11 +99,12 @@ test("theme lint requires every palette to declare every token, and no colour in
   );
 });
 
-test("the shipped palettes are Viber Coder by default, then Light and Dark", async () => {
+test("the shipped palettes are Viber Coder by default, then Light, Dark and Vesta", async () => {
   assert.deepEqual(paletteIds(await readFile(new URL("../design-tokens.css", import.meta.url), "utf8")), [
     "viber-coder",
     "light",
     "dark",
+    "vesta",
   ]);
 });
 

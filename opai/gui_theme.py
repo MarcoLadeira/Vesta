@@ -1,8 +1,9 @@
 """App-wide colour theme for the desktop GUI.
 
 The choices are Light, Viber Coder (OPai's original night sky, and the
-default), Dark (midnight: black and grey, no colour), and System, which follows
-the OS between Light and Viber Coder.
+default), Dark (midnight: black and grey, no colour), Vesta (the Vesta logo's
+cream, dusty rose and sky blue), and System, which follows the OS between Light
+and Viber Coder.
 
 Appearance preferences such as density live with each project
 (``opaihub.gui_preferences``). The theme does not. It is how the application
@@ -24,8 +25,8 @@ from opaihub.atomic_io import atomic_write_text
 
 # Preferences a user can choose, and the palettes they paint with. Every
 # preference but "system" is a palette of the same name.
-THEMES = ("light", "viber-coder", "dark", "system")
-PALETTES = ("light", "viber-coder", "dark")
+THEMES = ("light", "viber-coder", "dark", "vesta", "system")
+PALETTES = ("light", "viber-coder", "dark", "vesta")
 DEFAULT_THEME = "viber-coder"
 # What "system" becomes when the OS is dark: the brand's own night sky, not the
 # blackout theme.
@@ -34,7 +35,12 @@ SYSTEM_DARK_THEME = "viber-coder"
 # The window's own background, painted before the page has drawn anything.
 # These are the ``--bg`` of each palette in assets/web/design-tokens.css -- a
 # test holds them equal -- so a launch never flashes another theme's ground.
-THEME_GROUND = {"light": "#eef1f6", "viber-coder": "#04050f", "dark": "#000000"}
+THEME_GROUND = {
+    "light": "#eef1f6",
+    "viber-coder": "#04050f",
+    "dark": "#000000",
+    "vesta": "#f6efe7",
+}
 
 
 def theme_path() -> Path:

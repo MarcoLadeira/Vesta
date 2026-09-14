@@ -232,18 +232,19 @@ describe("Appearance theme picker", () => {
     delete globalThis.OPaiTheme;
   });
 
-  it("offers Light, Viber Coder, Dark and System as one radio group on the appearance key", () => {
+  it("offers Light, Viber Coder, Dark, Vesta and System as one radio group on the appearance key", () => {
     const html = picker(section().render({ prefs: { theme: "light" } }, ctx));
     expect(html).toContain('role="radiogroup" aria-label="Theme" data-appearance-key="theme"');
     expect(Array.from(html.matchAll(/data-value="([\w-]+)" role="radio"/g), (match) => match[1])).toEqual([
       "light",
       "viber-coder",
       "dark",
+      "vesta",
       "system",
     ]);
     expect(html).toMatch(/data-value="light" role="radio" aria-checked="true" tabindex="0"/);
     expect(html).toMatch(/data-value="dark" role="radio" aria-checked="false" tabindex="-1"/);
-    for (const label of ["Light", "Viber Coder", "Dark", "System"]) expect(html).toContain(">" + label + "<");
+    for (const label of ["Light", "Viber Coder", "Dark", "Vesta", "System"]) expect(html).toContain(">" + label + "<");
   });
 
   it("previews each option in its own palette, and System in the two it switches between", () => {
@@ -253,6 +254,7 @@ describe("Appearance theme picker", () => {
     expect(panes("light")).toEqual(["light"]);
     expect(panes("viber-coder")).toEqual(["viber-coder"]);
     expect(panes("dark")).toEqual(["dark"]);
+    expect(panes("vesta")).toEqual(["vesta"]);
     expect(panes("system")).toEqual(["light", "viber-coder"]);
     expect(html).toContain('class="theme-preview" aria-hidden="true"');
   });

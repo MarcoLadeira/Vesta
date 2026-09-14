@@ -36,9 +36,9 @@ class NormalizeTests(unittest.TestCase):
             self.assertEqual(normalize_theme(theme), theme)
             self.assertEqual(normalize_theme(f"  {theme.upper()} "), theme)
 
-    def test_the_choices_are_light_viber_coder_dark_and_system(self):
-        self.assertEqual(THEMES, ("light", "viber-coder", "dark", "system"))
-        self.assertEqual(PALETTES, ("light", "viber-coder", "dark"))
+    def test_the_choices_are_light_viber_coder_dark_vesta_and_system(self):
+        self.assertEqual(THEMES, ("light", "viber-coder", "dark", "vesta", "system"))
+        self.assertEqual(PALETTES, ("light", "viber-coder", "dark", "vesta"))
 
     def test_anything_else_is_the_default_viber_coder_theme(self):
         self.assertEqual(DEFAULT_THEME, "viber-coder")

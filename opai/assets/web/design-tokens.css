@@ -6,7 +6,8 @@
  *      on [data-theme="viber-coder"];
  *   2. Light -- [data-theme="light"];
  *   3. Dark -- [data-theme="dark"], midnight: black and grey, no colour at all;
- *   4. the scales -- type, spacing, radii, motion -- which no theme changes.
+ *   4. Vesta -- [data-theme="vesta"], the Vesta logo: cream, dusty rose, sky blue;
+ *   5. the scales -- type, spacing, radii, motion -- which no theme changes.
  *
  * Every palette declares exactly the same tokens. theme.js puts the resolved
  * theme on <html data-theme>, so switching is one attribute and every surface
@@ -397,6 +398,114 @@
   --surface-code: #080808;
   --surface-code-head: #0f0f0f;
   --border-code: rgba(255, 255, 255, 0.08);
+}
+
+/* ---------- palette: Vesta ----------
+ *
+ * The Vesta logo as a room: warm cream paper, near-black ink like the heart's
+ * outline, dusty rose as the brand highlight and sky blue as its partner --
+ * the two halves of the heart, which meet again in the brand gradient.
+ *
+ * Rose and sky are deepened wherever they carry text, so every label clears
+ * the contrast audit; at full pastel strength they are only fills, washes and
+ * gradients. The stars are dusty rose, drawn strongly enough to read on cream.
+ */
+[data-theme="vesta"] {
+  --bg: #f6efe7;
+  --surface: #f9f4ee;
+  --surface-2: #fcf8f3;
+  --panel: #efe6dc;
+  --panel-2: #fffdfa;
+  --elevated: #fbf6f0;
+  --glass: rgba(255, 252, 247, 0.66);
+  --glass-hi: rgba(74, 48, 44, 0.055);
+  --border: rgba(74, 48, 44, 0.12);
+  --border-strong: rgba(74, 48, 44, 0.2);
+  --ink: #231a1a;
+  --muted: #5e4d4b;
+  --faint: #77625f;
+  --accent: #8f5a52;
+  --accent-2: #3d6ba3;
+  --accent-deep: #74463f;
+  --accent-ink: #2a1614;
+  --accent-glow: rgba(184, 144, 136, 0.24);
+  --brand-gradient: linear-gradient(135deg, #b89088, #a8c8f0);
+  --green: #4b7355;
+  --amber: #8f5c0c;
+  --warn: #8a5a0b;
+
+  --stage-dark: #efe5da;
+  --lunar-crest: rgba(184, 144, 136, 0.16);
+  --lunar-body: rgba(168, 200, 240, 0.1);
+  /* Dusty rose stars on cream, drawn about twice as strongly as on black. */
+  --space-star: 156, 108, 100;
+  --space-star-strength: 2.2;
+  --red: #ad3a3a;
+  --blue: #3d6ba3;
+  --claude: #a0522f;
+  --codex: #356b94;
+  --provider-auto: #6d5f5d;
+  --provider-local: #4b7355;
+  --avatar-ink: #ffffff;
+
+  --tint-accent-rgb: 184, 128, 118;
+  --tint-success-rgb: 84, 132, 96;
+  --tint-danger-rgb: 196, 72, 72;
+  --tint-warning-rgb: 190, 130, 30;
+  --tint-caution-rgb: 196, 140, 20;
+  --tint-notice-rgb: 186, 136, 40;
+  --tint-info-rgb: 96, 146, 214;
+  --tint-subscription-rgb: 84, 130, 190;
+  --tint-repair-rgb: 200, 84, 84;
+  --wash-rgb: 74, 48, 44;
+  --highlight-rgb: 255, 255, 255;
+  --shade-rgb: 60, 38, 34;
+
+  --wash-ice: rgba(168, 200, 240, 0.2);
+  --wash-indigo: rgba(184, 144, 136, 0.13);
+  --wash-violet: rgba(206, 170, 190, 0.08);
+  --grid-dot: rgba(74, 48, 44, 0.06);
+
+  --header-bg: rgba(250, 245, 239, 0.92);
+  --header-shadow: 0 1px 0 rgba(255, 255, 255, 0.7), 0 8px 24px rgba(60, 38, 34, 0.05);
+  --headline-from: #231a1a;
+  --headline-to: #8f5a52;
+  --composer-glass: linear-gradient(180deg, rgba(255, 253, 250, 0.84), rgba(252, 247, 241, 0.72));
+  --composer-edge: inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 -1px 0 rgba(60, 38, 34, 0.05);
+  --composer-drop-bg: rgba(240, 246, 253, 0.94);
+  --meter-inset: inset 0 1px 2px rgba(60, 38, 34, 0.12);
+  --sheet-shadow: 0 18px 50px rgba(60, 38, 34, 0.14);
+  --dialog-shadow: 0 24px 70px rgba(60, 38, 34, 0.16);
+  --scrim: rgba(80, 58, 54, 0.26);
+  --drawer-scrim: rgba(80, 58, 54, 0.22);
+  --palette-bg: rgba(255, 252, 248, 0.95);
+  --code-inline-bg: rgba(74, 48, 44, 0.06);
+  --diff-del-ink: #8d3a3a;
+  --window-close-bg: #ad3a3a;
+  --window-close-ink: #fff;
+  --select-chevron: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%236d5f5d' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>");
+
+  --settings-surface: rgba(255, 252, 248, 0.74);
+  --settings-surface-raised: #fffdfa;
+  --settings-surface-hover: rgba(74, 48, 44, 0.06);
+  --settings-border: rgba(74, 48, 44, 0.11);
+  --settings-border-strong: rgba(74, 48, 44, 0.18);
+  --settings-selection: rgba(168, 200, 240, 0.3);
+  --settings-selection-strong: #3d6ba3;
+  --settings-canvas: rgba(250, 245, 239, 0.6);
+  --settings-field: rgba(74, 48, 44, 0.045);
+  --settings-bar: rgba(247, 241, 234, 0.9);
+  --settings-bar-solid: rgba(247, 241, 234, 0.95);
+  --settings-primary-bg: #8f5a52;
+  --settings-primary-ink: #ffffff;
+
+  --elevation-sm: 0 1px 2px rgba(60, 38, 34, 0.06);
+  --elevation-md: 0 8px 24px rgba(60, 38, 34, 0.08);
+  --elevation-lg: 0 20px 50px rgba(60, 38, 34, 0.12);
+  --inset-hi: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+  --surface-code: #f7f1ea;
+  --surface-code-head: #efe6dc;
+  --border-code: rgba(74, 48, 44, 0.1);
 }
 
 /* ---------- scales: the same in every theme ---------- */

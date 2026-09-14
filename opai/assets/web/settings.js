@@ -1376,7 +1376,7 @@
     // the window is actually wearing, so the picker never contradicts it.
     var appliedTheme = global.OPaiTheme ? global.OPaiTheme.current().preference : null;
     h +=
-      '<div class="appearance-row appearance-row-theme"><div class="appearance-label"><span class="k">Theme</span><span class="hint">Light is soft daylight. Viber Coder is OPai\'s original night sky. Dark is midnight: all black and grey, no colour. System follows your OS: Light by day, Viber Coder by night.</span></div>' +
+      '<div class="appearance-row appearance-row-theme"><div class="appearance-label"><span class="k">Theme</span><span class="hint">Light is soft daylight. Viber Coder is OPai\'s original night sky. Dark is midnight: all black and grey, no colour. Vesta is warm cream with the logo\'s dusty rose and sky blue. System follows your OS: Light by day, Viber Coder by night.</span></div>' +
       themeChoices(esc, pref("theme", "theme") || appliedTheme) +
       "</div>";
     h +=
@@ -1428,6 +1428,7 @@
     { id: "light", label: "Light", panes: ["light"] },
     { id: "viber-coder", label: "Viber Coder", panes: ["viber-coder"] },
     { id: "dark", label: "Dark", panes: ["dark"] },
+    { id: "vesta", label: "Vesta", panes: ["vesta"] },
     { id: "system", label: "System", panes: ["light", "viber-coder"] },
   ];
 
@@ -1812,7 +1813,7 @@
       { label: "Clear previous chats", group: "Data & privacy", selector: "#settingsClearRecents", keywords: "delete saved chat recents history" },
     ],
     appearance: [
-      { label: "Theme", group: "Appearance", selector: '[data-appearance-key="theme"]', keywords: "light mode dark mode night mode midnight black oled viber coder system theme colour color day bright" },
+      { label: "Theme", group: "Appearance", selector: '[data-appearance-key="theme"]', keywords: "light mode dark mode night mode midnight black oled viber coder vesta cream rose pink sky blue pastel warm system theme colour color day bright" },
       { label: "Composer style", group: "Appearance", selector: '[data-composer-style-key="composer_style"]', keywords: "toolbar single line command bar" },
       { label: "Response detail", group: "Appearance", selector: '[data-appearance-key="response_density"]', keywords: "compact balanced detailed output" },
       { label: "Density", group: "Appearance", selector: '[data-appearance-key="density"]', keywords: "comfortable compact spacing" },

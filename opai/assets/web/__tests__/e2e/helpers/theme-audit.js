@@ -4,7 +4,7 @@
 // proves what reaches the screen: it walks every visible element that draws
 // text and measures that text against the background really behind it, and it
 // looks for neutral surfaces of the wrong polarity -- a near-black code well in
-// the light theme, a near-white card in the dark one. Either is what a
+// a light theme, a near-white card in a dark one. Either is what a
 // component that bypasses the palette looks like, however it was written
 // (a hard-coded style attribute, a canvas, a colour computed in a script).
 //
@@ -110,11 +110,24 @@ export function auditThemeInPage({ minContrast, colourless = false }) {
   // For a colourless theme: any text, fill or border painted with a hue.
   const hues = [];
 
+  // Whether a palette is a light one is read from its own ground, not from its
+  // name, so every light theme -- Light, Vesta, whatever comes next -- is held
+  // to the light polarity without this audit having to know it exists.
+  const lightPalette = new Map();
+  const isLight = (scope) => {
+    const key = scope.dataset.theme || "";
+    if (!lightPalette.has(key)) {
+      const ground = rgba(getComputedStyle(scope).getPropertyValue("--bg").trim());
+      lightPalette.set(key, luminance(ground) > 0.5);
+    }
+    return lightPalette.get(key);
+  };
+
   for (const element of document.body.querySelectorAll("*")) {
     // A subtree that deliberately wears the other theme (the picker's
     // previews) is measured against its own palette, not the window's.
     const scope = element.closest("[data-theme]");
-    const expected = scope && scope !== root ? scope.dataset.theme : theme;
+    const palette = scope && scope !== root ? scope : root;
     if (element.closest("[aria-hidden='true'], .composer-native, script, style, noscript, option")) continue;
     if (!visible(element)) continue;
 
@@ -162,7 +175,7 @@ export function auditThemeInPage({ minContrast, colourless = false }) {
       const surface = backgroundBehind(element);
       const lum = luminance(surface);
       const neutral = chroma(surface) < 45;
-      const wrong = expected === "light" ? lum < 0.1 : lum > 0.75;
+      const wrong = isLight(palette) ? lum < 0.1 : lum > 0.75;
       if (neutral && wrong) {
         wrongSurfaces.push({
           element: describe(element),

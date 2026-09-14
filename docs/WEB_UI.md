@@ -57,19 +57,21 @@ unit-tested in `__tests__/settings.test.js`.
 
 ### Themes
 
-Settings › Appearance offers four choices:
+Settings › Appearance offers five choices:
 
 | Choice | `data-theme` | What it is |
 | --- | --- | --- |
 | **Light** | `light` | Soft daylight: a pearl ground, slate ink, white glass cards, indigo stars. |
 | **Viber Coder** | `viber-coder` | OPai's original night sky, and the default. |
 | **Dark** | `dark` | Midnight: a black ground, grey surfaces, white and grey ink, and no colour anywhere — accents, links and statuses included. |
+| **Vesta** | `vesta` | The Vesta logo: warm cream paper, near-black ink, dusty rose highlights with sky blue beside them, dusty rose stars. |
 | **System** | resolved | Follows the operating system: Light by day, Viber Coder by night, switching live. |
 
 **How it works.** A theme is one attribute: `<html data-theme="…">`.
 `design-tokens.css` holds one palette block per theme — Viber Coder is the
-default on `:root, [data-theme="viber-coder"]`, then `[data-theme="light"]` and
-`[data-theme="dark"]` — each declaring exactly the same tokens, plus
+default on `:root, [data-theme="viber-coder"]`, then `[data-theme="light"]`,
+`[data-theme="dark"]` and `[data-theme="vesta"]` — each declaring exactly the
+same tokens, plus
 theme-independent scales. Component CSS takes every colour from a token, so
 setting the attribute repaints the whole app. `theme.js` resolves the
 preference, follows the OS while it is `system`, and cross-fades the change
@@ -79,7 +81,7 @@ nothing fades from the old palette on its own.
 
 **The star field works in every theme**, shooting stars included, each in a
 starlight that matches its theme: indigo on Light, ice white on Viber Coder,
-moonlight silver on Dark. It is a canvas, so it reads two tokens instead of
+moonlight silver on Dark, dusty rose on Vesta. It is a canvas, so it reads two tokens instead of
 CSS: `--space-star` (the starlight, as bare channels) and
 `--space-star-strength` (a multiplier on the still stars' opacity — a star
 must be drawn more strongly to show on pearl than on black). It repaints on
@@ -118,7 +120,7 @@ the brand's own highlight (an active row, a focused field, a selection) and
   hue while Dark is on.
 - `tests/test_gui_theme.py` holds the Python host, `theme.js` and the palettes
   to the same list of themes.
-- `theme.spec.js-snapshots` holds reviewed baselines of Light and Dark.
+- `theme.spec.js-snapshots` holds reviewed baselines of Light, Dark and Vesta.
 
 ## Bridge API (Python → JS)
 
