@@ -248,7 +248,7 @@ def models_for(provider: str) -> tuple[ModelSpec, ...]:
 
     The built-in table is layered with the user's own list
     (``~/.opai/models.json``) so a model a provider ships after this release
-    can be used without waiting for an OPai update. Import is local and
+    can be used without waiting for a Vesta update. Import is local and
     failure is swallowed on purpose: the registry is imported by nearly every
     layer, and a convenience file must never be able to break model lookup.
     """

@@ -1,9 +1,9 @@
-"""OPai's authorship trailer on commits it writes.
+"""Vesta's authorship trailer on commits it writes.
 
 When an assistant does the work, the commit should say so. GitHub reads
 ``Co-Authored-By`` trailers and attributes the commit to that identity, which is
 why Claude shows up in a repository's contributor list and on its pull requests.
-OPai wrote commits with no trailer at all, so work it did was indistinguishable
+Vesta wrote commits with no trailer at all, so work it did was indistinguishable
 from work the user typed by hand — the history was quietly wrong about who did
 what.
 
@@ -19,7 +19,7 @@ because git and GitHub treat ``Co-authored-by`` and ``Co-Authored-By`` as the
 same trailer while a naive string check does not. A commit amended or retried
 must not accumulate the same line twice.
 
-**Never invented for the user.** The identity is OPai's own, fixed and
+**Never invented for the user.** The identity is Vesta's own, fixed and
 non-configurable from a prompt. A trailer whose address could be set by whatever
 the model was told would be a way to attribute a commit to someone who did not
 make it.
@@ -29,10 +29,10 @@ from __future__ import annotations
 
 import re
 
-#: The identity GitHub attributes OPai's commits to. `noreply` follows the
+#: The identity GitHub attributes Vesta's commits to. `noreply` follows the
 #: convention for bot/assistant addresses: it is a stable identity, not a
 #: mailbox, and must never look like it can receive mail.
-OPAI_NAME = "OPai"
+OPAI_NAME = "Vesta"
 OPAI_EMAIL = "noreply@opai.dev"
 COAUTHOR_TRAILER = f"Co-Authored-By: {OPAI_NAME} <{OPAI_EMAIL}>"
 
@@ -42,12 +42,12 @@ _TRAILER_RE = re.compile(
 
 
 def has_opai_trailer(message: str) -> bool:
-    """Whether ``message`` already credits OPai, in any capitalisation."""
+    """Whether ``message`` already credits Vesta, in any capitalisation."""
     return bool(_TRAILER_RE.search(str(message or "")))
 
 
 def with_coauthor(message: str) -> str:
-    """Return ``message`` with OPai's co-author trailer appended.
+    """Return ``message`` with Vesta's co-author trailer appended.
 
     Git requires trailers in a final block separated from the body by a blank
     line; appending directly onto the last body line would produce a trailer git
@@ -79,7 +79,7 @@ def with_coauthor(message: str) -> str:
     return body + separator + COAUTHOR_TRAILER + "\n"
 
 
-#: Footer added to pull requests OPai opens. GitHub does not read trailers in a
+#: Footer added to pull requests Vesta opens. GitHub does not read trailers in a
 #: PR body, so contributor attribution there is a matter of saying plainly who
 #: wrote the change — a reviewer should not have to check `git log` to find out
 #: whether a human or an assistant produced what they are reviewing.
@@ -90,7 +90,7 @@ PR_ATTRIBUTION = f"Opened with [{OPAI_NAME}](https://github.com/MarcoLadeira/OPa
 
 
 def with_pr_attribution(body: str) -> str:
-    """Append OPai's attribution to a pull-request body, exactly once."""
+    """Append Vesta's attribution to a pull-request body, exactly once."""
     text = str(body or "").rstrip()
     if PR_ATTRIBUTION in text:
         return text + "\n"

@@ -16,7 +16,7 @@ to Auto by an explicit "fix X" -- so Manual, which is meant to sit *above* Ask,
 could do less than it.
 
 The other half matters as much: nothing here may hand out authority the user
-did not give. OPai's own tool loop (free and local models) cannot stop at an
+did not give. Vesta's own tool loop (free and local models) cannot stop at an
 edit and ask, so in Manual it edits only with the user's one-shot grant.
 """
 
@@ -169,7 +169,7 @@ class AccountPathTests(_RepoCase):
 
 
 class ToolLoopTests(_RepoCase):
-    """OPai's own loop cannot ask mid-run, so Manual needs the grant there."""
+    """Vesta's own loop cannot ask mid-run, so Manual needs the grant there."""
 
     def test_manual_does_not_edit_on_a_free_model_without_a_grant(self) -> None:
         self.assertFalse(self._free_turn("approve-edits")["allow_edits"])

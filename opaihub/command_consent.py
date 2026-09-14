@@ -2,7 +2,7 @@
 
 Round 5 QA finding 1: pinning Full Auto promises "Push, deploy, and destructive
 actions still ask for confirmation", but a push ran with no confirmation UI at
-all. The reason was structural. OPai has two execution channels and neither
+all. The reason was structural. Vesta has two execution channels and neither
 could ask:
 
 * Its own tool executor ran ``git_push``/``open_pr`` the moment consent existed
@@ -119,7 +119,7 @@ _TRAILING_REDIRECT = re.compile(r"\s*2>&1\s*$")
 def operative_push_command(command: str) -> str | None:
     """The `git push ...` a caller actually runs, or ``None`` if it is not one.
 
-    Strips the one shell wrapper OPai's own tooling adds. Returns the bare push
+    Strips the one shell wrapper Vesta's own tooling adds. Returns the bare push
     so callers judge the push itself rather than the wrapper around it.
     """
 
@@ -148,7 +148,7 @@ def is_history_rewriting_push(command: str) -> bool:
     The gate previously inferred this from *consent being on* rather than from
     the command, so with pushing enabled every blocked push was reported as a
     force/delete/mirror. Saying that about `git push origin my-branch` is simply
-    false, and it is the difference between "approve this once" and "OPai will
+    false, and it is the difference between "approve this once" and "Vesta will
     never do this" -- a dead end the user cannot clear.
     """
 
@@ -309,7 +309,7 @@ def begin_turn(grant: str | None = None, *, run: str | None = None) -> None:
     the user issued for an earlier turn must never authorize this one.
 
     ``run`` binds the grant to the run the user was asked about. Without it the
-    handshake directory is a fixed per-user path shared by every OPai process
+    handshake directory is a fixed per-user path shared by every Vesta process
     on the machine, so a second window -- different repository, different run,
     a question its user was never asked -- could spend the first window's
     approval. Measured, not theorised: two processes, one grant, both told yes.
@@ -374,13 +374,13 @@ def grant_belongs_to(grant_run: Any, caller_run: Any) -> bool:
     which run it was got refused. That is the wrong failure for this gate, and
     the reason is the shape of the call chain rather than a preference.
 
-    The process that spends a grant is the PreToolUse hook, and OPai does not
-    launch it. OPai launches the *provider's* CLI, and that CLI launches the
+    The process that spends a grant is the PreToolUse hook, and Vesta does not
+    launch it. Vesta launches the *provider's* CLI, and that CLI launches the
     hook. Whether ``OPAI_RUN_ID`` survives the middle hop is a third party's
     decision. Under strict equality, a provider that sanitises the environment
     it hands its hooks would silently refuse **every** approved push -- the
     user presses Approve and nothing happens. That is a far worse failure than
-    the one this check exists to prevent. OPai must never be the reason a
+    the one this check exists to prevent. Vesta must never be the reason a
     person cannot do the thing they just explicitly asked for.
 
     So the refusal needs evidence, exactly like everything else in this epic.
@@ -388,7 +388,7 @@ def grant_belongs_to(grant_run: Any, caller_run: Any) -> bool:
     which run I am" is not, and answering that with a refusal would be the same
     confident-guess mistake pointing the other way.
 
-    The leak stays closed where it actually happens: two OPai windows on one
+    The leak stays closed where it actually happens: two Vesta windows on one
     machine either both carry a run id or neither does, so a real cross-window
     attempt is a positive mismatch. Where identity does not propagate at all,
     the behaviour degrades to what it was before this check existed -- no worse
@@ -416,7 +416,7 @@ def consume_grant(command: str, *, run: str | None = None) -> bool:
     **Exactly once, across processes.** This used to read the file, check it,
     and then unlink it, with nothing holding those three steps together. Eight
     gates racing for one grant were all told yes -- measured, not theorised --
-    which makes "Approve once" a promise OPai could not keep. A model that
+    which makes "Approve once" a promise Vesta could not keep. A model that
     emits the same gated command several times in a turn is the ordinary way
     to reach that, not an exotic one.
 

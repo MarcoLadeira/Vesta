@@ -1,13 +1,13 @@
 """Subprocess helpers that never flash a console window on Windows.
 
 A GUI app (PySide6 / QtWebEngine) that shells out to a console program pops a
-visible terminal for a split second on Windows. OPai collects git evidence
+visible terminal for a split second on Windows. Vesta collects git evidence
 (status / diff), selects tests, and probes providers on *every* message, so
 without suppression that becomes a burst of terminals flashing on screen each
 time you send. ``CREATE_NO_WINDOW`` stops the child from ever getting a console.
 
 ``opaihub.accounts`` already applies this to the provider CLIs it launches;
-this module is the shared source for every *other* subprocess OPai spawns, so
+this module is the shared source for every *other* subprocess Vesta spawns, so
 the behaviour is consistent and unit-testable in one place.
 """
 
@@ -32,8 +32,8 @@ def console_interpreter(
 ) -> str:
     """Return a *console* Python to hand to ``-m pip``, never the windowed one.
 
-    OPai's desktop app runs under ``pythonw.exe``, and its updater reinstalls
-    OPai with ``sys.executable -m pip install -e .``. That is enough to brick
+    Vesta's desktop app runs under ``pythonw.exe``, and its updater reinstalls
+    Vesta with ``sys.executable -m pip install -e .``. That is enough to brick
     the desktop icon. For a ``gui_scripts`` entry point pip's vendored distlib
     derives the windowed interpreter by substring substitution --- literally
     ``fn.replace("python", "pythonw")`` --- so an already-windowed
@@ -43,7 +43,7 @@ def console_interpreter(
     inheriting ``pythonw.exe`` and so printing nothing in a terminal.
 
     Neither failure is hypothetical --- both were measured on a machine whose
-    launchers OPai had reinstalled from inside its own GUI.
+    launchers Vesta had reinstalled from inside its own GUI.
 
     So when the running interpreter is windowed and its console sibling really
     exists, return the sibling. Otherwise return what we were given: a shebang
@@ -80,16 +80,16 @@ def no_window_kwargs() -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 # Sanitized child environments for provider CLIs (the auth-truth fix).
 #
-# OPai is often launched from a terminal where another AI session is running
+# Vesta is often launched from a terminal where another AI session is running
 # (Claude Code, Codex, an agent harness). Those parents export session
 # variables — CLAUDECODE, CLAUDE_CODE_SDK_HAS_OAUTH_REFRESH, stale
 # ANTHROPIC_API_KEY/OPENAI_API_KEY overrides, custom base URLs — that a child
 # provider CLI then inherits. The result is the exact reported failure class:
 # `claude auth status` says "logged in" (it reads the parent session's
 # markers) while the real completion 401s or reports "Not logged in", because
-# the child deferred auth to a host session that does not exist inside OPai.
+# the child deferred auth to a host session that does not exist inside Vesta.
 #
-# OPai's account connectors mean ONE thing: "route through the CLI's own
+# Vesta's account connectors mean ONE thing: "route through the CLI's own
 # persisted sign-in". So every provider CLI spawn gets a copy of the
 # environment with the hijacking variables removed. Only NAMES of removed
 # variables are ever reported — values are never read, logged, or returned.
@@ -102,7 +102,7 @@ _ENV_DENY_EXACT: dict[str, frozenset[str]] = {
             "ANTHROPIC_AUTH_TOKEN",
             "ANTHROPIC_BASE_URL",
             "ANTHROPIC_CUSTOM_HEADERS",
-            # Model overrides that would silently beat OPai's --model choice.
+            # Model overrides that would silently beat Vesta's --model choice.
             "ANTHROPIC_MODEL",
             "ANTHROPIC_SMALL_FAST_MODEL",
             # Parent-session markers ("a host manages your session/tokens").
@@ -126,7 +126,7 @@ _ENV_DENY_EXACT: dict[str, frozenset[str]] = {
 _ENV_DENY_PREFIXES: dict[str, tuple[str, ...]] = {
     # Every CLAUDE_CODE_* var is parent-session state (SDK_HAS_OAUTH_REFRESH,
     # CHILD_SESSION, SESSION_ID, ENTRYPOINT, OAUTH_SCOPES, ...). None of them
-    # belong in a fresh CLI run that OPai owns.
+    # belong in a fresh CLI run that Vesta owns.
     "claude": ("CLAUDE_CODE_",),
     "codex": (),
     "copilot": (),
@@ -138,7 +138,7 @@ _ENV_DENY_PREFIXES: dict[str, tuple[str, ...]] = {
 # recursive self-invocation (F12). See opai.cli._refuse_if_nested_agent_session.
 AGENT_SESSION_ENV = "OPAI_AGENT_SESSION"
 # Where the one-shot command-approval handshake lives, pinned for every provider
-# child so a CLI's PreToolUse hook reads the same directory OPai wrote to.
+# child so a CLI's PreToolUse hook reads the same directory Vesta wrote to.
 COMMAND_CONSENT_DIR_ENV = "OPAI_COMMAND_CONSENT_DIR"
 # The run's autonomy level, so the PreToolUse hook the child launches gates
 # by the SAME rule the in-process tool executor uses. Without it the hook had

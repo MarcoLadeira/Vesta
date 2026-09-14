@@ -161,7 +161,7 @@ class ClaudePreToolHookDecisionTests(unittest.TestCase):
                     reason = _reason_of(result)
                     # Bug 2: the block must not promise a per-command approval
                     # dialog that does not exist — it says to run it yourself.
-                    self.assertNotIn("confirmation in the OPai UI", reason)
+                    self.assertNotIn("confirmation in the Vesta UI", reason)
                     self.assertIn("run it yourself", reason)
                     self.assertIn("Do not retry", reason)
                     # Legacy fields mirror the deny for older CLIs.
@@ -170,7 +170,7 @@ class ClaudePreToolHookDecisionTests(unittest.TestCase):
 
     def test_git_push_block_points_to_the_real_enablement_path(self):
         # Bug 2: a denied git push must point at the one real control (enable
-        # pushes in Settings, then OPai's own GitHub tool), not a non-existent
+        # pushes in Settings, then Vesta's own GitHub tool), not a non-existent
         # per-command confirmation dialog.
         with _hermetic_hub(), _push_consent(False):
             for command in ("git push origin main", "cd /repo && git push origin main"):
@@ -180,7 +180,7 @@ class ClaudePreToolHookDecisionTests(unittest.TestCase):
                     reason = _reason_of(result)
                     self.assertIn("Enable pushes & PRs", reason)
                     self.assertIn("Providers & Connections", reason)
-                    self.assertNotIn("confirmation in the OPai UI", reason)
+                    self.assertNotIn("confirmation in the Vesta UI", reason)
                     self.assertIn("Do not retry", reason)
 
     def test_a_force_push_is_never_sent_to_the_enablement_path(self):
@@ -322,7 +322,7 @@ class ClaudePreToolHookDecisionTests(unittest.TestCase):
             )
 
     def test_the_real_chained_command_shape_reaches_the_approval_card(self):
-        """Reported: OPai still could not open a PR after all of the above.
+        """Reported: Vesta still could not open a PR after all of the above.
 
         Providers issue every command as ``cd "<repo>" && <command>``, and the
         allowlist was anchored at the start of the string -- so the chained form
@@ -1086,7 +1086,7 @@ class RecursionGuardCliTests(unittest.TestCase):
         self.assertEqual(code, 2)
         route_task.assert_not_called()
         self.assertIn(self.REFUSAL, err)
-        self.assertIn("OPai", err)
+        self.assertIn("Vesta", err)
 
     def test_ask_refuses_inside_agent_session(self):
         code, _out, err = _run_cli(
@@ -1169,7 +1169,7 @@ class InstructionTextTests(unittest.TestCase):
         root = Path("C:/repo")
         self.assertIn(STATUS_TEXT, instruction_text(root))
         self.assertIn(STATUS_TEXT, project_instruction_text(root))
-        self.assertIn("# OPai Active", project_instruction_text(root))
+        self.assertIn("# Vesta Active", project_instruction_text(root))
         self.assertIn("No generated dirs", project_instruction_text(root))
         # The human workflow grant language must survive the rewrite.
         self.assertIn("latest explicit request", project_instruction_text(root).lower())

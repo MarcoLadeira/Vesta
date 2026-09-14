@@ -329,7 +329,7 @@ AWAITING_INPUT_STATUSES: frozenset[str] = frozenset(
 
 
 def is_awaiting_input(status: str) -> bool:
-    """True when a pipeline status means "OPai handed control back to you"."""
+    """True when a pipeline status means "Vesta handed control back to you"."""
 
     return str(status or "").strip().lower() in AWAITING_INPUT_STATUSES
 

@@ -88,12 +88,12 @@ test("free model labels identify free-tier eligibility", async ({ page }) => {
   }
 });
 
-test("picker groups order: Claude → Codex → Copilot → Free models → OPai routing → Local models", async ({ page }) => {
+test("picker groups order: Claude → Codex → Copilot → Free models → Vesta routing → Local models", async ({ page }) => {
   await openApp(page, { boot: { models: MODELS_WITH_FREE } });
   const groupLabels = await page.locator("#modelSel optgroup").evaluateAll(
     (els) => els.map((el) => el.getAttribute("label"))
   );
-  const expectedOrder = ["Claude", "Codex", "Copilot", "Free models", "OPai routing", "Local models"];
+  const expectedOrder = ["Claude", "Codex", "Copilot", "Free models", "Vesta routing", "Local models"];
   // Filter to only our expected groups (some may not appear if no models in them)
   const presentExpected = expectedOrder.filter((l) => groupLabels.includes(l));
   // Verify they appear in the correct relative order

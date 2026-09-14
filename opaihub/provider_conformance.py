@@ -1,6 +1,6 @@
 """One behavioural contract every provider adapter must satisfy (#295, gate 10).
 
-OPai routes across CLI accounts (claude, codex, copilot), local server shapes
+Vesta routes across CLI accounts (claude, codex, copilot), local server shapes
 (Ollama, any OpenAI-compatible endpoint) and free-tier APIs. They do not share a
 base class and should not: a killable subprocess and an HTTP stream have
 genuinely different mechanics, and forcing one hierarchy over both buys nothing
@@ -162,7 +162,7 @@ CLAUSES_BY_ID: dict[str, Clause] = {c.id: c for c in CLAUSES}
 class Script:
     """What the simulated provider does. Owned by the harness, obeyed by probes.
 
-    Every scenario here is one OPai has actually shipped a bug for.
+    Every scenario here is one Vesta has actually shipped a bug for.
     """
 
     chunks: tuple[str, ...] = ()
@@ -243,7 +243,7 @@ class ConformanceReport:
 
 
 def _classify(outcome: Outcome) -> str:
-    """Map an outcome onto OPai's shipped error vocabulary.
+    """Map an outcome onto Vesta's shipped error vocabulary.
 
     Reuses `opai.provider_contract` rather than inventing a second taxonomy:
     a conformance matrix that graded adapters against a vocabulary the product

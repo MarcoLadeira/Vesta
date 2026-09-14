@@ -1,6 +1,6 @@
 """Free-alpha language contract (#358).
 
-OPai launched as a **free public alpha**. The pre-free-launch paid strategy
+Vesta launched as a **free public alpha**. The pre-free-launch paid strategy
 (Founding Pro / Team Pilot pricing tiers, private/paid install, controlled alpha)
 survives only in clearly *archived* strategy docs. These guards keep the audit
 from silently regressing:

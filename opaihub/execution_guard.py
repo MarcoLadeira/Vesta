@@ -2,7 +2,7 @@
 
 Every provider turn — the first and every continuation — passes through
 :meth:`ExecutionGuard.check` *before* the request is sent.  It enforces the same
-authority OPai has always enforced at dispatch, but now on each turn of a
+authority Vesta has always enforced at dispatch, but now on each turn of a
 continuous run: cancellation, panic mode, paid/cloud consent, provider
 auth/rate/quota/billing health, and the task/daily/monthly dollar caps.
 

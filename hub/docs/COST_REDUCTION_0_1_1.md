@@ -1,6 +1,6 @@
-# OPai 0.1.1 Cost Reduction
+# Vesta 0.1.1 Cost Reduction
 
-OPai 0.1.1 pre-alpha is tuned to make AI coding cheaper than using an assistant directly.
+Vesta 0.1.1 pre-alpha is tuned to make AI coding cheaper than using an assistant directly.
 
 ## Default Rules
 

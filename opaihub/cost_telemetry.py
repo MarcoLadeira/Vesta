@@ -4,7 +4,7 @@ One canonical shape for what a provider call actually cost: tokens, dollars,
 and quota, with the measurement honestly labelled. ``actual`` means the
 provider reported dollars itself (claude's ``total_cost_usd``); ``derived``
 means dollars were computed from provider-reported tokens and a known rate;
-``estimated`` means OPai guessed. Telemetry lands in the redacted workflow
+``estimated`` means Vesta guessed. Telemetry lands in the redacted workflow
 ledger (``cost_telemetry`` events) and is summarized for the cockpit.
 
 Recording telemetry never authorizes spend: the existing confirmation and
@@ -191,7 +191,7 @@ def estimated_telemetry(
     cost_usd: float | None = None,
     model: str = "",
 ) -> CostTelemetry:
-    """Telemetry for a call where OPai only has its own estimates."""
+    """Telemetry for a call where Vesta only has its own estimates."""
 
     return CostTelemetry(
         provider=str(provider_id or "").strip().lower(),

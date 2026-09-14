@@ -9,7 +9,7 @@ consent handshake, cost telemetry, the completion verdict, the terminal record
 * did the canonical journal end up telling the truth about it?
 
 Both matter, and the first matters more. The whole point of this epic is that
-OPai should be able to say true things about what it did *without the person
+Vesta should be able to say true things about what it did *without the person
 using it ever noticing that it is doing so*. A turn that journalled perfectly
 and returned a worse answer would be a failure of the epic, not a success.
 """
@@ -67,7 +67,7 @@ class TheUserGetsTheirAnswerTests(_RealTurn):
     """First, and most importantly: the turn works."""
 
     def test_a_turn_returns_something_the_user_can_act_on(self):
-        """With `model="auto"` and no local model, OPai stops and asks.
+        """With `model="auto"` and no local model, Vesta stops and asks.
 
         That is the cost firewall working, not a failure: the request has not
         left the device and the user is being asked before it does. What
@@ -216,7 +216,7 @@ class TwoTurnsInARowStayHonestTests(_RealTurn):
 class TheEndingTheGateProducesIsRecordedHonestlyTests(_RealTurn):
     """The false-completion fix, on a real turn rather than a fixture.
 
-    With `model="auto"` and no local model available, OPai stops and asks
+    With `model="auto"` and no local model available, Vesta stops and asks
     before anything leaves the device. Measured, end to end:
 
         status              needs_auto_confirmation
@@ -239,7 +239,7 @@ class TheEndingTheGateProducesIsRecordedHonestlyTests(_RealTurn):
         self.assertNotEqual(
             verdict,
             "completed",
-            "OPai stopped to ask a question; that is not a completed task",
+            "Vesta stopped to ask a question; that is not a completed task",
         )
 
     def test_the_reason_names_what_actually_happened(self):

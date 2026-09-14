@@ -1,7 +1,7 @@
-"""Reusable OPai application-state layer.
+"""Reusable Vesta application-state layer.
 
 One source of truth for every control-center surface, composed from the existing
-OPai data functions (cockpit, clients, budget, policy, context, benchmark, proof,
+Vesta data functions (cockpit, clients, budget, policy, context, benchmark, proof,
 guarded workflows, launch readiness). The CLI and the desktop GUI both read this,
 so they never drift. Everything is local: no network, no telemetry, no raw
 prompts or secrets.
@@ -35,7 +35,7 @@ BENCHMARK_CLAIM = (
     "benchmark suite."
 )
 BENCHMARK_CAVEAT = (
-    "Local OPai benchmark suite result. Not an official SWE-bench, "
+    "Local Vesta benchmark suite result. Not an official SWE-bench, "
     "Terminal-Bench, Aider, or third-party leaderboard result."
 )
 ZERO_STATE = (
@@ -52,7 +52,7 @@ def model_setup(project_root: Path) -> dict[str, Any]:
         "project": str(root),
         "status": "free_first",
         "summary": (
-            "Connect a free local model so OPai can answer cheap tasks without "
+            "Connect a free local model so Vesta can answer cheap tasks without "
             "spending cloud credits."
         ),
         "install": {
@@ -61,7 +61,7 @@ def model_setup(project_root: Path) -> dict[str, Any]:
             "command": "irm https://ollama.com/install.ps1 | iex"
             if is_windows
             else "curl -fsSL https://ollama.com/install.sh | sh",
-            "notes": "Run only if you want to install Ollama. OPai never downloads models automatically.",
+            "notes": "Run only if you want to install Ollama. Vesta never downloads models automatically.",
         },
         "recommended": [
             {
@@ -640,7 +640,7 @@ def generate_ignores(
 
 
 def run_repair(project_root: Path) -> dict[str, Any]:
-    """Re-apply OPai client integration files (safe repair). Confirm first."""
+    """Re-apply Vesta client integration files (safe repair). Confirm first."""
     from opai.integrations import activate_project
 
     result = activate_project(
@@ -843,11 +843,11 @@ def available_models(
 
     options.extend(list_paid_api_models())
 
-    # 3. OPai Auto routing
+    # 3. Vesta Auto routing
     options.append(
         {
             "id": "auto",
-            "label": "OPai · Auto mode",
+            "label": "Vesta · Auto mode",
             "advanced_label": "Automatic local-first routing",
             "kind": "auto",
             "group": "routing",
@@ -859,7 +859,7 @@ def available_models(
         options.append(
             {
                 "id": model["id"],
-                "label": "OPai · Local mode",
+                "label": "Vesta · Local mode",
                 "advanced_label": f"{model['model']} via {model['provider']} on this device",
                 "kind": "local",
                 "group": "local",
@@ -909,7 +909,7 @@ def available_models(
         option["health_reason"] = (
             None
             if healthy
-            else "Recently unavailable — OPai will retry it automatically."
+            else "Recently unavailable — Vesta will retry it automatically."
         )
         # Balance truth for the picker (cache-only — no network call during
         # enumeration): the exact remaining amount when known, and a hard
@@ -928,7 +928,7 @@ def available_models(
             option["disabled_reason"] = reason
             option["health_reason"] = reason
         # Deterministic blocks (stale CLI, invalid config, no bounded edit
-        # tools). Letting the user pick a model OPai has already watched refuse
+        # tools). Letting the user pick a model Vesta has already watched refuse
         # every request is the picker's version of the consistency bug: the
         # click looks fine and the run always fails. Two separate fields so an
         # edit-incapable provider stays a legitimate Ask/Plan choice — the
@@ -938,7 +938,7 @@ def available_models(
         option["edit_blocked_reason"] = None
         # Known before the first run, not discovered by failing one: a CLI that
         # cannot expose a bounded edit-tool set will be refused write access by
-        # OPai every time. Say so in the picker instead of letting the user pick
+        # Vesta every time. Say so in the picker instead of letting the user pick
         # it for an editing task and hit the refusal.
         if option.get("repo_editing") is False:
             option["edit_blocked_reason"] = (
@@ -1035,7 +1035,7 @@ def ask(
     - ``paid:<id>`` (#673, e.g. DeepSeek) runs through a paid direct public API:
       same key-from-env-var and confirmation-gate contract as ``free:<id>``,
       but real per-token spend is recorded, never $0.
-    - ``auto`` lets OPai route the cheapest safe path (local execution + cache).
+    - ``auto`` lets Vesta route the cheapest safe path (local execution + cache).
     - a local ``provider:model`` id runs that connected local model.
     Cloud auto-routing is never auto-called - it returns ``confirmation_required``.
 
@@ -1169,10 +1169,10 @@ def _ask_direct_api_model(
             else "your task and compact project context"
         )
         # Paid tier: state plainly that this is metered, not "may apply" —
-        # OPai already has real per-token pricing for it, so hedged free-tier
+        # Vesta already has real per-token pricing for it, so hedged free-tier
         # wording would understate a known, real cost (#673 "product truth").
         cost_sentence = (
-            "This provider bills per token; OPai records the exact spend."
+            "This provider bills per token; Vesta records the exact spend."
             if is_paid
             else "Provider quota or billing may apply depending on your account."
         )
@@ -1363,7 +1363,7 @@ def _changed_file_identities(root: Path, status_lines: set[str]) -> dict[str, st
     #620: status-line deltas miss edits to files that were dirty before the
     run, because they remain the same ``git status --short`` line afterward.
     Keep the public status-line contract, but compare a cheap file identity for
-    pre-existing dirty paths so OPai can still attribute the provider's write.
+    pre-existing dirty paths so Vesta can still attribute the provider's write.
     """
     identities: dict[str, str] = {}
     for status in status_lines:
@@ -1397,7 +1397,7 @@ def _invalidate_stale_auth_cache(account_id: str, error: dict[str, Any]) -> None
 
     The pre-flight connection check can report "connected" from a 5-minute
     cache while the account's OAuth session has actually died in between —
-    the exact gap that turns "OPai says connected" into a live 401. Once a
+    the exact gap that turns "Vesta says connected" into a live 401. Once a
     genuine completion call proves the cached verdict wrong, drop it so the
     next check (an automatic retry, or "Test connection" in Settings) reflects
     reality instead of repeating the stale "connected" for the rest of the
@@ -1593,7 +1593,7 @@ def _ask_account(
     ``stream()``, the call streams live activity and is cancellable; otherwise it
     uses the blocking ``complete()`` path (unchanged).
 
-    ``_fallback_used`` is internal: on a ``MODEL_UNAVAILABLE`` error OPai retries
+    ``_fallback_used`` is internal: on a ``MODEL_UNAVAILABLE`` error Vesta retries
     once with the provider's safe default model (#318), and this guard stops the
     retry from recursing.
     """
@@ -1704,7 +1704,7 @@ def _ask_account(
                 "capability": "edit_files",
                 "reason": (
                     "This Copilot CLI cannot expose a bounded edit-tool set, so "
-                    "OPai refused to launch it with repository write access."
+                    "Vesta refused to launch it with repository write access."
                 ),
                 "hint": (
                     "Update GitHub Copilot CLI, or switch to Ask or Plan until "
@@ -1785,7 +1785,7 @@ def _ask_account(
             "status": "capability_mismatch",
             "provider": account_id,
             "answer": (
-                "The provider adapter is incompatible with this OPai runtime. "
+                "The provider adapter is incompatible with this Vesta runtime. "
                 "Update the provider integration and try again."
             ),
             "operation_recorded": False,
@@ -1830,7 +1830,7 @@ def _ask_account(
                 "status": "needs_attention",
                 "provider": account_id,
                 "answer": (
-                    "OPai found an unresolved provider operation for this run. "
+                    "Vesta found an unresolved provider operation for this run. "
                     "It will not send the same paid request again until that "
                     "operation is reconciled."
                 ),
@@ -1858,7 +1858,7 @@ def _ask_account(
             "status": "operation_unrecorded",
             "provider": account_id,
             "answer": (
-                "OPai did not send this paid request because it could not "
+                "Vesta did not send this paid request because it could not "
                 "record the operation intent first."
             ),
             "operation_recorded": False,
@@ -1893,7 +1893,7 @@ def _ask_account(
             "status": "cost_unreconciled",
             "provider": account_id,
             "answer": (
-                "OPai did not send this paid request because it could not "
+                "Vesta did not send this paid request because it could not "
                 "record the cost identity first."
             ),
             "operation_id": operation_id,
@@ -1952,12 +1952,12 @@ def _ask_account(
             timeout_teardown = unconfirmed_reason == "timeout_teardown_unconfirmed"
             partial_answer = str(result.get("text") or "").strip()
             answer = (
-                "OPai reached the task time limit, but could not prove that all "
+                "Vesta reached the task time limit, but could not prove that all "
                 "provider work terminated. Inspect the retained changes and "
                 "timeout evidence before continuing."
                 if timeout_teardown
                 else (
-                    "OPai received the stop request, but could not prove that "
+                    "Vesta received the stop request, but could not prove that "
                     "all provider work terminated. Inspect the cancellation "
                     "evidence before retrying."
                 )
@@ -2065,7 +2065,7 @@ def _ask_account(
         answer = error["userMessage"]
         if task_deadline and not pre_teardown_snapshot:
             answer = (
-                "OPai reached the task limit and retained the repository state, "
+                "Vesta reached the task limit and retained the repository state, "
                 "but it could not save a pre-teardown progress snapshot. "
                 "Verification is incomplete; inspect the working tree and "
                 "timeout evidence before continuing."
@@ -2155,7 +2155,7 @@ def _ask_account(
             else:
                 detail = f"{counted} ran without converging on the objective."
             answer = (
-                f"OPai stopped this run early (convergence guard): {detail} "
+                f"Vesta stopped this run early (convergence guard): {detail} "
                 "Refine the request, or re-send to continue from here."
             )
         else:
@@ -2212,7 +2212,7 @@ def _ask_account(
         **cost_record,
         "completion_state": completion_state,
         "stopped_reason": stopped_reason,
-        # #378: terminal verification must consume OPai-observed tool results.
+        # #378: terminal verification must consume Vesta-observed tool results.
         # Keep the structured trace through the account normalization boundary;
         # dropping it made a passed ``run_tests`` call indistinguishable from a
         # provider's unverified prose claim.
@@ -2227,7 +2227,7 @@ def _ask_account(
         # #486 follow-up: a turn that backgrounded a command and ended before it
         # reported must say so. Without this the verdict only saw the absence of
         # the result and called the evidence missing, which sends the user to
-        # debug OPai instead of telling them their command is still running.
+        # debug Vesta instead of telling them their command is still running.
         "background_work": (
             result.get("background_work") or {} if isinstance(result, dict) else {}
         ),
@@ -2247,7 +2247,7 @@ TOOLS: list[dict[str, Any]] = [
     {
         "id": "savings",
         "label": "Savings",
-        "desc": "Money OPai saved on this project",
+        "desc": "Money Vesta saved on this project",
         "mutates": False,
     },
     {
@@ -2289,21 +2289,21 @@ TOOLS: list[dict[str, Any]] = [
     {
         "id": "repair",
         "label": "Repair",
-        "desc": "Re-apply OPai client files",
+        "desc": "Re-apply Vesta client files",
         "mutates": True,
     },
 ]
 
 
 def run_tool(project_root: Path, command: str, arg: str = "") -> dict[str, Any]:
-    """Dispatch a chat tool command to the real OPai function. GUI confirms mutations."""
+    """Dispatch a chat tool command to the real Vesta function. GUI confirms mutations."""
     root = project_root.expanduser().resolve()
     tool = command.strip().lstrip("/").lower()
 
     if tool in {"connect", "accounts", "account", "login", "models", "model"}:
         data = available_models(root)
         lines = [
-            "Connect your AI accounts — OPai routes through the CLIs you are "
+            "Connect your AI accounts — Vesta routes through the CLIs you are "
             "already signed into, so these accounts need no API key. (API "
             "providers like GitHub or Gemini keep their keys in your OS "
             "credential store — see Settings → Providers & Connections.)",
@@ -2330,7 +2330,7 @@ def run_tool(project_root: Path, command: str, arg: str = "") -> dict[str, Any]:
             lines.append(f"    {setup['install']['command']}")
             lines.append(f"    {setup['recommended'][0]['command']}")
         lines.append("")
-        lines.append("Local only. OPai never stores your credentials or prompts.")
+        lines.append("Local only. Vesta never stores your credentials or prompts.")
         return {"ok": True, "title": "Connect accounts", "text": "\n".join(lines)}
 
     if tool in {"savings", "money"}:
@@ -2392,7 +2392,7 @@ def run_tool(project_root: Path, command: str, arg: str = "") -> dict[str, Any]:
             ]
         suggested = preview.get("suggested_ignores", [])
         if suggested:
-            lines += ["", "Ignore files OPai can update: " + ", ".join(suggested)]
+            lines += ["", "Ignore files Vesta can update: " + ", ".join(suggested)]
         return {"ok": True, "title": "Cleanup preview", "text": "\n".join(lines)}
 
     if tool in {"ignores", "generate_ignores"}:
@@ -2400,7 +2400,7 @@ def run_tool(project_root: Path, command: str, arg: str = "") -> dict[str, Any]:
             "ok": True,
             "title": "Generate ignore files",
             "text": (
-                "Append OPai-managed rules to supported AI ignore files. "
+                "Append Vesta-managed rules to supported AI ignore files. "
                 "Existing user rules are preserved."
             ),
             "mutates": True,
@@ -2491,7 +2491,7 @@ def run_tool(project_root: Path, command: str, arg: str = "") -> dict[str, Any]:
         return {
             "ok": True,
             "title": "Repair",
-            "text": "Re-apply OPai client integration files (additive; no source deleted)?",
+            "text": "Re-apply Vesta client integration files (additive; no source deleted)?",
             "mutates": True,
             "confirm": "Run safe repair for this project?",
             "apply": ("repair", None),

@@ -248,7 +248,7 @@ class RegistryConsistencyTests(_Base):
 
 
 class ShippedCatalogueTests(unittest.TestCase):
-    """The catalogue OPai actually ships must pass its own gate."""
+    """The catalogue Vesta actually ships must pass its own gate."""
 
     def test_the_real_skill_catalogue_is_valid(self) -> None:
         hub = Path(__file__).resolve().parent.parent / "hub"

@@ -117,7 +117,7 @@ class ProfileTruthTests(unittest.TestCase):
             self.assertFalse(profile.streaming)
             # They use the OpenAI-compatible tool loop, incl. git_push/open_pr.
             self.assertTrue(profile.tool_calling)
-            # OPai drives edits through its own bounded tools.
+            # Vesta drives edits through its own bounded tools.
             self.assertTrue(profile.repo_editing)
 
     def test_local_providers_are_answer_only_today(self):

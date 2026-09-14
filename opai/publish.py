@@ -85,7 +85,7 @@ def publish_status(root: Path) -> dict[str, Any]:
     if not all(gitignore.values()):
         next_steps.append("complete generated-artifact .gitignore coverage")
     if scripts.get("op") != "opai.bootstrap:cli_main":
-        next_steps.append("make op entry point launch OPai")
+        next_steps.append("make op entry point launch Vesta")
     return {
         "ready": ready,
         "root": str(project_root),

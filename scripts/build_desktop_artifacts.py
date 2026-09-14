@@ -1,4 +1,4 @@
-"""Build a channel-labelled portable OPai desktop artifact from an exact tag."""
+"""Build a channel-labelled portable Vesta desktop artifact from an exact tag."""
 
 from __future__ import annotations
 
@@ -213,7 +213,7 @@ def _default_bundle_path(tag: str, channel: str) -> Path:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Build a source-free, portable OPai desktop artifact from an exact tag."
+        description="Build a source-free, portable Vesta desktop artifact from an exact tag."
     )
     parser.add_argument(
         "--output-dir", help="Empty destination directory for the bundle"

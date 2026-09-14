@@ -23,13 +23,13 @@ OPcoding treats expensive reasoning as a scarce resource.
 
 A provider call is recorded twice: once when it is dispatched, once when its
 result lands. If the second record never arrives -- the process died, the
-machine slept, the write failed -- the request still left OPai and may still
+machine slept, the write failed -- the request still left Vesta and may still
 have been billed. The work happened; only its cost is unknown.
 
 Such a call is **outstanding** while it could still be running, and
 **abandoned** once it could not: either the process that dispatched it is gone,
 or six hours have passed (`ABANDON_AFTER_SECONDS` in
-`opaihub/call_reconciliation.py`). A call OPai's own process started is never
+`opaihub/call_reconciliation.py`). A call Vesta's own process started is never
 abandoned while that process lives, so a long turn is never retired underneath
 itself.
 

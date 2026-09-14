@@ -624,7 +624,7 @@ def _transition_run(
 
     path = _run_path(project_root, run_id)
     # The read/check/write is one transaction: a late finalizer or recovery
-    # sweep must observe a cancellation/terminal state written by another OPai
+    # sweep must observe a cancellation/terminal state written by another Vesta
     # process before it decides whether it may advance the lifecycle.
     with interprocess_transaction(path):
         current = load_run(project_root, run_id)
@@ -828,7 +828,7 @@ def _terminal_from_payload(
         return (
             RunState.NEEDS_ATTENTION,
             "background_legacy_status_unverifiable",
-            "Background run finished before OPai recorded a canonical result, "
+            "Background run finished before Vesta recorded a canonical result, "
             "so its outcome could not be verified.",
         )
     if status == "partial":
@@ -1072,7 +1072,7 @@ def runs_owned_by_a_live_process(project_root: Path) -> frozenset[str]:
     """Run ids the canonical journal says somebody may still be working on.
 
     #818. ``active_run_ids`` can only ever name runs *this* process started,
-    so a run being executed by a different, live OPai is invisible to it --
+    so a run being executed by a different, live Vesta is invisible to it --
     and ``opaihub/cli.py`` passes nothing at all. The journal knows better,
     because a lease now records the process that took it.
 
@@ -1107,7 +1107,7 @@ def recover_interrupted_runs(
     interrupted" -- nothing controllable is running any more, and nothing
     beyond "try again" was ever promised. A run that had reached
     CANCEL_REQUESTED before the crash is different (#614): the user asked
-    OPai to stop it, and this process has no evidence the previous one ever
+    Vesta to stop it, and this process has no evidence the previous one ever
     finished tearing it down -- a provider call or child process could have
     kept running, spending money or writing files, for an arbitrary time
     after the session disappeared. Filing that as a bare "failed" would
@@ -1131,7 +1131,7 @@ def recover_interrupted_runs(
     """
 
     recovered = []
-    # #818: reproduced before this line existed -- a second OPai running
+    # #818: reproduced before this line existed -- a second Vesta running
     # `automation recover` wrote "failed: the owning session ended before it
     # finished" onto a run whose owning process was demonstrably still alive.
     # `active_run_ids` could not have caught it: it names only this process's
@@ -1190,7 +1190,7 @@ def recover_interrupted_runs(
 def pipeline_executor(
     *, model_id: str | None = None, mode: str | None = None
 ) -> Executor:
-    """Executor that routes a run through the normal OPai pipeline.
+    """Executor that routes a run through the normal Vesta pipeline.
 
     ``allow_cloud`` comes from the run itself (already user-confirmed at
     enqueue time); every existing pipeline gate still applies.

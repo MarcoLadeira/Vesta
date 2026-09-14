@@ -4,7 +4,7 @@
 history: hand it a ``reduce`` and an ``empty`` and it replays every event in
 sequence, stopping at the first unreadable one rather than folding past it.
 
-Nothing in OPai had ever handed it a reducer. A fold with no reducer cannot
+Nothing in Vesta had ever handed it a reducer. A fold with no reducer cannot
 answer anything, so #818's "collapse task/run/status projections into
 deterministic reducers over canonical events" had nothing to collapse into.
 This module is that reducer, and -- more usefully -- the parity assertion it

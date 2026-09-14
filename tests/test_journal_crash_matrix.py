@@ -650,7 +650,7 @@ class EvidenceThatArrivesAfterTheRunEndedTests(unittest.TestCase):
     """#818's qualification names two of these: "late provider completion" and
     "delayed usage reporting".
 
-    A provider CLI reporting its usage after OPai has already filed the turn is
+    A provider CLI reporting its usage after Vesta has already filed the turn is
     the ordinary way to reach them, not an exotic one.
 
     Measured before this existed: the cost row landed on a run already filed

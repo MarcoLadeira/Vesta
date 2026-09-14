@@ -100,7 +100,7 @@ class DocumentedCommandsExistTests(unittest.TestCase):
 
             self.assertEqual(code, 0)
             self.assertTrue(target.exists())
-            self.assertIn("# OPai Savings Report", target.read_text(encoding="utf-8"))
+            self.assertIn("# Vesta Savings Report", target.read_text(encoding="utf-8"))
 
 
 class VerificationPolicyCliTests(unittest.TestCase):

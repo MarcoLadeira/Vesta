@@ -113,7 +113,7 @@ class AStaleWriterCannotUndoAMigrationTests(_FreshJournal):
         """The second guard, exercised through the production statement.
 
         The first version of this test wrote the upsert SQL itself, which
-        proved SQLite's MAX works and nothing about whether OPai uses it --
+        proved SQLite's MAX works and nothing about whether Vesta uses it --
         teeth-testing caught it by sabotaging the real statement and watching
         the test stay green.
         """
@@ -248,7 +248,7 @@ class AJournalNobodyCanOpenIsNotHealthyTests(_FreshJournal):
     """The other half: doctor must not call it fine.
 
     `check_integrity` reads a raw connection, so it answers "is this database
-    structurally sound" -- a different question from "can OPai use it". A
+    structurally sound" -- a different question from "can Vesta use it". A
     journal whose migration cannot complete passes every structural check and
     refuses every write.
     """

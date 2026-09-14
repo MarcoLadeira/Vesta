@@ -1,4 +1,4 @@
-"""Local tamper-evidence signing for OPai governance artifacts.
+"""Local tamper-evidence signing for Vesta governance artifacts.
 
 Honest scope: this is HMAC-SHA256 integrity signing with a shared secret, not
 public-key identity. It proves an evidence packet or audit bundle was not altered

@@ -4,7 +4,7 @@ The MCP registry declares permission fields (allowed/forbidden paths,
 confirmation requirements, permission level), but earlier generated configs
 passed only command/args/env/notes — turning enforceable policy into advisory
 text. A generated filesystem config could then expose ``.git``/``.env`` or
-grant writes despite OPai's safety promise.
+grant writes despite Vesta's safety promise.
 
 This module renders those fields into an enforceable ``policy`` block on every
 server, defaults path-granting servers to read-only, always blocks
@@ -25,7 +25,7 @@ from .state import effective_mcp_servers, state_dir
 _FILESYSTEM_PACKAGE = "server-filesystem"
 
 # Always-forbidden paths for any path-scoped server unless it explicitly opts
-# in. These are the paths OPai's docs promise are safe: VCS internals, secret
+# in. These are the paths Vesta's docs promise are safe: VCS internals, secret
 # material, and generated/dependency caches.
 _SECURITY_FORBIDDEN: tuple[str, ...] = (
     ".git",

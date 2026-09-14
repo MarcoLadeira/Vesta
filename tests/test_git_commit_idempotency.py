@@ -14,7 +14,7 @@ see. A replay used to be told `GIT_COMMIT_FAILED` for work that had landed;
 since the caller is usually the model, a spurious failure on a successful
 commit invites it to amend, force, or commit again differently to fix a problem
 that does not exist. And a turn that commits, crashes before recording, then
-resumes is genuinely uncertain — git has no opinion on whether OPai meant to do
+resumes is genuinely uncertain — git has no opinion on whether Vesta meant to do
 that twice.
 
 The interesting constraint is the other half of #295: *consistency while not

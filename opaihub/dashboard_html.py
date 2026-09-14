@@ -59,7 +59,7 @@ def build_dashboard_html(project_root: Path) -> Path:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>OPai Dashboard</title>
+  <title>Vesta Dashboard</title>
   <style>
     body {{ font-family: "Nunito", "Segoe UI", system-ui, sans-serif; margin: 0; color: #1b2430; background: #f7f8f5; }}
     header {{ background: #173b35; color: white; padding: 28px 32px; }}
@@ -81,14 +81,14 @@ def build_dashboard_html(project_root: Path) -> Path:
 </head>
 <body>
   <header>
-    <h1>OPai Control Center</h1>
-    <p>OPai is <strong>{escape(cockpit["status"].upper())}</strong> for <code>{escape(root.name)}</code>.</p>
+    <h1>Vesta Control Center</h1>
+    <p>Vesta is <strong>{escape(cockpit["status"].upper())}</strong> for <code>{escape(root.name)}</code>.</p>
   </header>
   <main>
     <section class="grid">
       <div class="panel">
         <h2>Activation</h2>
-        <p class="{"ok" if cockpit["status"] == "on" else "warn"}">OPai {escape(cockpit["status"].upper())}</p>
+        <p class="{"ok" if cockpit["status"] == "on" else "warn"}">Vesta {escape(cockpit["status"].upper())}</p>
         <p>Version <code>{escape(cockpit["version"])}</code> {escape(cockpit["release_stage"])}</p>
         <p class="muted">{escape(cockpit["project"]["root"])}</p>
       </div>

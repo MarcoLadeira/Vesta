@@ -110,7 +110,7 @@ class MaintenanceSurfacesStalenessTests(unittest.TestCase):
     def _service(self):
         """A service over a private home, offline.
 
-        It used the real one: a real `~/.opai` update lock, which any OPai
+        It used the real one: a real `~/.opai` update lock, which any Vesta
         running on the machine holds -- the tests errored with
         `operation_busy` whenever the app was open -- and a real manifest
         fetch over the network.

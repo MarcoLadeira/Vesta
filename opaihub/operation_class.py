@@ -5,7 +5,7 @@ The invariant this module exists to enforce, stated by #616:
     A timeout, exception, process crash or missing response is not proof
     that an external action did not start or finish.
 
-OPai already retries. ``auto_router.should_retry_same_provider`` re-runs *the
+Vesta already retries. ``auto_router.should_retry_same_provider`` re-runs *the
 identical request* when a provider returns a transport-style error, and three
 of the five codes it accepts — ``PROVIDER_TIMEOUT``, ``STREAM_ABORTED`` and
 ``NO_RESPONSE`` — are exactly the cases the invariant names. Silence is not
@@ -50,7 +50,7 @@ class OperationClass(str, Enum):
     dictionary ordering.
     """
 
-    #: 1. Pure or read-only. Repeating changes nothing outside OPai.
+    #: 1. Pure or read-only. Repeating changes nothing outside Vesta.
     SAFELY_REPEATABLE = "safely_repeatable"
     #: 2. The external system deduplicates via an idempotency key we send.
     PROVIDER_IDEMPOTENT = "provider_idempotent"
@@ -65,7 +65,7 @@ class OperationClass(str, Enum):
 class DispatchProof(str, Enum):
     """What a failure proves about whether the effect reached the outside."""
 
-    #: The operation demonstrably never left OPai.
+    #: The operation demonstrably never left Vesta.
     NOT_DISPATCHED = "not_dispatched"
     #: It may or may not have landed. The honest default.
     UNKNOWN = "unknown"
@@ -134,7 +134,7 @@ _REGISTRY: dict[str, OperationClass] = {
     "git_commit": OperationClass.PROVIDER_IDEMPOTENT,
     # Pushing an already-pushed ref is "Everything up-to-date".
     "git_push": OperationClass.RECONCILABLE,
-    # -- GitHub writes. Outward, visible, not undoable by OPai. -------------
+    # -- GitHub writes. Outward, visible, not undoable by Vesta. -------------
     "open_pr": OperationClass.PROVIDER_IDEMPOTENT,
     "github_comment": OperationClass.PROVIDER_IDEMPOTENT,
     # Reviewer requests are set-valued, so a repeat is absorbed.
@@ -227,7 +227,7 @@ def retry_decision(
             True,
             operation_class,
             proof,
-            "the failure proves the operation never left OPai",
+            "the failure proves the operation never left Vesta",
         )
 
     if operation_class is OperationClass.CONTINUITY_UNCERTAIN:

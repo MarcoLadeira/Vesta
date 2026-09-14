@@ -1,4 +1,4 @@
-"""Local launch-readiness checks for the OPai Free Public Alpha.
+"""Local launch-readiness checks for the Vesta Free Public Alpha.
 
 Tells the founder what still blocks a public launch without making a network
 call. Everything is read from local files and environment variables. No
@@ -17,7 +17,7 @@ LAUNCH_CLAIM = (
     "`opai benchmark run --suite max --mode both`."
 )
 LAUNCH_CAVEAT = (
-    "Local OPai benchmark suite result. Not an official SWE-bench, "
+    "Local Vesta benchmark suite result. Not an official SWE-bench, "
     "Terminal-Bench, Aider, or third-party leaderboard result."
 )
 

@@ -53,7 +53,7 @@ class MCPRuntime:
     """Expose existing enabled MCP servers through an explicit policy boundary.
 
     Clients are injected and implement ``list_tools(cancel=...)`` and
-    ``call_tool(name, arguments, cancel=...)``. OPai does not launch arbitrary
+    ``call_tool(name, arguments, cancel=...)``. Vesta does not launch arbitrary
     registry commands here; protocol transports can plug in behind this seam.
     """
 

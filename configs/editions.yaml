@@ -9,7 +9,7 @@ editions:
     label: Free Public Alpha
     price: 0
     price_unit: alpha
-    tagline: Every implemented OPai alpha capability is free.
+    tagline: Every implemented Vesta alpha capability is free.
 features:
   - id: local_first_routing
     availability: implemented

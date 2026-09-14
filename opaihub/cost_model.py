@@ -24,7 +24,7 @@ DEFAULT_COST_MODEL: dict[str, Any] = {
         "L3": 0.012,
         "L4": 0.045,
     },
-    # Without OPai, the assumption is a developer sends most coding tasks
+    # Without Vesta, the assumption is a developer sends most coding tasks
     # straight to a strong frontier model. That is the savings baseline.
     "baseline_tier": "L3",
     # Default assumed tokens for one model round-trip on a coding task, used
@@ -138,7 +138,7 @@ def tier_price_known(tier: str, model: dict[str, Any] | None = None) -> bool:
     A *local* tier is always known-priced at zero, whether or not the price
     table lists it: local execution costing nothing is not an estimate, it
     is the premise. Without this, a partial user table would flag every
-    local run as unpriced — noise on exactly the runs OPai is most confident
+    local run as unpriced — noise on exactly the runs Vesta is most confident
     about.
     """
 

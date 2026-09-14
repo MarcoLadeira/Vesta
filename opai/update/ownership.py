@@ -1,8 +1,8 @@
-"""Which OPai is running, and who is allowed to update it.
+"""Which Vesta is running, and who is allowed to update it.
 
 Two questions that look like one.
 
-**Which OPai is running.** `load_installed_build` reports `version` from
+**Which Vesta is running.** `load_installed_build` reports `version` from
 `release-identity.json` when that file exists, and from the imported
 `__version__` when it does not. Those are different clocks: the file is on
 disk and is rewritten by an update, while the imported value is whatever this
@@ -15,7 +15,7 @@ only when it actually differs.
 **Who owns updates.** A source checkout updates itself from origin/main. A pip
 or pipx installation must not: fast-forwarding a git tree that no longer backs
 the running code, or that does not exist, is how an updater "succeeds" against
-the wrong installation. When something else owns the installation OPai should
+the wrong installation. When something else owns the installation Vesta should
 say which something, and what command that owner responds to, rather than
 reporting a generic "manual update required" that leaves the user guessing.
 
@@ -82,7 +82,7 @@ def describe_ownership(
             owner="opai",
             mechanism="git",
             evidence="source checkout",
-            remediation="OPai updates itself by fast-forwarding origin/main.",
+            remediation="Vesta updates itself by fast-forwarding origin/main.",
             self_updatable=True,
         )
     if install_type is InstallType.WINDOWS_MSIX:
@@ -98,7 +98,7 @@ def describe_ownership(
             owner="opai",
             mechanism="sparkle",
             evidence="application bundle",
-            remediation="OPai updates itself from the signed release feed.",
+            remediation="Vesta updates itself from the signed release feed.",
             self_updatable=True,
         )
 
@@ -134,7 +134,7 @@ def describe_ownership(
         owner="unknown",
         mechanism="manual",
         evidence="no installer metadata",
-        remediation="Reinstall OPai to update it.",
+        remediation="Reinstall Vesta to update it.",
         self_updatable=False,
     )
 

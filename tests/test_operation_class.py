@@ -1,6 +1,6 @@
 """Silence is not proof that an external effect did not happen (#616).
 
-OPai retries the identical request on a transport error. Three of the codes
+Vesta retries the identical request on a transport error. Three of the codes
 that trigger it — ``PROVIDER_TIMEOUT``, ``STREAM_ABORTED``, ``NO_RESPONSE`` —
 are precisely the ones #616 says prove nothing:
 
@@ -88,7 +88,7 @@ class ClassificationTests(unittest.TestCase):
 
     def test_outward_github_writes_are_not_plain_reconcilable(self) -> None:
         # A duplicate comment or PR is visible to everyone and not undoable by
-        # OPai, so it must rely on a dedupe key rather than on observation.
+        # Vesta, so it must rely on a dedupe key rather than on observation.
         for kind in ("github_comment", "open_pr"):
             self.assertIs(
                 classify_operation(kind), OperationClass.PROVIDER_IDEMPOTENT, kind

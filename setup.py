@@ -1,4 +1,4 @@
-"""Setuptools hooks for immutable OPai distribution build identity."""
+"""Setuptools hooks for immutable Vesta distribution build identity."""
 
 from __future__ import annotations
 

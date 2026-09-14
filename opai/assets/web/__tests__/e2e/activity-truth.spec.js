@@ -47,8 +47,8 @@ test("an unverified run renders a partial verdict instead of success", async ({ 
     completion_verdict: {
       verdict: "partial",
       reason_code: "change_not_verified",
-      reason: "OPai received a response but no changed-file or diff evidence verifies the requested edit.",
-      next_action: "Ask OPai to apply the change.",
+      reason: "Vesta received a response but no changed-file or diff evidence verifies the requested edit.",
+      next_action: "Ask Vesta to apply the change.",
       evidence: [],
     },
   });
@@ -79,7 +79,7 @@ test("workflow summary uses the authoritative verdict instead of a stale complet
     completion_verdict: {
       verdict: "partial",
       reason_code: "change_not_verified",
-      reason: "OPai could not verify the requested objective.",
+      reason: "Vesta could not verify the requested objective.",
       next_action: "Check the remote branch, then retry verification.",
       evidence: [],
     },
@@ -106,7 +106,7 @@ test("workflow summary uses the authoritative verdict instead of a stale complet
   // repeating both, which is how one turn managed to print the same sentence
   // three times.
   await summary.locator(".ts-verdict").click();
-  await expect(summary.locator(".ts-reason")).toHaveText("OPai could not verify the requested objective.");
+  await expect(summary.locator(".ts-reason")).toHaveText("Vesta could not verify the requested objective.");
   await expect(summary.locator(".ts-next")).toContainText("Check the remote branch, then retry verification.");
 
   const workflow = page.locator(".workflow-card");
@@ -129,7 +129,7 @@ test("a success claim the run could not verify is labelled where it is written",
     completion_verdict: {
       verdict: "failed",
       reason_code: "provider_failed",
-      reason: "The provider failed before OPai could verify the objective.",
+      reason: "The provider failed before Vesta could verify the objective.",
       next_action: "Retry the run, or switch to another provider.",
       evidence: [],
       answer_conflicts: true,

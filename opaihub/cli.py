@@ -518,7 +518,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="op-hub", description="OPai / OP AI Hub registry CLI"
+        prog="op-hub", description="Vesta / OP AI Hub registry CLI"
     )
     parser.add_argument("--project", default=".", help="Project root")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -743,7 +743,7 @@ def build_parser() -> argparse.ArgumentParser:
     ob.add_argument("--limit", type=int, default=10)
     ob.set_defaults(func=cmd_opaibench)
     ob = opaibench_sub.add_parser(
-        "parity", help="Run real coding fixtures through the offline OPai pipeline"
+        "parity", help="Run real coding fixtures through the offline Vesta pipeline"
     )
     ob.add_argument("--baseline", help="Versioned offline baseline JSON")
     ob.add_argument("--task", action="append", help="Run one task id (repeatable)")

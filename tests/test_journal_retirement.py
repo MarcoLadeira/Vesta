@@ -285,7 +285,7 @@ class ABlockedMigrationExplainsItselfTests(unittest.TestCase):
     It reads as "not enough runs yet" -- a matter of time. It can equally mean
     the two records describe populations that never overlap, which no amount of
     waiting fixes. Measured on a real desktop checkout: the journal held 27
-    runs, all from the GUI, while the only legacy corpus OPai assembles is
+    runs, all from the GUI, while the only legacy corpus Vesta assembles is
     background automation runs -- a directory that did not exist. The gate was
     permanently blocked and said only "too few runs exist in both records".
     """

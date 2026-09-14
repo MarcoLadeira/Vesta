@@ -1,11 +1,11 @@
-# OPai Launch Checklist
+# Vesta Launch Checklist
 
 This checklist supplies evidence for a go/no-go review; it is not permission to
 launch. Follow the [Launch Operations Runbook](LAUNCH_OPERATIONS.md) for the
 required scorecard, public-claim register, channel-specific adaptations,
 privacy-safe attribution, incident response, rollback, and post-launch review.
 
-Positioning is consistent across every surface: **OPai is the AI coding cost
+Positioning is consistent across every surface: **Vesta is the AI coding cost
 firewall.** Adapt the message to each community's rules and purpose; do not use
 copy-paste promotion.
 
@@ -13,7 +13,7 @@ copy-paste promotion.
 
 This statement fixes the factual positioning, not a copy-and-paste post. Adapt its wording to each channel's rules, audience, and evidence while preserving its privacy, cost, and capability boundaries.
 
-> OPai is the AI coding cost firewall — it routes the tasks it runs to the
+> Vesta is the AI coding cost firewall — it routes the tasks it runs to the
 > cheapest safe path across Claude, Codex, Copilot, Gemini, Cursor, and Cline, then
 > proves the savings locally and privately.
 
@@ -58,7 +58,7 @@ The following channel prompts are planning aids, not approved copy. Apply the [L
 
 ## Hacker News (Show HN)
 
-- [ ] Title: `Show HN: OPai – the AI coding cost firewall (local-first, private)`.
+- [ ] Title: `Show HN: Vesta – the AI coding cost firewall (local-first, private)`.
 - [ ] Body: the problem (blind spend across clients), the wedge (cheapest safe
       route + provable savings), and the privacy stance (hashes, not prompts).
 - [ ] Be present for technical questions about routing and the cost model.

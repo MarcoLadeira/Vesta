@@ -205,7 +205,7 @@ class ProviderProtocolTests(unittest.TestCase):
 
     def test_provider_completion_assertion_aliases_are_rejected_as_fields_only(self):
         # A provider cannot award a terminal outcome through a transport field.
-        # The same words remain ordinary transport *values*; OPai's canonical
+        # The same words remain ordinary transport *values*; Vesta's canonical
         # terminal event continues to own lifecycle truth.
         for alias in ("done", "is_complete", "success", "finished"):
             with self.subTest(alias=alias), self.assertRaises(ProtocolViolation):

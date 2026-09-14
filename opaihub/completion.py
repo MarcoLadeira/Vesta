@@ -168,7 +168,7 @@ class ObjectiveRecord:
 
 @dataclass(frozen=True)
 class EvidenceRef:
-    """A bounded reference to evidence OPai observed, never self-attestation."""
+    """A bounded reference to evidence Vesta observed, never self-attestation."""
 
     kind: str
     summary: str
@@ -189,7 +189,7 @@ class EvidenceRef:
 
 @dataclass(frozen=True)
 class CompletionVerdictResult:
-    """The sole verdict producer consumed by all OPai surfaces."""
+    """The sole verdict producer consumed by all Vesta surfaces."""
 
     verdict: CompletionVerdict
     reason_code: str
@@ -295,7 +295,7 @@ _FAILURE_BY_ERROR_CODE = {
 # offered"). Kept provider-independent and free of raw diagnostics.
 _FAILURE_COPY = {
     FailureReason.AUTH: (
-        "The provider rejected OPai's credentials before the objective could be verified.",
+        "The provider rejected Vesta's credentials before the objective could be verified.",
         "Re-connect the provider account, then retry.",
     ),
     FailureReason.RATE_LIMIT: (
@@ -303,11 +303,11 @@ _FAILURE_COPY = {
         "Wait a moment and retry, or switch to another provider.",
     ),
     FailureReason.NETWORK: (
-        "OPai could not reach the provider before it could verify the objective.",
+        "Vesta could not reach the provider before it could verify the objective.",
         "Check your connection and retry.",
     ),
     FailureReason.PROVIDER: (
-        "The provider failed before OPai could verify the objective.",
+        "The provider failed before Vesta could verify the objective.",
         "Retry the run, or switch to another provider.",
     ),
     FailureReason.POLICY: (
@@ -315,11 +315,11 @@ _FAILURE_COPY = {
         "Adjust the request or autonomy level, then retry.",
     ),
     FailureReason.INTERNAL: (
-        "OPai hit an internal error before it could verify the objective.",
+        "Vesta hit an internal error before it could verify the objective.",
         "Retry the run; if it keeps happening, report it with the run id.",
     ),
     FailureReason.CANCELLED: (
-        "You stopped this run before OPai could verify the objective.",
+        "You stopped this run before Vesta could verify the objective.",
         "Continue from the retained work, or start a new run.",
     ),
     FailureReason.DEADLINE: (
@@ -327,7 +327,7 @@ _FAILURE_COPY = {
         "Continue from the retained work, or raise the limit and retry.",
     ),
     FailureReason.UNKNOWN: (
-        "OPai stopped for a reason it could not identify from the available evidence.",
+        "Vesta stopped for a reason it could not identify from the available evidence.",
         "Inspect the run evidence, then decide whether to retry or start over.",
     ),
 }
@@ -421,7 +421,7 @@ def objective_from_request(
     heuristic applies: ship mode, or the request mentioning tests.
 
     That heuristic was the last way a run could complete unverified. Asking
-    OPai to "fix the crash in parser.py" never says "test", so the objective
+    Vesta to "fix the crash in parser.py" never says "test", so the objective
     required only an edit — and a diff alone was enough to report **completed**
     on a change nobody had run. The repository's own policy knows better than a
     regex over the request text does, and gate 1 wants completion to rest on an
@@ -448,7 +448,7 @@ def objective_from_request(
     )
 
 
-#: Keys that carry *verification* truth into the verdict. Only OPai's own
+#: Keys that carry *verification* truth into the verdict. Only Vesta's own
 #: execution path may populate them, and :func:`evidence_payload` is the one
 #: place that decides what goes in — see its docstring for why the allowlist is
 #: the guarantee rather than a convention.
@@ -464,7 +464,7 @@ MEASURED_EVIDENCE_KEYS = frozenset(
         "completion_state",
         "stopped_reason",
         "error",
-        # Work OPai observed this run start and never observed it finish, read
+        # Work Vesta observed this run start and never observed it finish, read
         # from the provider's own tool stream by opai.activity. Allowlisted
         # because it is measured, not claimed — and it is read-only downward:
         # it can explain an unverified run, never promote one.
@@ -474,7 +474,7 @@ MEASURED_EVIDENCE_KEYS = frozenset(
 
 
 def _has_successful_test(payload: Mapping[str, Any]) -> bool:
-    """Whether OPai *observed* tests pass — never whether something said so.
+    """Whether Vesta *observed* tests pass — never whether something said so.
 
     The ``tests``/``test_results`` mapping this used to accept was a bare
     status string with no provenance: any payload carrying
@@ -487,7 +487,7 @@ def _has_successful_test(payload: Mapping[str, Any]) -> bool:
     into the verdict, so one refactor introducing a ``tests`` key anywhere
     would have made it live.
 
-    Evidence now has to come from a record of something OPai ran: an entry in
+    Evidence now has to come from a record of something Vesta ran: an entry in
     its own tool trace, or a structured verification result carrying the exit
     status it observed.
     """
@@ -500,7 +500,7 @@ def _has_successful_test(payload: Mapping[str, Any]) -> bool:
             item.get("ok") is True or status in {"success", "passed"}
         ):
             return True
-    # A structured verification record from OPai's own check runner (#539).
+    # A structured verification record from Vesta's own check runner (#539).
     # `exit_status` is required: it is the part a claim cannot fabricate,
     # because only the process that ran the command can report it.
     verification = payload.get("verification")
@@ -631,7 +631,7 @@ def answer_contradicts_verdict(answer: str, verdict: Any) -> bool:
 
     Round 5 finding 2: one push turn showed a red "Failed" pill above the words
     "has been successfully pushed to the origin remote". A user reading the pill
-    and a user reading the prose walked away with opposite conclusions. OPai
+    and a user reading the prose walked away with opposite conclusions. Vesta
     cannot know which is right from prose alone — but it can refuse to present
     the claim as settled, which is what this flag drives in the UI.
 
@@ -650,12 +650,12 @@ def answer_contradicts_verdict(answer: str, verdict: Any) -> bool:
 
 
 def unfinished_background_work(payload: Mapping[str, Any]) -> tuple[str, ...]:
-    """Commands this run started that OPai never observed finishing.
+    """Commands this run started that Vesta never observed finishing.
 
     The #486 run is the shape this exists for: a full test suite was started in
     the background, the turn ended before it reported, and the only thing the
     verdict could see was the *absence* of a result — so it said the required
-    evidence was missing. That is true but useless, because it names OPai's
+    evidence was missing. That is true but useless, because it names Vesta's
     evidence as the problem when the real state is "the command is still
     running". This returns the descriptions needed to say that instead.
     """
@@ -785,7 +785,7 @@ def _manifest_verdict(payload: Mapping[str, Any]) -> tuple[str, str] | None:
         # The harness never produced a manifest. Say so, rather than claiming
         # the evidence failed validation — nothing was there to validate, and
         # the distinction is what tells the user whether to look at their run
-        # or at OPai.
+        # or at Vesta.
         return "unavailable", creation_error
     try:
         from .verification_execution import (
@@ -816,7 +816,7 @@ def evaluate_completion(
     """Evaluate terminal truth from objective + observed evidence.
 
     This function deliberately ignores provider prose such as "done".  Only
-    a canonical terminal state and evidence produced by OPai's execution path
+    a canonical terminal state and evidence produced by Vesta's execution path
     can return :attr:`CompletionVerdict.COMPLETED`.
     """
 
@@ -828,7 +828,7 @@ def evaluate_completion(
     still_running = _still_running_clause(result)
     still_running_action = (
         "Wait for it to finish and check its output, or re-run it in the "
-        "foreground so OPai can verify the result."
+        "foreground so Vesta can verify the result."
     )
     if AcceptanceRequirement.ANSWER_PRESENT not in objective.acceptance:
         evidence = tuple(item for item in evidence if item.kind != "answer")
@@ -840,7 +840,7 @@ def evaluate_completion(
         return _verdict(
             CompletionVerdict.CANCELLED,
             stopped_reason or "cancel_requested",
-            "Stopped by you before OPai could verify the objective.",
+            "Stopped by you before Vesta could verify the objective.",
             objective,
             evidence,
             "Retry when you are ready.",
@@ -851,7 +851,7 @@ def evaluate_completion(
                 CompletionVerdict.TIMEOUT,
                 TASK_DEADLINE,
                 (
-                    "The run reached OPai's task deadline while work may still "
+                    "The run reached Vesta's task deadline while work may still "
                     "have been active. Observed progress was retained, but "
                     "verification did not finish."
                 )
@@ -866,7 +866,7 @@ def evaluate_completion(
             return _verdict(
                 CompletionVerdict.TIMEOUT,
                 PROVIDER_IDLE_TIMEOUT,
-                "The provider stopped producing activity before OPai could verify the objective."
+                "The provider stopped producing activity before Vesta could verify the objective."
                 + (f" {still_running}" if still_running else ""),
                 objective,
                 evidence,
@@ -877,7 +877,7 @@ def evaluate_completion(
         return _verdict(
             CompletionVerdict.TIMEOUT,
             "timeout",
-            "The run timed out before OPai could verify the objective.",
+            "The run timed out before Vesta could verify the objective.",
             objective,
             evidence,
             "Retry with a narrower task or a longer timeout.",
@@ -899,7 +899,7 @@ def evaluate_completion(
             (
                 "Cancellation was requested, but provider teardown was not proven complete."
                 if cancellation_unconfirmed
-                else "OPai could not reconcile this run to a more specific terminal outcome."
+                else "Vesta could not reconcile this run to a more specific terminal outcome."
             ),
             objective,
             evidence,
@@ -913,7 +913,7 @@ def evaluate_completion(
         return _verdict(
             CompletionVerdict.BLOCKED,
             "permission_required",
-            "OPai needs your approval or input before it can verify the objective.",
+            "Vesta needs your approval or input before it can verify the objective.",
             objective,
             evidence,
             "Resolve the requested approval or input, then retry.",
@@ -934,7 +934,7 @@ def evaluate_completion(
         return _verdict(
             CompletionVerdict.BLOCKED,
             code,
-            "OPai is blocked before it can verify the objective.",
+            "Vesta is blocked before it can verify the objective.",
             objective,
             evidence,
             "Resolve the blocker and retry.",
@@ -960,7 +960,7 @@ def evaluate_completion(
         return _verdict(
             CompletionVerdict.FAILED,
             stopped_reason or "no_progress_guard",
-            "OPai stopped because it was no longer making new progress toward "
+            "Vesta stopped because it was no longer making new progress toward "
             "the objective. The provider is not known to have failed, and "
             "useful findings so far are retained.",
             objective,
@@ -989,7 +989,7 @@ def evaluate_completion(
     # The requested change is checked *before* verification evidence. If the
     # edit never happened, that is the specific, actionable truth; whether the
     # check harness also had a problem is secondary, and reporting only the
-    # harness sends the user to debug OPai when nothing was changed at all.
+    # harness sends the user to debug Vesta when nothing was changed at all.
     # Once the edit is present, verification governs — the block below.
     if (
         AcceptanceRequirement.EXPECTED_EDIT in objective.acceptance
@@ -998,10 +998,10 @@ def evaluate_completion(
         return _verdict(
             CompletionVerdict.PARTIAL,
             "change_not_verified",
-            "OPai received a response but no changed-file or diff evidence verifies the requested edit.",
+            "Vesta received a response but no changed-file or diff evidence verifies the requested edit.",
             objective,
             evidence,
-            "Review the tool trace or ask OPai to apply the change.",
+            "Review the tool trace or ask Vesta to apply the change.",
         )
 
     if (manifest_outcome := _manifest_verdict(result)) is not None:
@@ -1023,7 +1023,7 @@ def evaluate_completion(
             return _verdict(
                 CompletionVerdict.PARTIAL,
                 "work_still_running",
-                f"{still_running} OPai has not seen its result, so the "
+                f"{still_running} Vesta has not seen its result, so the "
                 "objective is not verified yet.",
                 objective,
                 evidence,
@@ -1085,7 +1085,7 @@ def evaluate_completion(
         return _verdict(
             CompletionVerdict.PARTIAL,
             "provider_declined",
-            "OPai replied, but said it could not carry out the request — the "
+            "Vesta replied, but said it could not carry out the request — the "
             "objective is not verified.",
             objective,
             evidence,
@@ -1104,7 +1104,7 @@ def evaluate_completion(
         return _verdict(
             CompletionVerdict.PARTIAL,
             "claimed_output_missing",
-            "OPai said it retrieved the requested output, but the response does "
+            "Vesta said it retrieved the requested output, but the response does "
             "not contain any of it.",
             objective,
             evidence,
@@ -1122,7 +1122,7 @@ def evaluate_completion(
     return _verdict(
         CompletionVerdict.COMPLETED,
         "objective_verified",
-        "Objective verified from OPai-observed evidence.",
+        "Objective verified from Vesta-observed evidence.",
         objective,
         evidence,
         "Review the attached evidence.",

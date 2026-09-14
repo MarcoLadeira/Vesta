@@ -81,7 +81,7 @@ def test_both_copies_of_the_policy_are_identical():
     """Two files, two audiences, one policy.
 
     ``hub_root`` prefers a repo-local ``hub/`` and falls back to the packaged
-    copy, so a developer in the repo and a user of an installed OPai read
+    copy, so a developer in the repo and a user of an installed Vesta read
     different files. Nothing syncs them. A safety policy that can differ by
     installation shape is one edit away from being two policies.
     """

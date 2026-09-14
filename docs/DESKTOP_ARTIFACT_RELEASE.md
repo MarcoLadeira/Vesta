@@ -1,6 +1,6 @@
-# OPai Desktop Artifact Release Runbook
+# Vesta Desktop Artifact Release Runbook
 
-The OPai alpha is fully free. Desktop artifacts must never add a payment,
+The Vesta alpha is fully free. Desktop artifacts must never add a payment,
 license, entitlement, activation, account, or telemetry requirement.
 
 ## Production trust boundary
@@ -118,7 +118,7 @@ attestation, pinned to this exact release workflow on `refs/heads/main` and to
 GitHub-hosted runners:
 
 ```sh
-gh attestation verify OPai-<tag>-<platform>-production.zip \
+gh attestation verify Vesta-<tag>-<platform>-production.zip \
   --repo MarcoLadeira/OPai \
   --signer-workflow MarcoLadeira/OPai/.github/workflows/desktop-artifacts.yml \
   --source-ref refs/heads/main \
@@ -144,7 +144,7 @@ evidence for macOS:
 `desktop-build-bootstrap.lock` installs the exact `pip`, `setuptools`, and
 `wheel` versions first. It lets the full lock install Nuitka (an sdist) with
 build isolation disabled, without resolving an unpinned backend. The workflow
-then installs OPai with `--no-deps`, so the checked-in lock remains the only
+then installs Vesta with `--no-deps`, so the checked-in lock remains the only
 dependency resolver.
 
 Never copy a Windows hash list to macOS. Generate and review each platform lock
@@ -194,14 +194,14 @@ bundle and is the final public-release authenticity gate.
    current repository has a verified Windows lock; do not start a macOS release
    until the matching macOS lock has been generated and reviewed on macOS.
 2. Create a new isolated Python 3.13 environment and install, in order, the
-   bootstrap lock, that platform's full lock, and OPai with `--no-deps` and
+   bootstrap lock, that platform's full lock, and Vesta with `--no-deps` and
    `--no-build-isolation`. Do not use an ambient `pyside6-deploy` or `nuitka`
    executable.
 3. Confirm `pyproject.toml`, `opai/__init__.py`, and `opaihub/__init__.py` declare
    the same PEP 440 version, then push its canonical reviewed annotated
    `v<package-version>` tag. The `v*` push automatically
    runs the unsigned rehearsal and all credential-free source/web/native gates.
-   For production only, dispatch **OPai desktop artifact rehearsal** from
+   For production only, dispatch **Vesta desktop artifact rehearsal** from
    `main`, enter that same tag, and select `production`. Manual unsigned dispatch
    remains available for diagnosis and requires the explicit
    `allow_unsigned_prealpha` acknowledgement.
@@ -240,13 +240,13 @@ The alpha artifact is a **portable** application, not an installer.
    accidental corruption; the external attestation and expected publisher
    identity provide the authenticity boundary.
 2. Extract the archive into a user-controlled application directory such as
-   `C:\Apps\OPai` or `/Applications/OPai Alpha`. Start `OPai` for the desktop
+   `C:\Apps\Vesta` or `/Applications/OPai Alpha`. Start `Vesta` for the desktop
    UI or `opai` for the command line; neither requires a source checkout.
-3. For an upgrade, close OPai, keep the previous extracted directory intact,
+3. For an upgrade, close Vesta, keep the previous extracted directory intact,
    extract the new portable bundle into a sibling directory, run the smoke
    journey, and then switch shortcuts to the new directory.
-4. For uninstall, close OPai and delete only the extracted application
-   directory. Per-user OPai state is outside the portable bundle and is not
+4. For uninstall, close Vesta and delete only the extracted application
+   directory. Per-user Vesta state is outside the portable bundle and is not
    silently deleted; clear it separately only if the user explicitly requests
    that action.
 5. For rollback, switch the shortcut back to the retained previous directory.

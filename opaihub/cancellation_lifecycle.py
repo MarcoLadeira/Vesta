@@ -3,7 +3,7 @@
 `RunState.CANCEL_REQUESTED` (#295/#379) is the canonical, cross-surface truth
 that a run is stopping — every surface already speaks that one word. What it
 does not capture is *how far the stop has actually gotten*: whether anything
-has even noticed yet, whether OPai is waiting for in-flight work to exit on
+has even noticed yet, whether Vesta is waiting for in-flight work to exit on
 its own, or whether it had to be killed outright. Collapsing all of that into
 one boolean is exactly how "cancel requested" stops meaning "cancelled" — a
 provider call or a child process can keep running for an arbitrary time after

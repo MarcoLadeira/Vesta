@@ -1,6 +1,6 @@
 # Release process
 
-OPai uses a **reproducible, inspectable release-candidate preflight** to prove
+Vesta uses a **reproducible, inspectable release-candidate preflight** to prove
 which source revision was tested before any artifact is published. The local
 command produces a scope-aware planning or source verdict. Final release
 qualification is produced only by the protected workflow that builds and

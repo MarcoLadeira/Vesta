@@ -59,7 +59,7 @@ class _OperationFixture(unittest.TestCase):
 
 
 class TheMirrorFollowsIdempotencyTests(_OperationFixture):
-    """Every exact-once effect in OPai passes through this one choke point."""
+    """Every exact-once effect in Vesta passes through this one choke point."""
 
     def test_claiming_a_key_records_a_claimed_operation(self):
         key = idempotency.operation_key("github.pr", head="feat/x", base="main")
@@ -330,7 +330,7 @@ class AnOperationNeverGoesBackwardsTests(unittest.TestCase):
         self.assertEqual(self._state(), "uncertain")
 
     def test_a_state_this_build_cannot_rank_is_not_refused(self):
-        """Forwards compatibility: a newer OPai's state must not become a hard
+        """Forwards compatibility: a newer Vesta's state must not become a hard
         failure in an older one.
 
         This used `uncertain` as its example, and so pinned a hole: uncertain

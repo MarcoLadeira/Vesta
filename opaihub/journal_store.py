@@ -60,18 +60,18 @@ from .state import state_dir
 
 #: The newest migration this build knows; bumped whenever :data:`_MIGRATIONS`
 #: grows. A database recording a higher version than this was written by a
-#: newer OPai and is *incompatible* -- a state the caller must be able to tell
+#: newer Vesta and is *incompatible* -- a state the caller must be able to tell
 #: apart from corruption.
 SCHEMA_VERSION = 2
 
-#: Migrations an older OPai can safely ignore, so they do not raise the version
+#: Migrations an older Vesta can safely ignore, so they do not raise the version
 #: a journal is stamped with.
 #:
-#: Every OPai build refuses a journal stamped above the newest migration it
+#: Every Vesta build refuses a journal stamped above the newest migration it
 #: knows. That is right for a change an older build would write wrongly
 #: around, and needlessly destructive for one it would never notice: migration
 #: 2 only adds two nullable columns, yet stamping it made every journal this
-#: build touched "written by a newer OPai" to `main` and to every branch cut
+#: build touched "written by a newer Vesta" to `main` and to every branch cut
 #: from it -- journaling silently stopped there and doctor flagged the project.
 #: Worse, a branch that defined its *own* migration 2 (#842) trusted the stamp
 #: and skipped its tables for ever.
@@ -129,7 +129,7 @@ class JournalStoreError(RuntimeError):
 
 
 class IncompatibleSchemaError(JournalStoreError):
-    """The database was written by a newer OPai than this one."""
+    """The database was written by a newer Vesta than this one."""
 
 
 class StaleWriterError(JournalStoreError):
@@ -375,7 +375,7 @@ _MIGRATION_1 = (
 # v2 gives a lease an owner that names a *process*, not a category (#818).
 #
 # ``owner`` has always held the surface -- "gui", "cli" -- which is a useful
-# label and a useless identity: every OPai process on the machine writes the
+# label and a useless identity: every Vesta process on the machine writes the
 # same one. ``unterminated_runs`` documented that a caller could look at
 # whether the owning process still exists, and then handed it the string
 # "gui". These two columns are what that sentence needs to be true.
@@ -399,7 +399,7 @@ _MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
 
 
 #: How long a statement waits for another writer before giving up. Long
-#: enough for an ordinary commit anywhere in OPai to finish.
+#: enough for an ordinary commit anywhere in Vesta to finish.
 BUSY_TIMEOUT_SECONDS = 10.0
 
 
@@ -633,7 +633,7 @@ def _record_schema_version(connection: sqlite3.Connection, version: int) -> None
 
     Named rather than inlined so a test can exercise *this* statement instead
     of writing its own copy -- a test that reimplements the SQL proves SQLite
-    works, not that OPai uses it.
+    works, not that Vesta uses it.
     """
 
     connection.execute(
@@ -784,7 +784,7 @@ def migrate(connection: sqlite3.Connection) -> int:
     current = _stored_version(connection)
     if current > SCHEMA_VERSION:
         raise IncompatibleSchemaError(
-            f"journal schema v{current} is newer than this OPai (v{SCHEMA_VERSION})"
+            f"journal schema v{current} is newer than this Vesta (v{SCHEMA_VERSION})"
         )
     facts = _SchemaFacts(connection)
     for version, statements in _MIGRATIONS:
@@ -854,12 +854,12 @@ def _refuse_to_migrate(connection: sqlite3.Connection) -> None:
     current = _stored_version(connection)
     if current > SCHEMA_VERSION:
         raise IncompatibleSchemaError(
-            f"journal schema v{current} is newer than this OPai (v{SCHEMA_VERSION})"
+            f"journal schema v{current} is newer than this Vesta (v{SCHEMA_VERSION})"
         )
     facts = _SchemaFacts(connection)
     if any(_outstanding(facts, statements) for _version, statements in _MIGRATIONS):
         raise MigrationPendingError(
-            "this journal needs a migration, applied the next time OPai uses it"
+            "this journal needs a migration, applied the next time Vesta uses it"
         )
 
 
@@ -879,7 +879,7 @@ def check_integrity(connection: sqlite3.Connection) -> IntegrityReport:
             state=INTEGRITY_INCOMPATIBLE,
             schema_version=version,
             detail=(
-                f"database schema v{version} was written by a newer OPai; "
+                f"database schema v{version} was written by a newer Vesta; "
                 f"this build understands v{SCHEMA_VERSION}"
             ),
             checks=tuple(checks),
@@ -1379,7 +1379,7 @@ def _would_regress(
 ) -> bool:
     """True when ``proposed`` would walk an operation back down the ladder.
 
-    Moving *to* a state off the ladder -- ``uncertain``, or one a newer OPai
+    Moving *to* a state off the ladder -- ``uncertain``, or one a newer Vesta
     wrote that this build does not know -- is never a regression: refusing a
     state we cannot rank would turn a forwards-compatibility problem into a
     hard failure, and an outcome that becomes unknowable is a real thing to be
@@ -1668,10 +1668,10 @@ def migration_pending(project_root: Path) -> bool:
 
 
 def _openable(project_root: Path) -> tuple[bool, str]:
-    """Would OPai be able to open this journal -- asked without changing it.
+    """Would Vesta be able to open this journal -- asked without changing it.
 
     ``check_integrity`` reads a raw connection: it answers "is this database
-    structurally sound", which is not the same question as "will OPai be able
+    structurally sound", which is not the same question as "will Vesta be able
     to use it". A journal whose migration cannot complete passes every
     structural check and still refuses every write. That gap was not
     theoretical: a migration race left a journal recording schema v1 with v2's
@@ -1694,7 +1694,7 @@ def _openable(project_root: Path) -> tuple[bool, str]:
         if current > SCHEMA_VERSION:
             return False, (
                 f"IncompatibleSchemaError: journal schema v{current} is newer"
-                f" than this OPai (v{SCHEMA_VERSION})"
+                f" than this Vesta (v{SCHEMA_VERSION})"
             )
         # Everything open_store would apply: migrations not yet recorded, and
         # recorded ones whose effects are missing (a journal another build
@@ -1723,7 +1723,7 @@ def store_health(project_root: Path) -> dict[str, Any]:
     """Doctor/preflight summary: does the journal exist, and is it usable?
 
     Two questions, reported separately because they can disagree.
-    ``integrity`` describes the *file*; ``openable`` describes whether OPai can
+    ``integrity`` describes the *file*; ``openable`` describes whether Vesta can
     work with it. A journal can be structurally perfect and still unusable.
     """
 

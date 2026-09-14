@@ -1,7 +1,7 @@
 """#818: the runtime journal is bookkeeping, and bookkeeping never stops work.
 
-OPai is a coding tool. Everything in this epic -- admission, leases, terminal
-verdicts, cost provenance, cancellation phases -- exists so OPai can say true
+Vesta is a coding tool. Everything in this epic -- admission, leases, terminal
+verdicts, cost provenance, cancellation phases -- exists so Vesta can say true
 things about what it did. None of it is worth one message a user could not
 send, and somebody programming should not be able to tell it is there.
 
@@ -14,7 +14,7 @@ milliseconds makes the answer a property of whichever disk the temp directory
 landed on, and that is not a hypothetical: the first version of this file
 reported 686 ms per turn and concluded the journal was ruining the experience.
 It was measuring a scratch drive where `sqlite3` close costs 215 ms against
-the 2.8 ms it costs on the drive OPai actually lives on. The real figure is
+the 2.8 ms it costs on the drive Vesta actually lives on. The real figure is
 about 24 ms per turn -- under one percent of a turn that calls a model.
 
 A ratio against a plain commit on the *same* filesystem is immune to that.
@@ -235,7 +235,7 @@ class TheJournalStaysCheapTests(unittest.TestCase):
         per_turn = (time.monotonic() - started) / turns
 
         ratio = per_turn / baseline if baseline > 0 else float("inf")
-        # Measured 28.2 on the drive OPai lives on and 19.3 on a much slower
+        # Measured 28.2 on the drive Vesta lives on and 19.3 on a much slower
         # scratch drive -- the ratio is stable precisely because both numbers
         # move together, which is why it is expressed this way. 50 leaves
         # under a factor of two of headroom: loose enough not to flake on a

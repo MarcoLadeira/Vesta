@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 
 import { finishRequest, openApp, sendPrompt } from "./helpers/app.js";
 
-/* #295 — "OPai must not silently ignore a new instruction because an older run
+/* #295 — "Vesta must not silently ignore a new instruction because an older run
  * is active."
  *
  * Enter during a run used to be dropped on the floor: the keystroke vanished
@@ -51,7 +51,7 @@ test("the queued message sends itself when the run finishes", async ({ page }) =
   expect(await page.evaluate(() => window.__mock.lastRequest.text)).toBe("second thought");
 });
 
-test("a queued message waits while OPai is waiting on the user", async ({ page }) => {
+test("a queued message waits while Vesta is waiting on the user", async ({ page }) => {
   // An awaiting-input turn is not an ending. Firing the queued message here
   // would start a fresh run over an approval card the user has not answered,
   // losing both the question and the work behind it.

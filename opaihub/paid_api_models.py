@@ -1,4 +1,4 @@
-"""Paid direct-API model registry for OPai (#673).
+"""Paid direct-API model registry for Vesta (#673).
 
 Sibling to ``free_models.py``, same shape (picker entries keyed by
 ``CredentialStore`` presence), deliberately a separate module rather than an

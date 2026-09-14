@@ -662,7 +662,7 @@ class BlockingAccountResultTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Bug: OPai says "connected" (Claude auth status / cache) but a real send 401s,
+# Bug: Vesta says "connected" (Claude auth status / cache) but a real send 401s,
 # and the cached "connected" verdict then keeps lying for up to 5 minutes.
 # ---------------------------------------------------------------------------
 class ConnectionCacheInvalidationTests(unittest.TestCase):
@@ -800,7 +800,7 @@ class DisconnectAccountTests(unittest.TestCase):
 
     def test_copilot_has_no_cli_logout_and_says_so_honestly(self):
         # Verified against the real copilot --help: only `login` is listed,
-        # no `logout` subcommand — OPai must not fabricate one.
+        # no `logout` subcommand — Vesta must not fabricate one.
         from opaihub.accounts import disconnect_account
 
         result = disconnect_account("copilot")

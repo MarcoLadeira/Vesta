@@ -1,4 +1,4 @@
-# OPai Brand System
+# Vesta Brand System
 
 **One canonical source:** all product copy and identity constants live in
 `opai/brand.py`. The web GUI reads it through the boot payload, the CLI reads
@@ -9,7 +9,7 @@ together — the GUI and terminal can never drift into different products.
 
 - **Category:** the **cost-aware AI coding cockpit**.
 - **Tagline:** *Every step visible. Every dollar accounted.*
-- **Positioning:** OPai is the cost-aware AI coding cockpit: one command center
+- **Positioning:** Vesta is the cost-aware AI coding cockpit: one command center
   over Claude, Codex, Copilot, and local models — every step visible, every
   dollar accounted.
 - **The enemy:** black-box AI spend — tools that burn tokens invisibly, hide
@@ -22,7 +22,7 @@ together — the GUI and terminal can never drift into different products.
 **Is:** calm · honest · technical · protective · builder-first.
 **Is not:** hype, corporate fluff, fake magic, fake precision, provider-worship.
 
-OPai speaks like a senior engineer who respects your time. It tells you what it
+Vesta speaks like a senior engineer who respects your time. It tells you what it
 did, what it cost, and what to do next — and nothing else.
 
 ## Voice rules (enforced by tests)
@@ -50,14 +50,14 @@ did, what it cost, and what to do next — and nothing else.
 
 - **Direction:** *Command Center × Honest Ledger* — a dark engineering cockpit
   whose accent color is the money signal.
-- **Brand primary:** emerald `#34d399` (`--accent`) = savings / OPai working /
+- **Brand primary:** emerald `#34d399` (`--accent`) = savings / Vesta working /
   primary action. Amber = caution/spend attention. Red = stop/danger. Provider
   dots: Claude terracotta, Codex blue, Copilot violet — providers are guests,
   never the brand.
 - **Type:** Inter (bundled), `-webkit-font-smoothing: antialiased`; mono
   (Cascadia Code) is reserved for *truth surfaces*: commands, diffs, receipts,
   the CLI mirror.
-- **Motifs:** the pulsing emerald dot (OPai working), the vertical activity
+- **Motifs:** the pulsing emerald dot (Vesta working), the vertical activity
   rail, receipt-style footers with tabular numerals, glyph set `✓ ◐ ! ✗ ⊘`
   shared by GUI and CLI.
 - **Motion:** short (≤280ms), purposeful, `cubic-bezier(0.4,0,0.2,1)`; pulse

@@ -1,4 +1,4 @@
-/* OPai web UI front-end. Renders JSON the Python bridge provides; never computes
+/* Vesta web UI front-end. Renders JSON the Python bridge provides; never computes
    anything sensitive itself. */
 "use strict";
 
@@ -536,20 +536,20 @@ function renderUpdateBanner(update) {
   const manualReply = state.update.manual_check;
   if (manualReply && manualReply.message) toast(String(manualReply.message));
   const states = {
-    available: ["Update available", "A signed OPai update is ready to download.", "accent"],
-    downloading: ["Downloading update", "You can keep working while OPai downloads.", "accent"],
+    available: ["Update available", "A signed Vesta update is ready to download.", "accent"],
+    downloading: ["Downloading update", "You can keep working while Vesta downloads.", "accent"],
     verifying: ["Verifying update", "Checking the artifact digest and publisher identity.", "accent"],
     ready_to_install: ["Ready to restart", "The verified update is staged and ready.", "accent"],
     waiting_for_idle: ["Restart when finished", operation.safe_diagnostic || "Waiting for active work to finish.", "warning"],
-    install_on_quit: ["Installs on quit", "The verified update will install after OPai closes safely.", "accent"],
+    install_on_quit: ["Installs on quit", "The verified update will install after Vesta closes safely.", "accent"],
     deferred: ["Update deferred", "The verified update remains available for later.", "neutral"],
     failed_retriable: ["Update paused", operation.safe_diagnostic || "The update can be retried.", "warning"],
     failed_terminal: ["Update blocked", operation.safe_diagnostic || "The update failed a security check.", "danger"],
-    policy_blocked: [policy.owner && policy.owner !== "opai" ? "Managed by administrator" : "Updates disabled by policy", "OPai will not race another update owner.", "neutral"],
+    policy_blocked: [policy.owner && policy.owner !== "opai" ? "Managed by administrator" : "Updates disabled by policy", "Vesta will not race another update owner.", "neutral"],
     unsupported_install: ["Manual update required", operation.safe_diagnostic || "This installation cannot update transactionally.", "neutral"],
     rollback_pending: ["Recovery required", "The new build did not pass startup health checks.", "danger"],
     needs_attention: ["Update needs attention", operation.safe_diagnostic || "Automatic recovery could not complete.", "danger"],
-    rolled_back: ["Update rolled back", "OPai restored the last-known-good build.", "warning"],
+    rolled_back: ["Update rolled back", "Vesta restored the last-known-good build.", "warning"],
     unavailable: ["Couldn’t check for updates", operation.safe_diagnostic || "Update status is temporarily unavailable.", "warning"],
   };
   // COMPLETED is normally the quiet end of a packaged update: the app has
@@ -561,7 +561,7 @@ function renderUpdateBanner(update) {
   // fast-forward runs inside the check — fetch, merge, reinstall — and the
   // reinstall alone takes seconds with nothing on screen. A progress label
   // is the updater saying it is mid-stage, so show the stage and the bar.
-  if (operation.progress_label) states.checking = ["Updating OPai", operation.progress_label, "accent"];
+  if (operation.progress_label) states.checking = ["Updating Vesta", operation.progress_label, "accent"];
   const visible = Object.prototype.hasOwnProperty.call(states, status);
   shell.hidden = !visible;
   // The update-state event fans out to Settings and other listeners, so it
@@ -586,7 +586,7 @@ function renderUpdateBanner(update) {
   const message = String(summary.message || config[1]);
   $("#updateBannerText").textContent = title;
   $("#updateSheetTitle").textContent = candidate.version
-    ? `${title} · OPai ${candidate.version}`
+    ? `${title} · Vesta ${candidate.version}`
     : title;
   $("#updateSheetDescription").textContent = message;
   const meta = $("#updateSheetMeta");
@@ -775,7 +775,7 @@ function rebootFromState() {
   if (state.panel) refreshInspector();
 }
 
-/* OPai Build in the cockpit (#276): when the workspace is a scaffolded app,
+/* Vesta Build in the cockpit (#276): when the workspace is a scaffolded app,
    offer Build mode — a chat message becomes a cheap, verified targeted edit. */
 function syncBuildMode() {
   const ws = (state.boot && state.boot.workspace) || {};
@@ -808,7 +808,7 @@ function submitComposer() {
   // A sent prompt starts history over, so the next Up recalls what was just
   // sent rather than resuming a half-finished walk through older entries.
   historyReset();
-  // #295: "OPai must not silently ignore a new instruction because an older run
+  // #295: "Vesta must not silently ignore a new instruction because an older run
   // is active." Enter used to be dropped on the floor mid-run — the keystroke
   // vanished with no trace, which is the worst outcome for someone correcting
   // or redirecting the work. Hold it instead and send it when the run ends.
@@ -1102,7 +1102,7 @@ function renderModelSelect(syncContext = true) {
     { id: "codex",   label: "Codex" },
     { id: "copilot", label: "Copilot" },
     { id: "free",    label: "Free models" },
-    { id: "routing", label: "OPai routing" },
+    { id: "routing", label: "Vesta routing" },
     { id: "local",   label: "Local models" },
   ];
   const allModels = state.boot.models || [];
@@ -1112,7 +1112,7 @@ function renderModelSelect(syncContext = true) {
   const selectable = allModels.filter((m) => !m.out_of_credit && isModelVisible(m));
   const currentEntry = allModels.find((m) => m.id === state.model.id);
   if (currentEntry && currentEntry.out_of_credit) {
-    state.model = { id: "auto", label: "OPai · Auto mode", kind: "auto", provider: "" };
+    state.model = { id: "auto", label: "Vesta · Auto mode", kind: "auto", provider: "" };
     bridge.savePref("default_model", "auto");
   }
   const grouped = {};
@@ -1386,7 +1386,7 @@ function renderComposerContext() {
   const root = $("#composerContext");
   if (!root || !state.boot) return;
   const modeLabel = modePresentationLabel(state.mode);
-  const modelLabel = state.model.kind === "auto" ? "OPai · Auto mode" : (state.model.label || "Selected model");
+  const modelLabel = state.model.kind === "auto" ? "Vesta · Auto mode" : (state.model.label || "Selected model");
   // These legacy pills now live in the visually-hidden .composer-native block
   // (the redesigned toolbar summarises the same state). tabindex="-1" keeps them
   // out of the tab order so their aria-hidden container has no focusable content.
@@ -1758,7 +1758,7 @@ function switchView(id) {
 
 /* ---------- chat ---------- */
 function renderEmptyChips() {
-  // Agent-grade starters that show what OPai really does (plan, gate, receipt)
+  // Agent-grade starters that show what Vesta really does (plan, gate, receipt)
   // without promising anything the engine doesn't deliver.
   const chips = [
     ["Summarize my changes", "Summarize my uncommitted changes"],
@@ -1802,13 +1802,13 @@ function clearFailure(message) {
     error: {
       code: "SESSION_CLEAR_FAILED",
       userMessage: message,
-      recoveryActions: ["Try again after closing other OPai windows for this workspace."],
+      recoveryActions: ["Try again after closing other Vesta windows for this workspace."],
     },
   };
 }
 function parseClearResponse(raw) {
   try { return JSON.parse(raw || "{}"); }
-  catch (_e) { return clearFailure("OPai could not confirm that the saved work was cleared."); }
+  catch (_e) { return clearFailure("Vesta could not confirm that the saved work was cleared."); }
 }
 // #416: drop the "Resume your previous work?" choice card from the DOM right now,
 // on click — the dismissal must not wait for the async session bridge to answer,
@@ -1822,7 +1822,7 @@ function showSessionClearFailure(response) {
   // bring back any more, and a composer left disabled with nothing on screen
   // explaining why is the worst of both.
   appendMsg(
-    roleHeader("OPai", "var(--red)") + `<div class="body" role="alert">${esc(message)}</div>`,
+    roleHeader("Vesta", "var(--red)") + `<div class="body" role="alert">${esc(message)}</div>`,
     "bot",
   );
   setResumeGate(false);
@@ -1891,7 +1891,7 @@ function renderConversation(conv) {
       }
       const el = appendMsg(
         assistantPresentationHtml(
-          roleHeader("OPai", "var(--muted)", { copy: true }),
+          roleHeader("Vesta", "var(--muted)", { copy: true }),
           text,
           m.presentation,
         )
@@ -2009,7 +2009,7 @@ function finalizeBuild(r) {
   const sel = state.lastSend || {};
   const durMs = Date.now() - state.startTime;
   el.innerHTML = assistantPresentationHtml(
-    roleHeader("OPai Build", "var(--accent)"),
+    roleHeader("Vesta Build", "var(--accent)"),
     typeof r.answer === "string" ? r.answer : "",
     r.presentation,
     {
@@ -2140,7 +2140,7 @@ function send(retryOf) {
   // after the guards above so an empty or blocked send never triggers it, and
   // before everything below so no state is mutated twice on the way through.
   if (raiseTheLights(() => send(retryOf))) return;
-  // Slash commands run local OPai tools ("/panic", "/savings", "/connect") —
+  // Slash commands run local Vesta tools ("/panic", "/savings", "/connect") —
   // they must NEVER be sent to a paid model as a prompt.
   if (!retryOf && text.startsWith("/")) {
     setComposerDraft("");
@@ -2218,7 +2218,7 @@ function buildPending(sel) {
   const initialStage = OPaiActivity.stageMessage(0, { modelLabel: sel.modelLabel || sel.model }).stage;
   state.latestActivity = null;
   const el = appendMsg(
-    roleHeader("OPai", "var(--accent)") +
+    roleHeader("Vesta", "var(--accent)") +
     `<div class="gen">
        <div class="gen-work-surface">
          <div class="gen-head">
@@ -2790,7 +2790,7 @@ function finishCancel(cancelledId, teardown) {
   state.store.cancelRunning(); renderTimeline();
   finalize("cancelled", {
     answer: state.streamedText || "",
-    // Reported, not hidden: an unconfirmed teardown means OPai could not prove
+    // Reported, not hidden: an unconfirmed teardown means Vesta could not prove
     // the provider call stopped, and the user may still be paying for it.
     cancel_teardown: teardown,
   });
@@ -3003,7 +3003,7 @@ function completionVerdictHtml(r) {
 
 // The verdict owns the user-facing outcome everywhere. Runtime phases describe
 // internal progress and can legitimately end "completed" after a provider
-// returned, even when OPai could not verify the user's objective. Rendering a
+// returned, even when Vesta could not verify the user's objective. Rendering a
 // runtime phase as the final status reintroduced the Round 6 contradiction:
 // "Partial" above "Implement · Completed" below.
 /**
@@ -3043,15 +3043,15 @@ function completionVerdictLabel(item) {
 // Round 5 finding 2: one push turn showed a red "Failed" pill directly above the
 // words "has been successfully pushed to the origin remote". Whichever was wrong,
 // the two surfaces sent opposite messages and a user who glanced at only one drew
-// the opposite conclusion. OPai cannot tell from prose which is right — so it
+// the opposite conclusion. Vesta cannot tell from prose which is right — so it
 // refuses to let the claim read as settled, and says so where the claim is.
 function unverifiedClaimHtml(r) {
   const item = completionVerdict(r);
   if (!item || !item.answerConflicts) return "";
   return `<div class="unverified-claim" role="note">${uiIcon("warning")} ` +
-    `<span><strong>OPai could not verify this.</strong> The response below says the ` +
+    `<span><strong>Vesta could not verify this.</strong> The response below says the ` +
     `work succeeded, but this run ended as <em>${esc(completionVerdictLabel(item))}</em> ` +
-    `and OPai found no evidence the action completed. Treat the claim as unconfirmed ` +
+    `and Vesta found no evidence the action completed. Treat the claim as unconfirmed ` +
     `and check the result yourself before relying on it.</span></div>`;
 }
 function metaFooter(r, sel, durMs) {
@@ -3060,7 +3060,7 @@ function metaFooter(r, sel, durMs) {
   // Cost/savings line — the SAME honest text the flat footer used, so the
   // money-truth contract holds: a paid call shows spend and never "saved".
   const elapsed = OPaiActivity.formatElapsed(durMs);
-  const bits = [sel.modelLabel || "OPai"];
+  const bits = [sel.modelLabel || "Vesta"];
   // Same rule as the summary row: a turn that finished inside the clock's
   // resolution has no duration worth printing.
   if (elapsed && !/^0+[:0]*$/.test(String(elapsed).replace(/[^0-9:]/g, ""))) bits.push(elapsed);
@@ -3101,7 +3101,7 @@ function wireReceipt(el, sel, r) {
     const badge = strip.querySelector(".rc-badge");
     const bits = strip.querySelector(".rc-bits");
     const line = [badge && badge.textContent.trim(), bits && bits.textContent.trim()].filter(Boolean).join(" · ");
-    copyText(`OPai receipt\nTask: ${(sel && sel.text) || "—"}\n${line || strip.textContent.trim()}`);
+    copyText(`Vesta receipt\nTask: ${(sel && sel.text) || "—"}\n${line || strip.textContent.trim()}`);
     toast("Receipt copied");
   };
   strip.onclick = copy;
@@ -3279,7 +3279,7 @@ function renderErrorCard(el, status, r, sel) {
     "needs_auto_confirmation",
     "needs_limit_confirmation",
   ].includes(status);
-  const title = error.title || ERROR_TITLES[status] || "OPai could not complete this request.";
+  const title = error.title || ERROR_TITLES[status] || "Vesta could not complete this request.";
   const what = error.userMessage || (typeof (r && r.answer) === "string" && r.answer) || "Retry, or open Settings if the problem continues.";
   const raw = redactSecrets(
     error.technicalMessage ||
@@ -3301,8 +3301,8 @@ function renderErrorCard(el, status, r, sel) {
     : String((sel && sel.modelLabel) || "the provider").split(" · ")[0];
   // Never a dead end: when the engine could name a model that can still run
   // this request, offer it as the primary action. "Switch model" alone made the
-  // user diagnose a routing problem OPai had already solved — the whole point
-  // of OPai is that having usage somewhere is enough to keep working.
+  // user diagnose a routing problem Vesta had already solved — the whole point
+  // of Vesta is that having usage somewhere is enough to keep working.
   // Suppressed on awaiting-input cards (`canRetry` is the same test): those
   // already carry the exact action that unblocks them, and offering a different
   // model there would read as a way around a safety gate.
@@ -3312,7 +3312,7 @@ function renderErrorCard(el, status, r, sel) {
   const offerId = offer ? String(offer.id || "") : "";
   const offerLabel = offer ? String(offer.label || offerId) : "";
   const showOffer = !!offerId && offerId !== String((sel && sel.model) || "");
-  // Route transparency. When OPai deliberately declines to reroute — an
+  // Route transparency. When Vesta deliberately declines to reroute — an
   // irreversible request in the governed lane — the absence of a "Continue
   // with" button is a decision, not the dead end this release spent its time
   // removing. Say so, or it reads as the same old failure.
@@ -3320,11 +3320,11 @@ function renderErrorCard(el, status, r, sel) {
     ? r.message_contract
     : null;
   const heldLane = lane && lane.allowProviderFallback === false
-    ? `OPai will not move this request to another model on its own — ${String(lane.reason || "it cannot be safely repeated")} Choose a model yourself to continue.`
+    ? `Vesta will not move this request to another model on its own — ${String(lane.reason || "it cannot be safely repeated")} Choose a model yourself to continue.`
     : "";
   // Keep the activity evidence reviewable after a failure while retaining the
   // structured provider recovery actions from the shared message contract.
-  el.innerHTML = roleHeader(sel && sel.build ? "OPai Build" : "OPai", "var(--red)") + activitySummaryHtml() +
+  el.innerHTML = roleHeader(sel && sel.build ? "Vesta Build" : "Vesta", "var(--red)") + activitySummaryHtml() +
     `<div class="error-card" role="alert"><div class="ec-t">${esc(title)}</div><div class="ec-w">${esc(what)}</div>` +
     (heldLane ? `<div class="ec-w" data-lane-note>${esc(heldLane)}</div>` : "") +
     `<div class="ec-actions">` +
@@ -3332,7 +3332,7 @@ function renderErrorCard(el, status, r, sel) {
     (canRetry ? `<button class="btn" data-a="retry">Retry</button>` : "") +
     (actions.includes("repair_config") ? `<button class="btn primary" data-a="repair">Repair Codex config</button>` : "") +
     (offerLogin ? `<button class="btn primary" data-a="signin">Sign in to ${esc(providerName(loginProvider))}</button>` : "") +
-    // A live re-check, not just a link to Settings: OPai may have said
+    // A live re-check, not just a link to Settings: Vesta may have said
     // "connected" from a cached/on-disk signal right before this exact call
     // 401'd — "Open Settings" alone showed nothing new. This runs the same
     // check right here and reports the truth, plus the concrete next step.
@@ -3521,9 +3521,9 @@ function finalize(status, r) {
     const isProvider = sel.modelKind === "account" || sel.modelKind === "free";
   const label = isProvider
     ? String(sel.modelLabel).replace(" · ", " ").replace(/\s+\(free tier\)$/, "")
-    : "OPai";
+    : "Vesta";
   const color = isProvider ? (PROVIDER_COLOR[sel.modelProvider] || "var(--ink)") : "var(--muted)";
-  const answer = (typeof rawAnswer === "string" && rawAnswer) || state.streamedText || "OPai didn't return a response for that one.";
+  const answer = (typeof rawAnswer === "string" && rawAnswer) || state.streamedText || "Vesta didn't return a response for that one.";
   const headerHtml = roleHeader(label, color, { copy: true });
   let changesHtml = "";
   let supportHtml = "";
@@ -3698,7 +3698,7 @@ function diffFileCardHtml(file, opts) {
   </details>`;
 }
 
-// Everything OPai knows about a code change lives here — whether it's already
+// Everything Vesta knows about a code change lives here — whether it's already
 // on disk and verified, or held (via "Manual") for review before it
 // can ship. Both states reuse the same evidence and row markup; only the
 // "reviewing_diff" phase gets approve/reject actions.
@@ -4071,7 +4071,7 @@ function renderDashboard(section) {
       renderViewState(page, {
         kind: "error",
         title: "Couldn't load this dashboard",
-        reason: "OPai received an invalid local dashboard response.",
+        reason: "Vesta received an invalid local dashboard response.",
         action: "retry_dashboard",
         actionLabel: "Try again",
       }, () => renderDashboard(section));
@@ -4081,7 +4081,7 @@ function renderDashboard(section) {
       renderViewState(page, {
         kind: "error",
         title: "Couldn't load this dashboard",
-        reason: "OPai received an invalid local dashboard response.",
+        reason: "Vesta received an invalid local dashboard response.",
         action: "retry_dashboard",
         actionLabel: "Try again",
       }, () => renderDashboard(section));
@@ -4240,7 +4240,7 @@ function renderSettings() {
       renderViewState(page, {
         kind: "error",
         title: "Couldn't load settings",
-        reason: "OPai received an invalid local settings response.",
+        reason: "Vesta received an invalid local settings response.",
         action: "retry_settings",
         actionLabel: "Try again",
       }, renderSettings);
@@ -4250,7 +4250,7 @@ function renderSettings() {
       renderViewState(page, {
         kind: "error",
         title: "Couldn't load settings",
-        reason: "OPai received an invalid local settings response.",
+        reason: "Vesta received an invalid local settings response.",
         action: "retry_settings",
         actionLabel: "Try again",
       }, renderSettings);
@@ -4316,7 +4316,7 @@ function onTool(json) {
 // (config-level toggles vs. anything unknown). No invented risk theater.
 const APPROVAL_SCOPE = {
   panic: { risk: "Config change", scope: "Routing policy for this project (reversible)" },
-  repair: { risk: "Config change", scope: "OPai client integration files (additive, no source deleted)" },
+  repair: { risk: "Config change", scope: "Vesta client integration files (additive, no source deleted)" },
   ignores: { risk: "Config change", scope: "Supported AI ignore files (additive; user rules preserved)" },
   benchmark_run: { risk: "Local evidence write", scope: ".opaihub benchmark history (privacy-safe metadata; no raw prompts)" },
   proof_json: { risk: "Local file write", scope: ".opaihub/proof-bundle.json (redacted and locally signed)" },
@@ -4439,7 +4439,7 @@ function appendCard(title, text) {
 function renderCommandApprovalCard(el, r, sel) {
   const command = String((r && r.command) || "");
   const reason = modePresentationCopy((r && r.reason) || "The current run mode blocks this command.");
-  el.innerHTML = roleHeader("OPai", "var(--amber)") + activitySummaryHtml() +
+  el.innerHTML = roleHeader("Vesta", "var(--amber)") + activitySummaryHtml() +
     `<div class="approval-card command-approval" role="group" aria-label="Command approval required">
        <div class="ap-head"><span class="ap-badge">Command blocked</span><span class="ap-risk">One-time approval</span></div>
        <div class="ap-title">Approve this command once?</div>
@@ -4483,11 +4483,11 @@ function renderEditApprovalCard(el, r, sel) {
   const more = files.length - listed.length;
   const rows = listed.map((f) => `<li><code>${esc(f)}</code></li>`).join("") +
     (more > 0 ? `<li>…and ${more} more</li>` : "");
-  el.innerHTML = roleHeader("OPai", "var(--amber)") + activitySummaryHtml() +
+  el.innerHTML = roleHeader("Vesta", "var(--amber)") + activitySummaryHtml() +
     `<div class="approval-card edit-approval" role="group" aria-label="Edit approval required">
        <div class="ap-head"><span class="ap-badge">Edits blocked</span><span class="ap-risk">One-time approval</span></div>
-       <div class="ap-title">Allow OPai to edit these files once?</div>
-       <div class="ap-why">OPai asks before changing files in this mode. Commands and destructive actions stay gated.</div>
+       <div class="ap-title">Allow Vesta to edit these files once?</div>
+       <div class="ap-why">Vesta asks before changing files in this mode. Commands and destructive actions stay gated.</div>
        <div class="ap-scope"><span class="k">Files</span><span class="v"><ul class="ap-files">${rows || "<li>(paths unavailable)</li>"}</ul></span></div>
        <div class="ap-actions">
          <button class="btn primary" data-ap="approve">Allow edits once</button>

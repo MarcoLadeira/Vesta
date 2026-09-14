@@ -9,7 +9,7 @@ the gap and about whose job it was to close it:
     module cannot.
 
 The caller could not either. ``owner`` was the *surface* -- ``"gui"`` -- so
-every run admitted by every OPai process on the machine recorded the same
+every run admitted by every Vesta process on the machine recorded the same
 owner, and ``heartbeat_at`` was stamped once at acquisition and never again.
 
 These tests pin the two halves of the fix that matter: the answers it now
@@ -71,7 +71,7 @@ class ThisProcessRecognisesItsOwnWorkTests(unittest.TestCase):
         """The teeth of the boot id.
 
         Without the boot-id half, a recycled pid that happened to match ours
-        would read as work this process is doing -- and OPai would then decline
+        would read as work this process is doing -- and Vesta would then decline
         to offer recovery for a run nobody is tending.
         """
 
@@ -116,7 +116,7 @@ class AbsenceIsConclusiveAndPresenceIsNotTests(unittest.TestCase):
         self.assertNotIn(verdict, ACTIONABLE)
 
     def test_an_unverified_owner_is_not_something_a_recovery_pass_may_act_on(self):
-        """Acting on it would cancel work another OPai is doing."""
+        """Acting on it would cancel work another Vesta is doing."""
 
         self.assertNotIn(OWNER_UNVERIFIED, ACTIONABLE)
         self.assertNotIn(OWNER_UNKNOWN, ACTIONABLE)
@@ -205,7 +205,7 @@ class MayBeAliveAnswersTheRecoveryQuestionTests(unittest.TestCase):
         )
 
     def test_a_platform_that_will_not_say_counts_as_possibly_alive(self):
-        """A recorded owner OPai cannot read about is not a licence to
+        """A recorded owner Vesta cannot read about is not a licence to
         declare it dead -- unlike a lease with no owner at all."""
 
         self.assertTrue(
@@ -607,7 +607,7 @@ class AProcessIdMustActuallyBeOneTests(unittest.TestCase):
     """`positive_pid` decides what gets probed for liveness.
 
     Found while fixing a mypy error that a `# type: ignore` was silently not
-    suppressing. `int(True)` is 1, and pid 1 exists on every system OPai runs
+    suppressing. `int(True)` is 1, and pid 1 exists on every system Vesta runs
     on -- so a lease carrying a boolean would have been probed as a live
     process and reported as one. Exactly the meaningless question with a
     meaningful-looking answer the function's own docstring exists to prevent.

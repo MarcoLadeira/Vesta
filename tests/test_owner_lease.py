@@ -1,9 +1,9 @@
 """Supervisor leases: is the process that owns this run still alive? (#295)
 
-OPai records a turn as ``state: "running"`` before work starts, so a crash
+Vesta records a turn as ``state: "running"`` before work starts, so a crash
 leaves that behind forever. The resume path handled it honestly and named the
 missing piece in a comment: *"without an owner lease, process death cannot be
-inferred safely"* — so OPai could not tell "a sibling window is working on this"
+inferred safely"* — so Vesta could not tell "a sibling window is working on this"
 apart from "this died three days ago", and had to present both identically.
 
 #295 invariant 4: one active owner, each run holding exactly one supervisor

@@ -6,9 +6,9 @@ counting how many times a paid provider is dispatched.
 
 Why this is the case worth a pipeline-level test. The paid lane writes its
 ledger entry on success only, so a call lost to a timeout leaves no local
-record at all — OPai cannot later notice it was billed. If the transient-retry
+record at all — Vesta cannot later notice it was billed. If the transient-retry
 path re-sends the identical prompt, the user pays twice for one question and
-nothing in OPai ever shows it happened. The free lane has the opposite
+nothing in Vesta ever shows it happened. The free lane has the opposite
 economics, and its retry is what makes intermittent 503s survivable, so the
 test below asserts that retry is still intact rather than assuming it.
 """

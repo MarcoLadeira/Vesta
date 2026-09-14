@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "skills": [
-    {"id": "using-opai", "name": "Using OPai", "path": "skills/using-opai/SKILL.md", "category": "core", "description": "Start OPai-aware sessions and verify local-first policy.", "cost_policy": "L0 only", "enabled_by_default": true},
+    {"id": "using-opai", "name": "Using Vesta", "path": "skills/using-opai/SKILL.md", "category": "core", "description": "Start Vesta-aware sessions and verify local-first policy.", "cost_policy": "L0 only", "enabled_by_default": true},
     {"id": "cost-aware-routing", "name": "Cost-Aware Routing", "path": "skills/cost-aware-routing/SKILL.md", "category": "model-routing", "description": "Route tasks through local tools, cheap models, then stronger models only when needed.", "cost_policy": "L0-L4 gated", "enabled_by_default": true},
     {"id": "model-selection", "name": "Model Selection", "path": "skills/model-selection/SKILL.md", "category": "model-routing", "description": "Recommend the cheapest capable model for a task.", "cost_policy": "L0 analysis before model use", "enabled_by_default": true},
     {"id": "prompt-eval", "name": "Prompt Eval", "path": "skills/prompt-eval/SKILL.md", "category": "evals", "description": "Compare prompts and models with small eval sets before broad use.", "cost_policy": "sample locally first", "enabled_by_default": true},
-    {"id": "project-onboarding", "name": "Project Onboarding", "path": "skills/project-onboarding/SKILL.md", "category": "context", "description": "Scan a new repo and create reusable OPai context.", "cost_policy": "L0 only", "enabled_by_default": true},
+    {"id": "project-onboarding", "name": "Project Onboarding", "path": "skills/project-onboarding/SKILL.md", "category": "context", "description": "Scan a new repo and create reusable Vesta context.", "cost_policy": "L0 only", "enabled_by_default": true},
     {"id": "repo-map-context", "name": "Repo Map Context", "path": "skills/repo-map-context/SKILL.md", "category": "context", "description": "Build compact symbol and file maps for AI context.", "cost_policy": "L0 first", "enabled_by_default": true},
     {"id": "diff-context", "name": "Diff Context", "path": "skills/diff-context/SKILL.md", "category": "context", "description": "Load diffs and minimal related files instead of whole repos.", "cost_policy": "L0 only", "enabled_by_default": true},
     {"id": "memory-summary", "name": "Memory Summary", "path": "skills/memory-summary/SKILL.md", "category": "context", "description": "Maintain concise project/session summaries.", "cost_policy": "L0/L1", "enabled_by_default": true},

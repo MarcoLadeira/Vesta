@@ -102,7 +102,7 @@ class ClientDetectionTests(unittest.TestCase):
             proj, home = Path(ptmp), Path(htmp)
             activate_project(proj, home=home, install_global=True)
             cop = proj / ".github" / "copilot-instructions.md"
-            cop.write_text("user content only, no OPai block", encoding="utf-8")
+            cop.write_text("user content only, no Vesta block", encoding="utf-8")
             status = client_integrations_status(proj, home)
         copilot = next(c for c in status["clients"] if c["id"] == "copilot")
         self.assertEqual(copilot["status"], "broken")

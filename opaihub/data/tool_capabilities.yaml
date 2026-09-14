@@ -7,7 +7,7 @@
 #
 # `min_version` is the first version where the capability is supported again;
 # a detected version below it (or a listed broken range) marks it degraded.
-# Update this file in each OPai release as upstream tools change.
+# Update this file in each Vesta release as upstream tools change.
 schema_version: 1
 tools:
   - tool: github-cli
@@ -17,7 +17,7 @@ tools:
         status: degraded
         # The report's worked example: gh 2.80 drops classic Projects fields
         # from `gh issue view`, so the GraphQL call fails with a 400 that reads
-        # like a bug in OPai rather than an upstream removal.
+        # like a bug in Vesta rather than an upstream removal.
         reason: projects_classic_removed
         broken_below: "2.82.1"
         alternatives:

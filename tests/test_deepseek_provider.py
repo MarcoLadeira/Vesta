@@ -3,7 +3,7 @@ real cost accounting, dispatch routing). Hermetic — no network, no real key.
 
 Explicitly NOT covered here (see PR body / follow-up issues): thinking-mode
 ``reasoning_content`` continuity (A4), Cursor catalogue parity (workstream
-B), OPai Auto shadow routing (D1), the 120-scenario bench (#657-adjacent).
+B), Vesta Auto shadow routing (D1), the 120-scenario bench (#657-adjacent).
 """
 
 from __future__ import annotations

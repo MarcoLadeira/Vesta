@@ -41,7 +41,7 @@ test("Switch model opens the visible picker and Retry uses the new selection", a
       models: [
         { id: "account:claude:sonnet", label: "Claude · Sonnet 4.6", kind: "account", group: "claude", provider: "claude", available: true, healthy: true },
         { id: "account:claude:opus", label: "Claude · Opus 4.8", kind: "account", group: "claude", provider: "claude", available: true, healthy: true },
-        { id: "auto", label: "OPai · Auto mode", kind: "auto", group: "routing", available: true, healthy: true },
+        { id: "auto", label: "Vesta · Auto mode", kind: "auto", group: "routing", available: true, healthy: true },
       ],
       selectedModel: "account:claude:sonnet",
       prefs: { model: "account:claude:sonnet" },

@@ -1,4 +1,4 @@
-"""Presentation view-model for the OPai premium desktop GUI.
+"""Presentation view-model for the Vesta premium desktop GUI.
 
 This module stays PySide-free so tests, `opai gui --once`, and headless CLI
 paths never need desktop dependencies. It adapts the local app-state layer into
@@ -29,7 +29,7 @@ SECTIONS: list[tuple[str, str]] = [(key, label) for key, label, _icon in SECTION
 THEME: dict[str, Any] = {
     "name": "opai-premium-dark",
     "font": {
-        # One soft typeface across every OPai surface (see opai/assets/fonts).
+        # One soft typeface across every Vesta surface (see opai/assets/fonts).
         "body": '"Nunito", "Segoe UI Variable", "Segoe UI", sans-serif',
         "mono": '"Cascadia Code", "JetBrains Mono", Consolas, monospace',
     },
@@ -117,7 +117,7 @@ def _client_card(client: dict[str, Any]) -> dict[str, Any]:
     repair = _redact(client.get("repair") or "opai activate --repair")
     return {
         "title": _redact(client.get("label") or client.get("id")),
-        "subtitle": _redact(client.get("reason") or "OPai client integration status"),
+        "subtitle": _redact(client.get("reason") or "Vesta client integration status"),
         "status": _redact(client.get("status", "unknown")).replace("_", " ").upper(),
         "severity": _status_severity(str(client.get("status", "unknown"))),
         "metrics": [
@@ -212,7 +212,7 @@ def build_view_model(project_root: Path) -> dict[str, Any]:
     )
 
     topbar = {
-        "brand": "OPai",
+        "brand": "Vesta",
         "project_name": root.name,
         "project_root": str(root),
         "status": overview.get("status_label", "ATTENTION"),
@@ -254,19 +254,19 @@ def build_view_model(project_root: Path) -> dict[str, Any]:
         "label": "Home",
         "icon": "wallet",
         "title": "Money Saved",
-        "subtitle": "The fast answer: OPai is on, private, and ready to save AI spend.",
+        "subtitle": "The fast answer: Vesta is on, private, and ready to save AI spend.",
         "hero": {
             "headline": _money(savings_value)
             if has_savings
             else "Ready to record first savings",
             "caption": "estimated saved on this project"
             if has_savings
-            else "Run one routed task to turn OPai savings from potential into proof.",
+            else "Run one routed task to turn Vesta savings from potential into proof.",
             "severity": "success" if overview.get("on") else "warning",
         },
         "kpis": [
             {
-                "label": "OPai",
+                "label": "Vesta",
                 "value": overview.get("status_label", "ATTENTION"),
                 "severity": topbar["status_severity"],
             },
@@ -338,7 +338,7 @@ def build_view_model(project_root: Path) -> dict[str, Any]:
         "label": "Agents",
         "icon": "users",
         "title": "Agent Readiness",
-        "subtitle": "Claude, Codex, Copilot, Gemini, Cursor, and Cline should all start from OPai policy.",
+        "subtitle": "Claude, Codex, Copilot, Gemini, Cursor, and Cline should all start from Vesta policy.",
         "cards": agent_cards,
         "actions": [
             _action(
@@ -348,7 +348,7 @@ def build_view_model(project_root: Path) -> dict[str, Any]:
                 command=state["agent_readiness"].get("repair_command"),
                 mutates=True,
                 risk="config",
-                confirmation="Re-apply OPai client integration files for this project. This is additive and does not delete source code.",
+                confirmation="Re-apply Vesta client integration files for this project. This is additive and does not delete source code.",
                 variant="primary",
             )
         ],
@@ -471,7 +471,7 @@ def build_view_model(project_root: Path) -> dict[str, Any]:
                 icon="play",
                 mutates=True,
                 risk="config",
-                confirmation="Append OPai managed ignore blocks. This never deletes source code.",
+                confirmation="Append Vesta managed ignore blocks. This never deletes source code.",
             ),
         ],
     }
@@ -482,12 +482,12 @@ def build_view_model(project_root: Path) -> dict[str, Any]:
         "label": "Benchmark",
         "icon": "gauge",
         "title": "Benchmark Proof",
-        "subtitle": "Local proof that OPai is cheaper, smaller, and safer than normal AI usage.",
+        "subtitle": "Local proof that Vesta is cheaper, smaller, and safer than normal AI usage.",
         "hero": {
             "headline": str(int(float(benchmark.get("effectiveness_index") or 0)))
             if benchmark_has_run
             else "Not run yet",
-            "caption": "OPai effectiveness index"
+            "caption": "Vesta effectiveness index"
             if benchmark_has_run
             else benchmark.get("next_command", ""),
             "severity": "success" if benchmark_has_run else "warning",
@@ -647,7 +647,7 @@ def build_view_model(project_root: Path) -> dict[str, Any]:
         "label": "Launch",
         "icon": "rocket",
         "title": "Launch Readiness",
-        "subtitle": "Controlled-alpha blockers before OPai goes public.",
+        "subtitle": "Controlled-alpha blockers before Vesta goes public.",
         "hero": {
             "headline": "READY"
             if launch.get("ready")

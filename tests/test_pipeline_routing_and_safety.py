@@ -315,7 +315,7 @@ class HonestCompletionTests(unittest.TestCase):
             }
         )
         titles = [str(e.get("title") or "") for e in events]
-        self.assertNotIn("OPai completed", titles)
+        self.assertNotIn("Vesta completed", titles)
         self.assertTrue(any("without finishing" in t for t in titles))
         self.assertEqual(result["checkpoint"]["completion_state"], "failed")
         self.assertEqual(result["completion_verdict"]["verdict"], "failed")
@@ -407,7 +407,7 @@ class SmallTalkRoutingTests(unittest.TestCase):
             "commit the changes",
             "stage all files and commit them",
             "delete opai-test-notes.md",
-            "Create opai-test-notes.md with the text 'Hello from OPai QA test'",
+            "Create opai-test-notes.md with the text 'Hello from Vesta QA test'",
         ):
             self.assertIs(
                 resolve_agent_policy(message).mode, AgentMode.IMPLEMENT, message
@@ -508,10 +508,10 @@ class DiscoveryReadOnlyRoutingTests(unittest.TestCase):
 
 
 class RepoFingerprintTests(unittest.TestCase):
-    """Round 2: proof a run changed the repo, for changes OPai cannot see.
+    """Round 2: proof a run changed the repo, for changes Vesta cannot see.
 
     An account provider CLI runs git in its own shell, so a real commit left no
-    ``changed_files`` and no OPai tool_trace entry — and committing *clears* the
+    ``changed_files`` and no Vesta tool_trace entry — and committing *clears* the
     dirty paths the run created, so a genuinely successful commit was stamped
     "Partial — no changed-file or diff evidence" on verified work.
     """

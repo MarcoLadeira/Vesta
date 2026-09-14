@@ -1,6 +1,6 @@
 """#618: the canonical RunResult projection must have real production callers.
 
-OPai has now built a correct primitive and left it unadopted at least eight
+Vesta has now built a correct primitive and left it unadopted at least eight
 times. `project_run_result` was the most expensive instance: a versioned,
 evidence-derived, provider-neutral result envelope with its own tests, which no
 production path ever called. Every surface -- GUI, CLI, background runs,

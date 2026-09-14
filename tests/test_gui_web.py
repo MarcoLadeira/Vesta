@@ -1622,7 +1622,7 @@ class GithubReadinessCitesACheckTests(unittest.TestCase):
     An expired, revoked, wrong-scope or mistyped token is the same string to a
     presence check.
 
-    OPai already knew how to check: `verify_github_connection` calls /user and
+    Vesta already knew how to check: `verify_github_connection` calls /user and
     returns a real verdict. It was wired to one button in the Connection
     Doctor, its result was never persisted, and the readiness row never
     consulted it. The check answered a dialog and was forgotten.

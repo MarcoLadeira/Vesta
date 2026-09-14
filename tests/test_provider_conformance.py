@@ -473,7 +473,7 @@ class LocalProbe:
 
 
 def _probes() -> list[Any]:
-    """Every adapter shape OPai advertises support for."""
+    """Every adapter shape Vesta advertises support for."""
     return [
         AccountProbe("claude", _claude_lines),
         AccountProbe("codex", _codex_lines),
@@ -562,7 +562,7 @@ class DefectsTheMatrixFoundTests(unittest.TestCase):
 
     def test_an_empty_reply_is_a_failure_not_a_silent_success(self) -> None:
         # Was: {"text": "", "cost": None} with no error — the blank reply that
-        # renders as OPai having answered when it has not.
+        # renders as Vesta having answered when it has not.
         result = self._claude(Script(then="empty"))
         self.assertTrue(result.get("error"), "an empty run must not look successful")
         self.assertEqual(result["error"]["code"], "NO_RESPONSE")

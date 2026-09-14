@@ -1,4 +1,4 @@
-"""Stable cancellation exceptions shared across OPai runner revisions."""
+"""Stable cancellation exceptions shared across Vesta runner revisions."""
 
 from __future__ import annotations
 

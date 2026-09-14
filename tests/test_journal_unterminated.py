@@ -334,7 +334,7 @@ class AJournalWrittenBeforeThisMigrationStillReadsTests(_PendingFixture):
     """The migration requirement: existing state is an input, not a casualty."""
 
     def _make_v1_journal(self) -> None:
-        """A journal exactly as OPai wrote it before the identity columns."""
+        """A journal exactly as Vesta wrote it before the identity columns."""
 
         path = journal_path(self.root)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -689,7 +689,7 @@ class ACountNobodyCouldTakeIsNotZeroTests(_PendingFixture):
         self.assertEqual(summary["unavailable_reason"], "unreadable")
 
     def test_a_journal_from_a_newer_opai_says_so_rather_than_corrupt(self):
-        """Two failures that need different words. "A newer OPai wrote this"
+        """Two failures that need different words. "A newer Vesta wrote this"
         points at an upgrade; "unreadable" points at a corrupt file, and
         sending someone to the wrong one wastes their evening."""
 

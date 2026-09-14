@@ -1,4 +1,4 @@
-"""Free API model registry for OPai.
+"""Free API model registry for Vesta.
 
 Defines FREE_MODEL_SPECS for providers that offer verified free API tiers
 (Moonshot Kimi, Google Gemini, Groq, Mistral). Models appear in the picker even
@@ -6,11 +6,11 @@ without a key — grayed with a setup hint — so users can discover free option
 without any configuration required.
 
 Kimi (Moonshot AI) is listed first, so its flagship K2.6 model is the free-tier
-default: it is what OPai Auto picks as the cheapest safe cloud fallback
+default: it is what Vesta Auto picks as the cheapest safe cloud fallback
 (``opaihub.gui_pipeline`` selects the first available free model) and what the
 picker offers at the top of the free group.
 
-Execution: free models hit public endpoints and always go through OPai's
+Execution: free models hit public endpoints and always go through Vesta's
 policy confirmation gate (``requires_confirmation=True``), consistent with how
 all cloud/paid routes are treated. No network calls happen here; availability
 is determined solely by env var presence (no latency in picker enumeration).

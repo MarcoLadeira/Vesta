@@ -1,6 +1,6 @@
 # Archived Pre-Free-Launch Revenue Runbook
 
-> **Archived on 2026-07-12.** OPai's alpha launches fully free. This document
+> **Archived on 2026-07-12.** Vesta's alpha launches fully free. This document
 > records an earlier pricing experiment only; it must not be used to create
 > checkout links, access gates, licenses, or paid launch copy. Future pricing
 > is evidence-led post-launch discovery.
@@ -70,4 +70,4 @@ under one local policy, benchmark, savings, and audit layer.
 - Token resale.
 - Silent telemetry.
 - Enterprise claims that the shipped alpha cannot enforce.
-- Public source distribution unless OPai is intentionally open source.
+- Public source distribution unless Vesta is intentionally open source.

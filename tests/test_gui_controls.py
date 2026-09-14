@@ -106,7 +106,7 @@ class HeaderStatusTests(unittest.TestCase):
         self.assertIn("$0.04 today", line)
 
     def test_strips_long_model_label(self):
-        line = header_status("Auto · OPai routes the cheapest safe model", "Plan", 0)
+        line = header_status("Auto · Vesta routes the cheapest safe model", "Plan", 0)
         self.assertTrue(line.startswith("Auto"))
         self.assertNotIn("routes the cheapest", line)
 
@@ -266,7 +266,7 @@ class StateMessageTests(unittest.TestCase):
         self.assertEqual(thinking_text("Claude · Sonnet"), "Claude is working…")
 
     def test_thinking_text_defaults_to_opai(self):
-        self.assertEqual(thinking_text(None), "OPai is working…")
+        self.assertEqual(thinking_text(None), "Vesta is working…")
 
     def test_friendly_error_known_status_is_actionable(self):
         msg = friendly_error("account_timeout", "Claude · Sonnet")

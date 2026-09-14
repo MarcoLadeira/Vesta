@@ -2,15 +2,15 @@
 
 ``provider_reliability`` remembers *flaky* providers and only deprioritizes
 them. ``provider_balance`` remembers providers that are *out of credit*. This
-module covers the third category OPai kept re-discovering the hard way: a
+module covers the third category Vesta kept re-discovering the hard way: a
 provider that is connected, funded, and reachable, but **cannot serve this
 class of request at all until the user changes something**.
 
-Two real examples from the QA campaign, both of which made OPai look random:
+Two real examples from the QA campaign, both of which made Vesta look random:
 
 * Codex answers every single request with ``The 'gpt-5.6-terra' model requires
   a newer version of Codex``. Retrying cannot help — only upgrading the CLI can.
-* GitHub Copilot's CLI cannot expose a bounded edit-tool set, so OPai refuses
+* GitHub Copilot's CLI cannot expose a bounded edit-tool set, so Vesta refuses
   to launch it with repository write access. Ask/Plan work fine; every editing
   task is refused.
 
@@ -28,10 +28,10 @@ Design rules, deliberately narrow:
   or ``"edit"`` (it can still explain and plan, it just cannot write files).
   A write-incapable provider must stay usable for Ask and Plan.
 * **Self-healing.** Every block expires. A user who upgrades their CLI outside
-  OPai gets the provider back automatically, and any successful call clears the
+  Vesta gets the provider back automatically, and any successful call clears the
   block immediately.
 * **Never a hard refusal of the user's own choice.** These blocks steer *Auto*
-  and annotate the picker. If the user explicitly picks a blocked model, OPai
+  and annotate the picker. If the user explicitly picks a blocked model, Vesta
   still runs it — honesty over cleverness, same as the reliability memory.
 
 The store is local JSON under ``.opaihub/health`` and records no prompts and no
@@ -52,7 +52,7 @@ from .state import state_dir
 # reason slug -> {scope, ttl_seconds, title, remedy}
 #
 # ``scope`` is "all" when nothing can run, "edit" when only repository writes
-# are impossible. ``ttl_seconds`` is how long OPai trusts the observation before
+# are impossible. ``ttl_seconds`` is how long Vesta trusts the observation before
 # re-proving it, so an out-of-band fix is always rediscovered.
 BLOCK_REASONS: dict[str, dict[str, Any]] = {
     "cli_outdated": {
@@ -185,7 +185,7 @@ def active_block(
 ) -> dict[str, Any] | None:
     """The live block for ``provider``, or ``None`` when it can be used.
 
-    Expired blocks return ``None`` so a fix made outside OPai is rediscovered
+    Expired blocks return ``None`` so a fix made outside Vesta is rediscovered
     without the user having to clear anything.
     """
     provider = _clean_provider(provider)

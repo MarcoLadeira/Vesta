@@ -50,7 +50,7 @@
     return (
       '<div class="ob-eyebrow">Step 1 of 3</div>' +
       '<h2 class="ob-title">Connect a provider</h2>' +
-      '<p class="ob-body">OPai works out of the box with free local models. Connect Claude, Codex, or an API key to unlock more — your keys stay in your OS keychain and never leave this machine.</p>' +
+      '<p class="ob-body">Vesta works out of the box with free local models. Connect Claude, Codex, or an API key to unlock more — your keys stay in your OS keychain and never leave this machine.</p>' +
       status +
       '<div class="ob-actions-inline"><button class="btn" type="button" data-ob="open-providers">Open Providers</button></div>'
     );
@@ -75,7 +75,7 @@
     return (
       '<div class="ob-eyebrow">Step 2 of 3</div>' +
       '<h2 class="ob-title">Pick your default model</h2>' +
-      '<p class="ob-body">OPai routes to the cheapest capable model and only uses a cloud model after you confirm. "Auto" decides for you, task by task.</p>' +
+      '<p class="ob-body">Vesta routes to the cheapest capable model and only uses a cloud model after you confirm. "Auto" decides for you, task by task.</p>' +
       '<label class="ob-field"><span>Default model</span><select data-ob="model">' +
       options +
       "</select></label>"
@@ -111,7 +111,7 @@
     return (
       '<div class="ob-eyebrow">Step 3 of 3</div>' +
       '<h2 class="ob-title">Earn your first receipt</h2>' +
-      '<p class="ob-body">Try a first task whenever you\'re ready. OPai plans it, routes it locally when it can, and hands you a receipt showing exactly what it cost — and what it saved.</p>' +
+      '<p class="ob-body">Try a first task whenever you\'re ready. Vesta plans it, routes it locally when it can, and hands you a receipt showing exactly what it cost — and what it saved.</p>' +
       '<div class="ob-task" data-ob="task">' +
       ctx.esc(SUGGESTED_TASK) +
       "</div>" +
@@ -223,7 +223,7 @@
     overlay.className = "overlay ob-overlay open";
     overlay.id = "onboarding";
     overlay.innerHTML =
-      '<div class="ob-card" role="dialog" aria-modal="true" aria-label="Welcome to OPai"></div>';
+      '<div class="ob-card" role="dialog" aria-modal="true" aria-label="Welcome to Vesta"></div>';
     doc.body.appendChild(overlay);
     // Escape skips the tour, matching the close button.
     overlay.addEventListener("keydown", function (e) {

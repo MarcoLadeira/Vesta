@@ -13,7 +13,7 @@ more, and they are the ones where "we do not know" is the only honest answer:
 Each one is a chance for a surface to guess in the confident direction, and the
 closing evidence this epic asks for is *zero false completion, zero duplicate
 side effects, zero hidden active work*. So these tests are mostly about what
-OPai refuses to say.
+Vesta refuses to say.
 
 The honest limit, stated as the matrix states its own: a real external effect
 cannot be simulated here. What is proved is that the local record keeps saying
@@ -768,7 +768,7 @@ class UnconfirmedCancellationTests(_JournalledRun):
     and not one records that anything did.
 
     Counting rather than refusing, and here the reason is stronger than
-    consistency with AC6: a Stop that OPai declined to record would be a Stop
+    consistency with AC6: a Stop that Vesta declined to record would be a Stop
     the user pressed and did not get. Refusing would trade a reporting fault
     for a blocking one, which is never the right trade.
     """
@@ -856,7 +856,7 @@ class UnconfirmedCancellationTests(_JournalledRun):
     def test_recording_a_stop_is_never_refused(self):
         """The property that matters more than the count.
 
-        A Stop OPai declined to record is a Stop the user pressed and did not
+        A Stop Vesta declined to record is a Stop the user pressed and did not
         get. Whatever this report says, the write goes through.
         """
 

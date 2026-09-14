@@ -1,6 +1,6 @@
 """MODEL_UNAVAILABLE auto-fallback recovery (#318).
 
-When a provider CLI rejects the selected model, OPai retries once with the
+When a provider CLI rejects the selected model, Vesta retries once with the
 provider's safe default and answers honestly — instead of failing the turn. All
 hermetic: a model-aware fake runner, no paid CLI.
 """

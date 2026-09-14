@@ -1,10 +1,10 @@
 """#818: the app that is broken and does not know it.
 
-OPai's desktop icon runs a launcher pip generated at install time, and that
+Vesta's desktop icon runs a launcher pip generated at install time, and that
 launcher hard-codes the absolute path of the interpreter it will spawn. On a
 real machine that path was ``C:\\Python313\\pythonww.exe`` -- a file that does
 not exist -- because pip's vendored distlib derives a windowed interpreter by
-substring substitution (``fn.replace("python", "pythonw")``) and OPai's own
+substring substitution (``fn.replace("python", "pythonw")``) and Vesta's own
 updater had reinstalled itself from inside the GUI, where ``sys.executable``
 is already ``pythonw.exe``.
 
@@ -13,7 +13,7 @@ dialog, no stderr and no log. Every other surface kept working, so
 ``opai doctor`` reported ``ready`` while the icon the user actually clicks did
 nothing whatsoever.
 
-These tests pin both halves: the interpreter OPai hands to pip, and doctor's
+These tests pin both halves: the interpreter Vesta hands to pip, and doctor's
 refusal to call an install healthy without having read its launchers.
 """
 
@@ -67,7 +67,7 @@ def _windows_launcher(interpreter: str, *, noise: bool = True) -> bytes:
 
 
 class ConsoleInterpreterTests(unittest.TestCase):
-    """What OPai must hand to `pip install`, and why."""
+    """What Vesta must hand to `pip install`, and why."""
 
     def test_a_windowed_interpreter_becomes_its_console_sibling(self) -> None:
         with TemporaryDirectory() as raw:

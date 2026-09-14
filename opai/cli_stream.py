@@ -383,7 +383,7 @@ def stream_ask(
                 # succeeded. Say plainly that this verdict disagrees, so the two
                 # halves of the output cannot be read as opposite conclusions.
                 _line(
-                    "  Note: the response above claims this succeeded. OPai could "
+                    "  Note: the response above claims this succeeded. Vesta could "
                     "not verify that — treat the claim as unconfirmed."
                 )
             if (evidence := _evidence_line(result)) is not None:

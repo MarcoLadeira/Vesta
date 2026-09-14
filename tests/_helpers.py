@@ -1,6 +1,6 @@
 """Shared test fakes + fixtures.
 
-These let hundreds of tests exercise OPai's account / local / routing paths
+These let hundreds of tests exercise Vesta's account / local / routing paths
 without ever launching a real (paid) CLI, starting a model, or hitting the
 network. Discovered via ``python -m unittest discover -s tests`` (the tests dir
 is on sys.path, so ``from _helpers import ...`` resolves).

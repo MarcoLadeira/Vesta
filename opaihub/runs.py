@@ -1,7 +1,7 @@
 """Route-run history and the `opai why` explainer (power-efficiency roadmap Phase 2).
 
 Persists compact, privacy-safe route decisions under `.opaihub/runs/` and turns a
-routing decision into a plain explanation of *why* OPai chose its path. Building
+routing decision into a plain explanation of *why* Vesta chose its path. Building
 an explanation is read-only; only `record_run` writes.
 """
 
@@ -64,7 +64,7 @@ def recent_runs(project_root: Path, limit: int = 10) -> list[dict[str, Any]]:
 
 
 def explain_route(project_root: Path, task: str) -> dict[str, Any]:
-    """Explain why OPai chose its route for a task. Read-only."""
+    """Explain why Vesta chose its route for a task. Read-only."""
     root = project_root.expanduser().resolve()
     decision = route_task(root, task, include_evidence=False)
     cost_model = load_cost_model(root)
@@ -108,7 +108,7 @@ def explain_route(project_root: Path, task: str) -> dict[str, Any]:
 
 def render_why_markdown(explanation: dict[str, Any]) -> str:
     lines = [
-        "# OPai - Why this route",
+        "# Vesta - Why this route",
         "",
         f"- **Workflow:** {explanation['workflow']}",
         f"- **Tier:** {explanation['model_tier']} - {explanation['tier_meaning']}",

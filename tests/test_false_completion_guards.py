@@ -5,7 +5,7 @@ it as an explicit acceptance criterion: *"Tests prove providers and presentation
 layers cannot directly set a verified-completion result."*
 
 `evaluate_completion`'s docstring already promised it — *"Only a canonical
-terminal state and evidence produced by OPai's execution path can return
+terminal state and evidence produced by Vesta's execution path can return
 COMPLETED"* — but nothing held it to that:
 
 - `_has_successful_test` accepted a bare `{"tests": {"status": "passed"}}`
@@ -97,7 +97,7 @@ class ObservedEvidenceStillCompletesTests(unittest.TestCase):
     """The guard must not break real verification, or it will be removed."""
 
     def test_opais_own_tool_trace_completes_the_run(self) -> None:
-        # A tool_trace entry records something OPai actually executed.
+        # A tool_trace entry records something Vesta actually executed.
         verdict = evaluate_completion(
             _edit_objective(),
             {
@@ -272,7 +272,7 @@ class ManifestHonestyTests(unittest.TestCase):
 
     def test_a_missing_edit_outranks_a_verification_problem(self) -> None:
         # The run changed nothing. That is the actionable truth; a harness
-        # problem reported instead sends the user to debug OPai.
+        # problem reported instead sends the user to debug Vesta.
         verdict = evaluate_completion(
             self._edit_objective(),
             {

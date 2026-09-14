@@ -73,7 +73,7 @@ _PLAN_STATUSES = {"pending", "in_progress", "completed", "blocked"}
 # persists with its verdict label, never "complete".
 # #618: derived from the #612 terminal states, not written out by hand. The
 # hand-written table omitted `needs_attention`, and the omission was not inert:
-# an unmapped verdict fell through to the legacy branch below, so a run OPai
+# an unmapped verdict fell through to the legacy branch below, so a run Vesta
 # could not verify was persisted as "complete" whenever its legacy status
 # happened to be `answered_by_account`. Deriving the map means a terminal state
 # added to the schema cannot silently acquire a fall-through meaning.

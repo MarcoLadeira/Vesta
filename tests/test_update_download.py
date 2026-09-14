@@ -27,7 +27,7 @@ def _candidate(**overrides: object) -> UpdateCandidate:
         "artifact_url": "https://updates.example.test/v0.3.0/OPai.msix",
         "artifact_sha256": hashlib.sha256(CONTENT).hexdigest(),
         "artifact_size": len(CONTENT),
-        "publisher_identity": "CN=OPai",
+        "publisher_identity": "CN=Vesta",
         "metadata_key_ids": ("root-1",),
     }
     values.update(overrides)

@@ -1,6 +1,6 @@
 """Guarded-workflow contract engine (issue #39).
 
-Standardizes how OPai keeps autonomy bounded: a shared contract (path locks,
+Standardizes how Vesta keeps autonomy bounded: a shared contract (path locks,
 evidence artifacts, stop conditions, permission boundaries) plus a fail-closed
 gate for risky actions and a consistent, hashable evidence packet.
 """

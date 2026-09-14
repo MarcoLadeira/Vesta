@@ -477,7 +477,7 @@ def gui_main() -> int:
 def cmd_new(args: argparse.Namespace) -> int:
     """Scaffold a runnable app skeleton from a description — zero tokens (#276).
 
-    The free-boilerplate entry point to OPai Build: get a runnable app, then
+    The free-boilerplate entry point to Vesta Build: get a runnable app, then
     build features with cheap targeted `opai ask` prompts.
     """
     from opaihub.app_scaffold import scaffold_app
@@ -513,7 +513,7 @@ def cmd_new(args: argparse.Namespace) -> int:
 
 
 def cmd_build(args: argparse.Namespace) -> int:
-    """One turn of the OPai Build customization loop (#276).
+    """One turn of the Vesta Build customization loop (#276).
 
     Sends only the relevant app files, receives complete updated files, and
     applies them deterministically with backups — the model never gets tool
@@ -605,7 +605,7 @@ def cmd_build(args: argparse.Namespace) -> int:
 def cmd_ux_metrics(args: argparse.Namespace) -> int:
     """Local-only product-health metrics (#395): verdict distribution and
     cancel/timeout rates from this project's ledger. No telemetry leaves the
-    machine — this reads the same local events OPai already recorded."""
+    machine — this reads the same local events Vesta already recorded."""
     from opaihub.ux_metrics import render_ux_metrics_markdown, summarize_ux_metrics
 
     root = _project(args.project)
@@ -618,7 +618,7 @@ def cmd_ux_metrics(args: argparse.Namespace) -> int:
 
 
 def cmd_app_receipt(args: argparse.Namespace) -> int:
-    """The aggregate cost story of one OPai Build app (#276): what was spent,
+    """The aggregate cost story of one Vesta Build app (#276): what was spent,
     and — the number no one else shows — what was never spent."""
     from opaihub.build_loop import app_receipt
 
@@ -630,7 +630,7 @@ def cmd_app_receipt(args: argparse.Namespace) -> int:
     if not receipt.get("ok"):
         print(f"✗ {receipt.get('error')}")
         return 2
-    print(f"OPai Build receipt — {receipt['app']} ({receipt['kind']})")
+    print(f"Vesta Build receipt — {receipt['app']} ({receipt['kind']})")
     print(
         f"  files: {receipt['files']} · builds: {receipt['builds']} "
         f"({receipt['applied_builds']} applied, +{receipt['lines_added']} "
@@ -867,21 +867,21 @@ def cmd_journal(args: argparse.Namespace) -> int:
             print(
                 f"\n{len(stale)} run(s) had an owner that stopped responding. "
                 "It may be stuck, or busy with something that reports nothing. "
-                "OPai will not end them for you, because a run that is merely "
+                "Vesta will not end them for you, because a run that is merely "
                 "quiet may still be working."
             )
         if unverified:
             print(
-                f"\n{len(unverified)} run(s) have an owner OPai cannot verify. "
+                f"\n{len(unverified)} run(s) have an owner Vesta cannot verify. "
                 "Their process id is still in use, but ids get reused, so it may "
-                "belong to something else entirely; OPai will not call that work "
+                "belong to something else entirely; Vesta will not call that work "
                 "finished or abandoned."
             )
         if unrecorded:
             print(
                 f"\n{len(unrecorded)} run(s) never recorded which process owned "
                 "them (they predate that record, or this system would not say). "
-                "With nothing to check, OPai will not call them finished or "
+                "With nothing to check, Vesta will not call them finished or "
                 "abandoned."
             )
         return 0
@@ -973,7 +973,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             and stale["ok"]
             and not _journal_needs_attention(journal)
             # A dead desktop icon is not a footnote. Every other surface can be
-            # perfectly healthy while the way the user actually opens OPai does
+            # perfectly healthy while the way the user actually opens Vesta does
             # nothing at all, so an unstartable launcher has to reach the
             # top-line verdict or doctor is reporting on a machine it did not
             # check.
@@ -1089,7 +1089,7 @@ def _journal_migration(root: Path) -> dict[str, object]:
 
     # Every fact starts as "not checked". They used to share one suppress
     # block, so when the store refused to open -- a journal written by a newer
-    # OPai -- nothing after that point was ever set, `opai journal status` fell
+    # Vesta -- nothing after that point was ever set, `opai journal status` fell
     # back to its defaults, and it printed "unfinished: 0" over a real
     # unfinished run (#818 review finding 5). Now each report stands alone and
     # a report that cannot look says so.
@@ -1376,7 +1376,7 @@ def _journal_needs_attention(journal: dict[str, object]) -> bool:
 
     if not journal.get("available") or not journal.get("present"):
         return False
-    # A journal OPai cannot open is the loudest problem there is, and it is
+    # A journal Vesta cannot open is the loudest problem there is, and it is
     # invisible to an integrity check: the file can be structurally perfect
     # while every write is silently discarded. `openable` is absent on payloads
     # from older builds, so its default is the non-escalating one.
@@ -1579,7 +1579,7 @@ def cmd_launch(args: argparse.Namespace) -> int:
                 "status": "missing",
                 "tool": args.tool,
                 "message": f"{args.tool} command not found on PATH.",
-                "opai_status": "Using OPai",
+                "opai_status": "Using Vesta",
             }
         )
         return 127
@@ -1605,22 +1605,22 @@ def cmd_launch(args: argparse.Namespace) -> int:
                 "tool": args.tool,
                 "command": command,
                 "error": safe_detail(exc),
-                "opai_status": "Using OPai",
+                "opai_status": "Using Vesta",
             }
         )
         return 126
 
 
 # --------------------------------------------------------------------------- #
-# Recursion guard (F12): provider CLIs spawned by OPai carry OPAI_AGENT_SESSION
+# Recursion guard (F12): provider CLIs spawned by Vesta carry OPAI_AGENT_SESSION
 # in their environment (see opaihub.proc). When an agent follows an
-# instruction-file recipe like "run `opai route ...`", the nested OPai process
+# instruction-file recipe like "run `opai route ...`", the nested Vesta process
 # must refuse instead of recursing into another agent run. Agentic subcommands
 # check this guard; pure utility/hook subcommands must keep working inside an
 # agent session.
 # --------------------------------------------------------------------------- #
 _NESTED_SESSION_REFUSAL = (
-    "OPai is already running inside an OPai agent session; "
+    "Vesta is already running inside a Vesta agent session; "
     "recursive self-invocation is disabled."
 )
 
@@ -1630,7 +1630,7 @@ def _nested_agent_session_active() -> bool:
 
 
 def _refuse_if_nested_agent_session() -> int | None:
-    """Exit code when invoked from inside an OPai agent session, else None."""
+    """Exit code when invoked from inside a Vesta agent session, else None."""
     if _nested_agent_session_active():
         print(_NESTED_SESSION_REFUSAL, file=sys.stderr)
         return 2
@@ -1647,15 +1647,15 @@ def _refuse_if_nested_agent_session() -> int | None:
 _HOOK_SHELL_TOOLS = frozenset({"bash", "shell", "sh", "powershell", "pwsh", "cmd"})
 
 _HOOK_BLOCK_REASON = (
-    "OPai safety gate: this command is classified as destructive or "
-    "confirmation-only ({detail}). It is blocked in autonomous runs and OPai "
+    "Vesta safety gate: this command is classified as destructive or "
+    "confirmation-only ({detail}). It is blocked in autonomous runs and Vesta "
     "will not run it for you. To proceed, run it yourself in a terminal. Do not "
     "retry it or work around the block; continue with safe, read-only steps only."
 )
 
 # git push is a common, legitimate next step, so its block must point at the
 # real control instead of implying a per-command approval dialog that does not
-# exist (Bug 2): pushes are enabled once, in Settings, and then OPai performs
+# exist (Bug 2): pushes are enabled once, in Settings, and then Vesta performs
 # them through its own consent-aware GitHub tool — never as a raw shell push.
 # Round 2: only say this when the control is actually still off. When consent is
 # already granted the sentence was actively harmful — it sent users hunting for
@@ -1663,20 +1663,20 @@ _HOOK_BLOCK_REASON = (
 # PRs" — so this text is reserved for the not-yet-enabled case; a consented push
 # goes to the per-push approval card instead (see ``opaihub.command_consent``).
 _HOOK_BLOCK_REASON_PUSH = (
-    "OPai safety gate: pushing is not enabled yet, so OPai will not run this "
+    "Vesta safety gate: pushing is not enabled yet, so Vesta will not run this "
     "`git push` ({detail}). Enable it once in Settings -> Providers & "
     'Connections, in the "GitHub · pushes & pull requests" card: connect a '
-    'GitHub token, then click "Enable pushes & PRs". After that OPai can push '
+    'GitHub token, then click "Enable pushes & PRs". After that Vesta can push '
     "this branch itself. Or push yourself in a terminal. Do not retry this push "
     "until it is enabled; continue with safe, read-only steps only."
 )
 
-# A push OPai still refuses even with consent: force/mirror/delete forms rewrite
+# A push Vesta still refuses even with consent: force/mirror/delete forms rewrite
 # or destroy remote history, which consent to "push branches and open PRs" does
 # not cover. Say exactly that instead of pointing at a toggle that is already on.
 _HOOK_BLOCK_REASON_FORCE_PUSH = (
-    "OPai safety gate: pushes are enabled, but this is a force/delete/mirror "
-    "push ({detail}), which rewrites or removes remote history. OPai never runs "
+    "Vesta safety gate: pushes are enabled, but this is a force/delete/mirror "
+    "push ({detail}), which rewrites or removes remote history. Vesta never runs "
     "those autonomously regardless of consent. Run it yourself in a terminal if "
     "you intend it, or push without the force/delete flags."
 )
@@ -1688,8 +1688,8 @@ _HOOK_BLOCK_REASON_FORCE_PUSH = (
 # (Round 5 finding 1). Telling the model to stop and report is what lets that
 # card be the next thing the user sees.
 _HOOK_BLOCK_REASON_PUSH_APPROVAL = (
-    "OPai safety gate: pushing is enabled, but each push needs the user's "
-    "one-time approval ({detail}). OPai has recorded this exact command and will "
+    "Vesta safety gate: pushing is enabled, but each push needs the user's "
+    "one-time approval ({detail}). Vesta has recorded this exact command and will "
     "ask them to approve it as soon as this turn ends. Stop here and report that "
     "the push is awaiting their approval. Do NOT retry the push, do not try "
     "another way to push, and do not claim the branch was pushed."
@@ -1698,7 +1698,7 @@ _HOOK_BLOCK_REASON_PUSH_APPROVAL = (
 _PUSH_COMMAND = re.compile(r"\bgit\s+push\b", re.IGNORECASE)
 
 # Outward-facing GitHub writes that a user can sensibly approve once, and that
-# OPai should therefore *ask* about rather than refuse outright.
+# Vesta should therefore *ask* about rather than refuse outright.
 #
 # `gh pr create` was previously classified as destructive/confirmation-only with
 # no consent channel, so a finished branch could be pushed and then hit a hard
@@ -1715,7 +1715,7 @@ _PUSH_COMMAND = re.compile(r"\bgit\s+push\b", re.IGNORECASE)
 #
 # `pr merge` is in the list. It was excluded on the reasoning that merging is a
 # decision the user makes -- but excluding it did not put the decision in their
-# hands, it removed the option: OPai hit a hard refusal and told the user to go
+# hands, it removed the option: Vesta hit a hard refusal and told the user to go
 # run it themselves. The user's decision is exactly what the approval card is,
 # so a merge now asks instead of dead-ending. Every merge still shows its own
 # card; approval is never inherited from an earlier one.
@@ -1782,8 +1782,8 @@ def _approvable_gh_reason(command: str) -> str:
 
 
 _HOOK_BLOCK_REASON_COMMAND_APPROVAL = (
-    "OPai safety gate: this outward-facing command needs the user's one-time "
-    "approval ({detail}). OPai has recorded this exact command and will ask "
+    "Vesta safety gate: this outward-facing command needs the user's one-time "
+    "approval ({detail}). Vesta has recorded this exact command and will ask "
     "them to approve it as soon as this turn ends. Stop here and report that "
     "the command is awaiting approval. Do NOT retry it, do not try another way "
     "to perform the action, and do not claim it completed."
@@ -1817,9 +1817,9 @@ def _is_approvable_gh_command(command: str) -> bool:
 
 
 def _push_consent_state() -> tuple[bool, str]:
-    """Whether the user has already granted OPai push consent, and why not.
+    """Whether the user has already granted Vesta push consent, and why not.
 
-    Consent is the same persisted pair the GUI toggle and OPai's own
+    Consent is the same persisted pair the GUI toggle and Vesta's own
     ``git_push`` tool read: ``opai github allow-push on`` plus a connected
     token. Fails closed — any lookup problem is treated as "not consented" so
     the gate can only ever become stricter on error.
@@ -1891,7 +1891,7 @@ def _hook_deny(reason: str) -> dict[str, Any]:
 def claude_pre_tool_decision(
     payload: dict[str, Any], project_root: Path | None = None
 ) -> dict[str, Any]:
-    """Map a Claude Code PreToolUse payload to an OPai gate decision.
+    """Map a Claude Code PreToolUse payload to a Vesta gate decision.
 
     Shell-tool commands are re-classified through the same policy the GUI
     uses: ``sandbox.classify_command`` (deny/confirm rules) plus
@@ -1947,7 +1947,7 @@ def claude_pre_tool_decision(
     policy = decide_command(command, autonomy=autonomy)
     if policy.action == BLOCK:
         return _hook_deny(
-            f"OPai is in {autonomy} mode, which cannot change anything: "
+            f"Vesta is in {autonomy} mode, which cannot change anything: "
             f"{policy.reason}. Switch to a mode that allows edits, or ask for "
             "a plan instead. Do not retry this command."
         )
@@ -2426,7 +2426,7 @@ def cmd_resume(args: argparse.Namespace) -> int:
             f"{len(checkpoint.get('changed_files') or [])} changed file(s))"
         )
     lines.append("")
-    lines.append("Open this workspace in the OPai GUI to resume or start fresh.")
+    lines.append("Open this workspace in the Vesta GUI to resume or start fresh.")
     print("\n".join(lines))
     return 0
 
@@ -2446,7 +2446,7 @@ def cmd_outcomes(args: argparse.Namespace) -> int:
     cpct_label = f"${cpct:.6f}" if isinstance(cpct, (int, float)) else "unknown"
     avoided = summary["duplicate_calls_avoided"]
     lines = [
-        "# OPai task outcomes",
+        "# Vesta task outcomes",
         "",
         f"- Outcomes recorded: **{summary['outcome_count']}**",
         f"- Completed: **{summary['by_category']['completed']}** · "
@@ -2499,7 +2499,7 @@ def cmd_budget(args: argparse.Namespace) -> int:
         from opaihub.model_intelligence import recommend_model
 
         # Gate the escalation target (the model that *would* run this task if
-        # escalated), since OPai's local router itself never picks a paid tier.
+        # escalated), since Vesta's local router itself never picks a paid tier.
         recommendation = recommend_model(root, args.task)
         tier = str(recommendation.get("recommended_model_tier") or "L1").upper()
         provider = str(
@@ -2936,7 +2936,7 @@ def _models_overrides_command(args: argparse.Namespace) -> int:
     """Manage the user-owned model list (`opai models add/hide/reset`).
 
     The built-in registry is a table compiled into the release, so a model a
-    provider ships tomorrow is unreachable until OPai itself is updated. These
+    provider ships tomorrow is unreachable until Vesta itself is updated. These
     write `~/.opai/models.json`, which is layered over it -- the picker, routing
     and validation all read the merged view.
     """
@@ -3056,7 +3056,7 @@ def cmd_models(args: argparse.Namespace) -> int:
                 "models": [
                     {
                         "id": "auto",
-                        "label": "Auto · OPai routes the cheapest safe model",
+                        "label": "Auto · Vesta routes the cheapest safe model",
                         "provider": "opai",
                         "paid": False,
                         "available": True,
@@ -3372,7 +3372,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-tools",
         dest="install_tools",
         action="store_false",
-        help="Only create OPai local state",
+        help="Only create Vesta local state",
     )
     p.add_argument(
         "--global-integrations",
@@ -3395,7 +3395,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--no-superpowers",
         action="store_true",
-        help="Skip automatic Superpowers install during OPai install",
+        help="Skip automatic Superpowers install during Vesta install",
     )
     p.add_argument("--timeout", type=int, default=300)
     p.set_defaults(func=cmd_install, install_tools=False)
@@ -3408,10 +3408,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser(
         "status",
-        help="Show OPai activation, Superpowers, wrappers, and project state",
+        help="Show Vesta activation, Superpowers, wrappers, and project state",
     )
     p.add_argument("--project", default=None, help="Project root")
-    p.add_argument("--human", action="store_true", help="Show the OPai cockpit view")
+    p.add_argument("--human", action="store_true", help="Show the Vesta cockpit view")
     p.set_defaults(func=cmd_status)
 
     p = sub.add_parser(
@@ -3540,7 +3540,7 @@ def build_parser() -> argparse.ArgumentParser:
     jr.add_argument("--json", action="store_true")
     jr.set_defaults(func=cmd_journal)
 
-    p = sub.add_parser("cockpit", help="Obvious ON/OFF control panel for OPai")
+    p = sub.add_parser("cockpit", help="Obvious ON/OFF control panel for Vesta")
     p.add_argument("--project", default=None, help="Project root")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_cockpit)
@@ -3598,7 +3598,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser(
         "gui",
-        help="Launch the OPai desktop control center (native window, local-only)",
+        help="Launch the Vesta desktop control center (native window, local-only)",
     )
     p.add_argument(
         "task",
@@ -3673,7 +3673,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser(
         "activate",
-        help="Activate OPai, Superpowers, and AI-client instructions for this project",
+        help="Activate Vesta, Superpowers, and AI-client instructions for this project",
     )
     p.add_argument("--project", default=None, help="Project root")
     p.add_argument(
@@ -3699,12 +3699,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--repair",
         action="store_true",
-        help="Re-apply managed OPai project/global integration files",
+        help="Re-apply managed Vesta project/global integration files",
     )
     p.add_argument("--quiet", action="store_true")
     p.set_defaults(func=cmd_activate)
 
-    p = sub.add_parser("visibility", help="Write GUI-visible OPai status files")
+    p = sub.add_parser("visibility", help="Write GUI-visible Vesta status files")
     visibility_sub = p.add_subparsers(dest="visibility_command", required=True)
     vi = visibility_sub.add_parser(
         "install", help="Write OPAI_STATUS.md and .opaihub/opai-status.json"
@@ -3731,7 +3731,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--welcome",
         action="store_true",
-        help="Show the OPai mascot welcome screen before launching",
+        help="Show the Vesta mascot welcome screen before launching",
     )
     p.add_argument("--no-animate", action="store_true")
     p.add_argument("--frames", type=int, default=8)
@@ -3747,7 +3747,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--activate",
         action="store_true",
-        help="Also write OPai project activation files before routing",
+        help="Also write Vesta project activation files before routing",
     )
     p.add_argument(
         "--full-evidence",
@@ -3773,7 +3773,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser(
         "savings",
-        help="Show the estimated AI spend OPai saved on this project (cost firewall)",
+        help="Show the estimated AI spend Vesta saved on this project (cost firewall)",
     )
     p.add_argument("--project", default=None, help="Project root")
     p.add_argument(
@@ -3933,7 +3933,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser(
         "proxy",
-        help="Route one agent call through OPai (the inline-capture shim entrypoint)",
+        help="Route one agent call through Vesta (the inline-capture shim entrypoint)",
     )
     p.add_argument("agent", help="Agent to route through (claude, codex, or copilot)")
     p.add_argument("task", help="The task/prompt to run")
@@ -4050,7 +4050,7 @@ def build_parser() -> argparse.ArgumentParser:
     br = benchmark_sub.add_parser(
         "parity",
         help="Daily-driver parity: run real coding fixtures through the offline "
-        "OPai pipeline and score vs an imported baseline (#309/#314)",
+        "Vesta pipeline and score vs an imported baseline (#309/#314)",
     )
     br.add_argument("--project", default=None, help="Project root")
     br.add_argument(
@@ -4068,7 +4068,7 @@ def build_parser() -> argparse.ArgumentParser:
     br.set_defaults(func=cmd_benchmark)
 
     p = sub.add_parser(
-        "why", help="Explain why OPai chose its route for a task (read-only)"
+        "why", help="Explain why Vesta chose its route for a task (read-only)"
     )
     p.add_argument("task")
     p.add_argument("--project", default=None, help="Project root")
@@ -4283,14 +4283,14 @@ def build_parser() -> argparse.ArgumentParser:
     mo.add_argument("--project", default=None, help="Project root")
     mo.set_defaults(func=cmd_models)
     mo = models_sub.add_parser(
-        "set-default", help="Set the default model for OPai GUI/account routing"
+        "set-default", help="Set the default model for Vesta GUI/account routing"
     )
     mo.add_argument("model_id")
     mo.add_argument("--project", default=None, help="Project root")
     mo.set_defaults(func=cmd_models)
     mo = models_sub.add_parser(
         "add",
-        help="Add or override a provider model (survives OPai updates)",
+        help="Add or override a provider model (survives Vesta updates)",
     )
     mo.add_argument("provider", help="claude, codex, copilot, or a free provider")
     mo.add_argument("model_id", help="Exactly what the provider CLI accepts")
@@ -4373,7 +4373,7 @@ def build_parser() -> argparse.ArgumentParser:
     po.add_argument("--project", default=None, help="Project root")
     po.set_defaults(func=cmd_policy)
 
-    p = sub.add_parser("skills", help="OPai skill registry helpers")
+    p = sub.add_parser("skills", help="Vesta skill registry helpers")
     skills_sub = p.add_subparsers(dest="skills_command", required=True)
     sk = skills_sub.add_parser("list")
     sk.add_argument("--json", action="store_true")
@@ -4411,7 +4411,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser(
         "update",
-        help="Check, download, install, roll back, or diagnose signed OPai updates",
+        help="Check, download, install, roll back, or diagnose signed Vesta updates",
     )
     update_sub = p.add_subparsers(dest="update_command")
     for update_name in ("status", "download", "rollback", "doctor"):
@@ -4447,7 +4447,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_update, update_command="status")
 
     p = sub.add_parser(
-        "uninstall", help="Remove OPai-managed blocks and wrappers (dry-run by default)"
+        "uninstall",
+        help="Remove Vesta-managed blocks and wrappers (dry-run by default)",
     )
     p.add_argument("--project", default=None, help="Project root")
     p.add_argument(
@@ -4456,7 +4457,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--keep-project-files",
         action="store_true",
-        help="Do not strip OPai blocks from this project's instruction files",
+        help="Do not strip Vesta blocks from this project's instruction files",
     )
     p.set_defaults(func=cmd_uninstall)
 
@@ -4471,7 +4472,7 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--project", default=None, help="Project root")
         p.set_defaults(func=cmd_delegate, hub_args=hub_args)
 
-    p = sub.add_parser("dashboard", help="Write or serve the local OPai dashboard")
+    p = sub.add_parser("dashboard", help="Write or serve the local Vesta dashboard")
     p.add_argument("--project", default=None, help="Project root")
     p.add_argument("--html", action="store_true")
     p.add_argument("--serve", action="store_true", help="Serve dashboard on localhost")
@@ -4488,7 +4489,7 @@ def build_parser() -> argparse.ArgumentParser:
 def _force_utf8_stdout() -> None:
     """Avoid UnicodeEncodeError when printing rich text on a cp1252 console (Windows).
 
-    OPai's output uses characters like ``·`` and ``✓``; on a legacy Windows
+    Vesta's output uses characters like ``·`` and ``✓``; on a legacy Windows
     console these crash plain ``print``. Reconfigure to UTF-8 with a safe
     fallback so output degrades to ``?`` instead of raising.
     """

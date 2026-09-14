@@ -1,12 +1,12 @@
-# Contributing To OPai
+# Contributing To Vesta
 
-Thanks for helping OPai become a low-cost, local-first AI coding hub.
+Thanks for helping Vesta become a low-cost, local-first AI coding hub.
 
 ## Development Setup
 
 ```sh
 git clone https://github.com/MarcoLadeira/OPai.git
-cd OPai
+cd Vesta
 python -m pip install -e ".[test]"
 python -m unittest discover -s tests
 python -m opaihub validate

@@ -217,7 +217,7 @@ class WindowsHost(NativeHost):
 
     def stop_gui(self) -> None:
         self._powershell(
-            "Get-Process -Name OPai -ErrorAction SilentlyContinue | Stop-Process -Force",
+            "Get-Process -Name Vesta -ErrorAction SilentlyContinue | Stop-Process -Force",
             timeout=30,
         )
 

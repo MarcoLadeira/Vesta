@@ -2,7 +2,7 @@
 
 ``op hub tool health --id ruff`` used to run the generic
 ``opcoding tools . doctor`` inventory, so a tool could read "healthy" when
-OPai had only proved it was *installed*. That is dangerous for a local-first
+Vesta had only proved it was *installed*. That is dangerous for a local-first
 router: agents trust a stale/broken local tool and then escalate to an
 expensive model unnecessarily.
 

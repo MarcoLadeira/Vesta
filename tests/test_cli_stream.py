@@ -145,7 +145,7 @@ class StreamAskTests(unittest.TestCase):
         self.assertEqual(code, 0)
         # Real pipeline stages appear as activity lines.
         self.assertIn("Preparing request", joined)
-        self.assertIn("Selected OPai mode", joined)
+        self.assertIn("Selected Vesta mode", joined)
         # The runner's scripted tool event appears too.
         self.assertIn("Read file: app.py", joined)
         # Streamed text went to stdout.

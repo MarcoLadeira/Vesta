@@ -1,7 +1,7 @@
 """Free public-alpha availability policy.
 
 The old self-declared edition ladder was an alpha planning artifact. It must
-not control access while OPai launches fully free. This module keeps the
+not control access while Vesta launches fully free. This module keeps the
 diagnostic API and legacy CLI command stable, but reports implementation
 availability rather than a commercial entitlement.
 """
@@ -27,7 +27,7 @@ _FALLBACK: dict[str, Any] = {
             "label": "Free Public Alpha",
             "price": 0,
             "price_unit": "alpha",
-            "tagline": "Every implemented OPai alpha capability is free.",
+            "tagline": "Every implemented Vesta alpha capability is free.",
         }
     },
     "features": [],
@@ -85,7 +85,7 @@ def set_edition(project_root: Path, name: str) -> dict[str, Any]:
         "status": "free_alpha",
         "edition": FREE_ALPHA_EDITION,
         "requested_edition": str(name).lower(),
-        "reason": "OPai public alpha has no paid editions or feature gates.",
+        "reason": "Vesta public alpha has no paid editions or feature gates.",
     }
 
 
@@ -154,7 +154,7 @@ def edition_summary(project_root: Path) -> dict[str, Any]:
         "planned_features": planned,
         "catalog": [catalog_view],
         "notes": [
-            "Every implemented OPai alpha capability is free.",
+            "Every implemented Vesta alpha capability is free.",
             "Planned capabilities are not payment tiers and receive no upgrade prompt.",
         ],
     }

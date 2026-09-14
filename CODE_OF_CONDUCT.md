@@ -1,6 +1,6 @@
-# OPai Community Standards
+# Vesta Community Standards
 
-OPai is for builders who want AI coding tools to be powerful, local-first, and cost-aware.
+Vesta is for builders who want AI coding tools to be powerful, local-first, and cost-aware.
 
 Please keep discussions useful and respectful:
 
@@ -8,6 +8,6 @@ Please keep discussions useful and respectful:
 - Be specific about bugs, risks, and tradeoffs.
 - Share reproduction steps when reporting problems.
 - Do not post private data, secrets, or live credentials.
-- Keep feedback focused on improving OPai and the surrounding tools.
+- Keep feedback focused on improving Vesta and the surrounding tools.
 
 Maintainers may edit, hide, or close posts that make the project harder to use safely.

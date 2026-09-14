@@ -578,11 +578,11 @@ class DurabilityTests(unittest.TestCase):
 
     def test_a_crash_mid_teardown_is_recovered_as_needs_attention_not_failed(self):
         """#614: a crash while CANCEL_REQUESTED must not be filed as a bare
-        "failed". OPai asked to stop the run and never observed whether that
+        "failed". Vesta asked to stop the run and never observed whether that
         stop finished, so claiming either "cancelled" (a stop nobody saw) or
         plain "failed" (silently dropping the stop request, and inviting a
         naive retry to overlap the unreconciled attempt) is dishonest. Only
-        NEEDS_ATTENTION with "cancellation_unconfirmed" says what OPai
+        NEEDS_ATTENTION with "cancellation_unconfirmed" says what Vesta
         actually knows.
         """
         with tempfile.TemporaryDirectory() as tmp:
@@ -774,7 +774,7 @@ class RecoveryLeavesLiveWorkAloneTests(unittest.TestCase):
     """#818: a terminal verdict must never land on work that is still running.
 
     Reproduced against a real second process before this existed: a run being
-    executed by a live OPai was filed as ``failed`` with the message "the
+    executed by a live Vesta was filed as ``failed`` with the message "the
     owning session ended before it finished", while the owning session was
     demonstrably still there. ``active_run_ids`` could not have prevented it --
     it names only the calling process's own runs, and `opaihub/cli.py` passes
@@ -806,7 +806,7 @@ class RecoveryLeavesLiveWorkAloneTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             run = self._running_run(root)
-            # A different OPai, still alive: a foreign boot id on a pid that
+            # A different Vesta, still alive: a foreign boot id on a pid that
             # is genuinely in use. This is the case `active_run_ids` is blind
             # to by construction.
             store = open_store(root)

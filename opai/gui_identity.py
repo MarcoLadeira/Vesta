@@ -1,7 +1,7 @@
 """Desktop window identity: packaged icon + Windows taskbar grouping (#148).
 
 Shared by both GUI hosts (``gui_web`` and the classic ``gui_desktop``) so the
-window, taskbar, and Alt-Tab all show the OPai icon instead of the generic
+window, taskbar, and Alt-Tab all show the Vesta icon instead of the generic
 Python one. The Qt-facing work is kept behind a tiny, injectable surface so the
 logic is unit-testable without a running Qt application or a display.
 """

@@ -8,7 +8,7 @@ and the GUI's boot waits on one (``save_active_repo``). The unit gate's
 ``test_session_resume`` symlink test hung for exactly this reason, on ``main``,
 until the gate's thirty-minute budget killed the whole run.
 
-``opai/__init__.py`` bounds the loop for every OPai process. These tests make a
+``opai/__init__.py`` bounds the loop for every Vesta process. These tests make a
 directory refuse every name, deterministically, rather than depending on a
 machine that happens to have the symlink behaviour.
 """

@@ -279,7 +279,7 @@ _ERRORS: dict[str, dict[str, Any]] = {
     },
     "needs_confirmation": {
         "title": "Needs a paid model",
-        "what": "OPai won't spend on a paid call automatically.",
+        "what": "Vesta won't spend on a paid call automatically.",
         "next": "Pick your Claude, Codex, or Copilot account to run it.",
         "actions": ["switch_model"],
         "tone": "warning",
@@ -966,7 +966,7 @@ def _friendly_tool_error(text: str) -> str | None:
 
     The Claude Code CLI's own bash parser rejects a command over ~965 bytes as
     "malformed syntax that cannot be parsed / too long for parsing" — an
-    external limit OPai cannot raise (QA pass-2 F25). Rather than surface the
+    external limit Vesta cannot raise (QA pass-2 F25). Rather than surface the
     raw diagnostic, tell the user the concrete workaround. Returns ``None``
     when no rewrite applies (the raw text is used unchanged).
     """

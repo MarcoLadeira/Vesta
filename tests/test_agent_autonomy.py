@@ -1,4 +1,4 @@
-"""Behavioral contract for OPai's coding-agent autonomy layer."""
+"""Behavioral contract for Vesta's coding-agent autonomy layer."""
 
 from __future__ import annotations
 
@@ -162,7 +162,7 @@ class AgentPolicyTests(unittest.TestCase):
         # "Why", "How") was forced into EXPLAIN regardless of what the rest of
         # the message asked for, discarding an unambiguous later instruction —
         # e.g. "What's uncommitted? Commit it and open a PR" stayed read-only
-        # and OPai reported it could not act. The write instruction is in its
+        # and Vesta reported it could not act. The write instruction is in its
         # own, later sentence here, which is what distinguishes it from "How do
         # I fix this bug?" below.
         for request in (

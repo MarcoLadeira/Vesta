@@ -9,7 +9,7 @@ silently emptied.
 The tests worth reading are the ones about failure, because that is where the
 issue is specific:
 
-- a database from a *newer* OPai is ``incompatible``, not ``corrupt`` -- those
+- a database from a *newer* Vesta is ``incompatible``, not ``corrupt`` -- those
   want opposite responses (upgrade vs recover), and collapsing them sends the
   user the wrong way;
 - an unreadable event payload is ``degraded`` **with the first bad sequence**,

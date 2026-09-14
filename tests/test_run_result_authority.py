@@ -115,7 +115,7 @@ class ThreadStatusAuthorityTests(unittest.TestCase):
 
         `needs_attention` was missing from the hand-written verdict table, so it
         fell through to the legacy branch, where `answered_by_account` meant
-        "complete". A run OPai could not verify was recorded as a success.
+        "complete". A run Vesta could not verify was recorded as a success.
         """
 
         self.assertEqual(

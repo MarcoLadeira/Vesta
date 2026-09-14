@@ -1,8 +1,8 @@
-"""The model list can be corrected without shipping a new OPai.
+"""The model list can be corrected without shipping a new Vesta.
 
 `opai/model_registry.py` is a table compiled into the release, so it goes stale
 the moment a provider ships something new: the model exists, the user's CLI
-accepts it, and OPai's picker does not offer it. That coupling is wrong —
+accepts it, and Vesta's picker does not offer it. That coupling is wrong —
 provider model names change far more often than this app does.
 
 These cover the layer that fixes it: a JSON file the user owns, merged over the

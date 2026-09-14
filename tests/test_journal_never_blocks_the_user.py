@@ -2,7 +2,7 @@
 
 This epic adds a lot of checking -- liveness verdicts, approval binding,
 launcher health, completion evidence, parity comparisons. Every one of them is
-a place where a bug could turn into "OPai refuses to send my message" or "the
+a place where a bug could turn into "Vesta refuses to send my message" or "the
 Approve button does nothing", and that failure would be worse than any of the
 lies being fixed. A tool that will not do the thing you asked is not more
 trustworthy than one that occasionally reports it wrongly.
@@ -107,7 +107,7 @@ class TheJournalCannotGateATurnTests(unittest.TestCase):
 class AnApprovalIsRefusedOnlyOnEvidenceTests(unittest.TestCase):
     """The Approve button must never quietly do nothing.
 
-    The process that spends a grant is the PreToolUse hook, and OPai does not
+    The process that spends a grant is the PreToolUse hook, and Vesta does not
     launch it -- the provider's CLI does. Whether OPAI_RUN_ID survives that hop
     is a third party's decision, so "I cannot say which run I am" has to be
     allowed. Refusing it would silently break every approved push on any

@@ -7,7 +7,7 @@
 lifecycle adapter, comparator, canonical reader, operation idempotency, a
 retirement gate and a CLI. What it did **not** do is make anything depend on
 it. The journal is a faithful mirror running beside the authorities it was
-meant to replace, which means every fact OPai reports still has at least two
+meant to replace, which means every fact Vesta reports still has at least two
 sources that can disagree.
 
 This document is the working record for closing that gap. It is written as
@@ -45,7 +45,7 @@ fence = acquire_lease(store, run_id=run_id, owner=surface, now=now)
 ```
 
 `surface` is a category -- `"gui"`, `"cli"` -- not an identity. Every run
-admitted by every OPai process on the machine records the same owner.
+admitted by every Vesta process on the machine records the same owner.
 
 `heartbeat_at` is worse than coarse; it is inert. Its only writers are
 `acquire_lease` (`journal_store.py:798`) and `release_lease`
@@ -109,7 +109,7 @@ turns them into a verdict from a closed vocabulary:
 
 | verdict | means | evidence |
 | --- | --- | --- |
-| `owned_here` | this OPai is working on it | pid **and** boot id are ours |
+| `owned_here` | this Vesta is working on it | pid **and** boot id are ours |
 | `owner_gone` | the owner is not running | the pid is not in the process table |
 | `owner_unverified` | something with that pid exists | a pid, and pids get reused |
 | `unknown` | nobody can say | no pid recorded, or the platform declined |
@@ -119,7 +119,7 @@ cannot make a live one look dead. So `owner_gone` is safe to state and
 "running" is not, which is why there is no `owner_alive`.
 
 `owner_unverified` is deliberately excluded from `ACTIONABLE`. Acting on it
-would mean cancelling or reclaiming work another OPai is doing.
+would mean cancelling or reclaiming work another Vesta is doing.
 
 ### Evidence
 
@@ -209,7 +209,7 @@ for, in the confident direction:
 | zero false completion | did this turn succeed? | `completed`, for partial, timeout and blocked alike |
 | cancelled means stopped | did the work stop? | `cancelled`, with no phase reaching terminated |
 | approvals bind to a run | is this approval mine? | yes, to a different window's run |
-| the install works | is OPai healthy? | `ready`, with a dead desktop icon |
+| the install works | is Vesta healthy? | `ready`, with a dead desktop icon |
 | one canonical origin | which surface asked? | `"gui"`, for CLI and background too |
 | a claim is exact-once | did I just create this? | yes, on every retry |
 
@@ -218,7 +218,7 @@ nothing behind it, which is the failure the epic names in its own words.
 
 The last four were found after the first four, by looking for the same shape
 somewhere else. That turned out to be a reliable way to find real defects:
-every place OPai returns a value that *could* be "I do not know" is a place
+every place Vesta returns a value that *could* be "I do not know" is a place
 worth checking, because the confident answer is usually still there.
 
 ## Also measured, not fixed here
@@ -294,7 +294,7 @@ legacy corpus (background runs):  0     (the directory does not exist)
 runs in both:                     0
 ```
 
-`journal_background.legacy_runs` is the only legacy corpus OPai assembles, and
+`journal_background.legacy_runs` is the only legacy corpus Vesta assembles, and
 it reads `.opaihub/agent/background/runs/`. This installation has never run
 `opai automation`, so that directory has never existed. Meanwhile every run in
 the journal came from the GUI.
@@ -400,7 +400,7 @@ layers, and the guard is the prerequisite rather than the change itself.
 
 `uncertain` is deliberately off the ladder -- an outcome that becomes
 unknowable after it was reconciled is a real thing to record -- and so is any
-state a newer OPai wrote that this build cannot rank, because refusing that
+state a newer Vesta wrote that this build cannot rank, because refusing that
 would turn a forwards-compatibility problem into a hard failure.
 
 
@@ -410,12 +410,12 @@ Reported as "the app is giving me some error message". It was worse than an
 error message: the desktop icon exited 1 with no window, no dialog, no log
 line and nothing on stderr.
 
-OPai's updater reinstalls OPai with `sys.executable -m pip install -e .`.
+Vesta's updater reinstalls Vesta with `sys.executable -m pip install -e .`.
 Inside the desktop app that interpreter is `pythonw.exe`, and pip's vendored
 distlib builds a `gui_scripts` launcher by substring substitution --
 `fn.replace("python", "pythonw")` -- so `pythonw.exe` became `pythonww.exe`,
-which is not a file. **Updating OPai from inside OPai killed the way the user
-opens OPai.** The console scripts were damaged more quietly by the same
+which is not a file. **Updating Vesta from inside Vesta killed the way the user
+opens Vesta.** The console scripts were damaged more quietly by the same
 install: they inherited `pythonw.exe`, where `sys.stdout` is `None`, so
 `opai --version` in a terminal printed nothing.
 
@@ -451,7 +451,7 @@ found one, hidden inside a `**kwargs` dict.
 
 ### An approval was not bound to the work it was given for -- now it is
 
-`consent_dir()` is a fixed per-user temp location shared by every OPai process
+`consent_dir()` is a fixed per-user temp location shared by every Vesta process
 on the machine, and the grant record was `{"command": ...}`. No run, no
 operation, no workspace. Reproduced with two real processes:
 
@@ -470,7 +470,7 @@ The refusal needs evidence, so it fires only on a *positive* mismatch: "this
 grant is run B's and I am run A". A hook that cannot say which run it is --
 a provider CLI that sanitises the environment it hands its hooks -- is still
 allowed, because refusing there would silently break every approved push,
-which is a worse failure than the leak and is not something OPai should
+which is a worse failure than the leak and is not something Vesta should
 inflict on a user who just clicked Approve. Where identity does not propagate
 at all, the behaviour is exactly what it was before the check existed.
 
@@ -529,7 +529,7 @@ populations can never overlap and no amount of waiting produces a comparison.
 That is true of the *legacy* comparison. It is not true of parity in general.
 
 `journal_store.rebuild_projection` is a deterministic fold over the event log
--- and nothing in OPai has ever handed it a reducer. It was exercised only by
+-- and nothing in Vesta has ever handed it a reducer. It was exercised only by
 its own tests: the fifth piece of #613 machinery found on this branch with no
 importer, after `journal_reader`, the lease identity columns, the `approvals`
 table and `mirror_from_status`. A fold with no reducer answers nothing, which
@@ -572,7 +572,7 @@ the *presence of a string*. An expired, revoked, wrong-scope or mistyped token
 produced the identical line, and the user finds out at the worst possible
 moment -- after a run has done all the work and tries to push.
 
-OPai already knew how to check. `verify_github_connection` calls `/user` and
+Vesta already knew how to check. `verify_github_connection` calls `/user` and
 returns a real verdict. It was wired to one button in the Connection Doctor,
 its result was never persisted, and the readiness row never consulted it. The
 check answered a dialog and was forgotten.
@@ -627,7 +627,7 @@ whole ladder, and `terminated` is the phase that means *confirmed stopped*
 rather than *asked to stop*.
 
 Counting rather than refusing, and here the reason is stronger than
-consistency with AC6: **a Stop that OPai declined to record would be a Stop the
+consistency with AC6: **a Stop that Vesta declined to record would be a Stop the
 user pressed and did not get.** Refusing would trade a reporting fault for a
 blocking one, which is never the right trade.
 
@@ -637,7 +637,7 @@ unconfirmed:    6 of 6 cancelled runs have no phase reaching 'terminated'
 
 ## The other direction: none of this may block anybody
 
-Every check in this epic is a place where a bug becomes "OPai refuses to send
+Every check in this epic is a place where a bug becomes "Vesta refuses to send
 my message" or "the Approve button does nothing". That failure is worse than
 any of the lies being fixed -- a tool that will not do what you asked is not
 more trustworthy than one that occasionally reports it wrong.
@@ -645,7 +645,7 @@ more trustworthy than one that occasionally reports it wrong.
 An audit found one real risk, and it was introduced by this branch.
 `grant_belongs_to` used strict equality, so a caller that could not name its
 run was refused. The process that spends a grant is the PreToolUse hook, and
-OPai does not launch it: OPai launches the *provider's* CLI, and that launches
+Vesta does not launch it: Vesta launches the *provider's* CLI, and that launches
 the hook. Whether `OPAI_RUN_ID` survives that hop is a third party's decision,
 so a provider that sanitises its hook environment would have silently refused
 every approved push.
@@ -673,14 +673,14 @@ The rest of the audit came back clean and is pinned in
 
 ## Can a user feel any of this?
 
-The question OPai has to be able to answer, because it is a coding tool and
+The question Vesta has to be able to answer, because it is a coding tool and
 none of this is worth one message somebody could not send. Measured rather
 than argued.
 
 ### It costs 24 ms
 
 A whole turn's bookkeeping -- admission, a heartbeat, the terminal record --
-on the drive OPai actually lives on. A turn that calls a model takes seconds,
+on the drive Vesta actually lives on. A turn that calls a model takes seconds,
 so this is under one percent of it.
 
 That number nearly went the other way. The first measurement said **686 ms**
@@ -730,12 +730,12 @@ this is the list as it stands, checked against `git diff main`:
   verified over a day ago", "last check couldn't reach GitHub", or that GitHub
   rejected the token. "Ready to push & open PRs" still appears when a recent
   check passed.
-- One sentence on the edit-approval card: "In Auto, OPai asks before changing
-  files" became "OPai asks before changing files in this mode", because the
+- One sentence on the edit-approval card: "In Auto, Vesta asks before changing
+  files" became "Vesta asks before changing files in this mode", because the
   card now also appears in Manual. A Manual or Accept Edits turn asked to fix
   something used to run read-only, and Manual had no way to allow an edit at
   all -- less than Ask, which an explicit "fix X" upgrades to Auto. Every
-  edit-capable mode can now edit, as its mode contract says; OPai's own tool
+  edit-capable mode can now edit, as its mode contract says; Vesta's own tool
   loop, which cannot stop and ask, edits in Manual only with the user's
   one-shot grant (commit 50f9538, `tests/test_every_edit_mode_can_edit.py`).
 - `opai doctor` and `opai journal status` gained lines and words: parity
@@ -751,7 +751,7 @@ worker thread on request rather than on a poll or a keystroke.
 
 `grant_belongs_to` used strict equality, so a caller that could not name its
 run was refused. The process that spends a grant is the PreToolUse hook, and
-OPai does not launch it -- the *provider's* CLI does. A provider that
+Vesta does not launch it -- the *provider's* CLI does. A provider that
 sanitises its hook environment would have silently refused every approved
 push. Refusal now needs positive evidence: two runs naming themselves
 differently. Verified against the worst case with real subprocesses.
@@ -825,7 +825,7 @@ neither.
 ### 4. `journal status` said "unfinished: 0" over a real unfinished run
 
 Every report in the doctor shared one `suppress(Exception)`. On a journal
-written by a newer OPai the first report raised, nothing after it was set, and
+written by a newer Vesta the first report raised, nothing after it was set, and
 the CLI filled the gaps with its own reassuring defaults. Every fact now
 starts as "not checked", each report stands alone and records why it could not
 look, and a missing key reads as unknown rather than fine.
@@ -891,7 +891,7 @@ longer bricks anything; it simply opens.
 
 Measured on a `main` worktree: once this branch's build had opened a project's
 journal, `main` -- and so #817, which is `main` plus settings -- called it
-"written by a newer OPai". Admission returned no fence, nothing was journalled,
+"written by a newer Vesta". Admission returned no fence, nothing was journalled,
 and doctor escalated the project. All for a migration that adds two nullable
 columns an older build would never notice.
 

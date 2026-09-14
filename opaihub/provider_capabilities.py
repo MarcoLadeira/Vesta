@@ -21,7 +21,7 @@ class ProviderHealth(str, Enum):
     """The lifecycle of a provider, from "no binary on disk" to "working".
 
     Ordered by readiness. ``degraded``/``rate_limited``/``failed`` are recoverable
-    trouble states; ``unknown`` means OPai has not learned anything yet (it is
+    trouble states; ``unknown`` means Vesta has not learned anything yet (it is
     never a synthesised "healthy"). Being a ``str`` enum keeps it JSON-safe.
     """
 
@@ -104,7 +104,7 @@ class ProviderProfile:
     """What one provider can do (capabilities) and what it needs (requirements).
 
     Capabilities describe the honest *current* reality the picker should show —
-    e.g. Copilot cannot edit a repository through OPai (its edits fail closed),
+    e.g. Copilot cannot edit a repository through Vesta (its edits fail closed),
     and local runners do not stream yet (#154) — so ``repo_editing`` and
     ``streaming`` are ``False`` for those rather than aspirational ``True``.
     """
@@ -290,7 +290,7 @@ def canonical_health(
     error_code: str | None = None,
     kind: str = "",
 ) -> ProviderHealth:
-    """Fold OPai's existing connection signals into the one health enum.
+    """Fold Vesta's existing connection signals into the one health enum.
 
     A missing CLI for an account provider means the binary is not installed,
     which outranks any auth string. An explicit rate-limit error code always wins
