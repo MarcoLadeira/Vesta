@@ -83,6 +83,11 @@ class ClaudeBuildCommandTests(unittest.TestCase):
         self.assertNotIn("--dangerously-skip-permissions", cmd)
         self.assertNotIn("--settings", cmd)
 
+    def test_approve_edits_is_not_told_it_may_not_modify_files(self):
+        cmd = self._runner().build_command("my task", mode="approve-edits")
+        self.assertNotIn("Do not modify files", cmd[-1])
+        self.assertIn("my task", cmd[-1])
+
     def test_approve_edits_does_not_add_dangerously_skip(self):
         cmd = self._runner().build_command(
             "hi", allow_edits=False, mode="approve-edits"
@@ -91,7 +96,9 @@ class ClaudeBuildCommandTests(unittest.TestCase):
         self.assertNotIn("--settings", cmd)
 
     def test_read_only_modes_prepend_no_modify_instruction(self):
-        for mode in ("ask", "plan", "approve-edits"):
+        # Approve Edits is not read-only: its contract (40d6dc0) is that edits
+        # ask and a granted edit applies, so it is pinned the other way below.
+        for mode in ("ask", "plan"):
             with self.subTest(mode=mode):
                 cmd = self._runner().build_command("my task", mode=mode)
                 prompt_arg = cmd[-1]
