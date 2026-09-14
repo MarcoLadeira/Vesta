@@ -72,6 +72,15 @@ code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas
   animation-duration: var(--theme-ms);
   animation-timing-function: var(--theme-ease);
 }
+/* When the theme lands without the cross-fade -- the first paint, reduced
+   motion, a hidden window -- nothing eases on its own either (theme.js holds
+   this for one frame). */
+:root[data-theme-switching="instant"],
+:root[data-theme-switching="instant"] *,
+:root[data-theme-switching="instant"] *::before,
+:root[data-theme-switching="instant"] *::after {
+  transition: none !important;
+}
 
 .app {
   display: grid;

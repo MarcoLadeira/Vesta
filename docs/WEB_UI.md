@@ -63,7 +63,7 @@ Settings › Appearance offers four choices:
 | --- | --- | --- |
 | **Light** | `light` | Soft daylight: a pearl ground, slate ink, white glass cards, indigo stars. |
 | **Viber Coder** | `viber-coder` | OPai's original night sky, and the default. |
-| **Dark** | `dark` | Pitch black with Dracula's colours: purple and pink accents, green, orange, red, cyan. |
+| **Dark** | `dark` | Midnight: a black ground, grey surfaces, white and grey ink, and no colour anywhere — accents, links and statuses included. |
 | **System** | resolved | Follows the operating system: Light by day, Viber Coder by night, switching live. |
 
 **How it works.** A theme is one attribute: `<html data-theme="…">`.
@@ -73,10 +73,14 @@ default on `:root, [data-theme="viber-coder"]`, then `[data-theme="light"]` and
 theme-independent scales. Component CSS takes every colour from a token, so
 setting the attribute repaints the whole app. `theme.js` resolves the
 preference, follows the OS while it is `system`, and cross-fades the change
-through a view transition (instant under reduced motion).
+through a view transition. When it lands without one — the first paint,
+reduced motion, a hidden window — transitions are held off for that frame so
+nothing fades from the old palette on its own.
 
-**The star field works in every theme.** It is a canvas, so it reads two
-tokens instead of CSS: `--space-star` (the starlight, as bare channels) and
+**The star field works in every theme**, shooting stars included, each in a
+starlight that matches its theme: indigo on Light, ice white on Viber Coder,
+moonlight silver on Dark. It is a canvas, so it reads two tokens instead of
+CSS: `--space-star` (the starlight, as bare channels) and
 `--space-star-strength` (a multiplier on the still stars' opacity — a star
 must be drawn more strongly to show on pearl than on black). It repaints on
 `opai:themechange`, which anything else drawn outside CSS should listen for too.
@@ -107,7 +111,11 @@ the brand's own highlight (an active row, a focused field, a selection) and
   background really behind it, or on a neutral surface of the wrong polarity
   (a dark well inside Light, a white card inside Dark). It includes a self-test
   proving it catches a hard-coded component, and measures the star canvas's
-  pixels to prove the stars are visible in each theme.
+  pixels and watches a shooting star take off to prove the sky works in each
+  theme.
+- `design-tokens.test.mjs` holds Dark colourless: every value in its palette
+  must be a grey, and `theme.spec.js` also fails on any element painted with a
+  hue while Dark is on.
 - `tests/test_gui_theme.py` holds the Python host, `theme.js` and the palettes
   to the same list of themes.
 - `theme.spec.js-snapshots` holds reviewed baselines of Light and Dark.

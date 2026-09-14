@@ -279,7 +279,7 @@ describe("Appearance theme picker", () => {
   it("is findable from Settings search by every theme's name and the usual phrases", () => {
     const theme = section().searchItems.find((item) => item.label === "Theme");
     expect(theme.selector).toBe('[data-appearance-key="theme"]');
-    for (const phrase of ["light mode", "dark mode", "night mode", "viber coder", "dracula", "system"]) {
+    for (const phrase of ["light mode", "dark mode", "night mode", "midnight", "viber coder", "system"]) {
       expect(theme.keywords).toContain(phrase);
     }
   });

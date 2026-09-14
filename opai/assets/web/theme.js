@@ -1,6 +1,6 @@
 /**
  * Theme: Light, Viber Coder (OPai's original night sky, and the default), Dark
- * (pitch black with Dracula's colours), or whatever the operating system is
+ * (midnight: black and grey, no colour), or whatever the operating system is
  * using.
  *
  * The whole mechanism is one attribute. design-tokens.css keys each palette on
@@ -103,10 +103,27 @@
       root.dataset.theme = state.theme;
       announce();
     };
+    // An instant switch has to be instant everywhere. Controls that ease their
+    // own colours (a nav row, a button) would otherwise each fade from the old
+    // palette on their own clock, and the reduced-motion rule gives every
+    // element a 0.01ms transition, so for a frame the room is in two themes.
+    // Transitions are held off for the frame the theme lands in.
+    var landInstantly = function () {
+      root.dataset.themeSwitching = "instant";
+      land();
+      var release = function () {
+        if (root.dataset.themeSwitching === "instant") delete root.dataset.themeSwitching;
+      };
+      if (typeof global.requestAnimationFrame === "function") {
+        global.requestAnimationFrame(function () { global.requestAnimationFrame(release); });
+      } else {
+        release();
+      }
+    };
     if (theme === state.theme) {
       // Already the wish. Land it only if something else moved the attribute
       // and no transition is about to put it back.
-      if (root.dataset.theme !== theme && !state.pending) land();
+      if (root.dataset.theme !== theme && !state.pending) landInstantly();
       return theme;
     }
     state.theme = theme;
@@ -118,14 +135,14 @@
       !doc.hidden &&
       !motionReduced(root);
     if (!animate) {
-      land();
+      landInstantly();
       return theme;
     }
     state.pending = true;
     try {
       doc.startViewTransition(land);
     } catch (_error) {
-      land();
+      landInstantly();
     }
     return theme;
   }

@@ -107,6 +107,27 @@ test("the shipped palettes are Viber Coder by default, then Light and Dark", asy
   ]);
 });
 
+test("the Dark palette has no colour: every value it paints with is a grey", async () => {
+  const css = (await readFile(new URL("../design-tokens.css", import.meta.url), "utf8")).replace(/\/\*[\s\S]*?\*\//g, "");
+  const block = css.match(/\[data-theme="dark"\]\s*\{([^}]*)\}/);
+  assert.ok(block, "Dark palette block");
+  const coloured = [];
+  for (const [, name, value] of block[1].matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)) {
+    const channels = [];
+    for (const [, hex] of value.matchAll(/(?:#|%23)([0-9a-f]{6}|[0-9a-f]{3})\b/gi)) {
+      const full = hex.length === 3 ? hex.replace(/./g, "$&$&") : hex;
+      channels.push([0, 2, 4].map((index) => parseInt(full.slice(index, index + 2), 16)));
+    }
+    for (const [, r, g, b] of value.matchAll(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/g)) channels.push([+r, +g, +b]);
+    const bare = value.trim().match(/^(\d+)\s*,\s*(\d+)\s*,\s*(\d+)$/);
+    if (bare) channels.push([+bare[1], +bare[2], +bare[3]]);
+    for (const [r, g, b] of channels) {
+      if (Math.max(r, g, b) - Math.min(r, g, b) > 0) coloured.push(`${name}: ${value.trim()}`);
+    }
+  }
+  assert.deepEqual(coloured, []);
+});
+
 test("script lint rejects colours hard-coded into rendered UI", () => {
   assert.deepEqual(
     lintScriptColours(

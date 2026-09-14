@@ -1,7 +1,7 @@
 """App-wide colour theme for the desktop GUI.
 
 The choices are Light, Viber Coder (OPai's original night sky, and the
-default), Dark (pitch black in Dracula's colours), and System, which follows
+default), Dark (midnight: black and grey, no colour), and System, which follows
 the OS between Light and Viber Coder.
 
 Appearance preferences such as density live with each project

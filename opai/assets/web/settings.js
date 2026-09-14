@@ -1376,7 +1376,7 @@
     // the window is actually wearing, so the picker never contradicts it.
     var appliedTheme = global.OPaiTheme ? global.OPaiTheme.current().preference : null;
     h +=
-      '<div class="appearance-row appearance-row-theme"><div class="appearance-label"><span class="k">Theme</span><span class="hint">Light is soft daylight. Viber Coder is OPai\'s original night sky. Dark turns the lights all the way off, in Dracula\'s colours. System follows your OS: Light by day, Viber Coder by night.</span></div>' +
+      '<div class="appearance-row appearance-row-theme"><div class="appearance-label"><span class="k">Theme</span><span class="hint">Light is soft daylight. Viber Coder is OPai\'s original night sky. Dark is midnight: all black and grey, no colour. System follows your OS: Light by day, Viber Coder by night.</span></div>' +
       themeChoices(esc, pref("theme", "theme") || appliedTheme) +
       "</div>";
     h +=
@@ -1812,7 +1812,7 @@
       { label: "Clear previous chats", group: "Data & privacy", selector: "#settingsClearRecents", keywords: "delete saved chat recents history" },
     ],
     appearance: [
-      { label: "Theme", group: "Appearance", selector: '[data-appearance-key="theme"]', keywords: "light mode dark mode night mode viber coder dracula black system theme colour color day bright" },
+      { label: "Theme", group: "Appearance", selector: '[data-appearance-key="theme"]', keywords: "light mode dark mode night mode midnight black oled viber coder system theme colour color day bright" },
       { label: "Composer style", group: "Appearance", selector: '[data-composer-style-key="composer_style"]', keywords: "toolbar single line command bar" },
       { label: "Response detail", group: "Appearance", selector: '[data-appearance-key="response_density"]', keywords: "compact balanced detailed output" },
       { label: "Density", group: "Appearance", selector: '[data-appearance-key="density"]', keywords: "comfortable compact spacing" },

@@ -5,7 +5,7 @@ import { auditThemeInPage } from "./helpers/theme-audit.js";
 
 
 // Themes (Settings › Appearance): Light, Viber Coder -- OPai's original night
-// sky and the default -- Dark, which is pitch black in Dracula's colours, and
+// sky and the default -- Dark, which is midnight with no colour at all, and
 // System. A theme is one attribute on <html>; these specs hold the promises
 // that attribute makes: it is chosen and remembered like any other appearance
 // setting, it changes softly, the star field shines in every theme, and it
@@ -54,16 +54,17 @@ test("choosing Light repaints the whole app, is saved, and holds across views", 
   await expect(option(page, "Light")).toHaveAttribute("aria-checked", "true");
 });
 
-test("choosing Dark turns the lights all the way off, in Dracula's colours", async ({ page }) => {
+test("choosing Dark goes to midnight: black, grey, and no colour", async ({ page }) => {
   await openApp(page);
   await openAppearance(page);
   await option(page, "Dark").click();
 
   await expect(theme(page)).toHaveAttribute("data-theme", "dark");
   await expect.poll(() => bodyBackground(page)).toBe(PALETTE_BG.dark);
-  expect(await token(page, "--accent")).toBe("#bd93f9");
-  expect(await token(page, "--ink")).toBe("#f8f8f2");
+  expect(await token(page, "--accent")).toBe("#e6e6e6");
+  expect(await token(page, "--ink")).toBe("#ededed");
   expect(await token(page, "--stage-dark")).toBe("#000000");
+  expect(await token(page, "--space-star")).toBe("228, 228, 228");
   await expect.poll(() => page.evaluate(() => window.__mock.savedPrefs)).toContainEqual(["theme", "dark"]);
   await expect(option(page, "Dark")).toHaveAttribute("aria-checked", "true");
 });
@@ -120,6 +121,24 @@ test("a theme change cross-fades, and switches instantly under reduced motion", 
   expect(await page.evaluate(() => window.__viewTransitions)).toBe(1);
 });
 
+test("a theme that lands without the cross-fade lands everywhere at once", async ({ page }) => {
+  // Reduced motion gives every element a 0.01ms transition, and some controls
+  // ease their own colours; an instant switch must start none of them.
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openApp(page);
+  for (const next of ["dark", "light", "viber-coder"]) {
+    const started = await page.evaluate((palette) => {
+      window.__opai.applyAppearance({ theme: palette });
+      const colours = document
+        .getAnimations()
+        .filter((animation) => animation instanceof CSSTransition && /color|background|border/.test(animation.transitionProperty));
+      return { theme: document.documentElement.dataset.theme, holding: document.documentElement.dataset.themeSwitching, colours: colours.length };
+    }, next);
+    expect(started).toEqual({ theme: next, holding: "instant", colours: 0 });
+    await expect(theme(page)).not.toHaveAttribute("data-theme-switching", "instant");
+  }
+});
+
 test("the theme picker is a keyboard radio group", async ({ page }) => {
   await openApp(page);
   await openAppearance(page);
@@ -138,11 +157,11 @@ test("the theme picker is a keyboard radio group", async ({ page }) => {
   await expect(option(page, "System")).toHaveAttribute("aria-checked", "true");
 });
 
-test("Settings search takes “light mode”, “dracula” and “viber coder” straight to the theme picker", async ({ page }) => {
+test("Settings search takes “light mode”, “midnight” and “viber coder” straight to the theme picker", async ({ page }) => {
   await openApp(page);
   await openNav(page, "Settings");
   const search = page.locator("#settingsSearch");
-  for (const query of ["dracula", "viber coder", "light mode"]) {
+  for (const query of ["midnight", "viber coder", "light mode"]) {
     await search.fill(query);
     await expect(page.locator("[data-settings-search-result]").first()).toContainText("Theme");
   }
@@ -212,13 +231,59 @@ for (const palette of PALETTES) {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await openApp(page, { boot: { prefs: { theme: palette } } });
     await expect(page.locator("#app")).toHaveAttribute("data-stage", "dark");
-    await expect.poll(async () => (await brightestStar(page)).showing).toBe(true);
-    const sky = await brightestStar(page);
-    expect(near(sky.colour, channels(sky.starlight)), `${palette}: stars drawn in ${sky.colour}, token ${sky.starlight}`).toBe(true);
-    // Viber Coder's own brightest stars measure about 2.3:1 against its room.
-    expect(sky.contrast, `${palette}: brightest star contrast`).toBeGreaterThan(1.8);
+    // Polled, not sampled once: a resize clears the canvas until its next
+    // frame, and a busy machine can be caught in between. Viber Coder's own
+    // brightest stars measure about 2.2:1 against its room.
+    await expect
+      .poll(async () => {
+        const sky = await brightestStar(page);
+        return sky.showing && near(sky.colour, channels(sky.starlight)) && sky.contrast > 1.8;
+      }, { message: `${palette}: stars drawn in their own starlight, bright enough to see` })
+      .toBe(true);
   });
 }
+
+// The still field proves the colour; this proves the motion. A fresh sky is
+// mounted inside each theme and watched until a shooting star is actually in
+// flight, and the renderer must be drawing it in that theme's starlight.
+for (const palette of PALETTES) {
+  test(`shooting stars fly in the ${palette} theme, in its own starlight`, async ({ page }) => {
+    test.setTimeout(45000);
+    await openApp(page, { boot: { prefs: { theme: palette } } });
+    const flight = await page.evaluate(async () => {
+      const canvas = document.createElement("canvas");
+      canvas.style.cssText = "position:fixed;left:0;top:0;width:600px;height:700px;opacity:0;pointer-events:none";
+      document.body.appendChild(canvas);
+      const handle = window.OPaiStarfield.mount(canvas);
+      const renderer = handle.__renderer;
+      let seen = null;
+      for (let i = 0; i < 60 && !seen; i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        const debug = renderer.__debug();
+        if (debug.pool.some((star) => star.alive && star.alpha > 0.05)) seen = { colour: debug.colour, strength: debug.strength };
+      }
+      handle.destroy();
+      canvas.remove();
+      return seen;
+    });
+    expect(flight, `${palette}: a shooting star took off`).not.toBeNull();
+    expect(flight.colour.split(",").map(Number)).toEqual(channels(await token(page, "--space-star")));
+  });
+}
+
+test("every theme's stars have their own matching starlight", async ({ page }) => {
+  await openApp(page);
+  const starlight = {};
+  for (const palette of PALETTES) {
+    await page.evaluate((next) => window.__opai.applyAppearance({ theme: next }), palette);
+    await expect(theme(page)).toHaveAttribute("data-theme", palette);
+    starlight[palette] = await token(page, "--space-star");
+  }
+  expect(new Set(Object.values(starlight)).size).toBe(PALETTES.length);
+  // Dark's moonlight is as colourless as the rest of it.
+  const [red, green, blue] = channels(starlight.dark);
+  expect(Math.max(red, green, blue) - Math.min(red, green, blue)).toBe(0);
+});
 
 test("a theme change repaints the stars in the new theme's starlight", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
@@ -251,15 +316,27 @@ test("a theme change repaints the stars in the new theme's starlight", async ({ 
 // there rather than restyled.
 const MIN_CONTRAST = { light: 3, "viber-coder": 2.2, dark: 3 };
 
+// Dark promises no colour at all, so for Dark the audit also reports any
+// element painted with a hue.
+const COLOURLESS = new Set(["dark"]);
+
 async function audit(page) {
+  // Measure the settled room, not a control halfway through its own hover or
+  // focus fade: let running transitions finish, then two frames.
+  await page.evaluate(async () => {
+    const transitions = document.getAnimations().filter((animation) => animation instanceof CSSTransition);
+    await Promise.all(transitions.map((transition) => transition.finished.catch(() => {})));
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
   const palette = await page.evaluate(() => document.documentElement.dataset.theme || "viber-coder");
-  return page.evaluate(auditThemeInPage, { minContrast: MIN_CONTRAST[palette] });
+  return page.evaluate(auditThemeInPage, { minContrast: MIN_CONTRAST[palette], colourless: COLOURLESS.has(palette) });
 }
 
 async function expectWorn(page, state) {
   const result = await audit(page);
   expect.soft(result.lowContrast, `${result.theme}: low-contrast text in ${state}`).toEqual([]);
   expect.soft(result.wrongSurfaces, `${result.theme}: wrong-polarity surfaces in ${state}`).toEqual([]);
+  expect.soft(result.hues, `${result.theme}: coloured paint in ${state}`).toEqual([]);
 }
 
 test("the audit catches a component that ignores the theme", async ({ page }) => {
@@ -275,6 +352,20 @@ test("the audit catches a component that ignores the theme", async ({ page }) =>
   const result = await audit(page);
   expect(result.lowContrast.map((item) => item.element)).toContain("div.unthemed-island");
   expect(result.wrongSurfaces.map((item) => item.element)).toContain("div.unthemed-island");
+});
+
+test("the audit catches colour inside the colourless Dark theme", async ({ page }) => {
+  await openApp(page, { boot: { prefs: { theme: "dark" } } });
+  await expectWorn(page, "the empty chat");
+  await page.evaluate(() => {
+    const badge = document.createElement("div");
+    badge.className = "purple-badge";
+    badge.style.cssText = "position:fixed;left:40px;top:120px;padding:8px;background:#000;color:#bd93f9;border:1px solid #bd93f9";
+    badge.textContent = "An accent that should not be here";
+    document.body.appendChild(badge);
+  });
+  const result = await audit(page);
+  expect(result.hues.map((item) => item.element)).toContain("div.purple-badge");
 });
 
 function richAnswer() {

@@ -11,7 +11,7 @@
 // Run in the page. The result lists offenders; an empty list is a pass.
 
 /* eslint-disable no-undef */
-export function auditThemeInPage({ minContrast }) {
+export function auditThemeInPage({ minContrast, colourless = false }) {
   const canvas = document.createElement("canvas");
   canvas.width = 1;
   canvas.height = 1;
@@ -107,6 +107,8 @@ export function auditThemeInPage({ minContrast }) {
   const theme = root.dataset.theme || "dark";
   const lowContrast = [];
   const wrongSurfaces = [];
+  // For a colourless theme: any text, fill or border painted with a hue.
+  const hues = [];
 
   for (const element of document.body.querySelectorAll("*")) {
     // A subtree that deliberately wears the other theme (the picker's
@@ -140,6 +142,20 @@ export function auditThemeInPage({ minContrast }) {
       }
     }
 
+    if (colourless && (!scope || scope === root)) {
+      for (const [property, value] of [
+        ["color", ownText ? style.color : "transparent"],
+        ["background-color", style.backgroundColor],
+        ["border-color", style.borderTopWidth !== "0px" ? style.borderTopColor : "transparent"],
+      ]) {
+        const paint = rgba(value);
+        if (paint.a > 0.05 && chroma(paint) > 12) {
+          hues.push({ element: describe(element), property, value });
+          break;
+        }
+      }
+    }
+
     const own = rgba(style.backgroundColor);
     const box = element.getBoundingClientRect();
     if (own.a >= 0.5 && box.width * box.height >= 900) {
@@ -157,5 +173,5 @@ export function auditThemeInPage({ minContrast }) {
     }
   }
 
-  return { theme, lowContrast, wrongSurfaces };
+  return { theme, lowContrast, wrongSurfaces, hues };
 }

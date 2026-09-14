@@ -117,6 +117,29 @@ describe("applying a theme", () => {
     expect(root.dataset.theme).toBe("dark");
   });
 
+  it("holds every other transition off for the frame an instant switch lands in", async () => {
+    const { theme, root } = await loadTheme();
+    const frames = [];
+    globalThis.window.requestAnimationFrame = (callback) => frames.push(callback);
+    theme.apply("dark");
+    expect(root.dataset.theme).toBe("dark");
+    expect(root.dataset.themeSwitching).toBe("instant");
+    frames.shift()();
+    expect(root.dataset.themeSwitching).toBe("instant");
+    frames.shift()();
+    expect(root.dataset.themeSwitching).toBeUndefined();
+  });
+
+  it("does not hold transitions off for a cross-fade, which animates as one snapshot", async () => {
+    const { theme, root, land } = await loadTheme();
+    theme.apply("dark");
+    delete root.dataset.themeSwitching;
+    theme.apply("light");
+    land();
+    expect(root.dataset.theme).toBe("light");
+    expect(root.dataset.themeSwitching).toBeUndefined();
+  });
+
   it("switches instantly when motion is reduced by the Appearance override", async () => {
     const { theme, root, transitions } = await loadTheme();
     theme.apply("dark");
