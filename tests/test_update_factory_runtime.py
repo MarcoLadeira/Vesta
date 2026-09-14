@@ -31,7 +31,7 @@ def test_packaged_identity_comes_from_release_evidence_not_handwritten_version(
                 "architecture": "x86_64",
                 "install_type": "windows_msix",
                 "package_identity": "OPai.Desktop",
-                "publisher_identity": "CN=OPai",
+                "publisher_identity": "CN=Vesta",
             }
         ),
         encoding="utf-8",
@@ -150,7 +150,7 @@ def test_composition_root_selects_native_adapter_and_migrates_app_wide_policy(
             "install_type": InstallType.WINDOWS_MSIX,
             "platform": "windows",
             "package_identity": "OPai.Desktop",
-            "publisher_identity": "CN=OPai",
+            "publisher_identity": "CN=Vesta",
         }
     )
 

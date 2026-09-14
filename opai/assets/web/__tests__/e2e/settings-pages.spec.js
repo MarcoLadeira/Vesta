@@ -39,7 +39,7 @@ test("the rail lists every page and Overview is the default", async ({ page }) =
     "About",
   ]);
   await expect(railItem(page, "overview")).toHaveAttribute("aria-current", "page");
-  await expect(page.locator("#settingsPage")).toContainText("OPai status", seen);
+  await expect(page.locator("#settingsPage")).toContainText("Vesta status", seen);
   await expect(page.locator("#settingsPage")).not.toContainText("Connection Doctor", seen);
   await expect(page.locator("#settingsPage")).not.toContainText("Cost firewall", seen);
 });

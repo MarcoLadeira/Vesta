@@ -49,8 +49,8 @@ class OPaiIntegrationTests(unittest.TestCase):
             )
 
             status = load_global_status(home)
-            self.assertEqual(status["brand"], "OPai")
-            self.assertEqual(status["status_text"], "Using OPai")
+            self.assertEqual(status["brand"], "Vesta")
+            self.assertEqual(status["status_text"], "Using Vesta")
 
     def test_claude_block_is_idempotent(self):
         with (
@@ -65,7 +65,7 @@ class OPaiIntegrationTests(unittest.TestCase):
 
             text = (home / ".claude" / "CLAUDE.md").read_text(encoding="utf-8")
             self.assertEqual(text.count("OPai managed block"), 2)
-            self.assertEqual(text.count("Using OPai"), 1)
+            self.assertEqual(text.count("Using Vesta"), 1)
 
     def test_managed_instructions_are_token_tiny(self):
         with tempfile.TemporaryDirectory() as project_tmp:
@@ -80,7 +80,7 @@ class OPaiIntegrationTests(unittest.TestCase):
 
     def test_statusline_is_right_aligned_when_width_allows(self):
         status = render_statusline(width=24, color=False)
-        self.assertEqual(status, "              Using OPai")
+        self.assertEqual(status, "             Using Vesta")
 
     def test_superpowers_bridge_is_enabled_from_codex_install(self):
         with tempfile.TemporaryDirectory() as home_tmp:
@@ -160,7 +160,7 @@ class OPaiIntegrationTests(unittest.TestCase):
             self.assertTrue(text.startswith("<!-- OPai managed block: start -->"))
             self.assertIn(existing, text)
             self.assertLess(
-                text.index("OPai Active"),
+                text.index("Vesta Active"),
                 text.index("# Existing Project Instructions"),
             )
 

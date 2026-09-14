@@ -1,4 +1,4 @@
-# OPai UX Writing Guide
+# Vesta UX Writing Guide
 
 Source of truth: `opai/brand.py` (identity + shared copy), `opai/activity.py`
 (error/stage copy), `opai/gui_controls.py` (Qt fallback copy). New copy goes
@@ -14,7 +14,7 @@ through those modules, not inline strings.
    "Read file". Never "completed" unless it completed.
 4. **Short, technical, human.** No exclamation marks in system copy. No hype
    adjectives ("magical", "blazing", "supercharged").
-5. **OPai-first language.** "OPai routed this to Haiku" — providers are named,
+5. **Vesta-first language.** "Vesta routed this to Haiku" — providers are named,
    raw ids stay in code surfaces.
 
 ## Before / after (shipped)
@@ -22,9 +22,9 @@ through those modules, not inline strings.
 | Area | Before | After |
 | --- | --- | --- |
 | Empty state | "What do you want to build?" (every AI tool's line) | **"Build more. Burn less."** + the receipt promise |
-| Composer | "Reply to OPai…" | "Tell OPai what to build, fix, or explain…" |
-| Empty sub | "Claude and Codex connected · OPai picks the cheapest safe path." | "Tell OPai the goal. It plans, routes to the cheapest capable model, shows every step, and hands you the receipt." |
-| CLI run start | (nothing) | `OPai · plan · account:claude:opus` |
+| Composer | "Reply to Vesta…" | "Tell Vesta what to build, fix, or explain…" |
+| Empty sub | "Claude and Codex connected · Vesta picks the cheapest safe path." | "Tell Vesta the goal. It plans, routes to the cheapest capable model, shows every step, and hands you the receipt." |
+| CLI run start | (nothing) | `Vesta · plan · account:claude:opus` |
 | Cost footer | — | `✓ done in 42s · $0.0312 spent` / `$0.04 saved (estimated)` |
 
 ## Calm Stream phase copy (`{rid}:phase` row)
@@ -68,15 +68,15 @@ raw ids stay in code surfaces (Principle 5). Grouped tool rows: `{Verb} {N}
 - **Cancel:** neutral tone, never error styling: "Generation stopped by you.
   You can edit the prompt, retry, or switch model."
 - **Cost warning:** "This needs a paid model. Pick your Claude, Codex, or
-  Copilot account to run it — OPai won't spend on a paid call automatically."
+  Copilot account to run it — Vesta won't spend on a paid call automatically."
 - **Composer setup:** show the effective mode, its one-line consequence, the
   selected model, and one conservative cost posture before every send. Use
   "No provider spend" only for local or free routes; use "May spend within
-  your limits" for an account route. Never imply a price OPai has not read
+  your limits" for an account route. Never imply a price Vesta has not read
   from the local ledger.
 - **Disabled send:** state the cause and name one local remedy: "Write a prompt
   before sending." or "Connect Claude before sending." The Settings action is
-  an explicit user choice; OPai never starts connection or spend workflows on
+  an explicit user choice; Vesta never starts connection or spend workflows on
   its own.
 - **Repository context:** call these "references", not uploads or attachments.
   The composer may send a repository-relative path, never claim the file bytes

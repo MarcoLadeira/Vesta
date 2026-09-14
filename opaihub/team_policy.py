@@ -20,7 +20,7 @@ from .state import effective_mcp_servers
 
 TEAM_POLICY_FILE = "opai-team-policy.yaml"
 
-_TEMPLATE = """# OPai team policy (committed and shared via git).
+_TEMPLATE = """# Vesta team policy (committed and shared via git).
 # Apply with:   opai team apply
 # Check in CI:  opai policy check
 schema_version: 1

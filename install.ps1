@@ -54,7 +54,7 @@ function Ensure-RemoteSource {
     )
 
     if (-not (Get-Command git -CommandType Application -ErrorAction SilentlyContinue)) {
-        Write-Error "Git is required for the one-command OPai installer. Install Git, then re-run this command."
+        Write-Error "Git is required for the one-command Vesta installer. Install Git, then re-run this command."
         exit 127
     }
 
@@ -69,7 +69,7 @@ function Ensure-RemoteSource {
         git -C $Target pull --ff-only origin $Ref
     } elseif (Test-Path $Target) {
         if (-not (Test-Path (Join-Path $Target "pyproject.toml"))) {
-            Write-Error "Install target exists but is not an OPai checkout: $Target"
+            Write-Error "Install target exists but is not a Vesta checkout: $Target"
             exit 1
         }
     } else {
@@ -117,11 +117,11 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $InstalledVersion = (& $Python -m opai version 2>$null)
-if (-not $InstalledVersion) { $InstalledVersion = "OPai installed" }
+if (-not $InstalledVersion) { $InstalledVersion = "Vesta installed" }
 Write-Host ""
 Write-Host "$InstalledVersion installed permanently."
 Write-Host "Source: $Root"
 Write-Host "Activated project: $ProjectRoot"
 Write-Host "Restart terminals and AI clients once so aliases and skills reload."
 Write-Host "Use in any repo: op status"
-Write-Host "Launch with OPai: op launch codex"
+Write-Host "Launch with Vesta: op launch codex"

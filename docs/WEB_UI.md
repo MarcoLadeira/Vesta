@@ -1,4 +1,4 @@
-# OPai Desktop — Web-Rendered UI
+# Vesta Desktop — Web-Rendered UI
 
 `opai gui` now renders its surface with **Chromium (QtWebEngine)** instead of Qt
 widgets/QSS. Qt's styling and text engine couldn't match the polish of

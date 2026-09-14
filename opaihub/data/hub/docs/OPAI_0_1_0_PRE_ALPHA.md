@@ -1,6 +1,6 @@
-# OPai 0.1.0 Pre-Alpha
+# Vesta 0.1.0 Pre-Alpha
 
-OPai is the new brand for the OPcoding and OP AI Hub work. In 0.1.0 pre-alpha, OPai is a local-first command layer over the existing coding workspace and hub registries.
+Vesta is the new brand for the OPcoding and OP AI Hub work. In 0.1.0 pre-alpha, Vesta is a local-first command layer over the existing coding workspace and hub registries.
 
 ## What Exists
 

@@ -1,7 +1,7 @@
 """#818: a fold that finally has a reducer, and a parity check that can run.
 
 ``tests/test_journal_projections.py`` proves ``rebuild_projection`` folds
-deterministically -- using a reducer it defines itself. Nothing in OPai ever
+deterministically -- using a reducer it defines itself. Nothing in Vesta ever
 supplied one. It was the fifth piece of #613 machinery this branch has found
 with no importer, alongside ``journal_reader``, the lease identity columns,
 the ``approvals`` table and ``mirror_from_status``. A fold with no reducer

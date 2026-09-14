@@ -195,7 +195,7 @@ class AbsenceIsNotAFaultTests(_DoctorFixture):
         self.assertTrue(cli._journal_needs_attention(cli._journal_doctor(self.root)))
 
     def test_an_incompatible_journal_needs_attention(self):
-        """Written by a newer OPai: the user needs an upgrade, and must be told."""
+        """Written by a newer Vesta: the user needs an upgrade, and must be told."""
 
         incompatible = {
             "available": True,

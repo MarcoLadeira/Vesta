@@ -1,4 +1,4 @@
-"""Build-only generation of immutable OPai source identity metadata."""
+"""Build-only generation of immutable Vesta source identity metadata."""
 
 from __future__ import annotations
 

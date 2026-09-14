@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "opai"
 version = "0.2.1a1"
-description = "OPai alpha: the local-first AI coding cost firewall for routing, benchmarks, governance, and safe project workflows."
+description = "Vesta alpha: the local-first AI coding cost firewall for routing, benchmarks, governance, and safe project workflows."
 requires-python = ">=3.10"
 dependencies = [
     "PyYAML>=6.0.2,<7",
@@ -35,14 +35,14 @@ opcoding = "opcoding.cli:main"
 # window -- so Task Manager still describes the window's process as "Python"
 # (pythonw.exe carries FileDescription "Python"). What the entry point does buy
 # is a recognisable parent in the process tree, plus -- via the AppUserModelID
-# set in opai/gui_identity.py -- the OPai icon in the taskbar and Alt-Tab.
-# Renaming the window's own process needs a bundled launcher OPai does not ship.
+# set in opai/gui_identity.py -- the Vesta icon in the taskbar and Alt-Tab.
+# Renaming the window's own process needs a bundled launcher Vesta does not ship.
 #
 # It cannot be plain `OPai`: Windows filenames are case-insensitive, so
 # `OPai.exe` and the `opai` console script's `opai.exe` are the same file and
 # one would overwrite the other.
 #
-# Installing OPai must use a *console* interpreter. pip derives a gui_scripts
+# Installing Vesta must use a *console* interpreter. pip derives a gui_scripts
 # launcher from sys.executable by replacing "python" with "pythonw", so an
 # install run from a pythonw process writes "pythonww.exe" into these two
 # launchers and the desktop icon silently stops working. See
@@ -102,7 +102,7 @@ opaihub = [
 extend-exclude = ["opaihub/generated_lifecycle.py"]
 
 [tool.opai]
-brand = "OPai"
+brand = "Vesta"
 default_mode = "local-first"
 
 [tool.opcoding]

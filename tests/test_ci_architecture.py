@@ -53,7 +53,7 @@ class CiArchitectureContractTests(unittest.TestCase):
         self.assertEqual(len(names), len(set(names)))
         self.assertGreaterEqual(len(checks), 3)
         for check in checks:
-            self.assertEqual(check["workflow"], "OPai CI (hosted)")
+            self.assertEqual(check["workflow"], "Vesta CI (hosted)")
             self.assertEqual(check["trusted_app"], "github-actions")
             self.assertTrue(check["job"])
             self.assertTrue(check["component"])

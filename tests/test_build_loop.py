@@ -1,4 +1,4 @@
-"""The OPai Build customization loop (#276): scaffold → cheap targeted edits.
+"""The Vesta Build customization loop (#276): scaffold → cheap targeted edits.
 
 Hermetic end to end: the model is a fake runner returning canned ``file:``
 blocks, the pipeline is the real ``handle_gui_message``, and every write is

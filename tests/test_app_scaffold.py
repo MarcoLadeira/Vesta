@@ -1,4 +1,4 @@
-"""App scaffolding — the free-boilerplate foundation of OPai Build (#276).
+"""App scaffolding — the free-boilerplate foundation of Vesta Build (#276).
 Deterministic, no AI, no network: a prompt becomes a runnable app skeleton."""
 
 from __future__ import annotations

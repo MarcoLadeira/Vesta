@@ -1,6 +1,6 @@
 """10x Context Engine: profile context waste and slim every client (#51).
 
-Context waste is the easiest money OPai saves. This profiles a repo into ranked
+Context waste is the easiest money Vesta saves. This profiles a repo into ranked
 waste sources (generated files, dependency folders, caches, logs, build output,
 large binaries), shows a before/after bytes/tokens/cost report, and generates
 per-client ignore files (.cursorignore, .claudeignore, .copilotignore,
@@ -305,7 +305,7 @@ def _read_ignore(path: Path) -> tuple[str | None, int | None]:
 
 
 def _ignore_lock_path(root: Path, name: str) -> Path:
-    """Lock beside OPai state, not beside the user's file, so no stray lock is left in the repo."""
+    """Lock beside Vesta state, not beside the user's file, so no stray lock is left in the repo."""
     return state_dir(root) / "locks" / f"ignore-{name}"
 
 
@@ -386,14 +386,14 @@ def generate_client_ignores(
         "report": "opai-context-ignores",
         "project": str(root),
         "results": results,
-        "notes": ["User-authored rules are preserved; OPai appends a managed block."],
+        "notes": ["User-authored rules are preserved; Vesta appends a managed block."],
     }
 
 
 def render_profile_markdown(profile: dict[str, Any]) -> str:
     ba = profile["before_after"]
     lines = [
-        "# OPai Context Profile",
+        "# Vesta Context Profile",
         "",
         f"- Total: {profile['total_bytes']:,} bytes across {profile['total_files']:,} files",
         f"- Waste: {profile['waste_bytes']:,} bytes ({profile['waste_share'] * 100:.1f}%)",

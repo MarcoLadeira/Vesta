@@ -3,7 +3,7 @@ import { test, expect } from "@playwright/test";
 import { openApp, sendPrompt, finishRequest } from "./helpers/app.js";
 
 
-test("renders one OPai app header without browser toolbar controls", async ({ page }) => {
+test("renders one Vesta app header without browser toolbar controls", async ({ page }) => {
   await openApp(page);
 
   const header = page.locator("#appHeader");

@@ -4,7 +4,7 @@
     with one complete and one partial turn was "2 of 2 runs disagree". Turns
     now carry their run id and are compared one to one.
 5.  ``opai journal status`` printed "unfinished: 0" over a real unfinished run
-    when the journal had been written by a newer OPai: every report shared one
+    when the journal had been written by a newer Vesta: every report shared one
     suppress block, and the CLI filled the gaps with reassuring defaults.
 10. Every surface recorded the GUI's open conversation as its own.
 16. ``store_health`` asked "can this be opened?" by opening it, which migrated

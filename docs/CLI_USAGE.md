@@ -1,4 +1,4 @@
-# OPai CLI Usage
+# Vesta CLI Usage
 
 The CLI and the desktop GUI share **one core**: `opai ask --model …` runs the
 exact same pipeline (`opaihub.gui_pipeline.handle_gui_message`) the GUI chat
@@ -14,7 +14,7 @@ opai ask "summarize my changes"
 opai ask --model claude:opus "why is this test flaky?"
 opai ask --model codex "refactor the auth module"        # default codex model
 opai ask --model copilot:gpt-5.2 --mode plan "plan the migration"
-opai ask --model auto "quick question"                    # OPai routes cheapest
+opai ask --model auto "quick question"                    # Vesta routes cheapest
 
 # Machine-readable (for scripts/automation):
 opai ask --model claude:sonnet --json "list the public API of opai/activity.py"
@@ -48,7 +48,7 @@ What you see while it runs (Claude Code-style activity):
 | `--model claude` / `claude:sonnet\|opus\|haiku` | your Claude account CLI |
 | `--model codex[:gpt-5.5\|…]` | your Codex account CLI |
 | `--model copilot[:model]` | your Copilot account CLI |
-| `--model auto` | OPai routes the cheapest safe path |
+| `--model auto` | Vesta routes the cheapest safe path |
 | (no `--model`) | classic free local-only path, `$0` |
 
 ### Run modes (`--mode`, with `--model`)

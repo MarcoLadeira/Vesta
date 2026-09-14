@@ -421,7 +421,7 @@ class MalformedLegacyRecordsAreReportedNotRaisedTests(unittest.TestCase):
     """One bad row must not take the whole comparison down with it.
 
     A legacy store is a directory of JSON files written by many versions of
-    OPai over months. Something in there will eventually not be a mapping --
+    Vesta over months. Something in there will eventually not be a mapping --
     a truncated write, a list where a dict was expected, a null. Raising
     ``AttributeError`` out of ``compare()`` would hide every other finding in
     the report behind the first malformed file, which is exactly backwards:

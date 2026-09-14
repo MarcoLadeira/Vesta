@@ -1,8 +1,8 @@
 """Durable project instructions, as a prompt layer every model receives.
 
-The consistency defect this fixes is subtle and large: OPai's *account* models
+The consistency defect this fixes is subtle and large: Vesta's *account* models
 run through their vendor CLIs (`claude`, `codex`, `copilot`), and those CLIs
-read the repository's own instruction files themselves. OPai's **local and
+read the repository's own instruction files themselves. Vesta's **local and
 free-tier** models go through `opaihub.ask`, which built a prompt from
 languages, markers, test commands, and git status — and `context_pack`
 deliberately excludes `AGENTS.md` / `CLAUDE.md` as "not useful code context".
@@ -102,8 +102,8 @@ def build_system_prompt(
 ) -> str:
     """``base`` plus the project's instruction layer, when it has one.
 
-    The instructions go *after* OPai's own behavioural rules and before the
-    turn's content: OPai's safety and honesty rules are not the project's to
+    The instructions go *after* Vesta's own behavioural rules and before the
+    turn's content: Vesta's safety and honesty rules are not the project's to
     override, but within them the project's house rules are authoritative.
     """
     instructions = load_project_instructions(project_root, char_budget=char_budget)

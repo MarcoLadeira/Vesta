@@ -6,7 +6,7 @@ around that was how the objective chose its acceptance requirements:
     if normalized_mode == "ship" or _TEST_REQUEST.search(objective_text):
         acceptance.append(AcceptanceRequirement.TESTS_PASS)
 
-A regex over the request text. Asking OPai to **"fix the crash in parser.py"**
+A regex over the request text. Asking Vesta to **"fix the crash in parser.py"**
 never says "test", so the objective required only an edit — and a diff alone was
 enough to report *completed* on a change nobody had run. Phrasing decided
 whether verification was required.

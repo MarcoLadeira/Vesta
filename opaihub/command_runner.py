@@ -42,8 +42,8 @@ SECRET_PATTERNS = [
     # prefix that a short body is still worth redacting, not a false-positive
     # risk the way a bare unprefixed 8-char string would be.
     re.compile(r"(?i)\bsk-[A-Za-z0-9_-]{8,}\b"),
-    # Providers OPai itself asks the user to configure. A leaked GOOGLE_API_KEY
-    # or GROQ_API_KEY is a leak of a credential OPai requested, so these are
+    # Providers Vesta itself asks the user to configure. A leaked GOOGLE_API_KEY
+    # or GROQ_API_KEY is a leak of a credential Vesta requested, so these are
     # not optional extras.
     re.compile(r"\bAIza[A-Za-z0-9_\-]{30,}"),  # Google API key
     re.compile(r"\bgsk_[A-Za-z0-9]{20,}"),  # Groq

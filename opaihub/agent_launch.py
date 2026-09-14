@@ -1,6 +1,6 @@
-"""Classify agent CLI invocations before an OPai shell wrapper launches them.
+"""Classify agent CLI invocations before a Vesta shell wrapper launches them.
 
-Only provider forms that OPai can reproduce without changing their observable
+Only provider forms that Vesta can reproduce without changing their observable
 contract are proxied. Interactive, stdin-driven, structured-output, and unknown
 forms return ``PASSTHROUGH_EXIT`` so the shell wrapper can directly execute the
 real CLI with the original argv and TTY.

@@ -1,4 +1,4 @@
-name: OPai CI (hosted)
+name: Vesta CI (hosted)
 
 on:
   pull_request:
@@ -89,7 +89,7 @@ jobs:
           if [ -f ci-python-evidence.json ]; then
             python scripts/render_ci_summary.py ci-python-evidence.json >> "$GITHUB_STEP_SUMMARY"
           else
-            printf '%s\n' '### OPai Python qualification' '- Verdict: `infrastructure_blocked`' '- Reason: evidence manifest was not produced' >> "$GITHUB_STEP_SUMMARY"
+            printf '%s\n' '### Vesta Python qualification' '- Verdict: `infrastructure_blocked`' '- Reason: evidence manifest was not produced' >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Upload immutable Python evidence

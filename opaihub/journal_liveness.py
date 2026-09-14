@@ -26,7 +26,7 @@ probe as alive. That asymmetry is the whole design:
 The one case that is fully decidable is our own: a lease carrying this
 process's pid *and* this interpreter's boot id can only have been written by
 us, because the boot id is minted per interpreter and never reused. That is
-what lets OPai avoid offering to recover work it is doing right now.
+what lets Vesta avoid offering to recover work it is doing right now.
 
 Nothing here terminates, resumes or reconciles anything. It answers a question
 and the caller decides, which is the same division ``owner_lease`` draws for
@@ -267,11 +267,11 @@ def describe(verdict: str) -> str:
 
 
 _SENTENCES = {
-    OWNED_HERE: "This OPai is working on it now.",
-    OWNER_GONE: "The OPai that started this is no longer running.",
-    OWNER_STALE: "The OPai that started this stopped responding.",
-    OWNER_UNVERIFIED: "Another OPai may still be working on it.",
-    OWNER_UNKNOWN: "OPai cannot tell whether this is still running.",
+    OWNED_HERE: "This Vesta is working on it now.",
+    OWNER_GONE: "The Vesta that started this is no longer running.",
+    OWNER_STALE: "The Vesta that started this stopped responding.",
+    OWNER_UNVERIFIED: "Another Vesta may still be working on it.",
+    OWNER_UNKNOWN: "Vesta cannot tell whether this is still running.",
 }
 
 

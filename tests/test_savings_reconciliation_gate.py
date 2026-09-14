@@ -127,13 +127,13 @@ class SavingsReportTests(unittest.TestCase):
         self.assertFalse(report["reconciliation"]["verified"])
         self.assertIn("At least", report["headline"])
         self.assertIn("lower bound", report["headline"])
-        self.assertNotIn("OPai estimates", report["headline"])
+        self.assertNotIn("Vesta estimates", report["headline"])
 
     def test_a_clean_ledger_keeps_the_confident_headline(self) -> None:
         with _Project(lose_one=False) as root:
             report = build_savings_report(root)
         self.assertTrue(report["reconciliation"]["verified"])
-        self.assertIn("OPai estimates", report["headline"])
+        self.assertIn("Vesta estimates", report["headline"])
         self.assertNotIn("lower bound", report["headline"])
 
     def test_the_report_exposes_machine_readable_completeness(self) -> None:
@@ -180,7 +180,7 @@ class SavingsMarkdownTests(unittest.TestCase):
         with _Project(lose_one=False) as root:
             report = build_savings_report(root)
         report.pop("reconciliation", None)
-        self.assertIn("OPai Savings Report", render_savings_markdown(report))
+        self.assertIn("Vesta Savings Report", render_savings_markdown(report))
 
 
 if __name__ == "__main__":

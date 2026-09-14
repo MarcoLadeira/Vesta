@@ -481,7 +481,7 @@ class MacOSSparkleAdapter:
             "--channels",
             candidate.channel,
             "--user-agent-name",
-            "OPai",
+            "Vesta",
         ]
         if mode in {"on_quit", "when_idle"}:
             command.append("--defer-install")

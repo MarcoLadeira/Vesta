@@ -1,4 +1,4 @@
-"""Per-client activation detection for OPai (issue #35).
+"""Per-client activation detection for Vesta (issue #35).
 
 Reports whether each supported AI client (Claude, Codex, Copilot, Gemini, Cursor, Cline)
 is active, broken, or missing for a project, and gives a concrete repair command
@@ -87,7 +87,7 @@ def _client_status(spec: dict[str, Any]) -> dict[str, Any]:
         reason = "Instruction file exists but is missing the OPai managed block."
     else:
         status = "missing"
-        reason = "No OPai instruction file for this client."
+        reason = "No Vesta instruction file for this client."
 
     result: dict[str, Any] = {
         "id": spec["id"],
@@ -131,7 +131,7 @@ def client_integrations_status(
 
 
 def detect_stale_paths(project_root: Path, home: Path | None = None) -> dict[str, Any]:
-    """Detect moved repos or moved OPai installs and surface a repair path."""
+    """Detect moved repos or moved Vesta installs and surface a repair path."""
     import json
 
     root = project_root.expanduser().resolve()

@@ -1,6 +1,6 @@
 # Launch Operations Runbook
 
-This runbook implements the operating process for [issue #554](https://github.com/MarcoLadeira/OPai/issues/554), under the parent [launch and community epic #530](https://github.com/MarcoLadeira/OPai/issues/530). It is a pre-launch control: it does not declare OPai ready, authorise a launch, or replace a release decision.
+This runbook implements the operating process for [issue #554](https://github.com/MarcoLadeira/OPai/issues/554), under the parent [launch and community epic #530](https://github.com/MarcoLadeira/OPai/issues/530). It is a pre-launch control: it does not declare Vesta ready, authorise a launch, or replace a release decision.
 
 Use it with the concise [launch checklist](LAUNCH_CHECKLIST.md). The checklist collects evidence; this runbook defines how that evidence becomes a go/no-go decision, a responsible launch, and a product-learning loop.
 

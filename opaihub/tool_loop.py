@@ -577,7 +577,7 @@ _EMPTY_OUTPUT_GUIDANCE = (
     "continuing."
 )
 _DUPLICATE_SUCCESS_GUIDANCE = (
-    "[OPai notice] An equivalent action already succeeded against the same "
+    "[Vesta notice] An equivalent action already succeeded against the same "
     "repository state. Move on, or request an explicit repeat override when "
     "fresh evidence is genuinely required."
 )

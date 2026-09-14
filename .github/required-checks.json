@@ -166,7 +166,7 @@
         "detect-secrets"
       ],
       "trusted_app": "github-actions",
-      "workflow": "OPai CI (hosted)"
+      "workflow": "Vesta CI (hosted)"
     },
     {
       "component": "hostile",
@@ -179,7 +179,7 @@
         "hostile-pytest"
       ],
       "trusted_app": "github-actions",
-      "workflow": "OPai CI (hosted)"
+      "workflow": "Vesta CI (hosted)"
     },
     {
       "component": "web",
@@ -196,7 +196,7 @@
         "web-e2e"
       ],
       "trusted_app": "github-actions",
-      "workflow": "OPai CI (hosted)"
+      "workflow": "Vesta CI (hosted)"
     }
   ],
   "schema_version": 2,

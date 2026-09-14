@@ -9,7 +9,7 @@ the acceptance criterion they serve is the strictest one in the issue:
     remove budget, authority or verification protection.
 
 So every test here asks the same question in a different costume: when the
-storage layer fails, does OPai end up *knowing less* -- or does it end up
+storage layer fails, does Vesta end up *knowing less* -- or does it end up
 believing something permissive that is not true? The second is the failure
 mode worth testing for, because it is the one that looks like success.
 

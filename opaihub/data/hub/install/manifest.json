@@ -1,5 +1,5 @@
 {
-  "brand": "OPai",
+  "brand": "Vesta",
   "version": "0.2.0a2",
   "release_stage": "alpha.2",
   "entrypoints": {
@@ -17,8 +17,8 @@
   },
   "optional_tool_install": "opai install --with-tools",
   "notes": [
-    "Default install creates local OPai state and dashboards only.",
-    "Default CLI install also writes safe global OPai discovery files.",
+    "Default install creates local Vesta state and dashboards only.",
+    "Default CLI install also writes safe global Vesta discovery files.",
     "Shell command shadowing requires --shell-aliases.",
     "No paid or cloud services are enabled by default.",
     "Optional tool installation may download free open-source packages."

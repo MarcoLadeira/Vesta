@@ -1,11 +1,11 @@
 """What each external tool can actually do at the version installed (#569).
 
 The report's worked example is the whole motivation: `gh issue view` on GitHub
-CLI 2.80 fails because classic Projects fields were removed upstream. OPai
+CLI 2.80 fails because classic Projects fields were removed upstream. Vesta
 discovers this the expensive way — a failed command, a confusing 400, a burnt
 provider turn — and then usually retries the same broken call.
 
-This registry front-runs that. Before invoking a capability OPai asks whether
+This registry front-runs that. Before invoking a capability Vesta asks whether
 the *installed* version still supports it, and if not it is handed an ordered
 list of alternatives (REST API, the internal connector) to use instead.
 

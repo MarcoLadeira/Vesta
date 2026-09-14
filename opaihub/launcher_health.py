@@ -1,13 +1,13 @@
-"""Read what OPai's installed launchers will actually run.
+"""Read what Vesta's installed launchers will actually run.
 
-An installed OPai is reached through small launcher programs pip generates
+An installed Vesta is reached through small launcher programs pip generates
 from the entry points in ``pyproject.toml``: ``opai.exe``, ``op.exe``, and the
 windowed ``OPai-Desktop.exe`` behind the desktop icon. Each one hard-codes the
 absolute path of the interpreter it will spawn, decided once at install time.
 
 That path can be wrong, and when it is, a Windows launcher fails in the worst
 possible way: it exits 1 immediately, with no window, no dialog, no log entry
-and nothing on stderr. The icon is simply inert. Every other OPai surface
+and nothing on stderr. The icon is simply inert. Every other Vesta surface
 keeps working, so nothing anywhere reports a problem -- the app is broken and
 the app does not know.
 
@@ -83,7 +83,7 @@ class LauncherReport:
 
 
 def scripts_directories() -> list[Path]:
-    """Every directory pip may have written OPai's launchers into."""
+    """Every directory pip may have written Vesta's launchers into."""
 
     seen: list[Path] = []
     schemes = ["", f"{os.name}_user"]
@@ -208,7 +208,7 @@ def _launcher_path(directory: Path, name: str) -> Path | None:
 def entry_point_names(
     distribution: str = "opai",
 ) -> tuple[tuple[str, bool], ...]:
-    """Return ``(name, windowed)`` for every launcher OPai installs.
+    """Return ``(name, windowed)`` for every launcher Vesta installs.
 
     Read from the installed distribution rather than hard-coded, so a renamed
     or added entry point is checked without this module being edited -- and so
@@ -234,7 +234,7 @@ def inspect_launchers(
     *,
     directories: list[Path] | None = None,
 ) -> list[LauncherReport]:
-    """Report the interpreter behind each of OPai's installed launchers."""
+    """Report the interpreter behind each of Vesta's installed launchers."""
 
     where = scripts_directories() if directories is None else list(directories)
     reports: list[LauncherReport] = []
@@ -287,5 +287,5 @@ def summary(reports: list[LauncherReport] | None = None) -> dict[str, object]:
         "available": True,
         "broken": [report.name for report in bad],
         "unreadable": [report.name for report in unreadable],
-        "note": "" if not bad else "reinstall OPai to rewrite its launchers",
+        "note": "" if not bad else "reinstall Vesta to rewrite its launchers",
     }

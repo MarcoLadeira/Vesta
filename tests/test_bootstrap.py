@@ -75,7 +75,7 @@ def test_machine_readable_bootstrap_failure_has_a_stable_safe_schema(capsys) -> 
     assert payload == {
         "category": "missing_dependency",
         "component": "PyYAML",
-        "message": "OPai requires PyYAML before configuration can be loaded.",
+        "message": "Vesta requires PyYAML before configuration can be loaded.",
         "ok": False,
         "remediation": "Run `python -m pip install -e .` and retry.",
         "schema_version": 1,

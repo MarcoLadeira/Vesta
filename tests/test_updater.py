@@ -1,4 +1,4 @@
-"""Tests for OPai self-update (check_for_update / apply_update).
+"""Tests for Vesta self-update (check_for_update / apply_update).
 
 Every git and pip interaction is injected so these tests never touch a real
 repository, the network, or the developer's actual ``~/.opai`` cache.

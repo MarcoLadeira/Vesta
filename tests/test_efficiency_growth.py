@@ -82,7 +82,7 @@ class ContextPackTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _repo(root)
-            # Untracked OPai-managed files must not waste the pack budget.
+            # Untracked Vesta-managed files must not waste the pack budget.
             (root / "AGENTS.md").write_text("managed\n", encoding="utf-8")
             (root / ".cursor" / "rules").mkdir(parents=True)
             (root / ".cursor" / "rules" / "opai.mdc").write_text(
@@ -131,7 +131,7 @@ class RunHistoryTests(unittest.TestCase):
         self.assertEqual(explanation["model_tier"], "L0")
         self.assertGreater(explanation["estimated_savings_usd"], 0.0)
         self.assertTrue(explanation["reasons"])
-        self.assertIn("OPai - Why this route", render_why_markdown(explanation))
+        self.assertIn("Vesta - Why this route", render_why_markdown(explanation))
 
 
 class ShareCardTests(unittest.TestCase):
@@ -143,7 +143,7 @@ class ShareCardTests(unittest.TestCase):
         self.assertTrue(card["has_data"])
         self.assertIn("shields.io", card["badge"]["shields_url"])
         self.assertIn("<svg", card["badge"]["svg"])
-        self.assertIn("OPai saved", render_share_markdown(card))
+        self.assertIn("Vesta saved", render_share_markdown(card))
 
     def test_empty_card_prompts_recording(self):
         with tempfile.TemporaryDirectory() as tmp:

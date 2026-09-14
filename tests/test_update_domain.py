@@ -162,7 +162,7 @@ def _installed(**overrides: object) -> InstalledBuild:
         "architecture": "x86_64",
         "install_type": InstallType.WINDOWS_MSIX,
         "package_identity": "OPai.Desktop",
-        "publisher_identity": "CN=OPai",
+        "publisher_identity": "CN=Vesta",
     }
     values.update(overrides)
     return InstalledBuild(**values)
@@ -181,9 +181,9 @@ def _candidate(**overrides: object) -> dict[str, object]:
         "artifact_url": "https://updates.example.test/releases/v0.3.0/OPai-0.3.0.msix",
         "artifact_sha256": "c" * 64,
         "artifact_size": 123456,
-        "publisher_identity": "CN=OPai",
+        "publisher_identity": "CN=Vesta",
         "metadata_key_ids": ["root-1"],
-        "release_title": "OPai 0.3.0",
+        "release_title": "Vesta 0.3.0",
         "release_notes": "Security and reliability improvements.",
         "release_notes_url": "https://updates.example.test/releases/v0.3.0/notes",
         "minimum_current_version": "0.2.0",

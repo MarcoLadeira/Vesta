@@ -1,4 +1,4 @@
-"""Post-edit structural verification for OPai Build (#276): honest, offline
+"""Post-edit structural verification for Vesta Build (#276): honest, offline
 checks that catch the real failure modes of full-file regeneration —
 truncated output, broken asset wiring, invalid JSON — plus strict rollback."""
 

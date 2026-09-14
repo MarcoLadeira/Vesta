@@ -85,7 +85,7 @@ def statusline(project: str | None = None) -> str:
         if command_exists(meta["bin"]):
             ready.append(key)
     tools_str = "+".join(ready) if ready else "no AI tools"
-    return f"OPai {__version__} | {name} | {tools_str}"
+    return f"Vesta {__version__} | {name} | {tools_str}"
 
 
 def launch_tool(tool: str, extra_args: list[str]) -> int:

@@ -1,4 +1,4 @@
-"""Per-provider credit/balance truth for OPai.
+"""Per-provider credit/balance truth for Vesta.
 
 Answers one question for every configured AI tool: *how much money/credit is
 left on it?* — so the Settings page can show honest balances, the model picker
@@ -19,7 +19,7 @@ under ``.opaihub/health`` and records **no prompts and no secrets** — only
 amounts, currency codes, closed-vocabulary source slugs, and timestamps.
 
 An out-of-credit verdict expires after ``EXHAUSTED_TTL_SECONDS`` so a recharge
-made outside OPai is eventually rediscovered even if the user never presses
+made outside Vesta is eventually rediscovered even if the user never presses
 "Test": the tool reappears, the next real call either works (clearing the flag)
 or re-observes the exhaustion.
 """
@@ -40,7 +40,7 @@ from .state import state_dir
 # not re-hit the network.
 PROBE_TTL_SECONDS = 900.0
 # An exhausted verdict older than this no longer excludes the provider: the
-# user may have recharged outside OPai. The next real call re-proves it.
+# user may have recharged outside Vesta. The next real call re-proves it.
 EXHAUSTED_TTL_SECONDS = 6 * 3600.0
 # Below this fraction of the reference amount the status turns "low".
 LOW_FRACTION = 0.15

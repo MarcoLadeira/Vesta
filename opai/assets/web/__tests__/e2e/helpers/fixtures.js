@@ -77,7 +77,7 @@ export const MODELS = [
   },
   {
     id: "auto",
-    label: "OPai · Auto mode",
+    label: "Vesta · Auto mode",
     advanced_label: "Automatic local-first routing",
     kind: "auto",
     group: "routing",
@@ -161,13 +161,13 @@ export const DASHBOARDS = {
   benchmark: {
     title: "Benchmark Proof",
     subtitle: "Local fixture benchmark, not an official external leaderboard.",
-    hero: { headline: "99.4", caption: "OPai effectiveness index", severity: "success" },
+    hero: { headline: "99.4", caption: "Vesta effectiveness index", severity: "success" },
     kpis: [
       { label: "Context reduction", value: "50x", severity: "success" },
       { label: "Paid calls avoided", value: "16", severity: "success" },
       { label: "Risk blocks", value: "6", severity: "warning" },
     ],
-    cards: [{ title: "Approved claim", body: "OPai reduced context by 50x and avoided 16 paid calls on the 16-task local benchmark suite." }],
+    cards: [{ title: "Approved claim", body: "Vesta reduced context by 50x and avoided 16 paid calls on the 16-task local benchmark suite." }],
     actions: [{ id: "copy_benchmark", label: "Copy benchmark command", command: "opai benchmark run --suite max --mode both" }],
   },
   agents: {
@@ -251,8 +251,8 @@ export const SETTINGS = {
       status: "unavailable",
       window: { type: "rolling", label: "5-hour session window", seconds: 18000, metric: "session" },
       official: { available: false },
-      opaiTracked: { calls: 12, tokens: 48000, tasks: 4, windowLabel: "All time via OPai", lastUsedAt: Date.now() / 1000 - 18 * 24 * 3600 },
-      detail: "Claude subscriptions meter a rolling 5-hour session window; the exact percentage is only visible in Claude directly. OPai's own count below only includes messages sent through OPai's chat — not the claude CLI used directly.",
+      opaiTracked: { calls: 12, tokens: 48000, tasks: 4, windowLabel: "All time via Vesta", lastUsedAt: Date.now() / 1000 - 18 * 24 * 3600 },
+      detail: "Claude subscriptions meter a rolling 5-hour session window; the exact percentage is only visible in Claude directly. Vesta's own count below only includes messages sent through Vesta's chat — not the claude CLI used directly.",
       checkUrl: "https://claude.ai/settings/usage", supportsRefresh: false,
     },
     {

@@ -1,4 +1,4 @@
-"""Narrow frozen-entry point for the source-free OPai command line."""
+"""Narrow frozen-entry point for the source-free Vesta command line."""
 
 from opai.bootstrap import cli_main
 

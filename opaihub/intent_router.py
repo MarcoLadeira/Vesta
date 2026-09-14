@@ -158,7 +158,7 @@ def _safe_action(
 def route_intents(
     project_root: Path, message: str, *, mode: str = "safe-auto"
 ) -> list[dict[str, Any]]:
-    """Return the safe, read-only OPai tools that should run automatically."""
+    """Return the safe, read-only Vesta tools that should run automatically."""
     root = project_root.expanduser().resolve()
     text = message.lower()
     actions: list[dict[str, Any]] = []
@@ -265,7 +265,9 @@ def route_intents(
 
     if any(word in text for word in ["doctor", "status", "client", "claude", "codex"]):
         actions.append(
-            _safe_action("doctor", "Checked OPai readiness", {"command": "opai doctor"})
+            _safe_action(
+                "doctor", "Checked Vesta readiness", {"command": "opai doctor"}
+            )
         )
 
     return actions

@@ -15,13 +15,13 @@ describe("chat presentation components", () => {
 
   it("renders the compact assistant identity row without trusting its label", () => {
     const html = components.renderAssistantHeader({
-      label: "OPai <script>",
+      label: "Vesta <script>",
       color: "var(--accent)",
       copy: true,
       copyIconHtml: "<svg aria-hidden=\"true\"></svg>",
     });
     expect(html).toContain('class="role assistant-header"');
-    expect(html).toContain("OPai &lt;script&gt;");
+    expect(html).toContain("Vesta &lt;script&gt;");
     expect(html).toContain('data-a="copy-answer"');
     expect(html).not.toContain("<script>");
   });
@@ -220,13 +220,13 @@ describe("chat presentation components", () => {
     };
     const restored = components.renderAssistantPresentation({
       density: "balanced",
-      headerHtml: '<div class="role">OPai</div>',
+      headerHtml: '<div class="role">Vesta</div>',
       proseHtml: '<div class="body">Restored answer</div>',
       presentation,
     });
     const live = components.renderAssistantPresentation({
       density: "balanced",
-      headerHtml: '<div class="role">OPai</div>',
+      headerHtml: '<div class="role">Vesta</div>',
       proseHtml: '<div class="body">Live answer</div>',
       presentation,
       retryable: true,
@@ -259,7 +259,7 @@ describe("chat presentation components", () => {
     for (const presentation of [undefined, { schema_version: 2 }, { schema_version: 1 }]) {
       const html = components.renderAssistantPresentation({
         density: "balanced",
-        headerHtml: '<div class="role">OPai</div>',
+        headerHtml: '<div class="role">Vesta</div>',
         proseHtml: prose,
         presentation,
       });
@@ -273,7 +273,7 @@ describe("chat presentation components", () => {
   it("composes the response in semantic reading order", () => {
     const html = components.renderAssistantPresentation({
       density: "balanced",
-      headerHtml: '<div class="role">OPai</div>',
+      headerHtml: '<div class="role">Vesta</div>',
       proseHtml: '<div class="body">Outcome</div>',
       presentation: {
         schema_version: 1,

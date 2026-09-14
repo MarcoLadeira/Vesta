@@ -1,6 +1,6 @@
-# OPai Free Public Alpha
+# Vesta Free Public Alpha
 
-OPai launches as a **Free Public Alpha**. Every implemented capability in this
+Vesta launches as a **Free Public Alpha**. Every implemented capability in this
 release is available for `$0`: there is no checkout, licence, invitation,
 payment link, or feature gate.
 
@@ -20,7 +20,7 @@ alpha workflow.
 - Local proof bundles and signatures where the relevant command is available.
 
 Cloud providers remain opt-in and may charge according to their own terms.
-That is a provider cost decision, not OPai access pricing.
+That is a provider cost decision, not Vesta access pricing.
 
 ## Availability, not entitlement
 
@@ -29,7 +29,7 @@ single Free Public Alpha launch state and distinguishes implemented work from
 planned work. The legacy selection subcommand is a harmless no-op: it cannot
 unlock, lock, or persist access.
 
-If a capability is listed as planned, OPai reports that it has not yet been
+If a capability is listed as planned, Vesta reports that it has not yet been
 implemented safely. It never asks the user to upgrade or choose a paid tier.
 
 ## Future work

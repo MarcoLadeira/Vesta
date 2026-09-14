@@ -1,6 +1,6 @@
 """Deterministic project context packs (power-efficiency roadmap Phase 3).
 
-Instead of letting an agent dump the whole repo into a model, OPai builds a
+Instead of letting an agent dump the whole repo into a model, Vesta builds a
 tiny, targeted pack: changed files with short redacted snippets, the tests most
 likely to cover them, and cheap project markers - all under a character budget.
 Read-only by default; ``write=True`` persists it for reuse.
@@ -23,7 +23,7 @@ DEFAULT_CHAR_BUDGET = 6000
 DEFAULT_MAX_FILES = 20
 DEFAULT_HEAD_LINES = 20
 
-# OPai-managed instruction/ignore files are not useful code context and would
+# Vesta-managed instruction/ignore files are not useful code context and would
 # only waste the pack's token budget, so they are excluded.
 _MANAGED_FILES = {
     "AGENTS.md",

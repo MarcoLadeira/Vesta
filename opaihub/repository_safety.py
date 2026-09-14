@@ -1,6 +1,6 @@
 """Canonical repository identity and mutation-safety primitives (#536).
 
-This module owns the read-only facts which must be captured before OPai can
+This module owns the read-only facts which must be captured before Vesta can
 mutate a repository.  A path alone is deliberately insufficient: the handle
 binds a canonical worktree, Git metadata, remotes, filesystem identity, HEAD,
 and null-delimited status snapshot.  Callers revalidate that handle immediately

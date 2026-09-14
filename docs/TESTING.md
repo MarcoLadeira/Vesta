@@ -1,6 +1,6 @@
-# Testing OPai
+# Testing Vesta
 
-OPai is a **Python CLI + PySide6/QWebEngine desktop GUI**. The test strategy is
+Vesta is a **Python CLI + PySide6/QWebEngine desktop GUI**. The test strategy is
 unit + integration + headless-GUI + CLI end-to-end in Python, plus a JS layer
 (Vitest + Playwright) for the web-rendered front-end. **No test ever launches a
 real paid CLI, makes a network call, or spends money** — the model runtime is
@@ -27,7 +27,7 @@ npx playwright install chromium  # once
 npm run test:e2e               # Playwright (serves the repo, injects a mock bridge)
 ```
 
-These packages are development-only and are not included in the OPai Python
+These packages are development-only and are not included in the Vesta Python
 runtime. GitHub CI runs the audit, Vitest suite, and Chromium E2E suite in a
 separate least-privilege Node 22 job. Browser screenshots, traces, and the HTML
 report are retained for seven days when that job fails.
@@ -38,7 +38,7 @@ no Qt; the spec drives streaming/cancellation via `window.__mock.*`.
 
 ## Comprehensive desktop-web E2E suite
 
-The E2E suite protects the complete visible OPai control-plane surface: shell,
+The E2E suite protects the complete visible Vesta control-plane surface: shell,
 chat, activity, cancellation, provider/auth states, settings, models/modes,
 savings receipts, cost firewall, context waste, benchmarks, prompt library,
 agents/workflows, proof bundles, inspector, brand rules, recovery, responsive

@@ -60,7 +60,7 @@ def _is_cloud_or_paid(model: dict[str, Any]) -> bool:
         "very-high",
     }:
         return True
-    # L2 and above are cloud/escalation tiers in OPai's routing model.
+    # L2 and above are cloud/escalation tiers in Vesta's routing model.
     tier = str(model.get("tier") or model.get("default_model_tier") or "").upper()
     return tier in {"L2", "L3", "L4"}
 

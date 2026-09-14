@@ -1,12 +1,12 @@
 # Phase 3 Foundation
 
-This phase finishes the practical OPai platform spine so the project can grow toward an OpenClaw-style local AI hub without becoming expensive or hard to maintain.
+This phase finishes the practical Vesta platform spine so the project can grow toward an OpenClaw-style local AI hub without becoming expensive or hard to maintain.
 
 ## Added Foundations
 
 - Branded `opai` package and CLI.
 - Local install scripts for Windows and POSIX shells.
-- OPai registry entry and brand metadata.
+- Vesta registry entry and brand metadata.
 - Tool discovery that inspects local commands and environment variables without installing anything.
 - Static HTML dashboard generation.
 - Local analytics summary with zero telemetry.

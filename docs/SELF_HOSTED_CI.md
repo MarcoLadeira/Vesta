@@ -51,7 +51,7 @@ file, or workflow. Rotate/re-register after suspected exposure.
 ## Health and recovery
 
 - Confirm the runner is **Online / Idle** in repository settings.
-- Dispatch `OPai CI (trusted self-hosted)` from `main`. The hosted health job
+- Dispatch `Vesta CI (trusted self-hosted)` from `main`. The hosted health job
   should qualify before the Windows job starts.
 - If health reports `runner_unavailable`, inspect the Windows service, outbound
   HTTPS/DNS, runner version, disk space, and label spelling. Do not reroute the

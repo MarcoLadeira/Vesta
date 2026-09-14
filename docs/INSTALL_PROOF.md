@@ -1,6 +1,6 @@
-# OPai Install Proof Checklist
+# Vesta Install Proof Checklist
 
-Run this after installing to prove OPai is active and the cost firewall works.
+Run this after installing to prove Vesta is active and the cost firewall works.
 Every step is a real command with an observable result.
 
 ## Prerequisites
@@ -11,7 +11,7 @@ Every step is a real command with an observable result.
 ## Checklist
 
 <!-- opai-release-identity: application_version=0.2.1a1; release_stage=alpha.1; published_tag=v0.2.1a1 -->
-- [ ] **CLI resolves.** `opai version` begins with `OPai 0.2.1a1 alpha.1`
+- [ ] **CLI resolves.** `opai version` begins with `Vesta 0.2.1a1 alpha.1`
       and reports either the exact packaged build SHA or the honest
       `development`/`unknown` fallback.
 <!-- /opai-release-identity -->
@@ -53,5 +53,5 @@ Every step is a real command with an observable result.
 | Superpowers not discovered | `opai activate --install-superpowers` |
 | Update the install | `opai update` checks (add `--apply` to fetch, fast-forward, and reinstall); the desktop Settings › About page has the same check + Update now |
 
-When every box is checked, OPai is installed, every client is wired, and the
+When every box is checked, Vesta is installed, every client is wired, and the
 cost firewall is producing real, private savings numbers.

@@ -1,14 +1,14 @@
 # Archived Pre-Free-Launch Commercial Access And IP Protection
 
 > **Archived on 2026-07-12.** This proposal assumes paid/private distribution.
-> OPai's alpha is fully free, so it must not be used to create checkout links,
+> Vesta's alpha is fully free, so it must not be used to create checkout links,
 > licenses, invitations, private-access requirements, or paid feature gates.
 > Retain it only as a post-launch distribution and IP hypothesis, after free-
 > alpha evidence establishes whether any of those choices are warranted.
 >
 > This document must not be used as current launch policy.
 
-OPai cannot be protected by payments alone if the full source remains publicly
+Vesta cannot be protected by payments alone if the full source remains publicly
 available. A public repository is useful for trust and adoption, but it also
 means competitors can inspect and copy the implementation.
 
@@ -29,7 +29,7 @@ Use a split model:
 
 | Surface | Visibility | Purpose |
 | --- | --- | --- |
-| Public site | Public | Explain OPai, prove value, convert visitors. |
+| Public site | Public | Explain Vesta, prove value, convert visitors. |
 | Public docs excerpt | Public | High-level positioning, screenshots, benchmark claims. |
 | Core product repo/package | Private during alpha | Protect implementation while product-market fit is tested. |
 | Paid checkout | Public link, private fulfillment | Lemon Squeezy/Gumroad purchase path. |
@@ -60,7 +60,7 @@ routing policies, governance packs, dashboards, reports, and enterprise tools.
 - Do not put paid access, team applications, or customer proof in public GitHub
   issue forms.
 - Do not publish raw install commands that pull directly from a public source
-  repo if OPai is meant to be paid/closed during alpha.
+  repo if Vesta is meant to be paid/closed during alpha.
 - Do not promise perfect copy protection for Python code. Use controlled access,
   license terms, signed releases, and commercial speed instead.
 

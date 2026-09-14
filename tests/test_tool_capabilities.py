@@ -1,6 +1,6 @@
 """Tool capability registry and version gating (#569).
 
-The registry exists so OPai stops discovering upstream breakage the expensive
+The registry exists so Vesta stops discovering upstream breakage the expensive
 way — a failed command, a confusing 400, a burnt provider turn, then usually a
 retry of the same broken call.
 """

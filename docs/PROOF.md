@@ -1,14 +1,14 @@
-# OPai Before / After Proof
+# Vesta Before / After Proof
 
-OPai is the AI coding cost firewall. This page shows the *same work* with and
-without OPai, using numbers OPai actually produces. Every figure here is
+Vesta is the AI coding cost firewall. This page shows the *same work* with and
+without Vesta, using numbers Vesta actually produces. Every figure here is
 reproducible with the commands shown — nothing is hand-waved.
 
 ## The experiment
 
-Five everyday coding tasks, routed through OPai with `--record`:
+Five everyday coding tasks, routed through Vesta with `--record`:
 
-| Task | Without OPai | With OPai (routed tier) |
+| Task | Without Vesta | With Vesta (routed tier) |
 | --- | --- | --- |
 | Summarize git status/diff | strong cloud model | **L0** deterministic |
 | Write a commit message | strong cloud model | **L0** deterministic |
@@ -16,15 +16,15 @@ Five everyday coding tasks, routed through OPai with `--record`:
 | Add a small helper + docstring | strong cloud model | **L1** local small model |
 | Review a PR before opening | strong cloud model | **L1** local small model |
 
-"Without OPai" assumes the common default: send every task straight to a strong
+"Without Vesta" assumes the common default: send every task straight to a strong
 frontier model (the `L3` baseline in
 [`hub/model-intelligence/cost_model.yaml`](../hub/model-intelligence/cost_model.yaml)).
 
 ## The result (reproducible)
 
 ```text
-# OPai Savings Report
-OPai estimates $0.3600 saved across 5 routed task(s) (100.0% vs un-routed L3 baseline).
+# Vesta Savings Report
+Vesta estimates $0.3600 saved across 5 routed task(s) (100.0% vs un-routed L3 baseline).
 
 | Signal                       | Value           |
 | Routed tasks                 | 5               |
@@ -37,7 +37,7 @@ OPai estimates $0.3600 saved across 5 routed task(s) (100.0% vs un-routed L3 bas
 | Context tokens saved (est.)  | 2520            |
 ```
 
-All five tasks stayed on free local/deterministic tiers, so OPai avoided five
+All five tasks stayed on free local/deterministic tiers, so Vesta avoided five
 cloud calls and ~2,520 tokens of context bloat — at **$0 actual spend**. On a
 real repo with hundreds of such tasks a week, the avoided spend compounds.
 
@@ -65,10 +65,10 @@ opai savings --markdown
 
 ## Per-client before/after
 
-OPai activates the same firewall in front of every client. After
+Vesta activates the same firewall in front of every client. After
 `opai activate`, `opai doctor` confirms each one:
 
-| Client | Without OPai | With OPai |
+| Client | Without Vesta | With Vesta |
 | --- | --- | --- |
 | Claude Code | unrouted prompts | `CLAUDE.md` policy + routing |
 | Codex | unrouted prompts | `AGENTS.md` + skill discovery |

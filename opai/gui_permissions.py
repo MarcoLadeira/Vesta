@@ -2,7 +2,7 @@
 
 The control panel shows the user exactly what the AI may do in the current run
 mode, with three states: ``allow`` (happens without asking), ``ask`` (you
-confirm first), ``block`` (refused in this mode). The mapping mirrors what OPai
+confirm first), ``block`` (refused in this mode). The mapping mirrors what Vesta
 actually enforces:
 
 * Ask / Plan are read-only — the runner is built with ``allow_edits=False``.

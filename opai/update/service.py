@@ -62,7 +62,7 @@ _SAFE_DIAGNOSTICS = {
     "artifact_hash_mismatch": "The downloaded update did not match its signed digest.",
     "artifact_size_mismatch": "The downloaded update was incomplete or the wrong size.",
     "publisher_mismatch": "The update publisher identity did not match this installation.",
-    "active_work_blocked": "OPai is waiting for active work to reach a safe boundary.",
+    "active_work_blocked": "Vesta is waiting for active work to reach a safe boundary.",
     "installer_failed": "The platform updater could not start the installation.",
     "rollback_failed": "The platform updater could not restore the last-known-good build.",
     "recovery_unavailable": "A verified recovery package is not available for this update.",
@@ -78,7 +78,7 @@ def _diagnostic(category: str) -> str:
 _MANUAL_FAILURE_MESSAGES = {
     "operation_busy": "Another update operation is running. Try again in a moment.",
     "policy_blocked": "Updates for this installation are managed elsewhere.",
-    "operation_not_downloadable": "OPai could not start this update.",
+    "operation_not_downloadable": "Vesta could not start this update.",
 }
 
 _UNSUPPORTED_INSTALL_DIAGNOSTIC = (
@@ -204,7 +204,7 @@ class UpdateService:
 
         Changing a dataclass default does nothing to an installation that has
         already run: the interval is persisted in policy.json, and every
-        machine that has ever started OPai has 14400 written into it. Without
+        machine that has ever started Vesta has 14400 written into it. Without
         this, new installs would discover updates every ten minutes, existing
         ones would keep waiting four hours, and the difference would be
         invisible to every test that starts from a fresh temp directory --
@@ -408,7 +408,7 @@ class UpdateService:
         landed in UNSUPPORTED_INSTALL each time, and told the user to run a
         command -- which is not an automatic update, it is a recurring
         reminder. That is what "auto-update does not work" meant for anyone
-        running OPai from source.
+        running Vesta from source.
 
         Safety is delegated, not re-implemented. ``apply_source`` already
         refuses a dirty working tree unless forced, and only ever
@@ -490,7 +490,7 @@ class UpdateService:
         return (
             f"Updated automatically: fast-forwarded {behind} commit{plural} from "
             + (f"origin/main to {version}. " if version else "origin/main. ")
-            + "Restart OPai to use it."
+            + "Restart Vesta to use it."
         )
 
     def _check_developer_source(
@@ -753,7 +753,7 @@ class UpdateService:
         return result
 
     def restart_available(self) -> bool:
-        """Whether OPai can start itself again, decided by reading, not trying.
+        """Whether Vesta can start itself again, decided by reading, not trying.
 
         The surface needs this before it offers a restart: a button that
         closes the window and does not bring it back is worse than no button.
@@ -785,7 +785,7 @@ class UpdateService:
             return {
                 "ok": False,
                 "message": (
-                    "OPai could not work out how it was started, so it will not "
+                    "Vesta could not work out how it was started, so it will not "
                     "close itself. Quit and open it again to finish the update."
                 ),
             }
@@ -793,11 +793,11 @@ class UpdateService:
             return {
                 "ok": False,
                 "message": (
-                    "OPai could not arrange its own restart. Quit and open it "
+                    "Vesta could not arrange its own restart. Quit and open it "
                     "again to finish the update."
                 ),
             }
-        return {"ok": True, "message": "Restarting OPai into the update…"}
+        return {"ok": True, "message": "Restarting Vesta into the update…"}
 
     def apply_developer_source(self, *, force: bool = False) -> dict[str, object]:
         """Deliberate fast-forward of a developer source checkout to origin/main.
@@ -819,9 +819,9 @@ class UpdateService:
         if bool(result.get("ok")):
             version = str(result.get("installed_version") or "").strip()
             message = (
-                f"Updated to {version} — restart OPai to use it."
+                f"Updated to {version} — restart Vesta to use it."
                 if version
-                else "Updated — restart OPai to use it."
+                else "Updated — restart Vesta to use it."
             )
             if result.get("local_changes_restored"):
                 message += " Local changes were stashed and restored."
@@ -884,7 +884,7 @@ class UpdateService:
                             UpdateState.POLICY_BLOCKED,
                             error_category="installation_owned_elsewhere",
                             safe_diagnostic=(
-                                "Updates for this installation are managed outside OPai."
+                                "Updates for this installation are managed outside Vesta."
                             ),
                         )
                     )
@@ -1080,7 +1080,7 @@ class UpdateService:
                                 UpdateState.POLICY_BLOCKED,
                                 error_category="installation_owned_elsewhere",
                                 safe_diagnostic=(
-                                    "Updates for this installation are managed outside OPai."
+                                    "Updates for this installation are managed outside Vesta."
                                 ),
                             )
                         )
@@ -1259,7 +1259,7 @@ class UpdateService:
         return recorded is not None and recorded < _PROCESS_STARTED_AT
 
     _STALE_PROCESS_DIAGNOSTIC = (
-        "OPai was updated on disk. Restart to use the new version."
+        "Vesta was updated on disk. Restart to use the new version."
     )
 
     def _running_build_is_stale(self) -> bool:
@@ -1635,7 +1635,7 @@ class UpdateService:
                 "ok": False,
                 "reason": exc.category,
                 "message": _MANUAL_FAILURE_MESSAGES.get(
-                    exc.category, "OPai could not check for updates just now."
+                    exc.category, "Vesta could not check for updates just now."
                 ),
             }
         if operation.result_from_cache:
@@ -1644,14 +1644,14 @@ class UpdateService:
             return {
                 "ok": False,
                 "reason": "cached_result",
-                "message": "OPai could not confirm this with the update source.",
+                "message": "Vesta could not confirm this with the update source.",
             }
         if operation.state is UpdateState.UNAVAILABLE:
             return {
                 "ok": False,
                 "reason": operation.error_category or "unavailable",
                 "message": operation.safe_diagnostic
-                or "OPai couldn't reach the update source.",
+                or "Vesta couldn't reach the update source.",
             }
         return {"ok": True, "reason": "", "message": "", "state": operation.state.value}
 

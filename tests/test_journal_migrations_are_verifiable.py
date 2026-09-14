@@ -287,7 +287,7 @@ class OtherBuildsCanStillUseTheJournalTests(_Journal):
     """`main`, #817 and #842 each refuse a journal stamped above what they know.
 
     Measured on a `main` worktree before this: a journal this branch had opened
-    was "written by a newer OPai" there -- admission returned no fence, so
+    was "written by a newer Vesta" there -- admission returned no fence, so
     nothing was journalled, and doctor escalated the project.
 
     **No version numbers in here.** The first draft of these tests said "1"

@@ -176,7 +176,7 @@ def _population_note(populations: Mapping[str, Any]) -> str:
     Reached when the journal holds runs, the legacy corpus holds none, and the
     comparison therefore proved nothing. On a desktop installation that never
     ran ``opai automation`` this is the *normal* state, not a transient one:
-    the only legacy corpus OPai assembles is background automation runs, and
+    the only legacy corpus Vesta assembles is background automation runs, and
     the population actually being journalled is GUI turns. Reporting that as
     "too few runs" invites someone to wait for a number that cannot arrive.
     """

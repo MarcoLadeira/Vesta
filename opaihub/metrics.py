@@ -1,4 +1,4 @@
-"""Local product metrics aligned to the OPai business strategy.
+"""Local product metrics aligned to the Vesta business strategy.
 
 Reports the strategy's measurable signals - estimated tokens avoided, cloud
 escalations avoided, savings, route activity, and cache efficiency - from local

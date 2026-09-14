@@ -1,4 +1,4 @@
-"""Per-app build receipt (#276): the aggregate cost story of an OPai Build
+"""Per-app build receipt (#276): the aggregate cost story of a Vesta Build
 app — measured vs estimated spend kept apart, plus the tokens never spent
 (free boilerplate + context slicing)."""
 
@@ -266,7 +266,7 @@ class CliAppReceiptTests(unittest.TestCase):
                 code = main(["app-receipt", "--app", str(root)])
             self.assertEqual(code, 0)
             out = buf.getvalue()
-            self.assertIn("OPai Build receipt", out)
+            self.assertIn("Vesta Build receipt", out)
             self.assertIn("tokens never spent", out)
 
     def test_opai_app_receipt_on_a_non_app_exits_2(self):

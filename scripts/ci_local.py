@@ -1,4 +1,4 @@
-"""Run OPai's fail-closed qualification profiles and emit exact-SHA evidence.
+"""Run Vesta's fail-closed qualification profiles and emit exact-SHA evidence.
 
 `fast` is the aggregate pull-request contract. Hosted jobs use `--component` to
 run its Python, hostile-environment, and web portions in parallel. `full`,
@@ -1071,7 +1071,7 @@ def _select_steps(profile: str, component: str | None) -> tuple[Step, ...]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Run a fail-closed OPai qualification profile."
+        description="Run a fail-closed Vesta qualification profile."
     )
     parser.add_argument("--profile", choices=sorted(PROFILE_STEPS), default="fast")
     parser.add_argument("--component", help="Run one declared component of a profile")

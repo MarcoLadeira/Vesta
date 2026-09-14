@@ -2,7 +2,7 @@
 external boundary must create zero duplicate effects.
 
 The matrix's uniform fault is the window the issue names: the external
-system accepted the operation, but OPai died before recording it. Every
+system accepted the operation, but Vesta died before recording it. Every
 adapter is exercised by letting the real side effect complete and then
 raising from ``idempotency.complete`` — the exact crash-after-success
 window. The next attempt runs in a FRESH executor (a restarted process)
@@ -55,7 +55,7 @@ def _adapter(root: Path, run):
 
 class _CrashAfterSuccess:
     """Patch idempotency.complete to die exactly once — the process crash
-    between 'the external system accepted the operation' and 'OPai recorded
+    between 'the external system accepted the operation' and 'Vesta recorded
     the outcome'."""
 
     def __init__(self) -> None:

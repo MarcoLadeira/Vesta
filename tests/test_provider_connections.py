@@ -57,7 +57,7 @@ class ProviderConnectionTests(unittest.TestCase):
 
         self.assertEqual(connection["authStatus"], "unknown")
         self.assertEqual(connection["credentialSource"], "user_account")
-        self.assertEqual(connection["userFacingName"], "OPai")
+        self.assertEqual(connection["userFacingName"], "Vesta")
         self.assertIn("detected", connection["safeDiagnostic"].lower())
 
     def test_missing_cli_is_misconfigured(self):
@@ -579,7 +579,7 @@ class ProviderConnectionTests(unittest.TestCase):
         ):
             options = account_models()
 
-        # Labels now use provider-prefixed format, not OPai generic labels
+        # Labels now use provider-prefixed format, not Vesta generic labels
         self.assertTrue(
             all(option["label"].startswith("Claude ·") for option in options),
             f"Expected all labels to start with 'Claude ·', got: {[o['label'] for o in options]}",

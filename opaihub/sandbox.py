@@ -109,7 +109,7 @@ def classify_command(command: str, project_root: Path | None = None) -> dict[str
                     "requires_confirmation": False,
                     "denied": True,
                     "matched_rule": pattern,
-                    "reason": "Blocked by OPai denied command policy.",
+                    "reason": "Blocked by Vesta denied command policy.",
                 }
     for pattern in rules.get("confirm", []):
         for candidate in variants:

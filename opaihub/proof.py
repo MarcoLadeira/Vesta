@@ -132,7 +132,7 @@ def render_proof_markdown(bundle: dict[str, Any]) -> str:
     team = bundle.get("team_report", {})
     score = bench.get("efficiency_score", {}) or {}
     lines = [
-        "# OPai Proof Bundle",
+        "# Vesta Proof Bundle",
         "",
         f"Generated: {bundle.get('generated_at', '')}",
         "",

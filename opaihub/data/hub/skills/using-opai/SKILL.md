@@ -1,6 +1,6 @@
 ---
 name: using-opai
-description: Use when starting OPai-aware coding sessions or checking whether OPai is active.
+description: Use when starting Vesta-aware coding sessions or checking whether Vesta is active.
 ---
-# Using OPai
-Start with local evidence: `opai status`, `opai route "<task>"`, git status, tests, logs, and cached context. Prefer OPai workflows and Superpowers before cloud calls.
+# Using Vesta
+Start with local evidence: `opai status`, `opai route "<task>"`, git status, tests, logs, and cached context. Prefer Vesta workflows and Superpowers before cloud calls.

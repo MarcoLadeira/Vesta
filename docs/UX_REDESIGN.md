@@ -1,4 +1,4 @@
-# OPai Desktop UX — Control Layer
+# Vesta Desktop UX — Control Layer
 
 > **Extended by the full workspace redesign.** This doc covers the original
 > Ctrl+K control layer. For the premium workspace overhaul (workspace switcher,

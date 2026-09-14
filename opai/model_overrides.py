@@ -2,13 +2,13 @@
 
 ``opai/model_registry.py`` is a hardcoded table, so it goes stale the moment a
 provider ships something new: a model exists, the user's CLI accepts it, and
-OPai's picker does not offer it. Shipping a new OPai release is the only cure,
+Vesta's picker does not offer it. Shipping a new Vesta release is the only cure,
 which is the wrong coupling — provider model names change far more often than
 this app does.
 
 This is the release-independent half. A JSON file the user owns adds models to
 a provider, overrides a built-in entry (same id wins), or hides one that a
-provider has withdrawn. Nothing here needs OPai to be updated, and nothing here
+provider has withdrawn. Nothing here needs Vesta to be updated, and nothing here
 can be silently wrong in an invisible way: a malformed file is reported and
 ignored, never partially applied.
 
@@ -85,7 +85,7 @@ class OverrideReport:
     """What loading produced, including why anything was refused.
 
     Errors are carried rather than raised: a broken overrides file must not
-    stop OPai from listing the models it already knows about.
+    stop Vesta from listing the models it already knows about.
     """
 
     models: dict[str, tuple[ModelSpec, ...]]
@@ -159,7 +159,7 @@ def clear_cache() -> None:
 def load_overrides(path: Path | None = None) -> OverrideReport:
     """Read the user's model list. Never raises; never partially applies.
 
-    A file that cannot be parsed yields errors and *no* overrides, so OPai falls
+    A file that cannot be parsed yields errors and *no* overrides, so Vesta falls
     back to its built-in list whole rather than to some half-read version of the
     user's intent.
     """
@@ -365,7 +365,7 @@ def save_override_payload(payload: Any, *, path: Path | None = None) -> Path:
             raise ValueError(f"provider {provider!r} contains unsafe characters")
         if provider not in _PICKER_PROVIDERS:
             raise ValueError(
-                f"provider {provider!r} is not supported by this OPai install"
+                f"provider {provider!r} is not supported by this Vesta install"
             )
         if not isinstance(block, dict) or set(block) - {"models", "hide"}:
             raise ValueError(f"{provider}: expected models and/or hide")

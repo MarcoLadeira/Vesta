@@ -1,6 +1,6 @@
 """Targeted test selection (power-efficiency roadmap Phase 4).
 
-Maps changed source files to the tests most likely to cover them so OPai can run
+Maps changed source files to the tests most likely to cover them so Vesta can run
 a focused subset instead of the whole suite. Pure, deterministic, read-only by
 default - running tests is explicit.
 """

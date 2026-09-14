@@ -51,7 +51,7 @@ test("a finished update stays on screen and offers the restart", async ({ page }
         operation: {
           state: "completed",
           candidate: {},
-          safe_diagnostic: "Updated to 0.2.2 — restart OPai to use it.",
+          safe_diagnostic: "Updated to 0.2.2 — restart Vesta to use it.",
         },
       },
     },
@@ -59,6 +59,6 @@ test("a finished update stays on screen and offers the restart", async ({ page }
 
   await expect(page.locator("#updateShell")).toBeVisible();
   await page.locator("#updateBanner").click();
-  await expect(page.locator("#updateSheetDescription")).toContainText("restart OPai to use it");
+  await expect(page.locator("#updateSheetDescription")).toContainText("restart Vesta to use it");
   await expect(page.locator('#updateSheetActions [data-update-action="restart_now"]')).toBeVisible();
 });

@@ -367,8 +367,8 @@ describe("Model Usage section", () => {
     // Date.now()): the real-world case that motivated switching the tracked
     // count to all-time — a window-bound count would show zero here even
     // though there's real historical activity.
-    opaiTracked: { calls: 12, tokens: 48000, tasks: 4, windowLabel: "All time via OPai", lastUsedAt: Date.now() / 1000 - 18 * 24 * 3600 },
-    detail: "Claude subscriptions meter a rolling 5-hour session window. OPai's own count below only includes messages sent through OPai's chat — not the claude CLI used directly.",
+    opaiTracked: { calls: 12, tokens: 48000, tasks: 4, windowLabel: "All time via Vesta", lastUsedAt: Date.now() / 1000 - 18 * 24 * 3600 },
+    detail: "Claude subscriptions meter a rolling 5-hour session window. Vesta's own count below only includes messages sent through Vesta's chat — not the claude CLI used directly.",
     checkUrl: "https://claude.ai/settings/usage", supportsRefresh: false,
   };
   const credit = {
@@ -401,17 +401,17 @@ describe("Model Usage section", () => {
     expect(html).toContain('data-ext="1"');
     expect(html).not.toContain("target=\"_blank\"");
     expect(html).toContain("claude.ai/settings/usage");
-    // With no official figure, OPai's own tracked count becomes the headline
+    // With no official figure, Vesta's own tracked count becomes the headline
     // stat — same size/weight as a real number — clearly labelled, never
     // presented as the provider's number.
     expect(html).toContain('class="usage2-headline tracked"');
     expect(html).toContain("12 calls tracked");
     // All-time, not window-bound (Claude's rolling 5hr window almost never
-    // has OPai-routed activity in it), with a "last used" freshness readout
+    // has Vesta-routed activity in it), with a "last used" freshness readout
     // so 18-day-old activity never masquerades as fresh.
-    expect(html).toContain("All time via OPai");
+    expect(html).toContain("All time via Vesta");
     expect(html).toMatch(/last used \d+ d ago/);
-    // The clarification that OPai only counts its own routing, not the bare
+    // The clarification that Vesta only counts its own routing, not the bare
     // CLI, is surfaced so the count is never mistaken for real Claude usage.
     expect(html).toContain("not the claude CLI used directly");
   });
@@ -433,9 +433,9 @@ describe("Model Usage section", () => {
     expect(html).not.toContain('aria-valuenow'); // no bar without a known limit
   });
 
-  it("never confuses OPai-tracked counts with the official figure", () => {
+  it("never confuses Vesta-tracked counts with the official figure", () => {
     const html = section().render({ providerUsage: [live] }, ctx);
-    expect(html).toContain("OPai tracked");
+    expect(html).toContain("Vesta tracked");
     expect(html).toContain("270 calls");
   });
 

@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### Rebrand: OPai is now Vesta
+
+- The product is named Vesta everywhere people read it: the app window, header
+  and chat, the empty state and composer, Settings, the CLI's messages and
+  help, installed instruction blocks, the website, README and current docs,
+  issue templates, and workflow titles.
+- The Vesta heart replaces the mascot and the app icon: window, taskbar,
+  Alt-Tab, the header, the home screen, the terminal welcome, and the packaged
+  Windows icon. `scripts/make_app_icon.py` now derives the icon from the logo.
+- Unchanged on purpose, so existing installs, saved credentials and update
+  feeds keep working: the `opai` command, Python packages and `~/.opai` data;
+  the `OPai-Desktop` entry point and the `OPai.Desktop` app id; `OPai.exe`,
+  `OPai.app`, `OPai.msix` and `OPai-<version>-…` release asset names; the
+  `OPai/free-model-api` keychain entry; the managed-block and context-rule
+  markers already written into users' files; the ProgramData update-policy
+  folder; and the `MarcoLadeira/OPai` repository. Earlier entries below keep
+  the name they were written under.
+
 ## 0.2.1 Alpha.1
 
 ### Release identity and startup

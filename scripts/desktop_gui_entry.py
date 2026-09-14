@@ -1,4 +1,4 @@
-"""Narrow frozen-entry point for the OPai QtWebEngine desktop application."""
+"""Narrow frozen-entry point for the Vesta QtWebEngine desktop application."""
 
 from opai.bootstrap import desktop_main
 

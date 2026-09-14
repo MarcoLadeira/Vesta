@@ -2,7 +2,7 @@
 
 The issue asks Stage 1 to "list all durable runtime/status/cost/approval/history
 files and direct writes" and "define ownership and migration mapping". A
-document would answer that once and then quietly rot: OPai has 62 modules that
+document would answer that once and then quietly rot: Vesta has 62 modules that
 put bytes on disk, and the next one is added without anyone rereading the list.
 
 So the inventory lives here instead, as a classification the tree is checked
@@ -235,7 +235,7 @@ NOT_RUNTIME_STATE = {
     # a clipboard, and nothing about a run's verdict, cost or approval depends
     # on it. Not a projection either -- it cannot be rebuilt from anything, so
     # it sits here for the same reason `opcoding/memory.py` does. Losing it
-    # would be bad and would still not make OPai lie about what happened, which
+    # would be bad and would still not make Vesta lie about what happened, which
     # is the line these three classes actually draw.
     "opaihub/attachments.py",
     "opaihub/benchmark.py",

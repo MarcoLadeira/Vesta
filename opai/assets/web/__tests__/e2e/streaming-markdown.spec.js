@@ -76,7 +76,7 @@ test("an immediate terminal reply lets the visible stream catch up before final 
 
 test("a long final reply without token events is progressively revealed", async ({ page }) => {
   const id = await sendPrompt(page);
-  const text = "OPai keeps the conversation moving by writing a long response into view instead of making the full paragraph suddenly appear. ".repeat(5).trim();
+  const text = "Vesta keeps the conversation moving by writing a long response into view instead of making the full paragraph suddenly appear. ".repeat(5).trim();
   const firstFrame = await page.evaluate(async ({ requestId, value }) => {
     window.__mock.emitReply(requestId, { status: "answered", answer: value, receipt: {} });
     await new Promise((resolve) => requestAnimationFrame(resolve));

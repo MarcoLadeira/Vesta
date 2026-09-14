@@ -21,7 +21,7 @@ beforeAll(async () => {
 function payload(overrides = {}) {
   return {
     models: [
-      { id: "auto", label: "OPai · Auto mode", kind: "auto", provider: "auto" },
+      { id: "auto", label: "Vesta · Auto mode", kind: "auto", provider: "auto" },
       { id: "account:claude:opus", label: "Claude · Opus", kind: "account", provider: "claude" },
     ],
     selectedModel: "account:claude:opus",
@@ -41,7 +41,7 @@ describe("applyBootSelection (F16/F4: payload selection is authoritative)", () =
     // Simulate the stale state left over from a workspace where Full Auto was
     // pinned — the exact desync the QA run hit after switching workspaces.
     opai.state.mode = { id: "full-auto", label: "Full Auto" };
-    opai.state.model = { id: "auto", label: "OPai · Auto mode", kind: "auto", provider: "auto" };
+    opai.state.model = { id: "auto", label: "Vesta · Auto mode", kind: "auto", provider: "auto" };
     opai.state.focus = "explain";
     opai.state.format = "normal";
     opai.state.panel = true;

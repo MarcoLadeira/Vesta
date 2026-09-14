@@ -1,6 +1,6 @@
 """Real, sourced per-token pricing for DeepSeek's direct API (#673 A6).
 
-DeepSeek is OPai's first *paid* direct-API provider. Every existing direct
+DeepSeek is Vesta's first *paid* direct-API provider. Every existing direct
 provider (kimi/gemini/groq/mistral) is genuinely free, so ``$0`` is the
 actual cost and no pricing table has ever needed to exist. Reporting
 DeepSeek at the same ``$0`` would be a false receipt, and reporting
@@ -81,7 +81,7 @@ def estimate_cost_usd(
     instead a distinct, honest label: ``"estimated_stale"``.
 
     ``measurement`` is one of ``provider_catalog.py``'s pricing-schema
-    values, plus one OPai-local addition:
+    values, plus one Vesta-local addition:
 
     - ``"derived"`` when the provider told us the real cache-hit/miss split
       (the exact rates each token was actually billed at).

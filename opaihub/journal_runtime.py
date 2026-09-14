@@ -648,7 +648,7 @@ def _fence_for_late_evidence(
     Evidence does not always arrive before the run it describes ends. #818's
     qualification names two of these outright -- "late provider completion" and
     "delayed usage reporting" -- and a provider CLI reporting its usage after
-    OPai has already filed the turn is the ordinary way to reach them.
+    Vesta has already filed the turn is the ordinary way to reach them.
 
     ``record_terminal`` releases the lease, so a fenced append is refused from
     that moment on. That refusal is right for a *stale* writer and wrong here:
@@ -1008,7 +1008,7 @@ def _why_unopenable(root: Path) -> str:
     """The word for a journal that would not open.
 
     ``_store`` swallows every open failure alike, and the two that matter need
-    different words: "a newer OPai wrote this" points at an upgrade;
+    different words: "a newer Vesta wrote this" points at an upgrade;
     "unreadable" points at a corrupt file, and sending someone to the wrong
     one of those wastes their evening.
     """
@@ -1032,7 +1032,7 @@ def unterminated_summary(
     ``abandoned`` is the count a recovery pass can act on: runs whose owning
     process is provably gone. It is deliberately narrower than "not owned
     here" -- an unverified owner is excluded, because offering to recover work
-    another OPai is doing is the mistake this whole mechanism is built to
+    another Vesta is doing is the mistake this whole mechanism is built to
     avoid.
     """
 
@@ -1220,7 +1220,7 @@ def unconfirmed_cancellations(root: Path) -> dict[str, Any]:
     behind it is a claim about the world nobody checked.
 
     Like :func:`unevidenced_completions` this counts rather than refuses, and
-    for a stronger reason than consistency: a Stop that OPai declined to
+    for a stronger reason than consistency: a Stop that Vesta declined to
     record would be a Stop the user pressed and did not get. Refusing here
     would trade a reporting fault for a blocking one, which is the wrong
     trade in every case. So the write stands and the gap is made visible.

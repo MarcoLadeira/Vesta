@@ -23,7 +23,7 @@ from opaihub.state import attach_project, state_dir
 from opaihub.boundary_errors import safe_detail
 
 
-STATUS_TEXT = "Using OPai"
+STATUS_TEXT = "Using Vesta"
 START_MARKER = "<!-- OPai managed block: start -->"
 END_MARKER = "<!-- OPai managed block: end -->"
 PS_START_MARKER = "# OPai managed block: start"
@@ -65,8 +65,8 @@ def _python_executable() -> str:
 
 def instruction_text(project_root: Path | None = None) -> str:
     project_line = f"Root: `{project_root}`.\n" if project_root else "Root: cwd.\n"
-    return f"""# OPai Active
-{STATUS_TEXT}. {release_version_text()}. {project_line}OPai manages routing, cost controls, and safety policy for this session. Never run `opai` CLI commands from inside an AI task — recursive self-invocation is blocked by OPai (F12). The latest explicit request controls: fix/build/test/refactor/PR authorizes repo edits, a branch, tests, commit, push, and opening a pull request; do not ask again for those requested steps. Explain/review stays read-only. Ask before paid/cloud, destructive or irreversible actions, secret exposure, production credentials, or force-push. Protect unrelated changes. No generated dirs in context: `.git`, `.opcoding*`, `.opaihub/cache|logs|generated|install-test-*`, `node_modules`, venvs, `build`, `dist`. Use Superpowers if available.
+    return f"""# Vesta Active
+{STATUS_TEXT}. {release_version_text()}. {project_line}Vesta manages routing, cost controls, and safety policy for this session. Never run `opai` CLI commands from inside an AI task — recursive self-invocation is blocked by Vesta (F12). The latest explicit request controls: fix/build/test/refactor/PR authorizes repo edits, a branch, tests, commit, push, and opening a pull request; do not ask again for those requested steps. Explain/review stays read-only. Ask before paid/cloud, destructive or irreversible actions, secret exposure, production credentials, or force-push. Protect unrelated changes. No generated dirs in context: `.git`, `.opcoding*`, `.opaihub/cache|logs|generated|install-test-*`, `node_modules`, venvs, `build`, `dist`. Use Superpowers if available.
 """
 
 
@@ -74,7 +74,7 @@ def codex_skill_text(project_root: Path | None = None) -> str:
     body = instruction_text(project_root)
     return f"""---
 name: opai
-description: Use when starting a coding session, when OPai is installed, or when local-first AI tooling, coding agents, MCP routing, cost controls, or project workflows are relevant.
+description: Use when starting a coding session, when Vesta is installed, or when local-first AI tooling, coding agents, MCP routing, cost controls, or project workflows are relevant.
 ---
 
 {body}
@@ -144,10 +144,10 @@ def copilot_instruction_text(project_root: Path | None = None) -> str:
 
 def project_instruction_text(project_root: Path) -> str:
     return f"""{START_MARKER}
-# OPai Active
+# Vesta Active
 {STATUS_TEXT}. Root: current repository.
-OPai is active and manages this session's routing and safety. Never run `opai` CLI commands from inside an AI task — recursive self-invocation is blocked by OPai.
-The latest explicit request controls. A fix/build/test/refactor/PR request allows OPai to edit files, create a branch, test, commit, push, and open a pull request; do not ask again for those requested steps. Explain/review is read-only. Ask before paid/cloud, destructive or irreversible actions, secret exposure, production credentials, or force-push. Protect unrelated changes. No generated dirs in context: `.git`, `.opcoding*`, `.opaihub/cache|logs|generated|install-test-*`, `node_modules`, venvs, `build`, `dist`.
+Vesta is active and manages this session's routing and safety. Never run `opai` CLI commands from inside an AI task — recursive self-invocation is blocked by Vesta.
+The latest explicit request controls. A fix/build/test/refactor/PR request allows Vesta to edit files, create a branch, test, commit, push, and open a pull request; do not ask again for those requested steps. Explain/review is read-only. Ask before paid/cloud, destructive or irreversible actions, secret exposure, production credentials, or force-push. Protect unrelated changes. No generated dirs in context: `.git`, `.opcoding*`, `.opaihub/cache|logs|generated|install-test-*`, `node_modules`, venvs, `build`, `dist`.
 Use Superpowers when available.
 {END_MARKER}"""
 
@@ -155,7 +155,7 @@ Use Superpowers when available.
 def cursor_rule_text(project_root: Path) -> str:
     """Cursor reads `.cursor/rules/*.mdc`. Folder form avoids clobbering user rules."""
     return f"""---
-description: OPai local-first, cost-aware routing and safety policy
+description: Vesta local-first, cost-aware routing and safety policy
 alwaysApply: true
 ---
 {project_instruction_text(project_root)}
@@ -166,7 +166,7 @@ def cline_rule_text(project_root: Path) -> str:
     """Cline reads `.clinerules` file or `.clinerules/` folder. Use the folder form."""
     return f"""{project_instruction_text(project_root)}
 
-For Cline: prefer OPai local-first routing before model escalation.
+For Cline: prefer Vesta local-first routing before model escalation.
 """
 
 
@@ -224,7 +224,7 @@ def _write_claude_memory(project_root: Path, home: Path) -> Path:
     claude = home / ".claude" / "CLAUDE.md"
     existing = claude.read_text(encoding="utf-8") if claude.exists() else ""
     block = f"""{START_MARKER}
-OPai is installed. Read `{opai_home(home) / "instructions" / "OPAI.md"}` for local-first routing, cost controls, and safety policy.
+Vesta is installed. Read `{opai_home(home) / "instructions" / "OPAI.md"}` for local-first routing, cost controls, and safety policy.
 
 Session badge/status text: {STATUS_TEXT}
 {END_MARKER}"""
@@ -245,7 +245,7 @@ def _write_project_instructions(project_root: Path) -> list[str]:
             str(_write(path, _replace_managed_block_at_top(existing, block)))
         )
     # Cursor and Cline read their own rule locations. Folder forms are used so
-    # OPai never overwrites a user's existing single-file rules (issue #35).
+    # Vesta never overwrites a user's existing single-file rules (issue #35).
     written.append(
         str(
             _write(
@@ -416,7 +416,7 @@ def activate_project(
         "global_integrations": global_result,
         "next_steps": [
             "Restart Codex/Claude/Copilot/Gemini sessions after first activation so instructions are rediscovered.",
-            "Launch AI CLIs through OPai wrappers so this activation runs in every project.",
+            "Launch AI CLIs through Vesta wrappers so this activation runs in every project.",
             'Run opai route "<task>" to collect local evidence before model use.',
             "Run opai slim --clean to remove generated caches from this project.",
         ],
@@ -540,7 +540,7 @@ def project_status(project_root: Path, home: Path | None = None) -> dict[str, An
         "next_steps": [
             "Run opai activate --repair if any activation field is false.",
             "Restart AI clients after global skill changes.",
-            "Use op or opai; both launch OPai.",
+            "Use op or opai; both launch Vesta.",
         ],
     }
 
@@ -570,7 +570,7 @@ $env:OPAI_STATUS = "{STATUS_TEXT}"
 & $OpaiPython -m opai activate --quiet --project .
 $ActivationOk = $LASTEXITCODE -eq 0
 if (-not $ActivationOk) {{
-    Write-Warning "OPai activation failed; launching {tool} in degraded mode."
+    Write-Warning "Vesta activation failed; launching {tool} in degraded mode."
 }}
 if ($env:OPAI_WELCOME -eq "1") {{
     & $OpaiPython -m opai welcome --compact --frames 4 --delay 0.035 --animate |
@@ -612,7 +612,7 @@ export OPAI_STATUS="{STATUS_TEXT}"
 ACTIVATION_OK=1
 "$OPAI_PYTHON" -m opai activate --quiet --project . || ACTIVATION_OK=0
 if [ "$ACTIVATION_OK" -eq 0 ]; then
-  printf '%s\\n' "OPai activation failed; launching {tool} in degraded mode." >&2
+  printf '%s\\n' "Vesta activation failed; launching {tool} in degraded mode." >&2
 fi
 if [ "$OPAI_WELCOME" = "1" ]; then
   "$OPAI_PYTHON" -m opai welcome --compact --frames 4 --delay 0.035 --animate >&2
@@ -649,7 +649,7 @@ export OPAI_STATUS="{STATUS_TEXT}"
 ACTIVATION_OK=1
 "$OPAI_PYTHON" -m opai activate --quiet --project . || ACTIVATION_OK=0
 if [ "$ACTIVATION_OK" -eq 0 ]; then
-  printf '%s\\n' "OPai activation failed; launching {tool} in degraded mode." >&2
+  printf '%s\\n' "Vesta activation failed; launching {tool} in degraded mode." >&2
 fi
 if [ "$OPAI_WELCOME" = "1" ]; then
   "$OPAI_PYTHON" -m opai welcome --compact --frames 4 --delay 0.035 --animate >&2
@@ -813,13 +813,13 @@ def install_global_integrations(
         "opai_skills": opai_skills,
         "superpowers": superpowers,
         "notes": [
-            "Codex can discover the OPai skill from ~/.agents/skills/opai.",
-            "The OPai skill library is copied into ~/.agents/skills/opai for cross-repo discovery.",
-            "OPai ensures ~/.agents/skills/superpowers when ~/.codex/superpowers/skills is available.",
+            "Codex can discover the Vesta skill from ~/.agents/skills/opai.",
+            "The Vesta skill library is copied into ~/.agents/skills/opai for cross-repo discovery.",
+            "Vesta ensures ~/.agents/skills/superpowers when ~/.codex/superpowers/skills is available.",
             "Claude Code receives a managed global memory block when target claude is selected.",
             "Copilot support is instruction-file based; client UI support varies.",
-            "Gemini CLI receives GEMINI.md plus OPai shell-wrapper activation.",
-            "Closed desktop apps may not expose a status badge surface. Use OPai instructions where supported.",
+            "Gemini CLI receives GEMINI.md plus Vesta shell-wrapper activation.",
+            "Closed desktop apps may not expose a status badge surface. Use Vesta instructions where supported.",
         ],
     }
     manifest_path = base / "global.json"
@@ -925,7 +925,7 @@ def _strip_block(text: str, start_marker: str, end_marker: str) -> str:
 
 
 def update_opai_source(home: Path | None = None, timeout: int = 120) -> dict[str, Any]:
-    """Update the OPai checkout that is actually running (issue #28).
+    """Update the Vesta checkout that is actually running (issue #28).
 
     Most installs live under ``~/.opai/source`` (what ``install.ps1``/
     ``install.sh`` create); running ``install.ps1`` from inside an existing
@@ -948,16 +948,16 @@ def update_opai_source(home: Path | None = None, timeout: int = 120) -> dict[str
         return {
             "status": "missing_source",
             "source": str(source),
-            "reason": "No OPai source checkout found. Re-run the installer to set one up.",
+            "reason": "No Vesta source checkout found. Re-run the installer to set one up.",
         }
     if not (source / ".git").exists():
         return {
             "status": "not_a_git_checkout",
             "source": str(source),
-            "reason": "OPai source exists but is not a Git checkout; update manually.",
+            "reason": "Vesta source exists but is not a Git checkout; update manually.",
         }
     if not git:
-        return {"status": "missing_git", "reason": "Git is required to update OPai."}
+        return {"status": "missing_git", "reason": "Git is required to update Vesta."}
     command = [git, "-C", str(source), "pull", "--ff-only"]
     try:
         completed = subprocess.run(  # nosec
@@ -971,7 +971,7 @@ def update_opai_source(home: Path | None = None, timeout: int = 120) -> dict[str
     except OSError as exc:
         return {"status": "failed", "reason": safe_detail(exc)}
     except subprocess.TimeoutExpired:
-        return {"status": "timeout", "reason": "OPai update timed out."}
+        return {"status": "timeout", "reason": "Vesta update timed out."}
     return {
         "status": "ok" if completed.returncode == 0 else "failed",
         "source": str(source),
@@ -986,16 +986,16 @@ def uninstall_opai(
     dry_run: bool = True,
     remove_project_files: bool = True,
 ) -> dict[str, Any]:
-    """Remove OPai-managed blocks, wrappers, and discovery files (issue #28).
+    """Remove Vesta-managed blocks, wrappers, and discovery files (issue #28).
 
-    Defaults to a dry run. User content outside OPai-managed blocks is never
+    Defaults to a dry run. User content outside Vesta-managed blocks is never
     touched, and the operation is idempotent.
     """
     root = project_root.expanduser().resolve()
     user_home = (home or Path.home()).expanduser().resolve()
     base = opai_home(user_home)
 
-    # Whole files/dirs OPai fully owns and can remove.
+    # Whole files/dirs Vesta fully owns and can remove.
     owned_paths = [
         base / "bin",
         base / "integrations",
@@ -1014,7 +1014,7 @@ def uninstall_opai(
             ]
         )
 
-    # Files where OPai owns only a managed block and must preserve user content.
+    # Files where Vesta owns only a managed block and must preserve user content.
     block_files = [
         (user_home / ".claude" / "CLAUDE.md", START_MARKER, END_MARKER),
         (
@@ -1095,7 +1095,7 @@ def uninstall_opai(
         "removed_paths": removed,
         "stripped_blocks": stripped,
         "notes": [
-            "User content outside OPai-managed blocks is preserved.",
+            "User content outside Vesta-managed blocks is preserved.",
             "Re-run with --confirm to apply. Safe to run repeatedly (idempotent).",
         ],
     }

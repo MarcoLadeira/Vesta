@@ -8,7 +8,7 @@ The tests are weighted the way the risk is. Taking a backup has one interesting
 property -- that it captures what was actually committed, including the WAL --
 and restoring one has several, because restore is the operation that destroys
 the thing it is replacing. So most of what follows is about refusing: a
-mismatched digest, a corrupt file, a database from a newer OPai, and the
+mismatched digest, a corrupt file, a database from a newer Vesta, and the
 security case the issue calls out by name, where a journal copied from another
 machine must not bring its approvals with it.
 

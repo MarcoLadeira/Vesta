@@ -8,7 +8,7 @@ assignment, bounded active concurrency - and reconciliation refuses to
 auto-merge assignments whose changed files collide, surfacing them for
 sequential human-reviewed merges instead. Nothing here resets, cleans, or
 overwrites the user's checkout; worktree creation is delegated to durable,
-reconciled OPai worktree leases.
+reconciled Vesta worktree leases.
 """
 
 from __future__ import annotations

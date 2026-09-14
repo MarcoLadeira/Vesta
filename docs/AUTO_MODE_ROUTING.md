@@ -1,7 +1,7 @@
-# OPai Auto Mode — capability routing, fallback & cost policy
+# Vesta Auto Mode — capability routing, fallback & cost policy
 
-Auto mode is OPai's "just pick the right model and make it work" path. A user
-selects **Auto**, sends a message, and OPai chooses — from every model the user
+Auto mode is Vesta's "just pick the right model and make it work" path. A user
+selects **Auto**, sends a message, and Vesta chooses — from every model the user
 has actually configured — the cheapest one that can do the job, escalating only
 when it must, and asking for confirmation only when a call is genuinely paid,
 destructive, or irreversible.
@@ -142,7 +142,7 @@ exhaustion is observed fact: an out-of-credit provider **cannot** answer, so
 Settings page shows the state with a recharge hint. The verdict expires after
 `EXHAUSTED_TTL_SECONDS` (6 h) and is cleared by any successful call, a manual
 balance above zero, or a live probe showing credit — so a recharge made
-outside OPai is rediscovered automatically.
+outside Vesta is rediscovered automatically.
 
 ## Diagnostics
 

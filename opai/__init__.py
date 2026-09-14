@@ -1,4 +1,4 @@
-"""OPai public package metadata."""
+"""Vesta public package metadata."""
 
 import tempfile as _tempfile
 
@@ -14,7 +14,7 @@ from ._generated_release import APPLICATION_VERSION, RELEASE_STAGE
 #: instead of reporting an error. Names are random, so a hundred genuine
 #: collisions do not happen; a hundred refusals is an answer.
 #:
-#: Set here because every OPai process imports this package first --
+#: Set here because every Vesta process imports this package first --
 #: ``opaihub`` included -- which covers all thirteen places that create a
 #: temporary file next to their target, not just the one that was caught.
 TEMPFILE_ATTEMPTS = 100
@@ -24,4 +24,4 @@ if _tempfile.TMP_MAX > TEMPFILE_ATTEMPTS:
 
 __version__ = APPLICATION_VERSION
 __release_stage__ = RELEASE_STAGE
-__brand__ = "OPai"
+__brand__ = "Vesta"

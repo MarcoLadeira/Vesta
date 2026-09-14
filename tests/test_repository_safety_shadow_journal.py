@@ -2,7 +2,7 @@
 
 Stage 1 named ``opaihub/repository_safety.py`` JOURNAL_OWNED -- "operations:
 repository mutation guards". A handle records the repository identity and
-dirty state captured before OPai is allowed to mutate anything, so it is the
+dirty state captured before Vesta is allowed to mutate anything, so it is the
 record that decides whether a mutation may proceed at all.
 
 Unlike most of the modules migrated so far this one arrived already correct:

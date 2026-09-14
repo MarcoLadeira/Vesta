@@ -1,6 +1,6 @@
 """A single-flight registry of active provider/tool sessions (#169).
 
-OPai already has good per-call process hygiene (CREATE_NO_WINDOW, cancel Events
+Vesta already has good per-call process hygiene (CREATE_NO_WINDOW, cancel Events
 that kill CLIs, a bounded shutdown drain). What was missing is a *global* view:
 which sessions are running right now, a guarantee that a retry never runs two
 processes for the same request, and a sweep for child PIDs orphaned by a crash.
@@ -409,7 +409,7 @@ def sweep_orphans(
 ) -> list[int]:
     """Terminate leftover child PIDs from a previous crash (#169).
 
-    Pure and injectable: given PIDs recorded before OPai exited, kill the ones
+    Pure and injectable: given PIDs recorded before Vesta exited, kill the ones
     still alive (a clean shutdown would have cleared them) and return the list of
     PIDs actually terminated. A kill that fails is skipped, never raised.
     """
@@ -438,7 +438,7 @@ def durable_active_count(
     *,
     is_pid_alive: Callable[[int], bool] = _pid_is_alive,
 ) -> int:
-    """Read the canonical session registry across OPai processes."""
+    """Read the canonical session registry across Vesta processes."""
 
     path = Path(root)
     if (

@@ -706,7 +706,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
                     "Fix it", project_root=root, allow_edits=True
                 )
         self.assertEqual(result["stopped_reason"], "repeated_failure")
-        # A thrashing run is reported honestly — never "OPai completed".
+        # A thrashing run is reported honestly — never "Vesta completed".
         self.assertEqual(result["completion_state"], "stuck_no_progress")
         self.assertTrue(result["last_error"])
         # Stopped at the repeat threshold, not after burning the whole budget.

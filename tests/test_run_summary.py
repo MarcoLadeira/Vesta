@@ -16,7 +16,7 @@ def _completed_record() -> dict:
     return {
         "completion_verdict": {
             "verdict": "completed",
-            "reason": "Objective verified from OPai-observed evidence.",
+            "reason": "Objective verified from Vesta-observed evidence.",
             "objective": {
                 "objective_text": "Fix the parser bug and run the tests.",
                 "mode": "implement",
@@ -47,7 +47,7 @@ def _lines(record) -> list[str]:
 
 def test_verdict_is_the_first_thing_after_the_title() -> None:
     lines = [line for line in _lines(_completed_record()) if line.strip()]
-    assert lines[0] == "# OPai run receipt"
+    assert lines[0] == "# Vesta run receipt"
     # The very next non-empty line is the verdict — nothing precedes "did it work".
     assert lines[1].startswith("**Verdict: Completed**")
     assert "Objective verified" in lines[1]
@@ -76,14 +76,14 @@ def test_partial_run_shows_actuals_next_action_and_no_savings() -> None:
     record = _completed_record()
     record["completion_verdict"]["verdict"] = "partial"
     record["completion_verdict"]["reason"] = "No diff evidence verifies the edit."
-    record["completion_verdict"]["next_action"] = "Ask OPai to apply the change."
+    record["completion_verdict"]["next_action"] = "Ask Vesta to apply the change."
     record["changed_files"] = []
     record["completion_verdict"]["evidence"] = []
     record["receipt"]["estimated_savings_usd"] = 0.0  # #381: gated to zero
 
     text = build_run_summary(record)
     assert text.splitlines()[2].startswith("**Verdict: Partial**")
-    assert "Next: Ask OPai to apply the change." in text
+    assert "Next: Ask Vesta to apply the change." in text
     # Actual spend is still shown, but no savings claim of any kind.
     assert "Spend: $0.0000" in text
     assert "Saved:" not in text
@@ -118,7 +118,7 @@ def test_cost_badge_reflects_measurement_confidence() -> None:
 def test_empty_or_malformed_record_never_crashes() -> None:
     for bad in (None, {}, {"completion_verdict": "nope"}, {"receipt": []}):
         text = build_run_summary(bad)  # type: ignore[arg-type]
-        assert text.startswith("# OPai run receipt")
+        assert text.startswith("# Vesta run receipt")
         assert "**Verdict:" in text
 
 
@@ -158,5 +158,5 @@ def test_pipeline_attaches_a_verdict_first_run_summary() -> None:
     summary = res["run_summary"]
     assert summary == build_run_summary(res)  # identical, render-from-record
     body = [line for line in summary.splitlines() if line.strip()]
-    assert body[0] == "# OPai run receipt"
+    assert body[0] == "# Vesta run receipt"
     assert body[1].startswith("**Verdict:")

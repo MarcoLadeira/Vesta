@@ -278,7 +278,7 @@ class AJournalInUseIsNotABadBackupTests(_JournalCommandFixture):
     """Reporting the wrong cause is how a good backup gets thrown away.
 
     On Windows an open handle blocks replacing the journal, so a restore
-    attempted while OPai is running cannot proceed. Refusing is correct --
+    attempted while Vesta is running cannot proceed. Refusing is correct --
     nothing is overwritten -- but the first version reported it as
     ``backup_unreadable``, which points the user at the one file that is
     actually fine and is still their only copy.
@@ -295,7 +295,7 @@ class AJournalInUseIsNotABadBackupTests(_JournalCommandFixture):
         if report.ok:  # pragma: no cover - POSIX allows replacing an open file
             self.skipTest("this platform permits replacing an open database")
         self.assertEqual(report.reason, journal_backup.REFUSE_IN_USE)
-        self.assertIn("close OPai", report.detail)
+        self.assertIn("close Vesta", report.detail)
 
     def test_nothing_is_lost_when_the_restore_is_refused(self):
         self._finished_runs(2)
@@ -419,7 +419,7 @@ class PendingTests(_JournalCommandFixture):
 
         It could not, because the lease recorded ``owner="gui"`` -- a category
         with no process behind it. Now that the lease names a process, the
-        surface says which OPai holds the run instead of apologising for not
+        surface says which Vesta holds the run instead of apologising for not
         knowing.
         """
 
@@ -427,7 +427,7 @@ class PendingTests(_JournalCommandFixture):
 
         _, output = self._run("pending")
 
-        self.assertIn("This OPai is working on it now.", output)
+        self.assertIn("This Vesta is working on it now.", output)
         self.assertNotIn("cannot tell those apart", output)
 
     def test_the_output_still_refuses_to_call_an_unverifiable_owner_dead(self):
@@ -450,13 +450,13 @@ class PendingTests(_JournalCommandFixture):
         ):
             _, output = self._run("pending")
 
-        self.assertIn("Another OPai may still be working on it.", output)
+        self.assertIn("Another Vesta may still be working on it.", output)
         self.assertIn("cannot verify", output)
 
     def test_a_stale_owner_gets_its_own_caveat_not_the_unverified_one(self):
         """Two different situations that ask different things of the reader.
 
-        "OPai cannot verify who owns this" is about a pid that might have been
+        "Vesta cannot verify who owns this" is about a pid that might have been
         reused. "The owner stopped responding" is about a process that was
         demonstrably tending the run and went quiet. Collapsing them into one
         sentence loses the only part that tells the reader what to look at.

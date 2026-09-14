@@ -1,8 +1,8 @@
 """GitHub account connector: PAT auth, status, and pull-request creation.
 
-Lets a user authorize OPai with a GitHub personal access token once, then have
+Lets a user authorize Vesta with a GitHub personal access token once, then have
 coding runs commit, push, and open pull requests as part of the normal
-implement flow. Three rules keep it inside OPai's safety contract:
+implement flow. Three rules keep it inside Vesta's safety contract:
 
 - **The token never touches project files or logs.** It lives in the system
   keychain (via :mod:`opaihub.credentials`) or the ``GITHUB_TOKEN``/``GH_TOKEN``
@@ -60,7 +60,7 @@ def _default_http(
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
     headers = {
         "Accept": "application/vnd.github+json",
-        "User-Agent": "OPai",
+        "User-Agent": "Vesta",
         "X-GitHub-Api-Version": "2022-11-28",
     }
     if token:
@@ -649,7 +649,7 @@ def create_pull_request(
             token,
             {
                 "title": clean_title,
-                # #contributor: say plainly that OPai opened this. A reviewer
+                # #contributor: say plainly that Vesta opened this. A reviewer
                 # should not have to read `git log` to learn whether a human or an
                 # assistant wrote what they are reviewing.
                 "body": redact(with_pr_attribution(str(body or "")))[:20_000],

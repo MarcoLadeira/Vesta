@@ -1,11 +1,11 @@
-# OPai Desktop — Product Vision
+# Vesta Desktop — Product Vision
 
 ## Positioning
 
-**A controllable, cost-aware AI coding workspace.** OPai's desktop app is not
+**A controllable, cost-aware AI coding workspace.** Vesta's desktop app is not
 "another chat box." It is the place a developer directs, inspects, constrains,
 and *pays less for* AI work — with more transparency and control than a standard
-AI chat. The wedge is OPai's existing engine: local-first routing, a cost
+AI chat. The wedge is Vesta's existing engine: local-first routing, a cost
 firewall, honest savings accounting, and signed proof.
 
 ## Target users
@@ -17,7 +17,7 @@ firewall, honest savings accounting, and signed proof.
 
 ## What makes it stronger than a basic AI chat
 
-1. **Switchable workspaces.** Point OPai at any project folder and everything —
+1. **Switchable workspaces.** Point Vesta at any project folder and everything —
    models, budget, dashboards — re-scopes to it.
 2. **A real control plane.** A session inspector shows the model, run mode, task
    focus, output format, budget, and *exactly what the AI may do* — derived from
@@ -31,12 +31,12 @@ firewall, honest savings accounting, and signed proof.
 
 ## Competitive read
 
-| Product | Their strength | What OPai does differently |
+| Product | Their strength | What Vesta does differently |
 | --- | --- | --- |
-| Cursor / Claude Code | Deep in-editor agents | OPai is the **cost firewall + control plane** over the agents you already pay for, not a replacement editor |
-| ChatGPT / Claude desktop | Polished chat | OPai adds **workspace scoping, spend visibility, tool-permission transparency, and savings proof** |
-| Perplexity / v0 / Bolt | Focused generators | OPai is **multi-model, local-first, and private** by default |
-| Raycast / Linear | Keyboard-first polish | OPai borrows the palette/shortcut model and applies it to **AI control** |
+| Cursor / Claude Code | Deep in-editor agents | Vesta is the **cost firewall + control plane** over the agents you already pay for, not a replacement editor |
+| ChatGPT / Claude desktop | Polished chat | Vesta adds **workspace scoping, spend visibility, tool-permission transparency, and savings proof** |
+| Perplexity / v0 / Bolt | Focused generators | Vesta is **multi-model, local-first, and private** by default |
+| Raycast / Linear | Keyboard-first polish | Vesta borrows the palette/shortcut model and applies it to **AI control** |
 
 ## Future premium features
 

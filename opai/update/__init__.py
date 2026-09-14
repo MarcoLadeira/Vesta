@@ -1,4 +1,4 @@
-"""Canonical, application-wide OPai update domain."""
+"""Canonical, application-wide Vesta update domain."""
 
 from .models import (
     InstallType,

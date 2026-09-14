@@ -18,7 +18,7 @@ test("benchmark approved claim remains exact and locally scoped", async ({ page 
   await openApp(page);
   await openNav(page, "Benchmark");
   await expect(page.locator("#dashPage")).toContainText(
-    "OPai reduced context by 50x and avoided 16 paid calls on the 16-task local benchmark suite.",
+    "Vesta reduced context by 50x and avoided 16 paid calls on the 16-task local benchmark suite.",
   );
 });
 

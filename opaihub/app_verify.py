@@ -1,4 +1,4 @@
-"""Post-edit structural verification for OPai Build apps (#276).
+"""Post-edit structural verification for Vesta Build apps (#276).
 
 After ``opai build`` applies model-proposed files, this proves the app still
 stands — deterministically, offline, in milliseconds. It is honest about what

@@ -1,4 +1,4 @@
-"""Fail when OPai application/release identity projections drift."""
+"""Fail when Vesta application/release identity projections drift."""
 
 from __future__ import annotations
 

@@ -787,7 +787,7 @@ def normalize_autonomy(value: str | None) -> str:
     text = str(value or "").strip().lower().replace("_", "-")
     if text in AUTONOMY_LEVELS:
         return text
-    # Legacy OPai run-mode ids, kept working so stored preferences and older
+    # Legacy Vesta run-mode ids, kept working so stored preferences and older
     # callers keep meaning what they used to mean.
     legacy = {
         "ask": PLAN,

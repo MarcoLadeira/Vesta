@@ -1,4 +1,4 @@
-"""Secret canaries must not survive into anything OPai persists (#546/#549).
+"""Secret canaries must not survive into anything Vesta persists (#546/#549).
 
 The report's release gate is "secret canaries are absent from logs, events,
 receipts and support bundles", and its scenario corpus calls for "canary
@@ -10,8 +10,8 @@ A 2026-08-04 sweep found **6 of 12** realistic credential formats surviving
 `command_runner.redact()` — the single shared redactor imported by 28 modules
 including `ledger.py`, `checkpoints.py`, `audit.py`, `receipt.py`,
 `workflow_ledger.py` and saved chat. Two of the leaks were **Google and Groq
-API keys: credentials OPai itself asks the user to configure** for its own
-free-tier providers, so a leak there is a leak of a secret OPai requested.
+API keys: credentials Vesta itself asks the user to configure** for its own
+free-tier providers, so a leak there is a leak of a secret Vesta requested.
 
 Two directions are tested, because a redactor is only useful if both hold:
 
@@ -96,8 +96,8 @@ class CanaryRedactionTests(unittest.TestCase):
                 self.assertNotIn(secret, redact(template.format(s=secret)))
 
     def test_providers_opai_asks_the_user_to_configure_are_covered(self) -> None:
-        # A leaked credential OPai itself requested is the worst case: the user
-        # gave it to OPai, so OPai owns not spilling it into its own records.
+        # A leaked credential Vesta itself requested is the worst case: the user
+        # gave it to Vesta, so Vesta owns not spilling it into its own records.
         from opaihub.free_models import FREE_MODEL_SPECS
 
         configured = {spec["env_key"] for spec in FREE_MODEL_SPECS}

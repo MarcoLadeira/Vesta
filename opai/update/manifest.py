@@ -1,4 +1,4 @@
-"""Verification of OPai's small signed cross-platform release manifest."""
+"""Verification of Vesta's small signed cross-platform release manifest."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-# OPai guarded-workflow contract (issue #39).
+# Vesta guarded-workflow contract (issue #39).
 # Every guarded workflow must declare these fields so autonomy stays bounded,
 # auditable, and human-controlled. Risky actions fail closed by default.
 schema_version: 1

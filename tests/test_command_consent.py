@@ -2,7 +2,7 @@
 
 Pinning Full Auto promises "Push, deploy, and destructive actions still ask for
 confirmation", and a push then ran with no confirmation UI at all. The structural
-cause was that neither execution channel could ask: OPai's own tool executor ran
+cause was that neither execution channel could ask: Vesta's own tool executor ran
 ``git_push`` as soon as Settings consent existed, and a provider CLI's push was
 gated only by a PreToolUse hook, which can allow or deny but has no interactive
 channel. ``opaihub.command_consent`` is that channel — a refusal recorded by one
@@ -216,7 +216,7 @@ class OneApprovalAuthorisesExactlyOneCommandTests(_IsolatedConsent):
     def test_racing_processes_do_not_all_get_the_same_grant(self):
         """Threads share an interpreter; the gates that matter do not.
 
-        The real racers are a provider CLI's hook subprocess and OPai's own
+        The real racers are a provider CLI's hook subprocess and Vesta's own
         tool executor, so the claim has to hold at the operating system level.
         """
 
@@ -413,7 +413,7 @@ class ApprovalsBelongToOneRunTests(_IsolatedConsent):
 
     ``consent_dir()`` is a fixed per-user path -- deliberately, so a provider
     CLI's hook subprocess can find it with no argument plumbing. The cost is
-    that every OPai window on the machine shares one handshake directory, and
+    that every Vesta window on the machine shares one handshake directory, and
     the grant said only *which command* had been approved.
 
     Measured before the fix, with two real processes: window A's user approved
@@ -444,8 +444,8 @@ class ApprovalsBelongToOneRunTests(_IsolatedConsent):
     def test_a_caller_that_cannot_identify_itself_is_still_allowed(self):
         """Never block a person from what they just explicitly approved.
 
-        The process that spends a grant is the PreToolUse hook, and OPai does
-        not launch it: OPai launches the *provider's* CLI, and that launches
+        The process that spends a grant is the PreToolUse hook, and Vesta does
+        not launch it: Vesta launches the *provider's* CLI, and that launches
         the hook. Whether OPAI_RUN_ID survives that middle hop is a third
         party's decision.
 
@@ -453,7 +453,7 @@ class ApprovalsBelongToOneRunTests(_IsolatedConsent):
         that sanitises its hook environment would otherwise silently refuse
         every approved push -- the user presses Approve and nothing happens --
         which is a far worse failure than the cross-window leak this check
-        exists to close, and OPai must never be the reason someone cannot do
+        exists to close, and Vesta must never be the reason someone cannot do
         the thing they just asked for.
 
         The refusal needs evidence. "This grant is run B's and I am run A" is
@@ -503,7 +503,7 @@ class ApprovalsBelongToOneRunTests(_IsolatedConsent):
             self.assertTrue(command_consent.consume_grant("git push"))
 
     def test_a_second_window_really_is_refused_across_processes(self):
-        """Threads share an interpreter; two OPai windows do not."""
+        """Threads share an interpreter; two Vesta windows do not."""
 
         command_consent.begin_turn("git push", run="run-A")
         script = (

@@ -133,11 +133,11 @@ def _next_actions(
     actions: list[str] = []
     summary = status["client_integrations"]["summary"]
     if summary["broken"] or summary["missing"] or not status["stale_paths"]["ok"]:
-        actions.append("Run `opai activate --repair` to restore OPai client coverage.")
+        actions.append("Run `opai activate --repair` to restore Vesta client coverage.")
     wrappers = _wrapper_status(status)
     if wrappers["shell_aliases_installed"] and not wrappers["bin_on_path"]:
         actions.append(
-            "Open a new shell or reload your profile so OPai client wrappers are visible."
+            "Open a new shell or reload your profile so Vesta client wrappers are visible."
         )
     if not savings["has_data"]:
         actions.append(
@@ -149,7 +149,7 @@ def _next_actions(
         )
     if not actions:
         actions.append(
-            "OPai is active. Launch agents through `opai launch <client>` or your OPai shell aliases."
+            "Vesta is active. Launch agents through `opai launch <client>` or your Vesta shell aliases."
         )
     return actions
 
@@ -159,7 +159,7 @@ def compact_statusline(payload: dict[str, Any]) -> str:
     clients = payload["clients"]
     saved = float(payload["savings"]["estimated_savings_usd"])
     budget = "panic" if payload["budget"]["panic"] else "budget ok"
-    return f"OPai {status} | {clients['active']}/{clients['total']} clients | ${saved:.2f} saved | {budget}"
+    return f"Vesta {status} | {clients['active']}/{clients['total']} clients | ${saved:.2f} saved | {budget}"
 
 
 def _provider_telemetry_line(telemetry: dict[str, Any]) -> str:
@@ -194,7 +194,7 @@ def render_cockpit(payload: dict[str, Any]) -> str:
     local = payload["local_models"]
     wrappers = payload["wrappers"]
     lines = [
-        f"OPai {state}",
+        f"Vesta {state}",
         f"Version: {payload['version']} {payload['release_stage']}",
         f"Project: {payload['project']['root']}",
         "",

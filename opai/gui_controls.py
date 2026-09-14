@@ -1,4 +1,4 @@
-"""Qt-free data + formatting for the OPai desktop GUI controls.
+"""Qt-free data + formatting for the Vesta desktop GUI controls.
 
 Kept PySide-free and dependency-light so the command palette, model badges,
 header status strip, keyboard-shortcut help, and the empty/thinking/error
@@ -224,7 +224,7 @@ def header_status(
 
     Gives the user constant visibility of the AI's state without a control pane.
 
-    A spend OPai could not read is **not** rendered as ``$0.00``. #818: "unknown
+    A spend Vesta could not read is **not** rendered as ``$0.00``. #818: "unknown
     cost is never represented as zero". This is the line a user glances at to
     decide whether today has been expensive, and ``gui_web._status`` substitutes
     a zero whenever the ledger read raises -- so a corrupt or unreadable ledger
@@ -250,7 +250,7 @@ def empty_state() -> dict[str, str]:
     return {
         "title": "What should we build?",
         "body": (
-            "Pick a model and mode below, then describe a task. OPai runs it "
+            "Pick a model and mode below, then describe a task. Vesta runs it "
             "local-first and shows what it costs."
         ),
         "hint": "Press Ctrl+K for commands",
@@ -261,9 +261,9 @@ def thinking_text(model_label: str | None = None) -> str:
     short = (
         str(model_label).split(" · ")[0].split(" (")[0].strip()
         if model_label
-        else "OPai"
+        else "Vesta"
     )
-    return f"{short or 'OPai'} is working…"
+    return f"{short or 'Vesta'} is working…"
 
 
 _FRIENDLY_ERRORS: dict[str, str] = {
@@ -284,11 +284,11 @@ _FRIENDLY_ERRORS: dict[str, str] = {
         "menu, or add a local model under Advanced."
     ),
     "needs_confirmation": (
-        "This needs a paid model. Pick Claude or Codex to run it — OPai won't "
+        "This needs a paid model. Pick Claude or Codex to run it — Vesta won't "
         "spend on a paid call automatically."
     ),
     "blocked": (
-        "OPai stopped this because it looks risky. Switch to Full Auto only if "
+        "Vesta stopped this because it looks risky. Switch to Full Auto only if "
         "you intend that."
     ),
     "blocked_panic": (

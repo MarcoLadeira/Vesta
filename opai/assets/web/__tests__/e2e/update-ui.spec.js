@@ -64,7 +64,7 @@ test("a source checkout behind its remote is simply told an update is ready", as
     { state: "unsupported_install", candidate: {},
       safe_diagnostic: "This source checkout is 4 commits behind origin/main; update with the explicit developer update command." },
     { self_updatable: true,
-      summary: { title: "Update available", message: "A new version of OPai is ready." } },
+      summary: { title: "Update available", message: "A new version of Vesta is ready." } },
   ));
 
   await page.locator("#updateBanner").click();
@@ -72,12 +72,12 @@ test("a source checkout behind its remote is simply told an update is ready", as
 
   await expect(page.locator("#updateSheetTitle")).toContainText("Update available");
   await expect(page.locator("#updateSheetDescription"))
-    .toHaveText("A new version of OPai is ready.");
+    .toHaveText("A new version of Vesta is ready.");
   await expectNoJargon(sheet);
   await expect(page.locator('[data-update-action="developer_apply"]')).toBeVisible();
 });
 
-test("an installation OPai cannot update says so without naming a command", async ({
+test("an installation Vesta cannot update says so without naming a command", async ({
   page,
 }) => {
   await openApp(page, scenario(
@@ -85,14 +85,14 @@ test("an installation OPai cannot update says so without naming a command", asyn
       safe_diagnostic: "This installation cannot update transactionally." },
     { self_updatable: false,
       summary: { title: "Managed elsewhere",
-                 message: "Updates for this installation are handled outside OPai." } },
+                 message: "Updates for this installation are handled outside Vesta." } },
   ));
 
   await page.locator("#updateBanner").click();
   const sheet = page.locator("#updateSheet");
 
   await expect(page.locator("#updateSheetDescription"))
-    .toContainText("handled outside OPai");
+    .toContainText("handled outside Vesta");
   await expectNoJargon(sheet);
   // And it is not offered a button that would act on an installation another
   // tool owns -- while checking again stays available, because that is safe.
@@ -103,15 +103,15 @@ test("an installation OPai cannot update says so without naming a command", asyn
 test("a finished update asks for a restart and nothing else", async ({ page }) => {
   await openApp(page, scenario(
     { state: "completed", candidate: {},
-      safe_diagnostic: "OPai was updated on disk. Restart to use the new version." },
+      safe_diagnostic: "Vesta was updated on disk. Restart to use the new version." },
     { self_updatable: true,
-      summary: { title: "Update ready", message: "Restart OPai to finish updating." } },
+      summary: { title: "Update ready", message: "Restart Vesta to finish updating." } },
   ));
 
   await page.locator("#updateBanner").click();
 
   await expect(page.locator("#updateSheetDescription"))
-    .toHaveText("Restart OPai to finish updating.");
+    .toHaveText("Restart Vesta to finish updating.");
   await expectNoJargon(page.locator("#updateSheet"));
   await expect(page.locator('[data-update-action="restart_now"]')).toBeVisible();
 });

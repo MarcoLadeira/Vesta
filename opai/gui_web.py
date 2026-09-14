@@ -1,7 +1,7 @@
-"""OPai desktop app — web-rendered UI (Chromium via QtWebEngine).
+"""Vesta desktop app — web-rendered UI (Chromium via QtWebEngine).
 
 The window is a single ``QWebEngineView`` rendering a hand-built HTML/CSS/JS
-front-end (``opai/assets/web/``). All of OPai's logic stays in Python and is
+front-end (``opai/assets/web/``). All of Vesta's logic stays in Python and is
 exposed to the page over a thin ``QWebChannel`` bridge — the front-end never
 computes anything sensitive, it just renders JSON the bridge hands it.
 
@@ -172,7 +172,7 @@ def _runtime_index_url(web_dir: Path) -> "Any":
     if not index.is_file():
         raise FileNotFoundError(
             f"packaged web asset missing: {index} "
-            "(reinstall OPai or rebuild the web bundle)"
+            "(reinstall Vesta or rebuild the web bundle)"
         )
     try:
         ver = str(int(time.time() * 1000))
@@ -483,7 +483,7 @@ def _workspace(root: Path) -> dict[str, Any]:
         "repository_safety": repository_safety,
         "worktree_leases": worktree_leases,
         "file_count": ws.get("file_count", 0),
-        # OPai Build (#276): when the workspace is a scaffolded app, the GUI
+        # Vesta Build (#276): when the workspace is a scaffolded app, the GUI
         # offers Build mode — chat edits it with cheap, verified targeted diffs.
         "build_app": build_manifest is not None,
         "build_app_name": (build_manifest or {}).get("name")
@@ -662,7 +662,7 @@ def _resume_payload(root: Path) -> dict[str, Any]:
     from opaihub.workflow_state import load_workflow_state
 
     # Boot is deliberately read-only. A pending checkpoint can still belong to
-    # another live OPai window or CLI run; without an owner lease, process death
+    # another live Vesta window or CLI run; without an owner lease, process death
     # cannot be inferred safely. Preserve it verbatim and let the user make the
     # explicit resume/start-fresh choice.
     thread = load_thread(root)
@@ -729,7 +729,7 @@ def _resume_payload(root: Path) -> dict[str, Any]:
         # #295 invariant 4: whether the process that owned this run is
         # still alive. Boot stays read-only — this reports what the lease
         # says and mutates nothing, so the resume/start-fresh choice is
-        # still the user's. It just stops OPai having to present a run
+        # still the user's. It just stops Vesta having to present a run
         # abandoned days ago and one a sibling window is actively working
         # on as the same indistinguishable thing.
         "owner": describe_lease(thread.get("lease")),
@@ -782,10 +782,10 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
         (m for m in models["models"] if m["id"] == prefs.get("default_model")),
         models["models"][0]
         if models["models"]
-        else {"id": "auto", "label": "OPai · Auto mode", "kind": "auto"},
+        else {"id": "auto", "label": "Vesta · Auto mode", "kind": "auto"},
     )
     sel = {
-        "model_label": sel_model.get("label", "OPai · Auto mode"),
+        "model_label": sel_model.get("label", "Vesta · Auto mode"),
         "model_advanced_label": sel_model.get(
             "advanced_label", sel_model.get("label", "Automatic routing")
         ),
@@ -920,9 +920,9 @@ def _clear_failure_payload(root: Path, *, target: str) -> dict[str, Any]:
     payload["error"] = {
         "code": "SESSION_CLEAR_FAILED",
         "title": "Saved work was not cleared",
-        "userMessage": f"OPai could not clear the {target}.",
+        "userMessage": f"Vesta could not clear the {target}.",
         "recoveryActions": [
-            "Close other OPai windows using this workspace and try again.",
+            "Close other Vesta windows using this workspace and try again.",
             "Check that the workspace files are writable.",
         ],
     }
@@ -1467,7 +1467,7 @@ def scaffold_app_payload(root: Path, payload_json: str) -> dict[str, Any]:
 
 
 def app_receipt_payload(root: Path) -> dict[str, Any]:
-    """The current workspace's OPai Build receipt, or an honest not-an-app."""
+    """The current workspace's Vesta Build receipt, or an honest not-an-app."""
     from opaihub.build_loop import app_receipt
 
     return app_receipt(root)
@@ -2297,7 +2297,7 @@ def _run_gui(
                     outcome = {
                         "ok": False,
                         "reason": "check_failed",
-                        "message": "OPai could not check for updates just now.",
+                        "message": "Vesta could not check for updates just now.",
                     }
                 status = self._update_service.status()
                 if outcome is not None and not outcome.get("ok"):
@@ -2828,7 +2828,7 @@ def _run_gui(
 
         @QtCore.Slot(str)
         def build(self, payload_json: str) -> None:
-            """One OPai Build turn from the GUI (#276): a chat message becomes a
+            """One Vesta Build turn from the GUI (#276): a chat message becomes a
             cheap, verified, targeted edit of the workspace app.
 
             Mirrors ``send`` exactly — same Worker thread, same batched activity
@@ -3098,7 +3098,7 @@ def _run_gui(
             except Exception:  # noqa: BLE001 - never leak a host path or trace
                 _LOG.debug("Attachment storage failed", exc_info=True)
                 return json.dumps(
-                    {"ok": False, "error": "OPai could not save the image."}
+                    {"ok": False, "error": "Vesta could not save the image."}
                 )
             return json.dumps({"ok": True, **stored.to_dict()})
 
@@ -3210,7 +3210,7 @@ def _run_gui(
             self._resume_context_active = False
             self._session_epoch.invalidate()
             add_recent_workspace(self.root)
-            self.window.setWindowTitle(f"OPai · {self.root.name}")
+            self.window.setWindowTitle(f"Vesta · {self.root.name}")
             self.workspaceChanged.emit(json.dumps(boot_payload(self.root)))
 
         @QtCore.Slot(str)
@@ -3266,7 +3266,7 @@ def _run_gui(
     class Window(QtWidgets.QMainWindow):
         def __init__(self) -> None:
             super().__init__()
-            self.setWindowTitle(f"OPai · {root.name}")
+            self.setWindowTitle(f"Vesta · {root.name}")
             self.setWindowFlag(QtCore.Qt.WindowType.FramelessWindowHint, True)
             self.setMinimumSize(1040, 700)
             self.resize(1340, 880)
