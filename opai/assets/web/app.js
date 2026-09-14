@@ -825,6 +825,8 @@ function updateSendLabel() {
   updateComposerAvailability();
 }
 function submitComposer() {
+  const recipient = composerAgent();
+  if (recipient) { sendAgentMessage(recipient); return; }
   if (composerBlockReason()) return;
   const text = $("#input").value.trim();
   // A sent prompt starts history over, so the next Up recalls what was just
@@ -1396,6 +1398,15 @@ function raiseTheLights(resume) {
 }
 
 function composerBlockReason() {
+  const recipient = composerAgent();
+  if (recipient) {
+    if (!recipient.agent?.team_controls?.can_message) return 'This agent cannot receive a follow-up yet. Resolve its current task or choose To: Team.';
+    if (typeof bridge.controlObjective !== 'function') return 'Agent messaging is unavailable in this host.';
+    if (teamComposer.pending) return 'Waiting for the message to be queued…';
+    if (state.contextHints.length) return 'Agent follow-ups use their existing task context. Remove attached context or choose To: Team.';
+    if ($('#input').value.trim().length > 8000) return 'Keep agent messages within 8,000 characters.';
+    return $('#input').value.trim() ? '' : EMPTY_PROMPT_REASON;
+  }
   if (state.resumePending) return "Choose how to continue this saved session before sending.";
   if (selectedAccountNeedsConnection()) {
     return `Connect ${state.model.provider ? providerName(state.model.provider) : "this provider"} before sending.`;
@@ -1440,6 +1451,13 @@ function updateComposerAvailability() {
   // availability change (typing, mode/model change, send lifecycle).
   if (window.OPaiComposer) window.OPaiComposer.refresh();
   const blocked = composerBlockReason();
+  if (composerAgent()) {
+    send.textContent = 'Send'; send.classList.remove('stop'); send.disabled = !!blocked; send.setAttribute('aria-label', 'Send to selected agent');
+    $('#composerStatus').hidden = true;
+    reason.textContent = blocked === EMPTY_PROMPT_REASON ? '' : blocked; reason.dataset.tone = 'hint';
+    return;
+  }
+  send.textContent = state.busy ? 'Stop' : ((state.buildMode && state.buildApp) ? 'Build' : 'Send'); send.classList.toggle('stop', state.busy);
   if (state.busy) { send.disabled = false; reason.innerHTML = ""; delete reason.dataset.tone; return; }
   send.disabled = Boolean(blocked);
   send.setAttribute("aria-label", (state.buildMode && state.buildApp) ? "Start build" : "Send prompt");
@@ -4324,11 +4342,64 @@ function peekAgentTeam(objectiveId, assignmentId) {
   state.teamAgentId = assignmentId || null;
   state.teamOpen = true;
   applyPanel();
-  if (assignmentId) { $('#agentsTeam').scrollTop = 0; $('#agentsTeam [data-team-back]')?.focus({ preventScroll: true }); }
+  if (assignmentId) { $('#agentsTeam').scrollTop = 0; $('#agentsTeam [data-team-close]')?.focus({ preventScroll: true }); }
 }
 function openAgentTeam(objectiveId, assignmentId) {
   if (state.view !== 'chat') switchView('chat');
   peekAgentTeam(objectiveId, assignmentId);
+}
+const teamComposer = { root: null, key: 'team', drafts: new Map(), pending: null, placeholder: '' };
+function composerAgent() {
+  if (state.view !== 'chat' || !state.teamMapOpen || !state.teamOpen || !state.teamAgentId) return null;
+  const objective = (state.agentsSnapshot?.objectives || []).find((o) => o.objective_id === state.teamObjectiveId);
+  return { objective, agent: objective?.assignments?.find((a) => a.assignment_id === state.teamAgentId) };
+}
+function syncTeamRecipient(objective) {
+  const select = $('#teamRecipient'), input = $('#input'), root = state.boot.workspace?.root;
+  if (!select || !input) return;
+  const enabled = state.view === 'chat' && state.teamMapOpen && !!objective;
+  if (teamComposer.root !== root) { if (teamComposer.key !== 'team') input.value = ''; teamComposer.root = root; teamComposer.key = 'team'; teamComposer.drafts.clear(); teamComposer.pending = null; }
+  const target = composerAgent(), agent = target?.agent;
+  const key = target ? JSON.stringify([objective?.objective_id, agent?.agent_id || state.teamAgentId]) : 'team';
+  if (key !== teamComposer.key) {
+    teamComposer.drafts.set(teamComposer.key, input.value);
+    teamComposer.key = key; input.value = teamComposer.drafts.get(key) || ''; autoSize(); historyReset();
+  }
+  while (teamComposer.drafts.size > 96) { const oldest = [...teamComposer.drafts.keys()].find((k) => k !== 'team' && k !== key); if (!oldest) break; teamComposer.drafts.delete(oldest); }
+  if (!teamComposer.placeholder) teamComposer.placeholder = input.placeholder;
+  select.hidden = !enabled;
+  const people = window.OPaiAgentsTeam.agents(objective);
+  const html = '<option value="">To: Team</option>' + people.map((a, index) => '<option value="' + esc(a.assignment_id) + '">To: ' + esc(window.OPaiAgentsTeam.name(a, index)) + '</option>').join('') + (target && agent && !people.some((a) => a.assignment_id === agent.assignment_id) ? '<option value="' + esc(agent.assignment_id) + '">To: ' + esc(window.OPaiAgentsTeam.name(agent, 0)) + '</option>' : '') + (target && !agent ? '<option value="' + esc(state.teamAgentId) + '">Agent unavailable</option>' : '');
+  if (select._options !== html) { select.innerHTML = html; select._options = html; }
+  select.value = target ? state.teamAgentId : '';
+  select.onchange = () => {
+    state.teamAgentId = select.value || null; state.teamOpen = !!select.value;
+    if (!select.value) { const map = $('#teamMap'); if (map) map._focusId = null; }
+    applyPanel(); input.focus();
+  };
+  $('#composer').classList.toggle('to-agent', !!target);
+  input.placeholder = target ? 'Ask ' + (agent ? window.OPaiAgentsTeam.name(agent, 0) : 'this agent') + ' or give the next task…' : enabled ? 'Give your team a new objective…' : teamComposer.placeholder;
+  updateComposerAvailability();
+}
+function sendAgentMessage(target) {
+  const message = $('#input').value.trim();
+  if (composerBlockReason() || !target.agent || !target.objective) return;
+  const request = { objective_id: target.objective.objective_id, assignment_id: target.agent.assignment_id, action: 'agent_message', value: { revision: target.objective.team_revision || 0, message } };
+  teamComposer.pending = { ...request, key: teamComposer.key, root: state.boot.workspace?.root };
+  teamComposer.drafts.set(teamComposer.key, $('#input').value);
+  try { teamControl(request); } catch (_) { teamComposer.pending = null; toast('Could not queue the message. Your draft is still here.'); }
+  updateComposerAvailability();
+}
+function settleTeamMessage(response) {
+  const pending = teamComposer.pending, control = response.control;
+  if (!pending || pending.root !== response.workspaceRoot || control?.action !== 'agent_message' || control.assignment_id !== pending.assignment_id || control.revision !== pending.value.revision || (response.objective?.objective_id || control.objective_id) !== pending.objective_id) return;
+  teamComposer.pending = null;
+  if (response.ok) {
+    if (teamComposer.drafts.get(pending.key)?.trim() === pending.value.message) teamComposer.drafts.delete(pending.key);
+    if (teamComposer.key === pending.key && $('#input').value.trim() === pending.value.message) { $('#input').value = ''; autoSize(); }
+    toast('Message queued in the agent’s thread.');
+  }
+  updateComposerAvailability();
 }
 function teamModels() {
   return Array.from($('#modelSel')?.options || []).filter((o) => !o.disabled).map((o) => ({ value: o.value, label: o.value === 'auto' ? 'Auto model' : o.textContent }));
@@ -4371,6 +4442,7 @@ function paintAgentTeam() {
     if (!map.hidden && !wasMap) { map._sidebarWasHidden = app.classList.contains('sidebar-hidden'); app.classList.add('sidebar-hidden'); closeMobileSidebar(); $('#sidebarToggle').setAttribute('aria-expanded', 'false'); }
     if (map.hidden && wasMap) { app.classList.toggle('sidebar-hidden', !!map._sidebarWasHidden); $('#sidebarToggle').setAttribute('aria-expanded', String(!isCompactShell() && !map._sidebarWasHidden)); }
     app.classList.toggle('team-map-active', !map.hidden);
+    syncTeamRecipient(objective);
     if (!map.hidden && !document.querySelector('.team-edit-dialog[open]')) window.OPaiTeamMap.mount(map, objective, teamMapOptions(objective));
   }
   const strip = $('#agentsTeamStrip');
@@ -4395,11 +4467,11 @@ function paintAgentTeam() {
     onSelect: (assignmentId) => {
       const previous = state.teamAgentId;
       state.teamAgentId = assignmentId; paintAgentTeam();
-      if (assignmentId) element.querySelector('[data-team-back]')?.focus({ preventScroll: true });
+      if (assignmentId) element.querySelector('[data-team-close]')?.focus({ preventScroll: true });
       else Array.from(element.querySelectorAll('.team-person')).find((b) => b.dataset.teamSelect === previous)?.focus({ preventScroll: true });
       element.scrollTop = 0;
     },
-    models: teamModels(),
+    models: teamModels(), unifiedComposer: state.view === 'chat' && state.teamMapOpen,
     onMap: () => openTeamMap(objective),
     onAdd: () => window.OPaiTeamMap.addDialog(objective, teamMapOptions(objective)),
     onArtifact: inspectAgentArtifact,
@@ -4502,6 +4574,7 @@ function onObjectiveReady(json) {
 function onObjectiveControlReady(json) {
   let d; try { d = JSON.parse(json); } catch (_e) { return; }
   if (!d || d.workspaceRoot !== (state.boot.workspace || {}).root) return;
+  settleTeamMessage(d);
   window.OPaiTeamMap?.settle(d);
   window.OPaiAgentsTeam?.settle($('#agentsTeam'), d);
   if (!d.ok) { toast(safeStateReason(d.error, "Objective control failed.")); return; }
@@ -5081,12 +5154,13 @@ function wire() {
   $("#headerSettings").onclick = () => switchView("settings");
   $("#sidebarToggle").onclick = toggleSidebar;
   $("#sidebarBackdrop").onclick = closeMobileSidebar;
-  $("#send").onclick = () => (state.busy ? stop() : submitComposer());
+  $("#send").onclick = () => (state.busy && !composerAgent() ? stop() : submitComposer());
   const buildToggle = $("#buildToggle");
   if (buildToggle) buildToggle.onclick = () => { state.buildMode = !state.buildMode; syncBuildMode(); };
   $("#panelToggle").onclick = togglePanel;
   $("#wsSwitch").onclick = (e) => { e.stopPropagation(); toggleWsMenu(); };
   $("#wsMenu").addEventListener("click", (e) => e.stopPropagation());
+  document.addEventListener('click', (event) => { document.querySelectorAll('.team-agent-menu[open], .team-view-menu[open]').forEach((menu) => { if (!menu.contains(event.target)) menu.open = false; }); });
   document.addEventListener("click", closeWsMenu);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeWsMenu(); });
   $("#input").addEventListener("input", () => {
@@ -5098,7 +5172,7 @@ function wire() {
     // Enter sends. While a request is active the text is queued rather than
     // discarded (#295) — still no second concurrent request.
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitComposer(); }
-    else if (e.key === "ArrowUp" || e.key === "ArrowDown") historyKey(e);
+    else if (!composerAgent() && (e.key === "ArrowUp" || e.key === "ArrowDown")) historyKey(e);
     else if (e.key === "Escape" && state.history.index >= 0) { e.preventDefault(); historyCancel(); }
   });
   const contextPath = $("#contextPath");
@@ -5154,7 +5228,7 @@ function wire() {
     else if (c && e.key === "m") { e.preventDefault(); openModelPicker(); }
     else if (c && e.key === "b") { e.preventDefault(); toggleSidebar(); }
     else if (e.key === "?" && !isTypingTarget(e.target)) { e.preventDefault(); runCommand("shortcuts"); }
-    else if (e.key === "Escape" && state.busy) { e.preventDefault(); stop(); }
+    else if (e.key === "Escape" && state.busy && !composerAgent()) { e.preventDefault(); stop(); }
   });
 }
 

@@ -269,3 +269,40 @@
 .app.team-map-active .composer:not(:has(textarea:focus)):has(textarea:placeholder-shown) .composer-toolbar > :not(.send):not(#ctxBtn),
 .app.team-map-active .composer:not(:has(textarea:focus)):has(textarea:placeholder-shown) #ctxBtn .ctool-txt { display: none; }
 @media (max-width: 700px) { .team-map-overview { flex-basis: 100%; order: 3; } }
+
+#teamRecipient { flex: none; max-width: 180px; color: var(--accent); background: var(--surface); border: 0; border-radius: var(--r-sm); font: inherit; font-size: var(--type-label); padding: var(--space-2); cursor: pointer; }
+#teamRecipient[hidden] { display: none; }
+.app.team-map-active .composer.to-agent { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.composer.to-agent textarea { flex: 1; min-width: 120px; }
+.composer.to-agent .composer-toolbar { flex: none; margin: 0; }
+.composer.to-agent .composer-toolbar > :not(.send), .composer.to-agent .composer-status, .composer.to-agent .composer-tokens { display: none !important; }
+.team-inspector-compact .team-header h2 { display: flex; align-items: center; gap: var(--space-2); flex: 1; font-size: var(--type-body-lg); }
+.team-inspector-compact .team-header .team-avatar { width: 28px; height: 28px; }
+.team-inspector-compact [data-team-close] { padding: var(--space-2); font-size: var(--type-body-lg); }
+.team-agent-role { color: var(--muted); font-size: var(--type-label); margin: var(--space-2) 0 var(--space-5); }
+.team-inspector-compact .team-detail { margin-top: 0; }
+.team-inspector-compact .team-detail h3 { font-size: var(--type-body); margin-bottom: var(--space-3); }
+.team-inspector-compact .team-detail > header:empty { display: none; }
+.team-inspector-compact [data-team-message][hidden] { display: none; }
+.team-agent-menu, .team-view-menu { position: relative; }
+.team-agent-menu > summary, .team-view-menu > summary { cursor: pointer; list-style: none; padding: var(--space-2); color: var(--muted); font-size: var(--type-label); }
+.team-agent-menu-body, .team-view-menu > div { position: absolute; z-index: 60; right: 0; width: 270px; max-height: min(640px, 75dvh); overflow-y: auto; padding: var(--space-4); background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--r-lg); box-shadow: var(--shadow-lg); }
+.team-view-menu > div { bottom: 100%; width: 180px; display: grid; gap: var(--space-2); }
+.team-view-menu .team-map-zoom-control > div { position: static; box-shadow: none; border: 0; padding: 0; }
+.team-agent-menu-body .team-footer { margin-top: var(--space-2); }
+.team-agent-menu-body .team-name-editor, .team-agent-menu-body .team-settings { margin: 0; }
+.team-inspector-compact .team-feed h4 { font-size: var(--type-label); margin: var(--space-4) 0 var(--space-2); }
+.team-inspector-compact .team-feed .team-feed { margin-top: 0; }
+.team-inspector-compact .team-feed .team-avatar, .team-inspector-compact .team-feed .team-time { display: none; }
+.team-inspector-compact .team-timeline > li::before { display: none; }
+.team-inspector-compact .team-event-by { font-size: 0; margin-top: var(--space-1); }
+.team-inspector-compact .team-event-by time { font-size: var(--type-caption); color: var(--muted); }
+.team-inspector-compact .team-update { padding: var(--space-2) 0; }
+.team-current-action { font-size: var(--type-label); line-height: 1.5; color: var(--accent); }
+.team-shortcut-group { font-size: 0; min-height: var(--space-2); padding: 0; }
+.team-map-node.is-muted { opacity: .75; }
+.team-map-group.is-muted { opacity: .8; }
+.team-map-group.is-done strong, .team-map-group.is-done .team-group-summary, .team-map-identity { color: var(--muted); }
+.team-map-person .team-map-identity { flex-wrap: wrap; gap: var(--space-1); }
+.team-map-person .team-node-status { margin-left: var(--space-1); }
+@media (max-width: 700px) { #teamRecipient { max-width: 120px; } }

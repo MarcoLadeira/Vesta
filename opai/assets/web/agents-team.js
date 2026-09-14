@@ -119,7 +119,7 @@
     const assignments = rows(objective.assignments), parents = dependencies(agent, assignments).filter((a) => a.status !== 'completed');
     const next = agents(objective).filter((a) => !['completed', 'cancelled'].includes(a.status) && dependencies(a, assignments).some((source) => actorId(source) === actorId(agent)));
     const paths = rows(agent.intended_paths).slice(0, 4);
-    return '<dl class="team-focus-context">' + (paths.length ? '<dt>Task scope</dt><dd>' + paths.map((path) => '<code>' + esc(path) + '</code>').join('') + '</dd>' : '') + '<dt>Waiting on</dt><dd>' + (parents.length ? parents.map((a) => esc(name(a, assignments.indexOf(a)))).join(', ') : 'Nothing') + '</dd><dt>Next</dt><dd>' + (next.length ? 'Send completed work to ' + next.map((a) => esc(name(a, assignments.indexOf(a)))).join(', ') : 'No dependent task') + '</dd></dl><div class="team-focus-actions"><button type="button" class="team-quiet" data-team-view-work>View work</button>' + (agent.team_controls?.can_message ? '<button type="button" class="team-quiet" data-team-message-focus>Message ' + esc(name(agent, assignments.indexOf(agent))) + '</button>' : '') + '</div>';
+    return '<dl class="team-focus-context">' + (paths.length ? '<dt>Scope</dt><dd>' + paths.map((path) => '<code>' + esc(path) + '</code>').join('') + '</dd>' : '') + (parents.length ? '<dt>Waiting on</dt><dd>' + parents.map((a) => esc(name(a, assignments.indexOf(a)))).join(', ') + '</dd>' : '') + (next.length ? '<dt>Next</dt><dd>Hand off to ' + next.map((a) => esc(name(a, assignments.indexOf(a)))).join(', ') + '</dd>' : '') + '</dl><div class="team-focus-actions"><button type="button" class="team-quiet" data-team-view-work>View work</button>' + (agent.team_controls?.can_message ? '<button type="button" class="team-quiet" data-team-message-focus>Message ' + esc(name(agent, assignments.indexOf(agent))) + '</button>' : '') + '</div>';
   }
   function panelHtml(objective, selectedId, unavailable, models) {
     const assignments = rows(objective && objective.assignments);
@@ -156,8 +156,38 @@
     html += '<footer class="team-footer">' + (rows(objective.allowed_actions).includes('request_review') ? '<button type="button" class="btn" data-team-review>Ask for team review</button>' : '') + '<button type="button" class="team-quiet" data-team-workspace>Full Agents workspace</button></footer>';
     return html;
   }
+  function compactInspector(element, objective, agent) {
+    element.classList.add('team-inspector-compact');
+    const heading = element.querySelector('.team-header h2');
+    heading.innerHTML = avatar(profileIndex(agent, 0)) + '<span>' + esc(name(agent, 0)) + '</span>';
+    const close = element.querySelector('[data-team-close]'); close.textContent = '×';
+    element.querySelector('.team-objective')?.remove();
+    element.querySelector('.team-detail > header')?.querySelector('.team-detail-person')?.remove();
+    const menu = document.createElement('details'); menu.className = 'team-agent-menu';
+    menu.innerHTML = '<summary aria-label="Agent options">•••</summary><div class="team-agent-menu-body"></div>';
+    const body = menu.querySelector('div');
+    element.querySelectorAll('.team-name-editor, .team-settings, .team-detail > .team-actions, .team-footer, [data-team-back]').forEach((node) => body.appendChild(node));
+    element.querySelector('.team-header').insertBefore(menu, close);
+    const role = document.createElement('p'); role.className = 'team-agent-role';
+    role.textContent = [/review|critic/i.test(agent.role || '') ? 'Reviewer' : agent.role === 'planner' ? 'Planner' : 'Agent', agent.group].filter(Boolean).join(' · ');
+    element.querySelector('.team-header').after(role);
+    element.querySelector('[data-team-message]')?.setAttribute('hidden', '');
+    element.querySelector('.team-focus-actions')?.remove();
+    const feed = element.querySelector('.team-feed');
+    if (feed) {
+      const actor = actorId(agent), events = rows(objective.timeline).filter((event) => actorId(rows(objective.assignments).find((a) => a.assignment_id === event.assignment_id) || {}) === actor && eventText(event, agent, objective.assignments));
+      if (events.length) {
+        feed.innerHTML = '<h4>Activity</h4>' + feedHtml({ ...objective, timeline: events.slice(-3), timeline_truncated: false }, agent.assignment_id) + (events.length > 3 ? '<details class="team-explanation"><summary>View all activity</summary>' + feedHtml(objective, agent.assignment_id) + '</details>' : '');
+      } else feed.innerHTML = '<p class="team-empty">No activity received yet.</p>';
+    }
+    const latest = activities(agent).at(-1);
+    if (latest && !agent.pending_approval && agent.status === 'running') {
+      const current = document.createElement('p'); current.className = 'team-current-action'; current.textContent = latest;
+      element.querySelector('.team-detail > .team-state')?.replaceWith(current);
+    }
+  }
   function mountPanel(element, objective, selectedId, options) {
-    const key = JSON.stringify([objective, selectedId, options.unavailable, options.models]);
+    const key = JSON.stringify([objective, selectedId, options.unavailable, options.models, options.unifiedComposer]);
     if (element._teamKey === key) return;
     element._messageDrafts ||= new Map();
     const oldMessage = element.querySelector('[name="agentMessage"]');
@@ -173,8 +203,11 @@
     const savedDraft = draft ? { value: draft.value, focused: draft === active, start: draft.selectionStart, end: draft.selectionEnd } : null;
     const open = sameAgent ? Array.from(element.querySelectorAll('.team-explanation[open]')).map((d) => d.querySelector('summary').textContent) : [];
     const formDrafts = sameAgent ? Array.from(element.querySelectorAll('.team-message-form textarea, .team-settings[open] input, .team-settings[open] select')).filter((input) => input.name === 'agentMessage' || input.value !== input.dataset.initial).map((input) => ({ name: input.name, value: input.value, focused: input === active, start: input.selectionStart, end: input.selectionEnd })) : [];
+    const menuOpen = sameAgent && element.querySelector('.team-agent-menu')?.open;
     const scrollTop = element.scrollTop;
     element.innerHTML = panelHtml(objective, selectedId, options.unavailable, options.models);
+    element.classList.remove('team-inspector-compact');
+    if (options.unifiedComposer && profile) { compactInspector(element, objective, profile); element.querySelector('.team-agent-menu').open = !!menuOpen; }
     element._teamKey = key; element._teamAgent = selectedId; element._teamObjective = objective?.objective_id;
     element.scrollTop = scrollTop;
     if (savedDraft) {
@@ -222,6 +255,8 @@
     element.onkeydown = (event) => {
       if (event.key !== 'Escape' || event.defaultPrevented) return;
       event.preventDefault(); event.stopPropagation();
+      const menu = element.querySelector('.team-agent-menu[open]');
+      if (menu) { menu.open = false; menu.querySelector('summary').focus(); return; }
       const editor = element.querySelector('.team-name-editor[open]');
       if (editor) { editor.open = false; editor.querySelector('summary').focus(); }
       else options.onClose();
