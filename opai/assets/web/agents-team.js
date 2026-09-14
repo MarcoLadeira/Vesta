@@ -89,9 +89,15 @@
       return time(a.created_at) + '<div class="team-conversation-message team-conversation-user"><span>' + (a.user_message ? 'You' : 'Task') + '</span><p>' + esc(a.user_message || a.objective) + '</p></div>' + (reply ? time(a.finished_at) + '<div class="team-conversation-message"><span>' + esc(name(a, 0)) + '</span><p>' + esc(reply) + '</p></div>' : '<p class="team-message-hint">' + (a.held ? 'Ready to start' : a.status === 'pending' ? 'Queued after earlier work' : a.status === 'running' ? 'Working on this message…' : 'No reply recorded') + '</p>');
     }).join('') + '</section>';
   }
-  function stripHtml(objective) {
-    const assignments = agents(objective);
-    return '<button type="button" class="team-strip-open" aria-label="Expand AI Team"><span aria-hidden="true">' + assignments.slice(0, 3).map((a, index) => avatar(profileIndex(a, index))).join('') + '</span><span>' + assignments.length + '</span></button>';
+  function stripHtml(objective, objectives, selectedId) {
+    const teams = rows(objectives).length ? rows(objectives) : objective ? [objective] : [];
+    const people = teams.flatMap((o) => agents(o).map((agent, index) => ({ agent, index, objective: o })));
+    return '<button type="button" class="team-strip-open" aria-label="Expand AI Team" title="Your AI teams"><span>' + (people.length || '✧') + '</span></button><nav class="team-shortcuts" aria-label="Agent shortcuts">' + people.map(({ agent, index, objective: o }) => {
+      const label = name(agent, index);
+      const status = agent.held ? 'Ready to start' : agent.pending_approval ? 'Needs approval' : ({ running: 'Working', completed: 'Done', pending: 'Waiting', failed: 'Needs attention', blocked: 'Blocked' })[agent.status] || agent.status || 'Waiting';
+      const symbol = agent.pending_approval || ['failed', 'blocked', 'needs-attention'].includes(agent.status) ? '!' : agent.status === 'completed' ? '✓' : agent.status === 'running' ? '●' : '·';
+      return '<button type="button" class="team-shortcut" data-team-shortcut="' + esc(agent.assignment_id) + '" data-team-objective="' + esc(o.objective_id) + '" aria-label="' + esc('Open ' + label + "’s agent chat") + '" aria-pressed="' + (selectedId === agent.assignment_id && objective?.objective_id === o.objective_id) + '" title="' + esc(label + ' · ' + status + '\n' + (agent.title || agent.objective) + '\n' + o.objective) + '">' + avatar(profileIndex(agent, index)) + '<span class="team-shortcut-status" aria-hidden="true">' + symbol + '</span></button>';
+    }).join('') + '</nav>';
   }
   function panelHtml(objective, selectedId, unavailable, models) {
     const assignments = rows(objective && objective.assignments);
@@ -236,5 +242,5 @@
     element._teamPending = null;
   }
   function assignmentsFor(objective) { return rows(objective && objective.assignments); }
-  global.OPaiAgentsTeam = { feedHtml, panelHtml, mountPanel, stripHtml, name, avatar, agents, actorId, modelOptions, state, settle, conversationHtml };
+  global.OPaiAgentsTeam = { feedHtml, panelHtml, mountPanel, stripHtml, name, avatar, agents, actorId, modelOptions, state, settle, conversationHtml, activities };
 })(typeof window !== "undefined" ? window : globalThis);

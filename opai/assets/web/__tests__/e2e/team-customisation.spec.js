@@ -43,6 +43,14 @@ test('timestamps are centered and map keeps the composer with real directed link
   await expect(page.locator('#input')).toBeVisible();
   await expect(page.locator('.team-map-node')).toHaveCount(3);
   await expect(page.locator('.team-map-edge')).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'Edit team', exact: true })).toBeVisible();
+  await expect(page.locator('[data-map-connect]')).toBeHidden();
+  await expect(page.locator('[data-map-move]').first()).toBeHidden();
+  await expect(page.locator('#agentsTeamStrip [data-team-shortcut]')).toHaveCount(3);
+  await page.locator('[data-map-edge="0"]').focus(); await page.keyboard.press('Enter');
+  await expect(page.getByRole('dialog')).toContainText('Choose Edit team');
+  await expect(page.getByRole('button', { name: 'Remove connection' })).toHaveCount(0);
+  await page.keyboard.press('Escape');
   await page.screenshot({ path: testInfo.outputPath('team-map-desktop.png'), animations: 'disabled' });
   await page.locator('[data-map-select="sam"]').click();
   await expect(page.locator('.team-detail')).toContainText('Ready when you are');
@@ -80,6 +88,7 @@ test('group selection, keyboard movement and connection edits use canonical team
   await page.setViewportSize({ width: 1500, height: 980 });
   const diagnostics = await start(page);
   await page.getByRole('button', { name: 'Organise team', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit team', exact: true }).click();
   await page.getByRole('button', { name: 'Group', exact: true }).click();
   await page.locator('[data-map-select="sam"]').click();
   await page.locator('[data-map-select="taylor"]').click();
@@ -144,6 +153,7 @@ test('dragging a whole group saves once and rapid moves keep the latest layout',
   await page.setViewportSize({ width: 1500, height: 980 });
   const diagnostics = await start(page);
   await page.getByRole('button', { name: 'Organise team', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit team', exact: true }).click();
   const group = page.locator('[data-map-group="Authentication"]');
   const box = await group.boundingBox();
   await page.mouse.move(box.x + 20, box.y + 8); await page.mouse.down();
@@ -166,5 +176,56 @@ test('dragging a whole group saves once and rapid moves keep the latest layout',
   await expect(page.locator('#teamMap')).toBeHidden();
   await expect(page.locator('#chatScroll')).toBeVisible();
   await expect(page.locator('#thread > .chat-timestamp')).toHaveCount(0);
+  expectNoFatalErrors(diagnostics);
+});
+
+
+test('the global avatar strip opens agents on every page without navigating away', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1480, height: 960 });
+  const diagnostics = await start(page);
+  for (const [command, view] of [['settings', 'settings'], ['prompts', 'prompts'], ['savings', 'home']]) {
+    await page.evaluate((id) => window.__opai.runCommand(id), command);
+    await expect(page.locator('#agentsTeamStrip')).toBeVisible();
+    const avatar = page.getByRole('button', { name: 'Open Sam’s agent chat', exact: true });
+    await avatar.click();
+    expect(await page.evaluate(() => window.__opai.state.view)).toBe(view);
+    await expect(page.locator('.team-detail-person')).toHaveText('Sam');
+    await expect(avatar).toBeVisible();
+    await page.getByRole('button', { name: 'Collapse AI Team' }).click();
+    await expect(page.locator('#agentsTeam')).toBeHidden();
+    await expect(page.getByRole('button', { name: 'Expand AI Team', exact: true })).toBeFocused();
+  }
+  await page.evaluate(() => window.__opai.runCommand('settings'));
+  await page.getByRole('button', { name: 'Open Alex’s agent chat', exact: true }).click();
+  await page.screenshot({ path: testInfo.outputPath('global-agent-access.png'), animations: 'disabled' });
+  await page.getByRole('button', { name: 'Full Agents workspace', exact: true }).click();
+  await expect(page.locator('#agentsTeamStrip')).toBeVisible();
+  await page.getByRole('button', { name: 'Open Taylor’s agent chat', exact: true }).click();
+  expect(await page.evaluate(() => window.__opai.state.view)).toBe('agents');
+  await expect(page.locator('.team-detail-person')).toHaveText('Taylor');
+  expectNoFatalErrors(diagnostics);
+});
+
+test('small screens keep avatars outside the drawer and edit mode stays optional', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 520, height: 900 });
+  const diagnostics = await start(page);
+  await page.evaluate(() => window.__opai.runCommand('settings'));
+  const avatar = page.getByRole('button', { name: 'Open Alex’s agent chat', exact: true });
+  await avatar.click();
+  const panel = await page.locator('#agentsTeam').boundingBox();
+  const strip = await page.locator('#agentsTeamStrip').boundingBox();
+  expect(panel.x + panel.width).toBeLessThanOrEqual(strip.x);
+  expect(panel.height).toBeGreaterThan(500);
+  await expect(avatar).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(520);
+  await page.screenshot({ path: testInfo.outputPath('global-agent-access-mobile.png'), animations: 'disabled' });
+  await page.getByRole('button', { name: 'Back to team', exact: false }).click();
+  await page.getByRole('button', { name: 'Organise team', exact: true }).click();
+  await expect(page.locator('#teamMap')).toBeVisible();
+  await page.getByRole('button', { name: 'Edit team', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Auto arrange', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Done editing', exact: true }).click();
+  await expect(page.locator('[data-map-arrange]')).toBeHidden();
+  await expect(page.locator('#agentsTeamStrip')).toBeVisible();
   expectNoFatalErrors(diagnostics);
 });

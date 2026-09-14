@@ -60,20 +60,22 @@
       const x1 = a.x + (forward ? 240 : 120), y1 = a.y + (forward ? 62 : 126);
       const x2 = b.x + (forward ? 0 : 120), y2 = b.y + (forward ? 62 : 0);
       const path = forward ? 'M' + x1 + ',' + y1 + ' C' + (x1 + 50) + ',' + y1 + ' ' + (x2 - 50) + ',' + y2 + ' ' + x2 + ',' + y2 : 'M' + x1 + ',' + y1 + ' C' + x1 + ',' + (y1 + 45) + ' ' + x2 + ',' + (y2 - 45) + ' ' + x2 + ',' + y2;
-      return '<path class="team-map-edge' + (target.status === 'running' ? ' is-active' : '') + '" d="' + path + '" marker-end="url(#team-arrow)" data-map-edge="' + index + '" tabindex="0" role="button" aria-label="' + esc(team().name(source, 0) + ' sends results to ' + team().name(target, 0)) + '"><title>' + esc(source.title + ' → ' + target.title) + '</title></path>';
+      const label = /review|critic/i.test(target.role || '') ? 'Review' : 'Hand off';
+      return '<text class="team-edge-label" x="' + ((x1 + x2) / 2) + '" y="' + ((y1 + y2) / 2 - 12) + '">' + label + '</text><path class="team-map-edge' + (target.status === 'running' ? ' is-active' : '') + '" d="' + path + '" marker-end="url(#team-arrow)" data-map-edge="' + index + '" tabindex="0" role="button" aria-label="' + esc(team().name(source, 0) + ' sends results to ' + team().name(target, 0)) + '"><title>' + esc(source.title + ' → ' + target.title) + '</title></path>';
     }).join('') + '</svg>';
     html += agents.map((a, index) => {
       const point = positions[id(a)];
-      return '<article class="team-map-node" data-map-node="' + esc(id(a)) + '" style="left:' + point.x + 'px;top:' + point.y + 'px"><button type="button" class="team-map-handle" data-map-move="' + esc(id(a)) + '" aria-label="Move ' + esc(team().name(a, index)) + '" title="Drag or use arrow keys">⠿</button><button type="button" class="team-map-person" data-map-select="' + esc(a.assignment_id) + '">' + team().avatar(a.avatar_index ?? index) + '<span><strong>' + esc(a.title || a.objective) + '</strong><span class="team-current">' + esc(team().name(a, index)) + '</span>' + team().state(a, objective.assignments) + '</span></button></article>';
+      const activity = team().activities(a).at(-1) || '';
+      return '<article class="team-map-node" data-map-node="' + esc(id(a)) + '" style="left:' + point.x + 'px;top:' + point.y + 'px"><button type="button" class="team-map-handle" data-map-move="' + esc(id(a)) + '" aria-label="Move ' + esc(team().name(a, index)) + '" title="Drag or use arrow keys">⠿</button><button type="button" class="team-map-person" data-map-select="' + esc(a.assignment_id) + '">' + team().avatar(a.avatar_index ?? index) + '<span><strong>' + esc(a.title || a.objective) + '</strong><span class="team-current">' + esc(team().name(a, index)) + '</span>' + team().state(a, objective.assignments) + (activity ? '<span class="team-map-current" title="' + esc(activity) + '">' + esc(activity) + '</span>' : '') + '</span></button></article>';
     }).join('');
     return { html, width, height };
   }
   function mount(element, objective, options) {
     if (!objective) return;
     if (element._objectiveId !== objective.objective_id) {
-      element.innerHTML = '<header class="team-map-header"><button type="button" class="team-quiet" data-map-back>← Back to chat</button><h2>Your team</h2><div class="team-actions"><button type="button" class="btn" data-map-add>+ Add agent</button><button type="button" class="btn" data-map-connect>Connect</button><button type="button" class="btn" data-map-group-mode>Group</button><button type="button" class="team-quiet" data-map-arrange>Arrange</button></div></header><p class="team-map-hint" role="status">Drag agents or groups. Click an agent to open its thread.</p><form class="team-map-group-form" hidden><label>Group name<input name="groupName" maxlength="40" required placeholder="e.g. Authentication"></label><button type="submit" class="btn">Group selected</button><span data-group-count>0 selected</span></form><div class="team-map-viewport"><div class="team-map-canvas"></div></div><footer class="team-map-footer"><span>Arrows carry completed work to the next task.</span><div><button type="button" class="team-quiet" data-map-zoom="-1" aria-label="Zoom out">−</button><output class="team-map-zoom">100%</output><button type="button" class="team-quiet" data-map-zoom="1" aria-label="Zoom in">+</button></div></footer>';
+      element.innerHTML = '<header class="team-map-header"><button type="button" class="team-quiet" data-map-back>← Back to chat</button><h2>Your team</h2><button type="button" class="btn" data-map-edit aria-pressed="false">Edit team</button><div class="team-actions team-map-edit-actions" hidden><button type="button" class="btn" data-map-add>+ Add agent</button><button type="button" class="btn" data-map-connect>Connect</button><button type="button" class="btn" data-map-group-mode>Group</button><button type="button" class="team-quiet" data-map-arrange>Auto arrange</button></div></header><p class="team-map-hint" role="status">Watch your team work. Click an agent or connection to inspect it.</p><form class="team-map-group-form" hidden><label>Group name<input name="groupName" maxlength="40" required placeholder="e.g. Authentication"></label><button type="submit" class="btn">Group selected</button><span data-group-count>0 selected</span></form><div class="team-map-viewport"><div class="team-map-canvas"></div></div><footer class="team-map-footer"><span>Arrows carry completed work to the next task.</span><div><button type="button" class="team-quiet" data-map-zoom="-1" aria-label="Zoom out">−</button><output class="team-map-zoom">100%</output><button type="button" class="team-quiet" data-map-zoom="1" aria-label="Zoom in">+</button></div></footer>';
       element._objectiveId = objective.objective_id; element._positions = {}; element._zoom = 1;
-      element._layoutPending = null; element._layoutQueued = null; element._dragging = false; element._selected = new Set(); element._grouping = false; element._connecting = false; element._source = null;
+      element._layoutPending = null; element._layoutQueued = null; element._dragging = false; element._editing = false; element.classList.remove("is-editing"); element._selected = new Set(); element._grouping = false; element._connecting = false; element._source = null;
     }
     element._objective = objective; element._options = options;
     const defaults = arrange(objective);
@@ -92,6 +94,7 @@
       const result = graphHtml(element._objective, element._positions);
       canvas.innerHTML = result.html; canvas.style.width = result.width + 'px'; canvas.style.height = result.height + 'px';
       canvas.style.zoom = element._zoom;
+      canvas.querySelectorAll('[data-map-group]').forEach((button) => { button.tabIndex = element._editing ? 0 : -1; });
       canvas.querySelectorAll('[data-map-select]').forEach((button) => {
         button.setAttribute('aria-pressed', String(element._selected?.has(button.dataset.mapSelect) || false));
       });
@@ -99,6 +102,21 @@
     };
     if (!element._dragging) paint();
     element.querySelector('[data-map-back]').onclick = options.onBack;
+    const toggleEdit = () => {
+      element._editing = !element._editing;
+      element.classList.toggle('is-editing', element._editing);
+      element.querySelector('[data-map-edit]').textContent = element._editing ? 'Done editing' : 'Edit team';
+      element.querySelector('[data-map-edit]').setAttribute('aria-pressed', String(element._editing));
+      element.querySelector('.team-map-edit-actions').hidden = !element._editing;
+      element._connecting = false; element._grouping = false; element._source = null; element._selected = new Set();
+      element.querySelector('.team-map-group-form').hidden = true;
+      element.querySelector('[data-map-connect]').setAttribute('aria-pressed', 'false');
+      element.querySelector('[data-map-group-mode]').setAttribute('aria-pressed', 'false');
+      hint(element._editing ? 'Drag agents or groups. Connect tasks or group your team.' : 'Watch your team work. Click an agent or connection to inspect it.');
+      paint();
+    };
+    element.querySelector('[data-map-edit]').onclick = toggleEdit;
+    element._stopEditing = () => { if (element._editing) toggleEdit(); };
     element.querySelector('[data-map-add]').disabled = !objective.team_controls?.can_add;
     element.querySelector('[data-map-add]').onclick = options.onAdd;
     const groupForm = element.querySelector('.team-map-group-form');
@@ -147,7 +165,7 @@
       const edge = event.target.closest('[data-map-edge]');
       if (edge) {
         const { source, target } = edges(element._objective)[Number(edge.dataset.mapEdge)];
-        connectionDialog(element._objective, source, target, options);
+        connectionDialog(element._objective, source, target, { ...options, editing: element._editing });
       }
     };
     const moveIds = (handle) => handle.dataset.mapGroup !== undefined ? list(element._objective).filter((a) => a.group === handle.dataset.mapGroup).map(id) : [handle.dataset.mapMove];
@@ -160,7 +178,7 @@
     };
     canvas.onpointerdown = (event) => {
       const handle = event.target.closest('[data-map-move], [data-map-group]');
-      if (!handle || event.button !== 0) return;
+      if (!element._editing || !handle || event.button !== 0) return;
       event.preventDefault();
       const keys = moveIds(handle), start = structuredClone(element._positions), x = event.clientX, y = event.clientY;
       const scrollX = viewport.scrollLeft, scrollY = viewport.scrollTop;
@@ -171,7 +189,7 @@
     };
     canvas.onkeydown = (event) => {
       const handle = event.target.closest('[data-map-move], [data-map-group]');
-      if (handle && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) {
+      if (element._editing && handle && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) {
         event.preventDefault(); element._dragging = true;
         const step = event.shiftKey ? 40 : 10;
         translate(moveIds(handle), structuredClone(element._positions), event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0, event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0);
@@ -212,7 +230,7 @@
     element.querySelector('textarea').focus();
   }
   function connectionDialog(objective, source, target, options) {
-    const element = dialog('Agent connection', '<p>' + esc(team().name(source, 0)) + ' → ' + esc(team().name(target, 0)) + '</p><p class="team-empty">' + esc(target.title) + ' receives the completed result and file changes from ' + esc(source.title) + '.</p>' + (target.team_controls?.can_connect ? '<button type="button" class="btn" data-disconnect>Remove connection</button>' : '<p class="team-empty">This task has already started. Its recorded inputs stay fixed.</p>'), objective, options);
+    const element = dialog('Agent connection', '<p>' + esc(team().name(source, 0)) + ' → ' + esc(team().name(target, 0)) + '</p><p class="team-empty">' + esc(target.title) + ' receives the completed result and file changes from ' + esc(source.title) + '.</p>' + (target.team_controls?.can_connect && options.editing ? '<button type="button" class="btn" data-disconnect>Remove connection</button>' : '<p class="team-empty">' + (target.team_controls?.can_connect ? 'Choose Edit team to change this connection.' : 'This task has already started. Its recorded inputs stay fixed.') + '</p>'), objective, options);
     const remove = element.querySelector('[data-disconnect]');
     if (remove) remove.onclick = () => element.submitControl('connect_agents', { source_id: source.assignment_id, connected: false }, target.assignment_id);
   }

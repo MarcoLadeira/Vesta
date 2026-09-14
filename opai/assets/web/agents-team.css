@@ -147,3 +147,38 @@
 .team-edit-dialog details[open] { display: grid; gap: var(--space-3); }
 .team-edit-dialog details label + label { margin-top: 0; }
 .team-map-edge { stroke: color-mix(in srgb, var(--accent) 40%, var(--border-strong)); }
+
+.app.team-access, .app.team-access:is(.sidebar-hidden, .panel-hidden, .team-open, .team-collapsed) { --team-inspector-width: 314px; --team-sidebar-width: 250px; grid-template-columns: var(--team-sidebar-width) minmax(0, 1fr) var(--team-inspector-width) 48px; }
+.app.team-access.sidebar-hidden { --team-sidebar-width: 0px; }
+.app.team-access.panel-hidden { --team-inspector-width: 0px; }
+.app.team-access.team-open { --team-inspector-width: 320px; }
+.app.team-access.team-collapsed .inspector { display: block; }
+.app.team-access .agents-team-strip { grid-column: 4; grid-row: 2; position: static; width: auto; min-height: 0; display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3) var(--space-1); border-radius: 0; }
+.team-strip-open { flex: none; min-height: 32px; align-content: center; border-radius: var(--r-md); }
+.team-strip-open:hover { background: var(--glass-hi); color: var(--ink); }
+.team-shortcuts { min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; display: flex; flex-direction: column; align-items: center; gap: var(--space-3); padding: var(--space-1) 0; }
+.team-shortcut { position: relative; flex: none; display: grid; place-items: center; padding: 0; width: 36px; height: 38px; color: var(--ink); border: 1px solid transparent; border-radius: var(--r-md); background: transparent; cursor: pointer; }
+.team-shortcut .team-avatar { width: 28px; height: 28px; }
+.team-shortcut:hover, .team-shortcut[aria-pressed="true"] { border-color: var(--accent); background: var(--glass-hi); }
+.team-shortcut-status { position: absolute; right: 0; bottom: 0; min-width: 12px; height: 14px; line-height: 14px; font-size: var(--type-caption); background: var(--surface); border-radius: 50%; color: var(--accent); }
+.team-shortcut:focus-visible, .team-strip-open:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+@media (max-width: 1180px) {
+  .app.team-access, .app.team-access.panel-hidden, .app.team-access.sidebar-hidden, .app.team-access.team-open, .app.team-access.team-collapsed { --team-sidebar-width: 224px; grid-template-columns: var(--team-sidebar-width) minmax(0, 1fr) 40px; }
+  .app.team-access.sidebar-hidden { --team-sidebar-width: 0px; }
+  .app.team-access.team-collapsed .inspector { display: none; }
+  .app.team-access .agents-team-strip { grid-column: 3; }
+  .app.team-access.team-open .agents-team { position: fixed; z-index: 35; top: 58px; right: 40px; bottom: var(--team-composer-clearance, 12px); width: min(360px, calc(100vw - 40px)); box-shadow: var(--shadow-lg); }
+}
+@media (max-width: 700px) {
+  .app.team-access, .app.team-access.panel-hidden, .app.team-access.sidebar-hidden, .app.team-access.team-open, .app.team-access.team-collapsed { grid-template-columns: minmax(0, 1fr) 40px; }
+  .app.team-access .app-header { grid-column: 1 / -1; }
+  .app.team-access .agents-team-strip { grid-column: 2; }
+  .app.team-access .main { grid-column: 1; }
+  .app.team-access.team-open .agents-team { top: 54px; }
+}
+.team-map-edit-actions[hidden], .team-map:not(.is-editing) .team-map-handle { display: none; }
+.team-map:not(.is-editing) .team-map-group button { pointer-events: none; cursor: default; }
+.team-map-header .team-map-edit-actions { flex-wrap: wrap; }
+
+.team-map-current { display: block; color: var(--muted); font-size: var(--type-caption); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: var(--space-1); }
+.team-edge-label { fill: var(--muted); stroke: var(--bg); stroke-width: 4px; paint-order: stroke; font-size: var(--type-caption); text-anchor: middle; pointer-events: none; }

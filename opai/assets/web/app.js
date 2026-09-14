@@ -56,7 +56,7 @@ const state = {
   mode: { id: "safe-auto", label: "Safe Auto" },
   focus: "general", format: "normal",
   multiAgentEnabled: false, agentsAllowCloud: false, agentsMaxParallel: 2, agentsSizing: "automatic", agentsBudgetUsd: "", agentsSnapshot: null, agentsSelection: null, agentsPollTimer: null, agentsRequests: new Map(),
-  teamOpen: false, teamMapOpen: false, teamObjectiveId: null, teamAgentId: null, teamPollTimer: null, teamRequest: null, teamRefreshError: '',
+  teamOpen: false, teamMapOpen: false, teamObjectiveId: null, teamAgentId: null, teamPollTimer: null, teamRequest: null, teamRefreshError: '', teamDiscovered: false,
   // Hidden until the boot payload (or the user) says otherwise, matching
   // gui_preferences' documented default. Starting true meant the shell
   // painted an empty inspector before any preference was known -- and, with
@@ -347,6 +347,7 @@ function applyBootSelection(b) {
   state.teamObjectiveId = null;
   state.teamAgentId = null;
   state.teamMapOpen = false;
+  state.teamDiscovered = false;
   const m = (b.models || []).find((x) => x.id === b.selectedModel) || (b.models || [])[0];
   if (m) state.model = { ...m, advancedLabel: m.advanced_label };
   const md = (b.modes || []).find((x) => x.id === b.prefs.mode) || (b.modes || [])[0];
@@ -1754,6 +1755,7 @@ function renderStatus(st) {
 
 /* ---------- views ---------- */
 function switchView(id) {
+  if (state.view !== id) state.teamOpen = false;
   clearTimeout(state.agentsPollTimer);
   state.dashRequest = null;
   state.dashPaint = null;
@@ -1779,6 +1781,7 @@ function switchView(id) {
   else if (id === "prompts") loadPrompts();
   else if (id === "settings") renderSettings();
   else $("#input").focus();
+  updateTeamComposerClearance();
 }
 
 /* ---------- chat ---------- */
@@ -4316,13 +4319,16 @@ function paintAgentChatCards() {
   });
   restoreChatScroll(scroll);
 }
-function openAgentTeam(objectiveId, assignmentId) {
+function peekAgentTeam(objectiveId, assignmentId) {
   state.teamObjectiveId = objectiveId;
   state.teamAgentId = assignmentId || null;
   state.teamOpen = true;
-  if (state.view !== 'chat') switchView('chat');
   applyPanel();
   if (assignmentId) $('#agentsTeam [data-team-back]')?.focus({ preventScroll: true });
+}
+function openAgentTeam(objectiveId, assignmentId) {
+  if (state.view !== 'chat') switchView('chat');
+  peekAgentTeam(objectiveId, assignmentId);
 }
 function teamModels() {
   return Array.from($('#modelSel')?.options || []).filter((o) => !o.disabled).map((o) => ({ value: o.value, label: o.value === 'auto' ? 'Auto model' : o.textContent }));
@@ -4345,6 +4351,8 @@ function teamMapOptions(objective) {
 }
 function openTeamMap(objective) {
   if (!objective) return;
+  if (state.view !== 'chat') switchView('chat');
+  $('#teamMap')?._stopEditing?.();
   state.teamMapOpen = true; state.teamObjectiveId = objective.objective_id;
   state.teamOpen = false; applyPanel();
   $('#teamMap [data-map-back]')?.focus();
@@ -4356,25 +4364,29 @@ function paintAgentTeam() {
   const objective = objectives.find((o) => o.objective_id === state.teamObjectiveId) || objectives[0];
   const map = $('#teamMap');
   if (map) {
-    map.hidden = !state.teamMapOpen || !objective;
+    map.hidden = state.view !== 'chat' || !state.teamMapOpen || !objective;
     $('#chatScroll').hidden = !map.hidden;
     if (!map.hidden && !document.querySelector('.team-edit-dialog[open]')) window.OPaiTeamMap.mount(map, objective, teamMapOptions(objective));
   }
   const strip = $('#agentsTeamStrip');
   if (strip && !strip.hidden) {
-    const html = window.OPaiAgentsTeam.stripHtml(objective);
+    const html = window.OPaiAgentsTeam.stripHtml(objective, objectives, state.teamOpen ? state.teamAgentId : null);
     if (strip._teamHtml !== html) {
-      const focused = strip.contains(document.activeElement);
+      const focused = strip.contains(document.activeElement) ? document.activeElement : null;
+      const shortcut = focused?.dataset.teamShortcut, focusedObjective = focused?.dataset.teamObjective;
+      const scrollTop = strip.querySelector('.team-shortcuts')?.scrollTop || 0;
       strip.innerHTML = html; strip._teamHtml = html;
-      if (focused) strip.querySelector('button').focus({ preventScroll: true });
+      strip.querySelector('.team-shortcuts').scrollTop = scrollTop;
+      if (focused) (Array.from(strip.querySelectorAll('[data-team-shortcut]')).find((b) => b.dataset.teamShortcut === shortcut && b.dataset.teamObjective === focusedObjective) || strip.querySelector('button')).focus({ preventScroll: true });
     }
-    strip.querySelector('button').onclick = () => openAgentTeam(objective?.objective_id);
+    strip.querySelector('.team-strip-open').onclick = () => peekAgentTeam(objective?.objective_id);
+    strip.querySelectorAll('[data-team-shortcut]').forEach((button) => { button.onclick = () => peekAgentTeam(button.dataset.teamObjective, button.dataset.teamShortcut); });
   }
   if (element.hidden || document.querySelector('.agents-artifact-dialog[open]')) return;
   if (objective) state.teamObjectiveId = objective.objective_id;
   window.OPaiAgentsTeam.mountPanel(element, objective, state.teamAgentId, {
     unavailable: state.teamRefreshError || (state.boot.agentsRuntime?.supported === false ? state.boot.agentsRuntime.reason : ''),
-    onClose: () => { state.teamOpen = false; applyPanel(); $('#teamModeBtn')?.focus(); },
+    onClose: () => { state.teamOpen = false; applyPanel(); $('#agentsTeamStrip .team-strip-open')?.focus(); },
     onSelect: (assignmentId) => {
       const previous = state.teamAgentId;
       state.teamAgentId = assignmentId; paintAgentTeam();
@@ -4405,7 +4417,8 @@ function mergeAgentsSnapshot(snapshot) {
   state.agentsSnapshot = { ...snapshot, objectives: merged };
 }
 function wantsAgentTeamUpdates() {
-  return state.view === 'chat' && (state.teamOpen || state.teamMapOpen || !!document.querySelector('[data-agent-chat-objective]'));
+  const active = ((state.agentsSnapshot || {}).objectives || []).some((o) => ['planning', 'ready', 'running', 'stopping'].includes(o.status));
+  return !state.teamDiscovered || state.teamOpen || active || (state.view === 'chat' && (state.teamMapOpen || !!document.querySelector('[data-agent-chat-objective]')));
 }
 function syncAgentTeamPolling() {
   if (!wantsAgentTeamUpdates()) {
@@ -4435,6 +4448,7 @@ function receiveAgentTeam(response) {
   const snapshot = response.data;
   const valid = snapshot && !snapshot.error && !snapshot.degraded && Array.isArray(snapshot.objectives);
   state.teamRefreshError = valid ? '' : 'Team updates are temporarily unavailable. Reconnecting…';
+  state.teamDiscovered = true;
   if (valid) mergeAgentsSnapshot(snapshot);
   paintAgentChatCards(); paintAgentTeam();
   state.teamPollTimer = wantsAgentTeamUpdates() ? setTimeout(refreshAgentTeam, valid ? 3000 : 5000) : null;
@@ -4885,13 +4899,15 @@ function togglePanel() {
   bridge.savePref("show_control_panel", state.panel ? "true" : "false");
 }
 function applyPanel() {
-  const team = state.teamOpen && state.view === 'chat';
-  const collapsed = !team && !!state.teamObjectiveId && state.view === 'chat';
+  const team = state.teamOpen;
+  const collapsed = !team;
+  const chatTeam = state.view === 'chat' && !!state.teamObjectiveId;
+  $('#app').classList.add('team-access');
   $('#app').classList.toggle('team-collapsed', collapsed);
-  if ($('#agentsTeamStrip')) $('#agentsTeamStrip').hidden = !collapsed;
-  $("#app").classList.toggle("team-open", team);
+  if ($('#agentsTeamStrip')) $('#agentsTeamStrip').hidden = false;
+  $('#app').classList.toggle('team-open', team);
   if ($('#agentsTeam')) $('#agentsTeam').hidden = !team;
-  $("#app").classList.toggle("panel-hidden", !state.panel && !team && !collapsed);
+  $('#app').classList.toggle('panel-hidden', !team && (!state.panel || chatTeam));
   $("#panelToggle").classList.toggle("on", state.panel);
   $("#panelToggle").setAttribute("aria-pressed", state.panel ? "true" : "false");
   paintAgentTeam();
@@ -4955,7 +4971,7 @@ function toast(msg) {
 }
 function updateTeamComposerClearance() {
   const composer = $('.composer');
-  if (composer) $('#app').style.setProperty('--team-composer-clearance', Math.max(120, window.innerHeight - composer.getBoundingClientRect().top + 12) + 'px');
+  if (composer) $('#app').style.setProperty('--team-composer-clearance', (state.view === 'chat' ? Math.max(120, window.innerHeight - composer.getBoundingClientRect().top + 12) : 12) + 'px');
 }
 function autoSize() {
   const i = $("#input"); i.style.height = "auto"; i.style.height = Math.min(180, i.scrollHeight) + "px";
@@ -5173,7 +5189,6 @@ if (typeof window !== "undefined") {
     },
     toggleAgentTeam: () => {
       state.teamOpen = !state.teamOpen;
-      if (state.teamOpen && state.view !== 'chat') switchView('chat');
       applyPanel();
     },
     derivedAgentMode: () => derivedAgentMode(),
