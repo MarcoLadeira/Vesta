@@ -35,6 +35,7 @@ CALLERS = {
     "opai/cli_stream.py": "cli",
     "opaihub/background_runs.py": "background",
     "opaihub/build_loop.py": "automation",
+    "opaihub/objective_worker.py": "agent",
 }
 
 ROOT = Path(__file__).resolve().parents[1]

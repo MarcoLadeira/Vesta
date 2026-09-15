@@ -34,6 +34,7 @@ from .cost_model import (
 )
 from .model_identity import canonical_usage_model_id, model_provider
 from .state import state_dir
+from .execution_scope import attribution_fields, financial_root
 from .usage_report import ProviderTurnUsage, UsageValue
 
 
@@ -124,15 +125,15 @@ def _now_iso() -> str:
 
 
 def ledger_path(project_root: Path) -> Path:
-    return state_dir(project_root) / "ledger" / "usage.jsonl"
+    return state_dir(financial_root(project_root)) / "ledger" / "usage.jsonl"
 
 
 def ledger_head_path(project_root: Path) -> Path:
-    return state_dir(project_root) / "ledger" / "ledger.head.json"
+    return state_dir(financial_root(project_root)) / "ledger" / "ledger.head.json"
 
 
 def ledger_index_path(project_root: Path) -> Path:
-    return state_dir(project_root) / "ledger" / "usage.index.sqlite3"
+    return state_dir(financial_root(project_root)) / "ledger" / "usage.index.sqlite3"
 
 
 def _head_state_hash(head: Mapping[str, Any]) -> str:
@@ -713,7 +714,7 @@ def _recover_ledger_head(project_root: Path) -> dict[str, Any]:
 def _ledger_transaction(
     project_root: Path,
 ) -> Iterator[tuple[Path, Path, dict[str, Any]]]:
-    root = project_root.expanduser().resolve()
+    root = financial_root(project_root)
     path = ledger_path(root)
     with _LEDGER_LOCK:
         with interprocess_transaction(path):
@@ -754,6 +755,7 @@ def _build_event(
         event["task_summary_redacted"] = summary
     for key, value in fields.items():
         event[str(key)] = _privacy_safe_value(value)
+    event.update(attribution_fields())
     return event
 
 
@@ -907,7 +909,7 @@ def record_capture_session(
     deliberately separate from ``model_call``: blocked/cancelled sessions prove
     policy activity, but they are not spend and must not affect savings math.
     """
-    root = project_root.expanduser().resolve()
+    root = financial_root(project_root)
     stable_id = str(capture_id).strip()
     if not stable_id:
         raise ValueError("capture_id is required")
@@ -991,7 +993,7 @@ def record_task_outcome(
     events by :func:`summarize_outcomes`. Unmeasured fields stay :data:`UNKNOWN`
     rather than being synthesised. See docs/TASK_OUTCOMES.md.
     """
-    root = project_root.expanduser().resolve()
+    root = financial_root(project_root)
     stable_id = str(outcome_id).strip()
     if not stable_id:
         raise ValueError("outcome_id is required")
@@ -1056,7 +1058,7 @@ def record_route_decision(
     (route/benchmark) let the ledger roll up by client, repo, and origin so a
     benchmark event and a normal routed action share one schema (#49).
     """
-    root = project_root.expanduser().resolve()
+    root = financial_root(project_root)
     cost_model = load_cost_model(root)
     savings = estimate_route_savings(
         model_tier, task_tokens=task_tokens, model=cost_model
@@ -1382,7 +1384,7 @@ def reconcile_observed_model_calls(
         if call_ids is None
         else {_required_identifier(call_id, "call_id") for call_id in call_ids}
     )
-    root = project_root.expanduser().resolve()
+    root = financial_root(project_root)
     if not ledger_path(root).exists():
         return []
     with _ledger_transaction(root) as (root, path, head):
@@ -1695,7 +1697,7 @@ def cost_reconciliation(
     report costs no extra scan on a hot path.
     """
 
-    root = project_root.expanduser().resolve()
+    root = financial_root(project_root)
     if not ledger_path(root).exists():
         # Nothing has ever been recorded; say so without creating the ledger.
         return {
@@ -1832,7 +1834,7 @@ def record_model_call(
     to zero"). ``cost_price_known`` on the event says which happened, so a
     genuine free-tier zero stays distinguishable from an unpriced one.
     """
-    root = project_root.expanduser().resolve()
+    root = financial_root(project_root)
     cost_model = load_cost_model(root)
     price_known = real_cost_usd is not None or tier_price_known(model_tier, cost_model)
     cost = (
@@ -1940,7 +1942,7 @@ def summarize_ledger(project_root: Path) -> dict[str, Any]:
     result is cached by the file's (size, mtime); an append changes both, so
     the cache invalidates itself correctly and repeated reads are O(1).
     """
-    root = project_root.expanduser().resolve()
+    root = financial_root(project_root)
     signature = _ledger_signature(ledger_path(root))
     key = str(root)
     with _SUMMARY_CACHE_LOCK:
@@ -2093,7 +2095,7 @@ def summarize_outcomes(project_root: Path) -> dict[str, Any]:
     double-count. Unknown latency/context values are reported as unknown counts,
     never imputed. See docs/TASK_OUTCOMES.md.
     """
-    root = project_root.expanduser().resolve()
+    root = financial_root(project_root)
     events = read_events(root)
     outcomes = [e for e in events if e.get("event_type") == EVENT_TASK_OUTCOME]
     model_calls = [e for e in events if e.get("event_type") == EVENT_MODEL_CALL]
@@ -2186,7 +2188,7 @@ def _bucket(
 
 def rollup_ledger(project_root: Path) -> dict[str, Any]:
     """Roll up savings by day, week, month, agent, and repo (#49). Read-only."""
-    root = project_root.expanduser().resolve()
+    root = financial_root(project_root)
     routes = [
         event for event in read_events(root) if event.get("event_type") == EVENT_ROUTE
     ]

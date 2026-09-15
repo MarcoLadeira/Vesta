@@ -27,6 +27,30 @@ def _installed_version(_name: str) -> str:
     return "0.2.1a1"
 
 
+def test_desktop_internal_worker_keeps_integrity_preflight_without_loading_qt():
+    imported = []
+
+    def importer(name):
+        imported.append(name)
+        return SimpleNamespace(
+            main=lambda args: 0 if args == ["request", "response"] else 9
+        )
+
+    code = bootstrap.run_desktop(
+        ["--opai-objective-worker", "request", "response"],
+        source_root=ROOT,
+        spec_finder=SpecFinder("PySide6"),
+        distribution_lookup=_installed_version,
+        importer=importer,
+    )
+    assert code == 0
+    assert imported == ["opaihub.objective_worker"]
+
+
+def test_internal_worker_requires_exact_arguments():
+    assert bootstrap.run_cli(["--opai-objective-worker"]) == 2
+
+
 def test_bootstrap_module_has_no_optional_dependency_imports() -> None:
     imported = {
         value.split(".", 1)[0]

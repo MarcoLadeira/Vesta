@@ -16,6 +16,8 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _RUNTIME_INDEX = ".runtime-index.html"
 REQUIRED_WEB_ASSETS = (
     "activity.js",
+    "agents-workspace.js",
+    "agents-workspace.css",
     "app.js",
     "chat-components.js",
     "composer.js",
