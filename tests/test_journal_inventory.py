@@ -106,6 +106,7 @@ JOURNAL_OWNED = {
     "vestahub/worktree_leases.py": "leases — worktree ownership",
     "vestahub/session_registry.py": "leases — cross-process active provider sessions",
     "vestahub/parallel_agents.py": "runs — concurrent agent slots",
+    "vestahub/agent_objectives.py": "runs — #821 objectives and assignments, stored natively in the journal",
     "vestahub/scheduler.py": "runs — scheduled work",
     # operations / approvals
     "vestahub/idempotency.py": "operations -- exact-once external-effect claims",
@@ -135,6 +136,10 @@ JOURNAL_OWNED = {
 JOURNAL_MACHINERY = frozenset(
     {
         "vestahub/gui_pipeline.py",
+        # #821 objectives and assignments are written straight into the
+        # canonical journal store (open_store) -- there is no legacy file for
+        # them to disagree with, so the record *is* the journal.
+        "vestahub/agent_objectives.py",
         # Deletes *from* the journal rather than writing a record that
         # migrates into it. There is no legacy counterpart to disagree with,
         # and what it may delete is itself constrained by a default-deny list
@@ -172,6 +177,14 @@ ALREADY_APPEND_ONLY = {
 
 #: Derived views and support output. Rebuildable, never sole authority.
 PROJECTION_OR_EXPORT = {
+    # #821 worker handoff: per-assignment request/response/activity packets
+    # and the guardian's launch/termination proof files in the objective run
+    # directory. The executor reconciles every outcome into the objective
+    # records in the journal store (agent_objectives.py), so these files are
+    # transport and evidence for that reconciliation, never the authority.
+    "vestahub/objective_execution.py",
+    "vestahub/objective_guardian.py",
+    "vestahub/objective_worker.py",
     # Stage 4's qualification comparator. Opens the journal to *read* it and
     # writes nothing; flagged by the open_store signal, which is the scan
     # working -- it cannot tell a reader from a writer, and triaging one
@@ -215,6 +228,10 @@ PROJECTION_OR_EXPORT = {
 #: Caches, preferences, scaffolding, benchmarks, docs. Explicit #613 non-goal.
 NOT_RUNTIME_STATE = {
     "vesta/app_state.py",
+    # Host-wide worker slots are OS advisory locks. The lock files carry no
+    # state: the OS releases a slot when its holder dies, and nothing is ever
+    # replayed from them.
+    "vestahub/objective_capacity.py",
     # User-authored notes and decisions, not execution truth. Surfaced only
     # once the scan learned to see SQLite writers -- it had persisted to its
     # own database, untriaged, the whole time. Classified here rather than

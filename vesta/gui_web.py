@@ -2775,10 +2775,11 @@ def _run_gui(
                     return result
                 except Exception as exc:  # noqa: BLE001
                     from vestahub.agent_team import TeamControlError
+                    from vestahub.command_runner import redact
 
                     return {
                         "ok": False,
-                        "error": {"userMessage": str(exc)}
+                        "error": {"userMessage": redact(str(exc))}
                         if isinstance(exc, TeamControlError)
                         else safe_detail(exc),
                         "control": {
