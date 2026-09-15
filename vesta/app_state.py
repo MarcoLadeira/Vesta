@@ -495,7 +495,11 @@ def context_waste(project_root: Path) -> dict[str, Any]:
 
 def benchmark_proof(project_root: Path) -> dict[str, Any]:
     """Latest local benchmark, effectiveness, and report artifact paths."""
-    from vestahub.benchmark import benchmark_dir, latest_benchmark_report
+    from vestahub.benchmark import (
+        benchmark_dir,
+        latest_benchmark_report,
+        score_effectiveness_index,
+    )
 
     root = project_root.expanduser().resolve()
     report = latest_benchmark_report(root)
@@ -518,7 +522,7 @@ def benchmark_proof(project_root: Path) -> dict[str, Any]:
         "has_run": True,
         "run_id": report.get("run_id"),
         "suite": report.get("suite"),
-        "effectiveness_index": score.get("vesta_effectiveness_index"),
+        "effectiveness_index": score_effectiveness_index(score),
         "context_reduction_ratio": min(
             50.0, float(score.get("context_reduction_ratio", 0) or 0)
         ),
@@ -699,13 +703,13 @@ def run_benchmark_gate(
 
 def run_local_benchmark(project_root: Path) -> dict[str, Any]:
     """Run the offline max suite and persist privacy-safe benchmark evidence."""
-    from vestahub.benchmark import run_benchmark
+    from vestahub.benchmark import run_benchmark, score_effectiveness_index
 
     report = run_benchmark(project_root, suite="max", mode="both")
     score = report.get("efficiency_score", {})
     return {
         "run_id": report.get("run_id"),
-        "effectiveness_index": score.get("vesta_effectiveness_index"),
+        "effectiveness_index": score_effectiveness_index(score),
         "context_reduction_ratio": min(
             50.0, float(score.get("context_reduction_ratio", 0) or 0)
         ),
@@ -738,7 +742,11 @@ def available_models(
         provider_connection_doctor,
         test_account_connection,
     )
-    from vestahub.provider_catalog import CATALOG_VERSION, PROTOCOL_VERSION, provider_ids
+    from vestahub.provider_catalog import (
+        CATALOG_VERSION,
+        PROTOCOL_VERSION,
+        provider_ids,
+    )
     from vestahub.free_models import list_free_models
     from vestahub.local_runner import cached_local_models, list_local_models
 

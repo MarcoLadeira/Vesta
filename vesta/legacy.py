@@ -74,6 +74,15 @@ LEGACY_INSTRUCTIONS_FILENAME = "OPAI.md"
 LEGACY_CLINE_RULE = (".clinerules", "opai.md")
 LEGACY_CURSOR_RULE = (".cursor", "rules", "opai.mdc")
 LEGACY_IGNORE_FILENAME = ".opaiignore"
+
+# Files a team commits to its repository. Repositories set up before the
+# rename still carry these names; they are read until someone renames them.
+LEGACY_TEAM_POLICY_FILE = "opai-team-policy.yaml"
+LEGACY_VERIFICATION_POLICY_FILE = "opai-verification-policy.yaml"
+
+# Keys in benchmark scores and task definitions written before the rename.
+LEGACY_EFFECTIVENESS_KEY = "opai_effectiveness_index"
+LEGACY_CONTEXT_BYTES_KEY = "opai_context_bytes"
 # Lines that surrounded the managed block in the generated Cursor/Cline rules.
 LEGACY_RULE_BOILERPLATE = (
     "description: OPai local-first, cost-aware routing and safety policy",
@@ -81,6 +90,20 @@ LEGACY_RULE_BOILERPLATE = (
 )
 # Only a wrapper that sets one of these was written by the old installer.
 LEGACY_WRAPPER_SIGNATURES = ("OPAI_ACTIVE", f"-m {LEGACY_PACKAGE} ")
+
+
+def repository_file(root: Path, name: str, legacy_name: str) -> Path:
+    """``root/name``, or the pre-rename ``root/legacy_name`` while only that exists.
+
+    A repository that committed a policy under its old name keeps that policy
+    in force: silently ignoring it would weaken every check it configures.
+    """
+
+    current = root / name
+    if current.exists():
+        return current
+    legacy = root / legacy_name
+    return legacy if legacy.exists() else current
 
 
 def legacy_env_name(name: str) -> str:

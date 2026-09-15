@@ -62,8 +62,16 @@ def _canonical_json(value: Mapping[str, Any]) -> str:
     )
 
 
+# The hash domain every attribution digest, snapshot_id and change_set_id has
+# been computed under since these records were first written. It predates the
+# product's rename and must never change: it is part of every stored digest and
+# id, so a new value would fail every existing record's verification and give
+# identical evidence a different id from the one already stored.
+_DIGEST_DOMAIN = "opai"
+
+
 def _content_digest(kind: str, value: Mapping[str, Any]) -> str:
-    payload = f"vesta:{kind}:v{SCHEMA_VERSION}\0{_canonical_json(value)}"
+    payload = f"{_DIGEST_DOMAIN}:{kind}:v{SCHEMA_VERSION}\0{_canonical_json(value)}"
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 

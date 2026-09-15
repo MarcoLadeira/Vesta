@@ -531,7 +531,11 @@ def _load_policy_mapping(
 def _overlay_from_repository(
     root: Path,
 ) -> tuple[Mapping[str, Any] | None, PolicyFinding | None]:
-    path = root / REPOSITORY_POLICY_FILE
+    from vesta import legacy
+
+    path = legacy.repository_file(
+        root, REPOSITORY_POLICY_FILE, legacy.LEGACY_VERIFICATION_POLICY_FILE
+    )
     if not path.exists():
         return None, None
     return _load_policy_mapping(path, source="repository")
@@ -540,7 +544,11 @@ def _overlay_from_repository(
 def _overlay_from_team(
     root: Path,
 ) -> tuple[Mapping[str, Any] | None, PolicyFinding | None]:
-    path = root / TEAM_POLICY_FILE
+    from vesta import legacy
+
+    path = legacy.repository_file(
+        root, TEAM_POLICY_FILE, legacy.LEGACY_TEAM_POLICY_FILE
+    )
     if not path.exists():
         return None, None
     team, finding = _load_policy_mapping(path, source="team")

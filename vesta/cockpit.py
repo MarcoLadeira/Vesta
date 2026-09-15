@@ -7,7 +7,7 @@ from typing import Any
 from vesta import __brand__
 from vesta.integrations import project_status
 from vesta.release_identity import surface_identity_payload
-from vestahub.benchmark import latest_benchmark_report
+from vestahub.benchmark import latest_benchmark_report, score_effectiveness_index
 from vestahub.budget import budget_status
 from vestahub.cost_telemetry import summarize_cost_telemetry
 from vestahub.local_models import discover_local_models
@@ -69,7 +69,7 @@ def _benchmark_status(project_root: Path) -> dict[str, Any]:
         "suite": report.get("suite"),
         "claim": claim.get("public_claim", "Benchmark proof recorded."),
         "status": claim.get("status", "unknown"),
-        "effectiveness_index": score.get("vesta_effectiveness_index"),
+        "effectiveness_index": score_effectiveness_index(score),
         "paid_calls_avoided": score.get("paid_calls_avoided"),
     }
 

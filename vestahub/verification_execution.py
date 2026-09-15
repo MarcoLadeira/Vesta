@@ -147,6 +147,9 @@ def _environment_fingerprint(
         "pyproject.toml",
         "vesta-verification-policy.yaml",
         "vesta-team-policy.yaml",
+        # Pre-rename names of the same files, still honoured by the loaders.
+        "opai-verification-policy.yaml",
+        "opai-team-policy.yaml",
     )
     return {
         "os": platform.system() or os.name,

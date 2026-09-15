@@ -40,7 +40,13 @@ required_guards: []
 
 
 def team_policy_path(project_root: Path) -> Path:
-    return project_root.expanduser().resolve() / TEAM_POLICY_FILE
+    from vesta import legacy
+
+    return legacy.repository_file(
+        project_root.expanduser().resolve(),
+        TEAM_POLICY_FILE,
+        legacy.LEGACY_TEAM_POLICY_FILE,
+    )
 
 
 def load_team_policy(project_root: Path) -> dict[str, Any] | None:

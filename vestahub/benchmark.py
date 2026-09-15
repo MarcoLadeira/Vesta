@@ -234,6 +234,19 @@ MAX_TASKS: list[dict[str, Any]] = [
 ]
 
 
+# Scores and tasks written before the rename carry these keys instead.
+LEGACY_EFFECTIVENESS_KEY = "opai_effectiveness_index"
+LEGACY_CONTEXT_BYTES_KEY = "opai_context_bytes"
+
+
+def score_effectiveness_index(score: dict[str, Any]) -> Any:
+    """The effectiveness index of a score, including one saved before the rename."""
+    value = score.get("vesta_effectiveness_index")
+    if value is None:
+        value = score.get(LEGACY_EFFECTIVENESS_KEY)
+    return value
+
+
 def _tasks_for_suite(suite: str) -> list[dict[str, Any]]:
     if suite == "local":
         return LOCAL_TASKS
@@ -406,7 +419,12 @@ def _vesta_result(
     )
     elapsed = round(time.perf_counter() - started, 3)
     sizes = route_context_sizes(decision)
-    context_bytes = int(task.get("vesta_context_bytes", sizes["compact_chars"]))
+    context_bytes = int(
+        task.get(
+            "vesta_context_bytes",
+            task.get(LEGACY_CONTEXT_BYTES_KEY, sizes["compact_chars"]),
+        )
+    )
     tokens = _bytes_to_tokens(context_bytes, cost_model)
     tier = str(decision.get("model_tier", "L1")).upper()
     paid_calls = 0 if is_local_tier(tier, cost_model) else 1
@@ -562,7 +580,7 @@ def claim_readiness(score: dict[str, Any]) -> dict[str, Any]:
     success = float(score.get("success_rate", 0) or 0)
     paid_calls_avoided = int(score.get("paid_calls_avoided", 0) or 0)
     task_count = int(score.get("task_count", 0) or 0)
-    effectiveness_index = float(score.get("vesta_effectiveness_index", 0) or 0)
+    effectiveness_index = float(score_effectiveness_index(score) or 0)
 
     if task_count >= 16 and effectiveness_index >= 95:
         status = "top_local_control_plane"
@@ -734,7 +752,7 @@ def benchmark_gate(
         },
         {
             "metric": "vesta_effectiveness_index",
-            "actual": float(score.get("vesta_effectiveness_index", 0) or 0),
+            "actual": float(score_effectiveness_index(score) or 0),
             "operator": ">=",
             "threshold": float(min_effectiveness_index),
         },
