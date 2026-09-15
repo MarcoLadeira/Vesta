@@ -2,39 +2,33 @@
 
 ## Unreleased
 
-### Rebrand: Vesta is now Vesta
+### Rebrand: the product formerly called OPai is now Vesta
 
-- The product is named Vesta everywhere people read it: the app window, header
-  and chat, the empty state and composer, Settings, the CLI's messages and
-  help, installed instruction blocks, the website, README and current docs,
-  issue templates, and workflow titles.
-- The Vesta heart replaces the mascot and the app icon: window, taskbar,
-  Alt-Tab, the header, the home screen, the terminal welcome, and the packaged
-  Windows icon. `scripts/make_app_icon.py` now derives the icon from the logo.
-- The command is `vesta` and the desktop app is `Vesta-Desktop` (with
-  `vesta-gui`). Every command shown in the app, CLI help, docs and website
-  reads `vesta …`. The shell integration defines a `vesta` function next to
-  `op`. `vesta`, `vesta-gui` and `Vesta-Desktop` still work as aliases for
-  existing shortcuts, hooks and scripts. Agent instructions forbid both names
-  inside an AI task; the recursion guard is name-independent.
-- Managed blocks written into your files now say "Vesta managed block", and AI
-  ignore rules say "Vesta context-slimming rules". Blocks written before the
-  rebrand are recognised, upgraded in place, and uninstalled as before, never
-  duplicated.
-- The empty state's pulsing ring is gone, and the header shows the heart on its
-  own instead of on the old brand-gradient tile.
-- Unchanged on purpose, because nothing a person reads shows it and changing it
-  would break existing installs, saved credentials or update feeds:
-  - the `vesta` Python packages and module (`python -m vesta`), and `~/.vesta`
-    data;
-  - the `Vesta.Desktop` app id;
-  - `Vesta.exe`, `Vesta.app`, `Vesta.msix` and `Vesta-<version>-…` release asset
-    names;
-  - the `Vesta/free-model-api` keychain entry;
-  - the ProgramData update-policy folder;
-  - the `MarcoLadeira/OPai` repository.
-
-  Earlier entries below keep the name they were written under.
+- The product is called Vesta everywhere: the app window, header and chat, the
+  empty state and composer, Settings, the CLI, installed instruction blocks,
+  the website, README and docs, issue templates and workflow titles.
+- The Vesta heart replaces the mascot and the app icon (window, taskbar,
+  Alt-Tab, header, home screen, terminal welcome, packaged Windows icon).
+  `scripts/make_app_icon.py` derives the icon from the logo. The empty state's
+  pulsing ring is gone, and the header shows the heart on its own.
+- The command is `vesta` and the desktop app is `Vesta-Desktop` (plus
+  `vesta-gui`). The Python packages are `vesta` and `vestahub`, run as
+  `python -m vesta`.
+- Data lives in `~/.vesta`, and project state in `.vestahub/`. Environment
+  variables are `VESTA_*`. The Windows app id is `Vesta.Desktop`, release
+  assets are `Vesta-<version>-…`, and the saved API key lives in
+  `Vesta/free-model-api`. Managed blocks and AI ignore rules say Vesta.
+- Existing installs upgrade automatically on first start (`vesta/legacy.py`):
+  - `~/.opai` moves into `~/.vesta`, except the checkout the app is running
+    from;
+  - a project's `.opaihub` becomes `.vestahub`;
+  - `OPAI_*` variables are adopted as `VESTA_*`;
+  - the saved key moves from the old keychain entry;
+  - old managed blocks, wrappers, skills and rule files are upgraded or
+    removed, and user content is never touched.
+- The GitHub repository keeps its `MarcoLadeira/OPai` URL until the repository
+  itself is renamed. Earlier entries below keep the name they were written
+  under.
 
 ## 0.2.1 Alpha.1
 
