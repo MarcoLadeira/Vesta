@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from . import auto_router, provider_balance, provider_blocks, provider_usage
+from .command_runner import redact
 from .execution_scope import financial_root
 from .local_models import classify_endpoint
 from .provider_catalog import provider_record
@@ -192,7 +193,7 @@ def select_worker_route(
             try:
                 managed_local_runner(model_id, item.get("endpoint"))
             except ValueError as exc:
-                reasons.append(str(exc))
+                reasons.append(redact(str(exc)))
         # gui_pipeline has dedicated account/free dispatch, but paid: IDs still
         # enter its local one-shot branch. Do not claim editing capability or
         # invoke that path until it implements the paid API tool/consent flow.

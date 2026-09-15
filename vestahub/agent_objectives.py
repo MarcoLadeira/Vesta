@@ -1569,12 +1569,13 @@ class ObjectiveStore:
 
     def control(self, objective_id, action, assignment_id=None, value=None):
         from .agent_team import TEAM_ACTIONS, TeamControlError, actor, control_team
+        from .command_runner import redact
 
         if action in TEAM_ACTIONS:
             try:
                 return control_team(self, objective_id, action, assignment_id, value)
             except ValueError as exc:
-                raise TeamControlError(str(exc)) from exc
+                raise TeamControlError(redact(str(exc))) from exc
         if action == "rename":
             display_name = _text(value, "Agent name", 40)
             if any(ord(char) < 32 for char in display_name):

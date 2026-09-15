@@ -61,6 +61,32 @@ REDEFINITION_THRESHOLD = 2
 #: and an entry that no longer fires fails too, so a fixed module cannot keep
 #: silent permission it no longer needs.
 REVIEWED_LITERALS: dict[str, str] = {
+    "vesta/cli.py": (
+        "objective command exit codes: reads an #821 objective's status "
+        "(the separate objective vocabulary, e.g. 'needs-attention' with a "
+        "hyphen) to choose an exit code. It does not define run states."
+    ),
+    "vestahub/agent_objectives.py": (
+        "the #821 objective and assignment state machine (pending, running, "
+        "stopping, blocked, needs-attention, completed, failed, cancelled) for "
+        "team work. An objective is not a run; the hyphenated "
+        "'needs-attention' against the lifecycle's 'needs_attention' marks the "
+        "separate vocabulary."
+    ),
+    "vestahub/agent_team.py": (
+        "AI Team panel controls derived from assignment statuses (which agents "
+        "can start, message or connect). Presentation downstream of "
+        "agent_objectives, never an authority over run state."
+    ),
+    "vestahub/objective_worker.py": (
+        "an assignment worker's ownership check against the objective's status "
+        "before it acts. Objective vocabulary, owned by agent_objectives."
+    ),
+    "vestahub/receipt.py": (
+        "the #821 objective receipt marks itself provisional until the "
+        "objective reaches a final objective status. It reads objective "
+        "vocabulary and does not define run states."
+    ),
     "vesta/activity.py": (
         "activity-row vocabulary (pending/success/warning/error) for the UI "
         "timeline. Overlaps the lifecycle only in the words 'running' and "
