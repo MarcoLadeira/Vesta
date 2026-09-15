@@ -14,11 +14,11 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub import safety_gates
-from opaihub.aci import AgentComputerInterface, Observation
-from opaihub.command_runner import split_command
-from opaihub.provider_tools import RepositoryToolExecutor, available_tool_names
-from opaihub.safety_gates import (
+from vestahub import safety_gates
+from vestahub.aci import AgentComputerInterface, Observation
+from vestahub.command_runner import split_command
+from vestahub.provider_tools import RepositoryToolExecutor, available_tool_names
+from vestahub.safety_gates import (
     classify_run_command,
     normalize_autonomous_command,
 )

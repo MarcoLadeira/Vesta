@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import unittest
 
-from opai.activity import ActivitySession, parse_claude_line, parse_codex_line
+from vesta.activity import ActivitySession, parse_claude_line, parse_codex_line
 
 
 def _tool_use_line(tool_use_id: str, command: str, name: str = "Bash") -> str:

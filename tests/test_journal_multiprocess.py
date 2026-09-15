@@ -29,7 +29,7 @@ import textwrap
 import unittest
 from pathlib import Path
 
-from opaihub.journal_store import (
+from vestahub.journal_store import (
     INTEGRITY_COMPLETE,
     check_integrity,
     open_store,
@@ -65,12 +65,12 @@ def _child(root: Path, body: str, *, label: str = "worker") -> subprocess.Popen:
         import json, sys
         sys.path.insert(0, {repo!r})
         from pathlib import Path
-        from opaihub import journal_store
-        from opaihub.journal_store import (
+        from vestahub import journal_store
+        from vestahub.journal_store import (
             acquire_lease, append_event, open_store, read_events,
             record_cost, record_operation, release_lease,
         )
-        from opaihub.journal_store import JournalStoreError, StaleWriterError
+        from vestahub.journal_store import JournalStoreError, StaleWriterError
         root = Path({root!r})
         NOW = {now!r}
         LABEL = {label!r}

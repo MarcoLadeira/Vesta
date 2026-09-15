@@ -1,0 +1,1306 @@
+VESTA / ASTRA MASTER PRODUCT + ENGINEERING CONTEXT
+================================================
+Snapshot date: 2026-09-06
+Repository: MarcoLadeira/OPai
+Purpose: Canonical strategic and engineering orientation for coding agents working on Vesta.
+Audience: Codex, Astra, Claude Code, Copilot, other engineering agents, and human contributors.
+
+IMPORTANT STATUS RULE
+---------------------
+This document is a high-value orientation map, NOT a replacement for live repository evidence.
+Before making implementation decisions, refresh the current branch/HEAD, open issues, open PRs,
+GitHub Actions, relevant code and tests. Any status statement below can become stale after this
+snapshot. Architecture principles and product doctrine are intended to be durable; individual
+bug/status claims are not.
+
+When this document says "Astra", it means the coding agent currently pointed at this file. Do not
+assume special Astra capabilities. Discover the actual tools and permissions available in the
+current session.
+
+
+0. EXECUTIVE SUMMARY
+====================
+
+Vesta should not become "Cursor, but cheaper" and it should not spend years cloning the editor
+surface, Tab completion or proprietary autocomplete training loop that Cursor already owns.
+
+Vesta's strongest product category is:
+
+    A LOCAL-FIRST, PROVIDER-NEUTRAL AI SOFTWARE ENGINEERING CONTROL PLANE
+    THAT OPTIMIZES FOR VERIFIED ENGINEERING OUTCOMES PER UNIT OF COST/QUOTA.
+
+The current market wedge is simpler and easier to explain:
+
+    Vesta is the AI coding cost firewall.
+
+Those statements are not contradictory. "Cost firewall" is the adoption wedge. The larger product
+is the engineering control plane behind it.
+
+The ideal Vesta workflow is:
+
+1. A developer opens any existing repository in the editor/terminal they already use.
+2. Vesta understands the repository locally before an expensive model starts wandering through it.
+3. The developer asks for an engineering outcome, not a provider-specific prompt.
+4. Vesta decides what deterministic/local evidence can solve first and what model/provider is
+   actually required.
+5. If work can be parallelized safely, Vesta decomposes it into bounded assignments, isolates them
+   in worktrees, routes each assignment independently, and supervises them as an engineering team.
+6. Commands, edits, Git/GitHub side effects, cloud spend and dangerous operations obey explicit
+   authority and repository-safety rules.
+7. Vesta does not treat a model saying "done" as proof. Required tests/checks/browser evidence and
+   repository state determine the terminal verdict.
+8. The user gets one truthful result and receipt: what happened, what changed, what was verified,
+   what remains uncertain, which model/provider was used, and what it cost/saved.
+9. The same task remains one task whether viewed from desktop, CLI, IDE bridge, background worker
+   or future integration.
+
+If Vesta reaches that experience while remaining easy to install and pleasant to use, it does not
+need to beat Cursor at Cursor Tab to become a genuinely better product for a substantial class of
+software engineers.
+
+
+1. WHAT VESTA IS TODAY
+=====================
+
+Current package identity at this snapshot:
+- Python project name: vesta
+- Version: 0.2.1a1
+- Release identity in README: Vesta 0.2.1 Alpha.1
+- Main CLI entry points: vesta and op
+- Additional entry points: op-hub, legacy-compatible opcoding
+- Desktop entry points: vesta-gui and Vesta-Desktop
+- Core Python requirement: >= 3.10
+- Desktop GUI: PySide6/QtWebEngine with a classic Qt fallback
+- Web UI assets are packaged inside the Python application.
+
+The README's current first-order promise is accurate:
+
+    Vesta is the AI coding cost firewall.
+
+It sits in front of AI coding providers/clients and tries to route work through the cheapest safe
+path that can genuinely complete the job. The intended order is approximately:
+
+    deterministic tools
+      -> compact cached/local context
+      -> local/free capability
+      -> confirmed cheap cloud capability
+      -> stronger/expensive model only when evidence says it is justified
+
+That is more than a pricing trick. It changes what the product controls. Vesta can observe the
+engineering process around the model: repository state, edits, commands, tests, verification,
+retries, Git/GitHub delivery and receipts. That makes it possible to optimize the total cost of a
+successful result instead of the nominal price of one inference.
+
+Existing user-facing concepts include:
+- Desktop chat/control center.
+- Model/provider selection including Auto, connected account CLIs, free-tier APIs and local
+  endpoints where configured.
+- Run modes: Ask, Plan, Safe Auto, Approve Edits, Full Auto.
+- Visible activity/work log.
+- Real cancellation with process-tree teardown as a product requirement.
+- Inspector/settings surfaces.
+- Money-saved / receipt concepts.
+- Explicit GitHub push/PR consent.
+- Repository identity and worktree safety.
+- Verification policy and evidence execution.
+- CLI routing, doctor, context, benchmarks, governance and receipts.
+- MCP/tool/agent/workflow registries.
+- Multi-agent/worktree primitives.
+- Background-run/schedule primitives.
+- Release/update/signing machinery.
+
+Vesta is NOT a single giant agent. The Vesta Hub design is a registry/routing layer spanning tools,
+agents, workflows, MCP servers and model tiers. OPcoding is the legacy-compatible lower-level
+system that contains existing project scans, tests, GitOps and related foundations. New work should
+prefer the current Vesta/vestahub architecture and treat opcoding compatibility carefully rather than
+building a second product around it.
+
+
+2. THE USER PROBLEM VESTA SHOULD OWN
+===================================
+
+Modern AI coding creates five connected problems:
+
+A. MODEL/PROVIDER WASTE
+Developers routinely use expensive frontier capability for work that deterministic tools, code
+search, local models or cheaper models could solve. Provider subscriptions and API usage are
+fragmented and opaque.
+
+B. MODEL LOCK-IN
+A great model this month may be mediocre next month. A product tightly coupled to one provider
+forces the user to inherit that provider's economics, outages, rate limits and product decisions.
+
+C. "DONE" IS TOO EASY TO SAY
+Coding agents can generate plausible prose while tests fail, files did not change, changes happened
+in the wrong checkout, a PR was never opened, or the requested behavior was not independently
+verified. The product must distinguish a response from an engineering outcome.
+
+D. AGENT SCALE CREATES SUPERVISION PROBLEMS
+Once multiple agents operate in parallel, the hard problem becomes ownership, isolation,
+reconciliation, budget, cancellation, verification and state continuity. More agents without a
+control plane can make engineering less reliable.
+
+E. POLISHED COMPETITORS HIDE SETUP COMPLEXITY
+A technically better engine still loses if a developer has to clone a Python repo, install
+special dependencies, understand internals and debug provider setup before the first useful task.
+Distribution and first-run UX are product strategy, not packaging trivia.
+
+Vesta should own the combined answer:
+
+    "Give me the engineering outcome. Use the best available combination of tools/models at the
+     lowest sensible total cost, keep it safe, prove it, and show me what happened."
+
+
+3. THE NON-NEGOTIABLE PRODUCT INVARIANTS
+========================================
+
+Every meaningful feature should preserve these invariants.
+
+3.1 ONE CANONICAL TASK/RUN TRUTH
+One request should map to one task identity, ordered event history and evidence-backed state.
+Desktop, CLI, background processes and integrations must not independently invent completion,
+cancellation, cost or side-effect state.
+
+3.2 PROVIDER NEUTRALITY
+Claude, Codex/OpenAI, Copilot, Gemini, local models and future providers are capabilities, not the
+product identity. Manual model selection must remain possible. Auto should route by outcome,
+policy, cost and evidence rather than brand preference.
+
+3.3 LOCAL-FIRST WHERE TECHNICALLY PRACTICAL
+Repository understanding, policy, state, receipts and deterministic inspection should stay local
+by default. Cloud/provider calls occur because the task needs them and policy allows them, not
+because the architecture assumes a hosted Vesta brain.
+
+3.4 DETERMINISTIC EVIDENCE BEFORE MODEL TOKENS
+Use Git, parsing, tests, structured repository inspection, cache, symbol/index signals and bounded
+local tooling before paying a model to rediscover deterministic facts.
+
+3.5 EXPLICIT PAID/CLOUD AUTHORITY
+Do not silently spend money or scarce subscription quota. Authority must be clear, bounded and
+attributable to the current task/run/operation.
+
+3.6 REPOSITORY SAFETY
+Revalidate canonical repository/worktree identity before mutation. Branch movement, remote
+changes, unknown scope, conflicts or unrelated user edits should block/serialize unsafe work
+instead of guessing.
+
+3.7 REAL CANCELLATION
+"Cancelled" cannot mean "the UI stopped listening while a provider/command kept running." Owned
+controllable work must be terminated/reconciled, and restart recovery must not duplicate work.
+
+3.8 VERIFICATION-BACKED COMPLETION
+Model prose is not system evidence. A model cannot promote its own claim to "verified". Required
+checks, repository evidence, browser evidence and delivery evidence decide the result.
+
+3.9 HONEST UNKNOWN / PARTIAL STATES
+Unknown cost is not zero. Missing evidence is not pass. A timeout is not success. A model response
+with no expected diff is not a completed edit. If Vesta cannot prove something, it should say so.
+
+3.10 COMPLETE COST PROVENANCE
+Routing economics must include failed attempts, retries, fallbacks, repair turns and verification,
+not only the final successful model call.
+
+3.11 CROSS-SURFACE PARITY
+The same task viewed in desktop, CLI, IDE bridge or worker must not become multiple tasks or show
+contradictory terminal state.
+
+3.12 NO HIDDEN-CHAIN-OF-THOUGHT DEPENDENCY
+Vesta needs structured reasons, facts and evidence—not private model reasoning. Route explanations
+and receipts should be concise, inspectable and based on observable inputs.
+
+
+4. CURRENT REPOSITORY SHAPE
+==========================
+
+High-level directories visible on main include:
+
+- vesta/       : branded application/CLI/bootstrap/desktop layer.
+- vestahub/    : core hub/runtime/orchestration/policy/routing/state/tooling services.
+- opcoding/   : legacy-compatible coding system and older foundations.
+- adapters/   : integration/adaptation boundaries.
+- agents/     : agent-related assets/configuration.
+- mcp/        : MCP-related configuration/integration.
+- hub/        : hub data/docs/assets and governance/benchmark material.
+- configs/    : configuration assets.
+- prompts/    : prompt assets.
+- tools/      : tools/integrations.
+- workflows/  : product workflow assets.
+- scripts/    : CI, release, generation and development utilities.
+- tests/      : broad Python/product regression coverage.
+- site/       : public/launch surface.
+- docs/       : architecture, release, strategy, QA and operational docs.
+- .github/    : CI, release/artifact workflows, issue/PR templates and required-check contracts.
+
+Important implementation areas an agent should inspect before architectural work include:
+
+- AGENTS.md
+- README.md
+- pyproject.toml
+- .github/required-checks.json
+- docs/LAUNCH_CHECKLIST.md
+- docs/LAUNCH_OPERATIONS.md
+- vestahub/journal_runtime.py
+- vestahub/journal_store.py
+- vestahub/gui_pipeline.py
+- vestahub/parallel_agents.py
+- vestahub/background_runs.py
+- repository-safety/worktree lease code
+- verification policy/execution code
+- routing/model/provider catalog code
+- workflow/cost/receipt/ledger code
+- update/release code
+- vesta/assets/web/ and its tests
+
+Do not infer an exact module path from this document if it has moved. Search current main.
+
+
+5. CURRENT ARCHITECTURAL REALITY: STRONG PRIMITIVES, SOME DUAL TRUTH
+===================================================================
+
+A major strategic fact is that Vesta already has many of the hard primitives. This project should
+not be rewritten from scratch.
+
+The canonical-runtime epic (#818 at this snapshot) exists because durable state is not yet fully
+consolidated. The repository contains a SQLite/journal direction plus legacy JSON/file/shadow
+projections in several subsystems. This is visible in code, not just issue prose.
+
+Example: vestahub/parallel_agents.py currently persists assignment JSON while recording a shadow
+journal projection. It even documents a remaining concurrency issue: save itself is protected by
+an interprocess transaction, but the broader check-then-claim flow can still race, so two claimants
+may both pass an active-concurrency check. This is exactly the class of bug the canonical runtime
+must eliminate rather than cover with another UI state.
+
+Therefore:
+- Do not add another durable state store because a feature needs convenience.
+- Do not let GUI JavaScript become a second scheduler/router/verdict authority.
+- Do not let background workers create their own task truth.
+- Prefer moving subsystem authority behind the canonical journal incrementally.
+- Preserve compatibility/migration only as long as required; legacy records should become inputs
+  or projections, not peers with equal authority.
+
+
+6. REPOSITORY SAFETY + MULTI-AGENT FOUNDATION ALREADY EXISTS
+===========================================================
+
+Vesta already has substantial parallel-agent machinery. In the current implementation:
+- assignments have durable IDs/owners/status;
+- intended-path overlap blocks unsafe parallelism;
+- unknown scope is treated conservatively as potentially overlapping everything;
+- assignments get isolated branches/worktrees;
+- worktree leases and canonical repository handles are used;
+- dirty paths are classified against intended scope;
+- reconciliation refuses to silently merge changed-file collisions;
+- workflow ledger evidence is recorded.
+
+This means the multi-agent strategy is not "invent agents." The engineering job is to turn these
+primitives into a first-class objective/assignment command center backed by canonical runtime,
+verified outcome routing, bounded context and integrated verification.
+
+Do not replace this safety model with a swarm framework that lets agents mutate one shared
+checkout. More concurrency is not success. A benchmark must show improved objective-level
+wall-clock or quality without unacceptable cost/conflict growth.
+
+
+7. VERIFIED OUTCOME ROUTING IS THE CENTRAL MOAT
+===============================================
+
+The original cost firewall can be copied if it remains only:
+
+    "try free/local, then cheap, then expensive"
+
+The defensible version is issue #819's concept: the Verified Outcome Router.
+
+The question is not:
+
+    "Which model is cheapest?"
+
+It is:
+
+    "For this class of engineering work, this repository, this user policy and current provider
+     health/quota, what route minimizes TOTAL expected cost while still achieving a verified
+     outcome at the required quality/latency?"
+
+Total route economics should include:
+- first attempt cost;
+- context/retrieval cost;
+- latency;
+- tool compatibility;
+- test/verification cost;
+- failure probability;
+- repair/retry/fallback cost;
+- quota scarcity;
+- manual correction/revert signals;
+- final verified/delivered outcome.
+
+A €0.01 model that fails three times and forces a €0.50 rescue is not a €0.01 route.
+A €0.08 model that finishes and verifies first pass may be the cheaper outcome.
+
+Recommended user intents remain simple:
+- Cost: minimize expected total verified cost subject to a success-confidence floor.
+- Balanced: optimize verified outcome, latency and cost.
+- Maximum: maximize verified success/quality while still avoiding obviously wasteful routes.
+
+The learning path should be local-first:
+1. Start with deterministic capability constraints and scorecards as priors.
+2. Record privacy-safe outcome features—not private source/prompts merely for training convenience.
+3. Learn local per-user/repo/task-class calibration.
+4. Decay stale model/provider evidence.
+5. Quarantine known-broken provider/model/version combinations quickly.
+6. Explore alternatives only within bounded cost/risk policy.
+7. Add optional privacy-preserving aggregate intelligence later if it earns its complexity.
+
+North-star routing metric:
+
+    VERIFIED ENGINEERING OUTCOMES PER EURO / UNIT OF SCARCE PLAN QUOTA
+
+That is much harder for an editor-centric router to copy than simple per-turn price routing because
+Vesta controls verification and delivery around the model call.
+
+
+8. SEMANTIC CODE INTELLIGENCE: CLOSE A REAL CURSOR ADVANTAGE
+============================================================
+
+At this snapshot, semantic repository intelligence is strategically specified (#820) but should be
+treated as an area requiring a live implementation audit before assuming it exists at product
+quality.
+
+The objective is not "add embeddings." The objective is:
+
+    The expensive model begins with the smallest high-confidence slice of the repository needed
+    to solve the task.
+
+Desired local intelligence layers:
+- file/directory/language/framework structure;
+- definitions/symbols;
+- imports/references/dependency relationships where practical;
+- source <-> likely test relationships;
+- config/build/entry points;
+- changed/dirty/current revision signals;
+- lexical search;
+- structural neighbors;
+- cached summaries;
+- local/offline semantic representation;
+- bounded snippet retrieval with provenance.
+
+Retrieval hierarchy should remain cheap-first:
+
+1. direct path/symbol match
+2. lexical/code search
+3. structural relationships
+4. cached summaries
+5. semantic retrieval
+6. targeted file reads
+7. provider-led exploration only when needed
+
+Every context bundle should be able to say why a snippet was selected, what revision/worktree it
+belongs to, how much context it consumes, and what relevant candidates were omitted. Measure
+provider search/read calls and tokens avoided, not merely index speed.
+
+Cursor has strong codebase indexing today, so this is not optional for long-term competitiveness.
+But it does not need to block a first public alpha if release-critical reliability/distribution is
+not ready. Ship the alpha honestly, then deepen the index behind a clean service boundary.
+
+
+9. MULTI-AGENT COMMAND CENTER: THE PRODUCT BEYOND CHAT
+======================================================
+
+A long-term Vesta should feel less like "chat with a model" and more like supervising a small
+engineering team.
+
+One objective may contain:
+- coordinator/planner;
+- explorer/research assignments;
+- implementation assignments;
+- test/verification assignment;
+- reviewer/critic assignment;
+- integration/reconciliation assignment.
+
+Each assignment should have:
+- canonical identity;
+- scope/intended files/symbols where predictable;
+- dependencies;
+- required capabilities;
+- chosen route/provider/model;
+- budget;
+- isolated worktree/branch;
+- activity state;
+- changed files;
+- verification target/evidence;
+- terminal outcome and receipt.
+
+The UI must answer at a glance:
+- What is the overall objective?
+- What has Vesta decomposed it into?
+- Which parts are actually safe to run in parallel?
+- Which agent/model owns each part?
+- What is active, blocked, complete or failed?
+- What changed?
+- What did each assignment cost?
+- What is ready for reconciliation?
+- Did the integrated result verify?
+
+The final objective is complete only after integrated verification. Child-agent consensus or
+"looks good" prose is not verification.
+
+
+10. ALWAYS-ON LOCAL WORKER
+==========================
+
+Cursor is moving engineering work into always-on cloud agents and automations. Vesta's structural
+counter-position is a durable user-owned local worker, with optional self-hosting later, attached
+to the same canonical runtime.
+
+The worker should enable:
+- scheduled tasks;
+- bounded retry/maintenance;
+- GitHub event-driven work;
+- continuation after desktop closes;
+- future webhook/integration triggers;
+- reboot/restart reconciliation.
+
+It must not inherit unlimited interactive Full Auto authority. Every unattended task needs an
+explicit authority envelope: repository scope, operations allowed, cloud/paid permission, spend
+cap, Git/GitHub permission, dangerous-action policy, expiry and notification behavior.
+
+Duplicated events cannot create duplicated engineering work. Event identity and operation
+idempotency matter more in an unattended system than in a chat window.
+
+
+11. IDE STRATEGY: BE PRESENT, DO NOT BECOME AN IDE COMPANY
+==========================================================
+
+Cursor's biggest structural advantage is that it owns the editor loop, especially inline
+completion and deeply integrated interaction. Vesta should not burn years rebuilding VS Code.
+
+The high-leverage answer is thin VS Code and JetBrains bridges (#824):
+
+    Editor supplies context and interaction.
+    Vesta supplies intelligence, orchestration, policy, cost and truth.
+
+Bridges should provide:
+- Ask/Implement/Review/Explain Selection actions;
+- active file/selection/diagnostics attachment with visible disclosure;
+- task launch and control;
+- status/blocked/approval/completion notifications;
+- native diff/file/range opening;
+- links into the full Vesta desktop Agents workspace;
+- receipt/verification inspection.
+
+The extension must NOT become another provider runtime or state authority. It should use one
+versioned authenticated local protocol to the canonical Vesta runtime.
+
+Explicit strategic non-goals:
+- no VS Code fork;
+- no Vesta editor;
+- no giant bespoke autocomplete/Tab model program;
+- no duplicated repository index inside every editor plugin.
+
+
+12. BROWSER ENGINEERING MODE
+============================
+
+For frontend/UI work, source-only agents guess too much. Vesta's browser mode (#825) should convert
+browser observations into structured verification evidence.
+
+Use a mature boundary such as Playwright rather than inventing a browser driver.
+
+Capabilities should include:
+- isolated browser session;
+- local/allowed URL policy;
+- DOM and accessibility inspection;
+- computed style/layout;
+- console errors;
+- failed/network requests with secret redaction;
+- screenshots/regions;
+- viewport presets;
+- form/keyboard/mouse interaction;
+- deterministic waits.
+
+The product distinction should be evidence:
+- screenshot is evidence, not automatic proof;
+- console/network state is structured evidence;
+- expected element/route/interaction checks can join verification policy;
+- before/after screenshots attach to the canonical run/receipt;
+- browser work obeys the same cancellation/authority rules as commands and Git operations.
+
+
+13. CURRENT CURSOR COMPETITIVE BAR — 2026-09-06 SNAPSHOT
+========================================================
+
+This section comes from current official Cursor docs/blog material reviewed on 2026-09-06. Refresh
+it before future strategy decisions.
+
+Cursor currently competes with much more than an AI editor sidebar:
+
+A. MULTI-MODEL + ROUTING
+Cursor supports models across OpenAI, Anthropic, Google and others, plus its own Cursor models.
+Cursor Router/Auto routes requests by task/complexity and exposes Cost, Balance and Intelligence
+optimization modes. This means "we support many models" and "we auto-route by cost" are not, by
+themselves, durable Vesta differentiation.
+
+B. CLOUD AGENTS
+Cursor Cloud Agents run in isolated cloud VMs with repositories, dependencies, secrets, network,
+testing and browser/computer control. They can operate in parallel and across multiple repos.
+
+C. MULTI-AGENT / WORKTREES
+Cursor's Agents Window supports parallel agents/subagents, worktrees and multi-root workspaces.
+Vesta cannot claim multi-agent leadership merely because it can spawn two processes. It must win on
+provider neutrality, safe isolation, verified integrated outcomes and complete economics.
+
+D. AUTOMATIONS
+Cursor Automations run Cloud Agents on schedules and source-control/Slack/Linear/PagerDuty/webhook
+triggers. Vesta's local worker must therefore be excellent, not just a cron wrapper.
+
+E. SEMANTIC INDEXING
+Cursor publicly describes semantic codebase indexing as a major agent-performance driver and has
+invested heavily in large-repo onboarding. Vesta needs a credible local-first code intelligence
+story.
+
+F. BROWSER CONTROL
+Cursor Agent can navigate, click/type, inspect screenshots, read console/network state and run
+browser-based testing. Vesta Browser Engineering Mode needs to differentiate through canonical,
+verification-backed evidence and safety—not just "we can open Chromium."
+
+G. BUGBOT / CODE REVIEW
+Cursor has a mature dedicated code-review product and has publicly reported improvements in speed,
+cost and bugs found. Vesta should not add a generic "review agent" checkbox and call parity achieved.
+A future Vesta review loop should combine code intelligence, repository history, verification,
+provider routing and outcome feedback.
+
+H. DISTRIBUTION/POLISH
+Cursor's biggest practical advantage remains simple: normal developers can install it and get to
+value quickly. Vesta loses before its moat is visible if setup is harder than the problem it solves.
+
+Current official source references reviewed for this snapshot:
+- Cursor Models & Pricing: https://cursor.com/docs/models-and-pricing
+- Cursor Router: https://prod.cursor.com/docs/cursor-router
+- Cursor Cloud Agents: https://cursor.com/docs/cloud-agent
+- Cursor Automations: https://prod.cursor.com/help/ai-features/automations
+- Cursor Browser: https://cursor.com/docs/agent/tools/browser
+- Cursor secure codebase indexing: https://cursor.com/blog/secure-codebase-indexing
+- Cursor multitask/worktrees: https://cursor.com/changelog/04-24-26
+- Cursor multi-agent: https://prod.cursor.com/help/ai-features/multi-agent
+- Cursor Bugbot June 2026 improvements: https://cursor.com/blog/bugbot-updates-june-2026
+
+Do not copy Cursor features merely because this list exists. Use it to understand the baseline the
+market already expects.
+
+
+14. HOW VESTA CAN ACTUALLY BEAT CURSOR
+=====================================
+
+"Destroy Cursor" should be interpreted as winning developer preference and engineering outcomes in
+areas where Vesta has a structural right to win—not literally copying or harming a competitor.
+
+The winnable battles are:
+
+14.1 COST PER VERIFIED OUTCOME
+Cursor has routing, but Vesta can own the entire outcome ledger: attempts, commands, tests, repair,
+verification, delivery and receipts. Optimize what it costs to finish correctly, not one model
+turn.
+
+14.2 PROVIDER + ACCOUNT NEUTRALITY
+Make the model market compete inside Vesta. Users should be able to exploit their existing account
+CLIs, APIs, free tiers and local models instead of repurchasing intelligence through one vendor
+where technically/legal-policy compatible.
+
+14.3 LOCAL-FIRST PRIVACY + INSPECTABILITY
+Repository understanding, state, receipts and learned calibration can remain local. Users can see
+why Vesta routed, what it observed and what it proved.
+
+14.4 TRUTHFULNESS / RECOVERABILITY
+Make it difficult for Vesta to lie by architecture. One journal, idempotent side effects, explicit
+unknowns, robust cancellation, worktree identity and verification-backed completion can become a
+trust moat.
+
+14.5 PROVIDER-NEUTRAL MULTI-AGENT ORCHESTRATION
+An objective can use the best provider for each assignment instead of an ecosystem-owned model
+fleet. Combine that with per-agent economics and safe worktree reconciliation.
+
+14.6 EXISTING-TOOL CONTROL PLANE
+Vesta can live beside VS Code, JetBrains, terminal and provider CLIs instead of demanding an editor
+migration. Thin bridges are a feature of neutrality, not a compromise.
+
+14.7 LOCAL UNATTENDED WORK
+A user-owned worker can provide automation without requiring every engineering job to live in a
+vendor cloud VM. Optional self-hosted/cloud paths may come later, but local-first should be real.
+
+14.8 EVIDENCE AS A PRODUCT SURFACE
+For code, browser/UI and delivery tasks, show proof. "What actually happened?" should be easier to
+answer in Vesta than in any competitor.
+
+
+15. WHAT VESTA SHOULD NOT TRY TO WIN RIGHT NOW
+=============================================
+
+Do NOT make these launch-blocking programs:
+
+- Build a VS Code fork.
+- Beat Cursor Tab/autocomplete quality head-on.
+- Train a frontier coding model.
+- Clone every Cursor setting or panel.
+- Build a cloud fleet before local reliability works.
+- Build a generic Zapier clone around automations.
+- Add twenty providers if the top three connection paths are flaky.
+- Add a visually impressive swarm with no benchmarked outcome improvement.
+- Invent a custom browser driver instead of using Playwright-class tooling.
+- Rewrite working signing/update/repository-safety primitives for architectural fashion.
+
+A small team wins by choosing the right battlefield.
+
+
+16. PRODUCT POSITIONING: WEDGE -> CATEGORY
+=========================================
+
+Near-term headline:
+
+    Vesta — the AI coding cost firewall.
+
+Suggested product explanation:
+
+    Stop spending frontier-model money on work cheaper tools can do. Vesta routes software
+    engineering tasks across local tools and AI providers, keeps risky/paid actions under explicit
+    control, verifies the result, and shows you what the work actually cost.
+
+Longer-term category:
+
+    Vesta is a provider-neutral AI engineering control plane.
+
+Avoid positioning that makes the product sound smaller than it is:
+- "free Cursor clone"
+- "another AI chat"
+- "multi-provider wrapper"
+- "cheap model switcher"
+- "local LLM GUI"
+
+The cost firewall gets attention. Verified engineering outcomes create retention. Multi-agent and
+cross-surface orchestration create expansion.
+
+
+17. LAUNCH REALITY — DO NOT WAIT FOR THE ENTIRE VISION
+======================================================
+
+The owner wants a public release in September or October 2026. That is realistic only if the team
+distinguishes PUBLIC-ALPHA GATES from POST-ALPHA STRATEGIC MOAT work.
+
+Do not require #819-#825 to reach their ultimate definition of done before a free public alpha.
+That would turn an alpha into a multi-quarter rewrite.
+
+The alpha must instead prove a narrower promise:
+
+    A normal developer can install Vesta, connect/discover a supported provider, open a real
+    project, complete useful tasks safely, stop work reliably, understand what happened, and
+    receive truthful cost/verification evidence—with a safe path to update or recover.
+
+
+18. CURRENT LAUNCH-BLOCKING SNAPSHOT
+====================================
+
+As of this document's snapshot:
+
+- main HEAD observed: c84b676c87eb69390d6a9230a9eb417e32b4a309
+  (merge of PR #841, update-copy simplification).
+- Latest hosted Actions run observed for that HEAD: 33868382141 — FAILURE.
+- Required hosted jobs observed failing include:
+  - Required - hostile-environment Python suites
+  - Required - web UI security and E2E
+  - Required - Python quality (3.13)
+  - Required - Python quality (3.10)
+- Latest trusted self-hosted run observed: 33868382143 — FAILURE.
+- The exact root causes were not established by this document because retained job logs were not
+  available through the inspection path. DO NOT guess. Re-run/inspect current Actions and reproduce
+  locally.
+- Open PRs observed included #840 (open live work log by default) and #817 (responsive Settings
+  redesign). Refresh before acting.
+- Major open strategic/release issues observed: #818-#826, #832, #833.
+
+THIS SECTION IS DELIBERATELY TIME-STAMPED. Astra's first action on any launch push should be to
+refresh it.
+
+A red main branch is a release blocker. Merged does not mean qualified.
+
+
+19. PUBLIC-ALPHA P0 GATES
+=========================
+
+These are the gates to prioritize before shiny strategic work.
+
+P0-1. GREEN REQUIRED CI ON THE RELEASE CANDIDATE
+- Hosted required Python, hostile and web suites green.
+- Required-check drift/generation/security checks green.
+- Release preflight green.
+- Do not "fix" by weakening tests/checks unless a requirement is objectively wrong and the change
+  itself is reviewed/evidenced.
+
+P0-2. ONE-CLICK DISTRIBUTION / CLEAN-MACHINE PROOF (#823)
+At minimum prioritize Windows x64 if that is the first actually qualified desktop target.
+- no system Python requirement for normal users;
+- packaged assets/runtime present;
+- correct app identity/icon/version;
+- no surprise console windows;
+- clean install/uninstall;
+- launch to usable composer;
+- no source-checkout knowledge required.
+macOS should ship only when its exact signed/notarized artifact is qualified. Do not delay a good
+Windows alpha solely to claim simultaneous universal desktop parity unless distribution strategy
+requires it.
+
+P0-3. FIRST USE IN < 5 MINUTES
+- open folder/repo;
+- discover installed account/local providers;
+- explain missing provider requirements actionably;
+- run a real task;
+- show visible activity/result/receipt;
+- avoid a tutorial maze.
+
+P0-4. TOP PROVIDER CONNECTION RELIABILITY
+Prefer a few excellent routes over a catalog of broken badges.
+- Codex account CLI path;
+- Claude account CLI path;
+- Copilot account path where supported;
+- at least one local/free route where product claims it;
+- connection/model picker must derive from one provider capability truth.
+Recent work has already targeted Codex persistence/model-picker problems; regression-test the full
+restart/reconnect path.
+
+P0-5. CANCELLATION / PROCESS TEARDOWN
+Stop must stop provider, free-tier/local generation and owned command trees consistently. No orphan
+work after UI says stopped/cancelled.
+
+P0-6. MINIMUM SAFE CANONICAL-RUNTIME CUT (#818)
+The full legacy cleanup can continue after alpha only if launch paths cannot:
+- duplicate paid/provider calls after retry/reconnect;
+- duplicate destructive/Git/GitHub side effects;
+- falsely complete without required evidence;
+- disagree materially between desktop and CLI;
+- lose cancellation ownership on restart.
+Do not add new competing truth while deferring cleanup.
+
+P0-7. UPDATER TRUTH + OWNERSHIP (#832)
+Recent merges implemented substantial pieces of this epic. Qualify rather than rebuild:
+- remote check vs cache semantics;
+- manual check really contacts source or fails explicitly;
+- source/pip/pipx/Homebrew/native ownership is correct;
+- running vs disk version is clear;
+- updated-on-disk process gets an actionable Restart state;
+- multiple app instances cannot create duplicate update transactions.
+
+P0-8. RELEASE ARTIFACT + RECOVERY PATH
+Use existing signed manifest/hash/publisher/update machinery. Verify it on the exact built artifact.
+Interrupted/bad updates must not leave an installation silently half-current.
+Full fleet health-gated rollout (#833) can deepen after alpha, but basic rollback/recovery and
+truthful needs-attention behavior are launch quality.
+
+P0-9. DOCTOR / SUPPORTABILITY
+A user should be able to identify:
+- app/package integrity;
+- provider executable/version/auth problems;
+- Git/repo state;
+- keychain/permissions;
+- update ownership/freshness;
+- canonical runtime health;
+without reading a Python traceback.
+
+P0-10. CLAIM DISCIPLINE
+Every public claim maps to a shipped, reproducible behavior. Alpha may be ambitious, but it must be
+honest about what is not yet present.
+
+
+20. POST-ALPHA STRATEGIC ORDER
+==============================
+
+The current strategic program (#826) has the right dependency shape.
+
+WAVE 1 — FOUNDATION + ADOPTION + CODE INTELLIGENCE
+1. #818 canonical runtime journal cutover.
+2. #823 distribution/first value in parallel where it does not duplicate runtime state.
+3. #820 semantic intelligence behind a clean service boundary.
+
+WAVE 2 — DEEPEN THE MOAT
+4. #819 Verified Outcome Router consumes canonical outcomes and retrieval economics.
+5. #821 Agents command center consumes canonical runtime, router, semantic context and worktrees.
+
+WAVE 3 — MAKE VESTA OMNIPRESENT
+6. #822 always-on local worker.
+7. #824 thin IDE bridges.
+8. #825 Browser Engineering Mode.
+
+#832 updater truth and #833 release-control maturity cut across these waves as release/reliability
+work. Do not create duplicate updater systems inside #823.
+
+Parallel implementation is encouraged only when subsystem boundaries are truly independent. Never
+create temporary duplicate state/routing layers merely because the canonical foundation is still
+being migrated.
+
+
+21. RELEASE EXECUTION PLAN FOR SEPTEMBER/OCTOBER 2026
+====================================================
+
+This is a recommended execution discipline, not a promise of a particular date.
+
+PHASE A — STABILIZE MAIN IMMEDIATELY
+- Reproduce every current required CI failure.
+- Separate infrastructure/config failures from real code/test regressions.
+- Repair main without weakening the safety contract.
+- Review open PR #840/#817 against current main; merge only when current suites prove them.
+- Stop accepting broad speculative feature work while release qualification is red.
+
+PHASE B — CLOSE THE USER'S FIRST 5 MINUTES
+- Build/install exact release candidate on clean Windows user/VM.
+- Launch without developer environment.
+- Open plain folder and Git repo.
+- Detect one real provider account cleanly.
+- Complete Explain/Review and one edit-capable task.
+- Stop an active run.
+- Restart app and confirm history/state truth.
+- Exercise missing-provider/offline/permission errors.
+
+PHASE C — RELEASE/UPDATE REHEARSAL
+- build exact artifact through release workflow;
+- verify identity/version/assets/signature/hash/publisher;
+- install over clean machine;
+- upgrade from previous alpha;
+- interrupt download/apply/restart boundaries;
+- verify prior healthy or new healthy or explicit needs-attention—never fake current;
+- test uninstall/reinstall;
+- test long/non-ASCII paths.
+
+PHASE D — PROVIDER + TASK MATRIX
+Use a small representative corpus:
+- explain unfamiliar repo;
+- summarize changes;
+- review current diff;
+- fix failing test;
+- bounded feature edit;
+- cancellation mid-provider;
+- provider auth expired;
+- provider executable missing;
+- paid/cloud confirmation path;
+- local/free path.
+Record verified success, cost/usage provenance and failures.
+
+PHASE E — PUBLIC ALPHA
+- publish only qualified platform artifacts;
+- README/site claims match exact shipped paths;
+- one obvious install CTA;
+- one obvious quickstart;
+- one Doctor/support path;
+- feedback channel;
+- no payment gate during stated free alpha;
+- watch update/recovery/provider failures closely.
+
+If a September ship would require bypassing red CI or pretending an installer is qualified, ship in
+October instead. A few weeks of delay is cheaper than teaching early users that Vesta is unsafe.
+
+
+22. ENGINEERING WORKING METHOD FOR ASTRA/CODEX
+=============================================
+
+For every issue/bug/task, follow this sequence.
+
+22.1 REFRESH REALITY
+- Fetch current main HEAD.
+- Read AGENTS.md.
+- Read the target issue and recent related PRs/commits.
+- Locate current implementation and tests.
+- Check current Actions when release-sensitive.
+- Treat this document's status section as historical if HEAD moved.
+
+22.2 REPRODUCE BEFORE "FIXING"
+For bugs, build the smallest real reproduction or failing regression test first where practical.
+Do not patch from a screenshot description if code can prove the state transition that caused it.
+
+22.3 FIND THE EXISTING AUTHORITY
+Ask:
+- Which module currently owns this fact?
+- Is there already a canonical service/store?
+- Is a UI layer recomputing backend truth?
+- Is there a legacy/shadow path being migrated?
+Prefer one authority over synchronization hacks.
+
+22.4 MAKE THE SMALLEST COHERENT CHANGE
+Small does not mean a one-line bandage. Fix the actual ownership/state boundary while avoiding a
+cross-repo rewrite unrelated to the bug.
+
+22.5 PROTECT INVARIANTS
+Before writing, check implications for:
+- run/task identity;
+- repository/worktree safety;
+- cancellation;
+- paid/cloud authority;
+- verification;
+- cost provenance;
+- update/recovery;
+- cross-surface consistency.
+
+22.6 TEST IN LAYERS
+- focused unit/regression test;
+- affected subsystem suite;
+- relevant web/Playwright suite for UI behavior;
+- required fast/CI profile where feasible;
+- release profile for release-critical change.
+Do not claim completion from a focused test if mandatory suites are red.
+
+22.7 VERIFY THE BEHAVIOR, NOT JUST THE TEST
+If the bug is visual, inspect the rendered UI. If it is update behavior, exercise the actual state
+transition. If it is packaging, install the artifact. If it is cancellation, prove the owned process
+is dead. Tests are evidence, but choose evidence that can observe the bug.
+
+22.8 LEAVE A TRUTHFUL HANDOFF
+Report:
+- root cause;
+- files changed;
+- tests run and exact result;
+- remaining known risk;
+- whether current main/release checks are green;
+- issue/PR linkage.
+Never say "done" merely because code was written.
+
+
+23. AGENT AUTHORIZATION / REPOSITORY CONDUCT
+===========================================
+
+The managed AGENTS.md contract is important:
+- Do not recursively invoke the Vesta CLI from inside a Vesta-managed AI task; recursive self-
+  invocation is blocked.
+- A direct fix/build/test/refactor/PR request authorizes the requested engineering steps without
+  repeatedly asking for routine edit/branch/test/commit/push/PR confirmation.
+- Still ask/obey gates for paid/cloud use, destructive or irreversible operations, secret exposure,
+  production credentials and force push.
+- Protect unrelated user changes.
+- Use Superpowers when available and appropriate.
+
+The latest explicit user request wins over stale planning documents.
+
+
+24. ASTRA PRIORITY ALGORITHM
+============================
+
+When deciding what to do next without a narrower user instruction, sort work approximately as:
+
+1. data/security/destructive-side-effect bug
+2. release artifact/install/update corruption risk
+3. red mandatory CI / release preflight
+4. false-completion / duplicate-side-effect / cancellation/orphan bug
+5. provider auth/connection/model-selection bug blocking normal use
+6. first-run/install/update UX blocker
+7. canonical-runtime migration required by an active bug/feature
+8. high-impact verified-outcome / semantic-index / multi-agent milestone
+9. browser/IDE/background strategic expansion
+10. cosmetic polish
+
+Exception: small independent polish may proceed in parallel if it does not distract from or add risk
+to the release path.
+
+Do not let an interesting P1 epic outrank a real P0 regression because the epic has a longer issue
+body.
+
+
+25. REPO-SPECIFIC TRAPS TO WATCH
+================================
+
+25.1 DUAL STATE / SHADOW JOURNAL
+Some subsystems are migrating from JSON/files to journal projections. Fix authority, do not add
+another mirror.
+
+25.2 CLAIM-ASSIGNMENT CONCURRENCY
+Current parallel-agent code documents a wider check-then-claim race not solved merely by atomic
+save. Use multiprocess/idempotency thinking.
+
+25.3 RUNNING VERSION != DISK VERSION
+Updater work recently fixed confusion between code already replaced on disk and the still-running
+old process. Never conflate "repository/artifact current" with "current process is running it."
+
+25.4 SCHEDULER WAKE != REMOTE CHECK
+A timer tick or cached result must not advance "checked remotely" truth. Manual update checks have a
+stronger evidence obligation.
+
+25.5 UPDATE OWNER MATTERS
+Source checkout, native packaged app, pip/pipx/Homebrew/managed install can have different update
+authorities. The wrong updater successfully mutating the wrong copy is worse than refusing.
+
+25.6 UI TESTS CAN PIN THE WRONG THING
+Past commits found tests asserting buggy states or tests incapable of observing the UI element they
+claimed to validate. A passing test has value only if it can fail for the real regression.
+
+25.7 MODEL PICKER / CONNECTION TRUTH
+Provider connected state, available models and persisted verified CLI capability must have one
+source of truth. Recent Codex fixes indicate this boundary deserves regression coverage.
+
+25.8 OPCODING IS LEGACY-COMPATIBLE
+Do not build new product identity around it because it exists. Preserve useful foundations while
+moving new authority into Vesta/vestahub.
+
+25.9 ARCHIVED STRATEGY DOCS EXIST
+README references archived older commercial/business plans. Current free-public-alpha policy and
+current strategic issues take precedence over archived hypotheses.
+
+25.10 SOURCE DEV EXPERIENCE != PUBLIC INSTALL EXPERIENCE
+A contributor command succeeding in a checkout does not prove a normal user can install/use the
+artifact.
+
+
+26. REQUIRED CHECK / RELEASE PHILOSOPHY
+======================================
+
+The repository's required-check contract currently describes serious coverage:
+- Python format/lint;
+- generated lifecycle/release identity drift;
+- unittest + pytest;
+- registry validation;
+- Bandit;
+- detect-secrets;
+- hostile-environment suites;
+- npm install/audit;
+- design-token and web unit tests;
+- Playwright E2E;
+- supply-chain pip audit;
+- native isolated-wheel smoke;
+- provider canary;
+- release-specific qualification.
+
+This is good product infrastructure. Do not bypass it casually.
+
+A release candidate is not proven because:
+- a PR merged;
+- a developer machine works;
+- one Playwright file passes;
+- the model says tests passed;
+- a source checkout can self-update.
+
+A public desktop release needs artifact-level proof.
+
+
+27. BENCHMARKS THAT MATTER
+==========================
+
+Benchmarks should model engineering outcomes, not synthetic model trivia.
+
+ROUTING BENCHMARKS
+- fix a known failing unit test;
+- review a diff containing seeded logic/security/performance faults;
+- bounded cross-file feature;
+- documentation-only task;
+- architecture/explanation task;
+- provider failure requiring fallback.
+Measure total cost to verified completion, first-pass completion, retries and latency.
+
+CONTEXT BENCHMARKS
+- locate bug source;
+- find implementation behind API/controller;
+- trace dependency/call path;
+- identify likely tests;
+- unfamiliar large-repo question;
+- cross-file refactor.
+Measure useful-context latency, tokens, redundant searches/reads and verified success.
+
+MULTI-AGENT BENCHMARKS
+Choose tasks with real independent work:
+- multiple independent bugs;
+- feature + tests + docs;
+- separable module migration;
+- simultaneous investigation branches;
+- multiple GitHub issues.
+Compare against one-agent execution on wall time, total cost, conflicts, verification and human
+intervention. If multi-agent merely burns more tokens, do not ship it as default.
+
+RELEASE BENCHMARKS
+- clean install;
+- first useful task time;
+- upgrade;
+- interrupted update;
+- rollback;
+- uninstall/reinstall;
+- provider discovery;
+- offline startup.
+
+
+28. NORTH-STAR METRICS
+======================
+
+Primary product metric:
+
+    VERIFIED ENGINEERING OUTCOMES PER UNIT OF MONEY / SCARCE PROVIDER QUOTA
+
+Supporting metrics:
+- verified task completion rate;
+- first-pass verified completion;
+- total cost through verification;
+- latency through verification;
+- expensive/frontier model usage avoided with no quality regression;
+- context tokens/search calls avoided;
+- fallback/repair cost;
+- false completion incidents (target: zero);
+- duplicate external side effects (target: zero);
+- cancellation/orphan incidents (target: zero);
+- user intervention rate;
+- install -> first successful task time (target alpha median: <5 minutes);
+- provider setup success;
+- update activation/recovery success;
+- cross-surface state disagreement (target: zero).
+
+Do not optimize "number of agents spawned," "messages streamed" or "models supported" as primary
+metrics. Those are means, not outcomes.
+
+
+29. COMPETITIVE SCORECARD — WHERE TO INVEST
+===========================================
+
+AREA                         CURSOR TODAY                  VESTA RIGHT-TO-WIN / RESPONSE
+---------------------------  ----------------------------  ------------------------------------------
+Editor/Tab autocomplete      Strong structural advantage  Do not fight head-on; thin editor bridges.
+Multi-model selection        Strong                       Neutrality + existing accounts/local paths.
+Auto routing                 Strong/data-driven           Verified total-outcome economics.
+Codebase indexing            Strong                       Local-first, explainable, verification-aware.
+Cloud parallel agents        Strong                       Provider-neutral isolated agents + local-first.
+Automations                  Strong cloud triggers        User-owned worker + canonical authority/budget.
+Browser tools                Strong                       Evidence integrated into verification/receipt.
+Code review/Bugbot           Mature dedicated product     Outcome-learning + repo context + verification.
+Install/onboarding           Strong                       #823 is existential for adoption.
+Privacy/local operation      Mixed/cloud-centric features Structural Vesta advantage if kept real.
+Cost transparency            Usage dashboards             End-to-end task cost + savings + failed attempts.
+Truth/recoverability         Mature product baseline      Make canonical journal/evidence a differentiator.
+Editor independence          Naturally weak               Structural Vesta advantage.
+Provider independence        Partial                      Structural Vesta advantage.
+
+
+30. DEFINITION OF "BEAT CURSOR"
+===============================
+
+Do not define success as copying Cursor's screenshots or feature count.
+
+For Vesta, "beat Cursor" means that a meaningful segment of developers can truthfully say:
+
+- Vesta completed the same engineering jobs for less total money/quota;
+- Vesta let me use the provider/account/local model I wanted;
+- Vesta gave me clearer proof that work actually passed;
+- Vesta recovered/cancelled safely when something failed;
+- Vesta coordinated multiple providers/agents without corrupting my checkout;
+- Vesta fit into the editor/terminal I already use;
+- Vesta kept more repository intelligence and state local;
+- Vesta made cost, routing and verification inspectable;
+- installing and using it was easy enough that those advantages were visible immediately.
+
+If Vesta wins those criteria, it can coexist with or replace Cursor for those users without owning
+Tab completion.
+
+
+31. FIRST READS FOR A NEW ASTRA/CODEX SESSION
+=============================================
+
+Before a broad "finish Vesta" task, read in this order:
+
+1. AGENTS.md — session/authorization/safety contract.
+2. This file — product/engineering doctrine and snapshot.
+3. README.md — current user-visible product claims.
+4. Current open issue #826 — strategic program map.
+5. Current #818 and #823 — foundation + release adoption.
+6. Current #832/#833 — updater/release maturity.
+7. #819-#825 only as the current task requires.
+8. .github/required-checks.json + current Actions.
+9. docs/LAUNCH_CHECKLIST.md + LAUNCH_OPERATIONS.md for release work.
+10. Actual implementation and tests for the selected issue.
+
+Never implement directly from an issue body without checking whether newer commits already shipped
+part of it. #832 is a current example: several recent commits implemented substantial sub-scope
+while the epic remained open.
+
+
+32. HOW TO TURN THIS FILE INTO FAST PROGRESS
+============================================
+
+Astra/Codex should not respond to "help finish Vesta" by generating another 100-issue wishlist.
+
+Use this loop:
+
+A. AUDIT
+- refresh HEAD/actions/issues/PRs;
+- identify the highest-impact user/release failure;
+- map it to existing issue/architecture.
+
+B. SLICE
+- choose one independently verifiable outcome;
+- define regression/acceptance evidence;
+- avoid duplicating predecessor work.
+
+C. IMPLEMENT
+- reuse current primitives;
+- keep authority canonical;
+- preserve safety/cancellation/cost/verification contracts.
+
+D. VERIFY
+- focused test;
+- subsystem suite;
+- mandatory profile as scope requires;
+- actual behavior/artifact proof.
+
+E. INTEGRATE
+- branch/PR/merge under current repo policy;
+- monitor post-merge Actions;
+- do not call the issue solved while main is red from the change.
+
+F. UPDATE THE MAP
+- close/update issue with evidence;
+- remove obsolete sub-scope;
+- only create the next child issue when evidence shows it is necessary.
+
+This prevents backlog theater and keeps a small team moving toward a shippable product.
+
+
+33. LAUNCH DECISION RULE
+========================
+
+Ship the free public alpha when:
+- mandatory release-candidate checks are green;
+- the exact public installer/artifact is qualified on supported platform(s);
+- first-run/provider/project flow works on a clean machine;
+- edit-capable work has safe repository identity and truthful verification;
+- Stop/cancellation is reliable;
+- crash/restart does not duplicate obvious paid/Git/GitHub work;
+- update/recovery path is credible and tested;
+- Doctor gives actionable failure information;
+- public claims exactly match shipped behavior.
+
+Do NOT hold alpha for:
+- perfect semantic intelligence;
+- complete Agents workspace;
+- all IDE bridges;
+- full browser engineering mode;
+- enterprise fleet rollout sophistication;
+- every provider on the roadmap;
+- perfection in cosmetic settings.
+
+The alpha exists to get the core control-plane thesis into real developers' hands and learn what
+actually matters next.
+
+
+34. FINAL PRODUCT DOCTRINE
+==========================
+
+Vesta should be ambitious, but its ambition must be architectural rather than performative.
+
+Do not win by showing more agent animations.
+Do not win by listing more model logos.
+Do not win by copying every Cursor panel.
+
+Win by making the following statement true in production:
+
+    Vesta takes an engineering objective, understands the repository efficiently, chooses the best
+    available combination of tools and models, performs the work under explicit authority,
+    isolates concurrent changes, verifies the integrated result, accounts for every attempt and
+    leaves one truthful, recoverable record—all while remaining provider-neutral and local-first
+    wherever practical.
+
+The cost firewall is the wedge.
+Verified outcome economics is the moat.
+Canonical truth is the foundation.
+Semantic code intelligence is the efficiency engine.
+Multi-agent orchestration is the scale layer.
+IDE/browser/worker surfaces make the control plane ubiquitous.
+Simple installation is what allows any of the above to matter.
+
+If a proposed change does not make Vesta safer, easier to adopt, more truthful, more capable at
+verified outcomes, or materially more efficient, ask whether it should exist before spending the
+release window on it.
+
+END OF MASTER CONTEXT

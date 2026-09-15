@@ -2,12 +2,12 @@
 
 The shipped Vesta GUI (`vesta gui`) renders with **Chromium (QtWebEngine) + CSS**,
 not Qt/QSS. Tokens are CSS custom properties in
-`opai/assets/web/design-tokens.css`; components are DOM elements styled by class
+`vesta/assets/web/design-tokens.css`; components are DOM elements styled by class
 in `styles.css`. This doc is the contract so the surface stays consistent as it
 grows. See [`WEB_UI.md`](WEB_UI.md) for the architecture (bridge, boot payload,
 module layout).
 
-> The classic Qt/QSS window in `opai/gui_desktop.py` is a **fallback** only
+> The classic Qt/QSS window in `vesta/gui_desktop.py` is a **fallback** only
 > (`vesta gui --classic`, or machines without QtWebEngine). Its tokens live as
 > Python constants in that module and mirror the palette below; the web surface
 > is the product.
@@ -15,9 +15,9 @@ module layout).
 ## Web UI token contract (#388)
 
 The browser shell uses the same visual language through one source of truth:
-`opai/assets/web/design-tokens.css`. `styles.css` must consume its tokens rather
+`vesta/assets/web/design-tokens.css`. `styles.css` must consume its tokens rather
 than adding raw type or layout-spacing pixels. `npm run test:tokens` enforces
-this locally and in the web CI job. Open the renderable [token preview](../opai/assets/web/design-tokens-preview.html)
+this locally and in the web CI job. Open the renderable [token preview](../vesta/assets/web/design-tokens-preview.html)
 in a browser for the canonical type, spacing, elevation, and icon examples.
 
 | Area | Tokens | Rules |
@@ -76,7 +76,7 @@ silently break the way a borderless confirm once did.
 ## Typography
 
 - **UI:** Inter (SIL OFL), loaded via `@font-face` from
-  `opai/assets/fonts/Inter-Variable.ttf` (+ italic), with
+  `vesta/assets/fonts/Inter-Variable.ttf` (+ italic), with
   `-webkit-font-smoothing: antialiased`. Fallback stack: Segoe UI Variable Text
   → Segoe UI → system-ui. Inter is neutral (not rounded) on purpose —
   developer-grade.
@@ -130,7 +130,7 @@ silently break the way a borderless confirm once did.
   add it to `design-tokens.css` first (the token linter and the honesty check
   will otherwise fail).
 - **Don't** introduce a second source of truth for run-mode labels — they come
-  from `opaihub/autonomy.py` `MODE_LABELS`, delivered to the web via the boot
+  from `vestahub/autonomy.py` `MODE_LABELS`, delivered to the web via the boot
   payload's `modes` list (#400).
 - **Don't** add always-on panels that crowd the chat; power belongs in the
   toggleable inspector, the palette, and pages.

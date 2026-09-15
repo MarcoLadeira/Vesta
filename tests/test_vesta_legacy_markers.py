@@ -14,15 +14,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opai.clients import client_integrations_status
-from opai.context_slim import write_ai_ignore_files
-from opai.integrations import (
+from vesta.clients import client_integrations_status
+from vesta.context_slim import write_ai_ignore_files
+from vesta.integrations import (
     activate_project,
     install_global_integrations,
     project_status,
-    uninstall_opai,
+    uninstall_vesta,
 )
-from opaihub.context_engine import generate_client_ignores
+from vestahub.context_engine import generate_client_ignores
 
 LEGACY_BLOCK = (
     "<!-- OPai managed block: start -->\n"
@@ -90,18 +90,18 @@ class LegacyManagedBlockTests(unittest.TestCase):
         status = project_status(self.project, home=self.home)
         for name in ("agents", "claude"):
             instructions = status["project"]["instructions"][name]
-            self.assertTrue(instructions["opai_block"], name)
-            self.assertTrue(instructions["opai_block_at_top"], name)
+            self.assertTrue(instructions["vesta_block"], name)
+            self.assertTrue(instructions["vesta_block_at_top"], name)
 
     def test_uninstall_removes_an_old_block_and_keeps_user_content(self):
         claude = self.home / ".claude" / "CLAUDE.md"
         claude.parent.mkdir(parents=True)
         claude.write_text(LEGACY_BLOCK + "\n\n# My own notes\n", encoding="utf-8")
 
-        planned = uninstall_opai(self.project, home=self.home, dry_run=True)
+        planned = uninstall_vesta(self.project, home=self.home, dry_run=True)
         self.assertIn(str(claude), planned["planned_block_strips"])
 
-        uninstall_opai(self.project, home=self.home, dry_run=False)
+        uninstall_vesta(self.project, home=self.home, dry_run=False)
         text = claude.read_text(encoding="utf-8")
         self.assertNotIn("managed block", text)
         self.assertIn("# My own notes", text)
@@ -122,7 +122,6 @@ class LegacyManagedBlockTests(unittest.TestCase):
         self.assertNotIn("OPai managed block", text)
         self.assertNotIn("old;", text)
         self.assertIn("vesta() {", text)
-        self.assertIn("opai() {", text)
         self.assertIn("export EDITOR=vim", text)
 
 
@@ -141,7 +140,7 @@ class LegacyIgnoreRulesTests(unittest.TestCase):
         self.assertEqual(result["results"][0]["status"], "already_managed")
         self.assertEqual(text.count("# Vesta context-slimming rules (managed)"), 1)
         self.assertEqual(text.count("# end Vesta rules"), 1)
-        self.assertNotIn("OPai", text)
+        self.assertNotIn("Vesta", text)
         self.assertIn("secrets/", text)
 
     def test_ai_ignore_files_rename_the_old_header(self):
@@ -156,7 +155,7 @@ class LegacyIgnoreRulesTests(unittest.TestCase):
             text = (root / ".claudeignore").read_text(encoding="utf-8")
 
         self.assertEqual(text.count("# Vesta context-slimming rules"), 1)
-        self.assertNotIn("OPai", text)
+        self.assertNotIn("Vesta", text)
         self.assertIn("custom-cache/", text)
         self.assertEqual(text.count(".git/"), 1)
 

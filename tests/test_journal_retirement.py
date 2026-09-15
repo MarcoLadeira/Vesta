@@ -24,10 +24,10 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub import idempotency, journal_retirement
-from opaihub.journal_runtime import record_admission
-from opaihub.journal_store import open_store
-from opaihub.journal_retirement import (
+from vestahub import idempotency, journal_retirement
+from vestahub.journal_runtime import record_admission
+from vestahub.journal_store import open_store
+from vestahub.journal_retirement import (
     BLOCK_INTEGRITY,
     BLOCK_LEGACY_READS,
     BLOCK_NO_COMPARISON,
@@ -40,8 +40,8 @@ from opaihub.journal_retirement import (
     assess,
     legacy_writes_required,
 )
-from opaihub.journal_runtime import EVENT_FINISHED, record_terminal
-from opaihub.journal_store import journal_path
+from vestahub.journal_runtime import EVENT_FINISHED, record_terminal
+from vestahub.journal_store import journal_path
 
 NOW = "2026-08-25T12:00:00+00:00"
 
@@ -134,7 +134,7 @@ class EveryUncertaintyBlocksTests(_RetirementFixture):
         """
 
         legacy = self._migrated(25)
-        from opaihub.journal_store import append_event, open_store
+        from vestahub.journal_store import append_event, open_store
 
         store = open_store(self.root)
         try:
@@ -222,7 +222,7 @@ class EveryBlockerIsNamedAtOnceTests(_RetirementFixture):
         payload = assess(self.root, legacy, minimum_runs=20).to_dict()
 
         json.loads(json.dumps(payload))
-        self.assertEqual(payload["report"], "opai-journal-retirement")
+        self.assertEqual(payload["report"], "vesta-journal-retirement")
         self.assertFalse(payload["ready"])
 
 

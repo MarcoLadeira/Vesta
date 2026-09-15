@@ -12,11 +12,11 @@ import urllib.request
 from pathlib import Path
 from unittest import mock
 
-from opai.cli import main
-from opai.cockpit import build_cockpit, render_cockpit
-from opai.integrations import activate_project, render_statusline
-from opai.visibility import write_visibility_status
-from opaihub.dashboard_html import build_dashboard_html
+from vesta.cli import main
+from vesta.cockpit import build_cockpit, render_cockpit
+from vesta.integrations import activate_project, render_statusline
+from vesta.visibility import write_visibility_status
+from vestahub.dashboard_html import build_dashboard_html
 
 
 class CockpitTests(unittest.TestCase):
@@ -73,7 +73,7 @@ class CockpitTests(unittest.TestCase):
 
         self.assertEqual(code, 0)
         payload = json.loads(out.getvalue())
-        self.assertEqual(payload["report"], "opai-cockpit")
+        self.assertEqual(payload["report"], "vesta-cockpit")
         self.assertEqual(payload["status"], "on")
 
     def test_project_statusline_is_compact_and_human(self):
@@ -116,9 +116,9 @@ class VisibilityTests(unittest.TestCase):
             activate_project(root, install_global=False)
 
             result = write_visibility_status(root)
-            markdown = (root / "OPAI_STATUS.md").read_text(encoding="utf-8")
+            markdown = (root / "VESTA_STATUS.md").read_text(encoding="utf-8")
             payload = json.loads(
-                (root / ".opaihub" / "opai-status.json").read_text(encoding="utf-8")
+                (root / ".vestahub" / "vesta-status.json").read_text(encoding="utf-8")
             )
 
         self.assertEqual(result["status"], "installed")
@@ -138,7 +138,7 @@ class VisibilityTests(unittest.TestCase):
                 code = main(["visibility", "install", "--project", str(root)])
 
         self.assertEqual(code, 0)
-        self.assertIn("OPAI_STATUS.md", out.getvalue())
+        self.assertIn("VESTA_STATUS.md", out.getvalue())
 
     def test_visibility_ignores_local_status_and_proof_artifacts(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -149,11 +149,11 @@ class VisibilityTests(unittest.TestCase):
             write_visibility_status(root)
             exclude = (root / ".git" / "info" / "exclude").read_text(encoding="utf-8")
 
-        self.assertIn("OPAI_STATUS.md", exclude)
-        self.assertIn(".opaihub/", exclude)
-        self.assertIn(".opaihub/opai-status.json", exclude)
-        self.assertIn(".opaihub/dashboard.html", exclude)
-        self.assertIn(".opaihub/benchmarks/", exclude)
+        self.assertIn("VESTA_STATUS.md", exclude)
+        self.assertIn(".vestahub/", exclude)
+        self.assertIn(".vestahub/vesta-status.json", exclude)
+        self.assertIn(".vestahub/dashboard.html", exclude)
+        self.assertIn(".vestahub/benchmarks/", exclude)
 
     def test_visibility_exclude_uses_exact_lines(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -161,7 +161,7 @@ class VisibilityTests(unittest.TestCase):
             info = root / ".git" / "info"
             info.mkdir(parents=True)
             (info / "exclude").write_text(
-                "# existing\n.opaihub/opai-status.json\n",
+                "# existing\n.vestahub/vesta-status.json\n",
                 encoding="utf-8",
             )
             activate_project(root, install_global=False)
@@ -169,8 +169,8 @@ class VisibilityTests(unittest.TestCase):
             write_visibility_status(root)
             exclude = (info / "exclude").read_text(encoding="utf-8")
 
-        self.assertIn(".opaihub/opai-status.json", exclude)
-        self.assertIn(".opaihub/", exclude)
+        self.assertIn(".vestahub/vesta-status.json", exclude)
+        self.assertIn(".vestahub/", exclude)
 
     def test_activate_repair_writes_visibility_files(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -183,8 +183,8 @@ class VisibilityTests(unittest.TestCase):
             self.assertEqual(code, 0)
             payload = json.loads(out.getvalue())
             self.assertIn("visibility", payload)
-            self.assertTrue((root / "OPAI_STATUS.md").exists())
-            self.assertTrue((root / ".opaihub" / "opai-status.json").exists())
+            self.assertTrue((root / "VESTA_STATUS.md").exists())
+            self.assertTrue((root / ".vestahub" / "vesta-status.json").exists())
 
 
 class DashboardVisibilityTests(unittest.TestCase):
@@ -224,7 +224,7 @@ class DashboardVisibilityTests(unittest.TestCase):
                 [
                     sys.executable,
                     "-m",
-                    "opai",
+                    "vesta",
                     "dashboard",
                     "--serve",
                     "--port",

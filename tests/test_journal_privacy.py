@@ -31,8 +31,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub import journal_runtime
-from opaihub.journal_runtime import (
+from vestahub import journal_runtime
+from vestahub.journal_runtime import (
     EVENT_ADMITTED,
     EVENT_CANCELLED,
     EVENT_FINISHED,
@@ -46,7 +46,7 @@ from opaihub.journal_runtime import (
     record_event,
     record_terminal,
 )
-from opaihub.journal_store import (
+from vestahub.journal_store import (
     MAX_PAYLOAD_STRING,
     append_event,
     journal_path,
@@ -451,7 +451,7 @@ class MinimisationIsTotalTests(unittest.TestCase):
     def _stored(self, payload) -> str:
         import json
 
-        from opaihub.journal_store import minimise as _minimise
+        from vestahub.journal_store import minimise as _minimise
 
         # json.dumps is the real gate: minimise's output goes straight into it.
         return json.dumps(_minimise(payload))
@@ -532,12 +532,12 @@ class MinimisationIsTotalTests(unittest.TestCase):
     def test_booleans_stay_booleans(self):
         """bool subclasses int; a careless numeric branch stores True as 1."""
 
-        from opaihub.journal_store import minimise as _minimise
+        from vestahub.journal_store import minimise as _minimise
 
         self.assertIs(_minimise({"ok": True})["ok"], True)
 
     def test_minimise_does_not_mutate_the_callers_payload(self):
-        from opaihub.journal_store import minimise as _minimise
+        from vestahub.journal_store import minimise as _minimise
 
         original = {"a": SECRETS["anthropic"], "n": [1, 2]}
         _minimise(original)

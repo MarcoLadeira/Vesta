@@ -12,8 +12,8 @@ it.
 
 ## Root causes (what was actually broken)
 
-Reading the real implementation (`opaihub/gui_pipeline.py`,
-`opaihub/free_models.py`, `opai/app_state.py`) surfaced five concrete defects,
+Reading the real implementation (`vestahub/gui_pipeline.py`,
+`vestahub/free_models.py`, `vesta/app_state.py`) surfaced five concrete defects,
 not vague "unreliability":
 
 1. **First-in-list selection, not capability selection.** Auto's fallback
@@ -46,7 +46,7 @@ not vague "unreliability":
 ## Routing policy
 
 Auto now builds an **ordered fallback chain** from the live catalog
-(`opaihub/auto_router.py :: resolve_auto_chain`). The order, in one testable
+(`vestahub/auto_router.py :: resolve_auto_chain`). The order, in one testable
 place:
 
 1. **Local first** — a live-detection sentinel (`"auto"`) always leads. A local
@@ -123,7 +123,7 @@ balance) still fails over to the next configured model instead of dead-ending.
 
 ## Credit balances: out-of-credit tools are excluded, not deprioritized
 
-`opaihub.provider_balance` keeps a local, secret-free record of how much
+`vestahub.provider_balance` keeps a local, secret-free record of how much
 credit each provider has left, from three honest sources (in trust order):
 
 1. **provider** — a live balance API (Moonshot/Kimi exposes one; the registry

@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub.editions import (
+from vestahub.editions import (
     current_edition,
     edition_summary,
     feature_available,
@@ -12,15 +12,15 @@ from opaihub.editions import (
     require_feature,
     set_edition,
 )
-from opaihub.loader import load_registry
-from opaihub.state import load_state
+from vestahub.loader import load_registry
+from vestahub.state import load_state
 
 
 REPO = Path(__file__).resolve().parents[1]
 CATALOGS = [
     REPO / "configs" / "editions.yaml",
     REPO / "hub" / "editions.yaml",
-    REPO / "opaihub" / "data" / "hub" / "editions.yaml",
+    REPO / "vestahub" / "data" / "hub" / "editions.yaml",
 ]
 
 
@@ -51,13 +51,13 @@ class FreePublicAlphaCatalogTests(unittest.TestCase):
         for relative in [
             "README.md",
             "hub/docs/PRICING_AND_EDITIONS.md",
-            "opaihub/data/hub/docs/PRICING_AND_EDITIONS.md",
+            "vestahub/data/hub/docs/PRICING_AND_EDITIONS.md",
             "hub/docs/GOVERNANCE.md",
-            "opaihub/data/hub/docs/GOVERNANCE.md",
+            "vestahub/data/hub/docs/GOVERNANCE.md",
             "hub/docs/ROADMAP.md",
-            "opaihub/data/hub/docs/ROADMAP.md",
+            "vestahub/data/hub/docs/ROADMAP.md",
             "hub/docs/MONEY_SAVING_ROADMAP.md",
-            "opaihub/data/hub/docs/MONEY_SAVING_ROADMAP.md",
+            "vestahub/data/hub/docs/MONEY_SAVING_ROADMAP.md",
         ]:
             text = (REPO / relative).read_text(encoding="utf-8")
             self.assertIn("Free Public Alpha", text, relative)
@@ -69,10 +69,10 @@ class FreePublicAlphaCatalogTests(unittest.TestCase):
 
     def test_runtime_copy_uses_free_alpha_language_for_proof_bundles(self):
         for relative in [
-            "opai/cli.py",
-            "opai/gui_view_model.py",
-            "opaihub/dashboard_html.py",
-            "opaihub/proof.py",
+            "vesta/cli.py",
+            "vesta/gui_view_model.py",
+            "vestahub/dashboard_html.py",
+            "vestahub/proof.py",
         ]:
             text = (REPO / relative).read_text(encoding="utf-8")
             self.assertNotIn("buyers and team pilots", text, relative)
@@ -100,7 +100,7 @@ class FreePublicAlphaAvailabilityTests(unittest.TestCase):
     def test_legacy_environment_value_cannot_change_the_free_launch_state(self):
         with (
             tempfile.TemporaryDirectory() as tmp,
-            mock.patch.dict(os.environ, {"OPAI_EDITION": "enterprise"}, clear=False),
+            mock.patch.dict(os.environ, {"VESTA_EDITION": "enterprise"}, clear=False),
         ):
             root = Path(tmp)
             self.assertEqual(current_edition(root), "free")
@@ -146,7 +146,7 @@ class FreePublicAlphaAvailabilityTests(unittest.TestCase):
                 "editions:\n  free: malformed\nfeatures: []\n",
                 encoding="utf-8",
             )
-            with mock.patch.dict(os.environ, {"OPAI_HUB_ROOT": str(hub)}, clear=False):
+            with mock.patch.dict(os.environ, {"VESTA_HUB_ROOT": str(hub)}, clear=False):
                 summary = edition_summary(root)
 
         self.assertEqual(summary["catalog"][0]["label"], "Free Public Alpha")

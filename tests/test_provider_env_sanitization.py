@@ -22,8 +22,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub import accounts
-from opaihub.proc import AGENT_SESSION_ENV, provider_child_env
+from vestahub import accounts
+from vestahub.proc import AGENT_SESSION_ENV, provider_child_env
 
 SECRET = "sk-super-secret-value-123456789"  # pragma: allowlist secret
 
@@ -71,8 +71,8 @@ class ProviderChildEnvTests(unittest.TestCase):
         self.assertIn("GH_TOKEN", env)
 
     def test_copilot_and_unknown_providers_strip_nothing(self):
-        from opaihub.command_consent import consent_dir
-        from opaihub.proc import COMMAND_CONSENT_DIR_ENV
+        from vestahub.command_consent import consent_dir
+        from vestahub.proc import COMMAND_CONSENT_DIR_ENV
 
         for provider in ("copilot", "mystery", ""):
             env, removed = provider_child_env(provider, self._base())
@@ -236,7 +236,7 @@ class LoginSentinelTests(unittest.TestCase):
         self.assertFalse(accounts._is_login_sentinel(""))
 
     def test_classifier_maps_sentinel_to_auth_missing(self):
-        from opai.provider_contract import classify_error_code
+        from vesta.provider_contract import classify_error_code
 
         self.assertEqual(classify_error_code(self.SENTINEL), "AUTH_MISSING")
         # Plain "not logged in" (the status-probe detail) keeps its mapping.

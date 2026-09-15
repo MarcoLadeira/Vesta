@@ -28,11 +28,11 @@ def test_default_collection_excludes_embedded_benchmark_fixtures() -> None:
     collected = collect_pytest()
 
     assert "tests/test_gui_web.py" in collected
-    assert "opaihub/data/hub/benchmarks/parity" not in collected
+    assert "vestahub/data/hub/benchmarks/parity" not in collected
 
 
 def test_explicit_collection_still_allows_embedded_benchmark_fixture() -> None:
-    fixture = "opaihub/data/hub/benchmarks/parity/bugfix/repo/test_calculator.py"
+    fixture = "vestahub/data/hub/benchmarks/parity/bugfix/repo/test_calculator.py"
 
     collected = collect_pytest(fixture)
 

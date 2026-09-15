@@ -19,9 +19,9 @@ from __future__ import annotations
 
 import unittest
 
-from opai.gui_recents import thread_status_for_result
-from opaihub.generated_lifecycle import TERMINAL_STATE_IDS
-from opaihub.run_result import RunResult, terminal_presentation
+from vesta.gui_recents import thread_status_for_result
+from vestahub.generated_lifecycle import TERMINAL_STATE_IDS
+from vestahub.run_result import RunResult, terminal_presentation
 
 
 def _result(state: str) -> dict:
@@ -234,7 +234,7 @@ class BackgroundRunAuthorityTests(unittest.TestCase):
     """
 
     def _classify(self, payload: dict, *, cancelled: bool = False):
-        from opaihub.background_runs import _terminal_from_payload
+        from vestahub.background_runs import _terminal_from_payload
 
         return _terminal_from_payload(payload, cancelled=cancelled)
 
@@ -247,7 +247,7 @@ class BackgroundRunAuthorityTests(unittest.TestCase):
         would claim verification that never happened.
         """
 
-        from opaihub.run_state import RunState
+        from vestahub.run_state import RunState
 
         for legacy in ("answered", "completed", "ok", "success"):
             with self.subTest(legacy=legacy):
@@ -256,7 +256,7 @@ class BackgroundRunAuthorityTests(unittest.TestCase):
                 self.assertEqual(reason, "background_legacy_status_unverifiable")
 
     def test_the_canonical_result_decides_over_a_legacy_status(self) -> None:
-        from opaihub.run_state import RunState
+        from vestahub.run_state import RunState
 
         state, _, _ = self._classify(
             {"status": "answered", "run_result": _result("partial")}
@@ -298,7 +298,7 @@ class NotificationAuthorityTests(unittest.TestCase):
     def test_a_notification_reports_the_canonical_state_verbatim(self) -> None:
         import inspect
 
-        from opaihub import background_runs
+        from vestahub import background_runs
 
         source = inspect.getsource(background_runs._notify)
         self.assertIn(
@@ -317,7 +317,7 @@ class NotificationAuthorityTests(unittest.TestCase):
     def test_a_partial_run_never_notifies_as_completed(self) -> None:
         """The concrete divergence this prevents, stated as behaviour."""
 
-        from opaihub.background_runs import _terminal_from_payload
+        from vestahub.background_runs import _terminal_from_payload
 
         state, _, summary = _terminal_from_payload(
             {"status": "answered_by_account", "run_result": _result("partial")},

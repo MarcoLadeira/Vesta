@@ -1,8 +1,8 @@
-# OPai Alpha Reliability Programme Implementation Plan
+# Vesta Alpha Reliability Programme Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make productive OPai runs continue without an internal tool ceiling, make usage resettable and provably accurate, rebuild Settings around lazy honest controls, and meet measurable Windows responsiveness/release gates.
+**Goal:** Make productive Vesta runs continue without an internal tool ceiling, make usage resettable and provably accurate, rebuild Settings around lazy honest controls, and meet measurable Windows responsiveness/release gates.
 
 **Architecture:** Introduce focused completion, tool-loop, usage-report, atomic-I/O, workspace-snapshot, and Settings-service modules while retaining thin compatibility adapters at the existing runner/GUI boundaries. Provider turns produce one canonical usage contract; GUI surfaces consume versioned asynchronous envelopes; every non-success state remains durable and resumable. Delivery stays one integrated branch because execution, accounting, and Settings share the same completion/usage/snapshot contracts, but tasks are independently reviewable and committed.
 
@@ -30,7 +30,7 @@
 ### Task 1: Make state writes multiprocess-safe and restore canonical pytest discovery
 
 **Files:**
-- Create: `opaihub/atomic_io.py`
+- Create: `vestahub/atomic_io.py`
 - Create: `tests/test_atomic_io.py`
 - Create: `tests/test_pytest_discovery.py`
 - Modify: `pyproject.toml`
@@ -55,7 +55,7 @@
   def test_default_collection_excludes_embedded_benchmark_fixtures():
       collected = collect_pytest()
       assert "tests/test_gui_web.py" in collected
-      assert "opaihub/data/hub/benchmarks/parity" not in collected
+      assert "vestahub/data/hub/benchmarks/parity" not in collected
   ```
 
 - [ ] **Step 2: Run red tests**
@@ -64,7 +64,7 @@
   python -m pytest tests/test_atomic_io.py tests/test_pytest_discovery.py -q
   ```
 
-  Expected: `opaihub.atomic_io` is missing and default discovery still enters embedded fixture repositories.
+  Expected: `vestahub.atomic_io` is missing and default discovery still enters embedded fixture repositories.
 
 - [ ] **Step 3: Implement atomic primitives and test scope**
 
@@ -80,7 +80,7 @@
 
   ```powershell
   python -m pytest tests/test_atomic_io.py tests/test_pytest_discovery.py -q
-  python -m pytest --collect-only -q opaihub/data/hub/benchmarks/parity/bugfix/repo/test_calculator.py
+  python -m pytest --collect-only -q vestahub/data/hub/benchmarks/parity/bugfix/repo/test_calculator.py
   ```
 
   Expected: focused tests pass; direct fixture collection remains possible.
@@ -88,17 +88,17 @@
 - [ ] **Step 5: Commit**
 
   ```powershell
-  git add pyproject.toml opaihub/atomic_io.py tests/test_atomic_io.py tests/test_pytest_discovery.py
+  git add pyproject.toml vestahub/atomic_io.py tests/test_atomic_io.py tests/test_pytest_discovery.py
   git commit -m "test: make state IO and discovery deterministic"
   ```
 
 ### Task 2: Close autonomous-command bypasses and add safe GitHub discovery
 
 **Files:**
-- Modify: `opaihub/safety_gates.py`
-- Modify: `opaihub/provider_tools.py`
-- Modify: `opaihub/github_connector.py`
-- Modify: `opaihub/agent_policy.py`
+- Modify: `vestahub/safety_gates.py`
+- Modify: `vestahub/provider_tools.py`
+- Modify: `vestahub/github_connector.py`
+- Modify: `vestahub/agent_policy.py`
 - Modify: `tests/test_run_command_tool.py`
 - Modify: `tests/test_provider_tools.py`
 - Modify: `tests/test_github_connector.py`
@@ -148,20 +148,20 @@
 - [ ] **Step 5: Commit**
 
   ```powershell
-  git add opaihub/safety_gates.py opaihub/provider_tools.py opaihub/github_connector.py opaihub/agent_policy.py tests/test_run_command_tool.py tests/test_provider_tools.py tests/test_github_connector.py tests/test_agent_autonomy.py
+  git add vestahub/safety_gates.py vestahub/provider_tools.py vestahub/github_connector.py vestahub/agent_policy.py tests/test_run_command_tool.py tests/test_provider_tools.py tests/test_github_connector.py tests/test_agent_autonomy.py
   git commit -m "fix(security): gate commands and GitHub discovery"
   ```
 
 ### Task 3: Define canonical completion and usage contracts
 
 **Files:**
-- Create: `opaihub/completion.py`
-- Create: `opaihub/model_identity.py`
-- Create: `opaihub/usage_report.py`
+- Create: `vestahub/completion.py`
+- Create: `vestahub/model_identity.py`
+- Create: `vestahub/usage_report.py`
 - Create: `tests/test_completion_contract.py`
 - Create: `tests/test_model_identity.py`
 - Create: `tests/test_usage_report.py`
-- Modify: `opaihub/cost_telemetry.py`
+- Modify: `vestahub/cost_telemetry.py`
 - Modify: `tests/test_cost_telemetry.py`
 
 **Interfaces:**
@@ -203,14 +203,14 @@
 
   ```powershell
   python -m pytest tests/test_completion_contract.py tests/test_model_identity.py tests/test_usage_report.py tests/test_cost_telemetry.py -q
-  git add opaihub/completion.py opaihub/model_identity.py opaihub/usage_report.py opaihub/cost_telemetry.py tests/test_completion_contract.py tests/test_model_identity.py tests/test_usage_report.py tests/test_cost_telemetry.py
+  git add vestahub/completion.py vestahub/model_identity.py vestahub/usage_report.py vestahub/cost_telemetry.py tests/test_completion_contract.py tests/test_model_identity.py tests/test_usage_report.py tests/test_cost_telemetry.py
   git commit -m "feat(runtime): define completion and usage truth"
   ```
 
 ### Task 4: Add the sequenced per-turn ledger and reset epochs
 
 **Files:**
-- Modify: `opaihub/ledger.py`
+- Modify: `vestahub/ledger.py`
 - Create: `tests/test_usage_ledger_v2.py`
 - Create: `tests/test_usage_ledger_multiprocess.py`
 - Modify: `tests/test_cost_ledger.py`
@@ -249,17 +249,17 @@
 
   ```powershell
   python -m pytest tests/test_usage_ledger_v2.py tests/test_usage_ledger_multiprocess.py tests/test_cost_ledger.py -q
-  git add opaihub/ledger.py tests/test_usage_ledger_v2.py tests/test_usage_ledger_multiprocess.py tests/test_cost_ledger.py
+  git add vestahub/ledger.py tests/test_usage_ledger_v2.py tests/test_usage_ledger_multiprocess.py tests/test_cost_ledger.py
   git commit -m "feat(usage): record sequenced provider turns"
   ```
 
 ### Task 5: Build the continuous controller and adaptive compaction
 
 **Files:**
-- Create: `opaihub/tool_loop.py`
+- Create: `vestahub/tool_loop.py`
 - Create: `tests/test_tool_loop_controller.py`
 - Create: `tests/test_tool_context_compaction.py`
-- Modify: `opaihub/local_runner.py`
+- Modify: `vestahub/local_runner.py`
 - Modify: `tests/test_free_models.py`
 
 **Interfaces:**
@@ -299,18 +299,18 @@
 
   ```powershell
   python -m pytest tests/test_tool_loop_controller.py tests/test_tool_context_compaction.py tests/test_free_models.py -q
-  git add opaihub/tool_loop.py opaihub/local_runner.py tests/test_tool_loop_controller.py tests/test_tool_context_compaction.py tests/test_free_models.py
+  git add vestahub/tool_loop.py vestahub/local_runner.py tests/test_tool_loop_controller.py tests/test_tool_context_compaction.py tests/test_free_models.py
   git commit -m "feat(agent): continue productive tool runs"
   ```
 
 ### Task 6: Enforce per-turn financial/permission guards and read-only tools
 
 **Files:**
-- Create: `opaihub/execution_guard.py`
+- Create: `vestahub/execution_guard.py`
 - Create: `tests/test_execution_guard.py`
-- Modify: `opaihub/ask.py`
-- Modify: `opai/app_state.py`
-- Modify: `opaihub/gui_pipeline.py`
+- Modify: `vestahub/ask.py`
+- Modify: `vesta/app_state.py`
+- Modify: `vestahub/gui_pipeline.py`
 - Modify: `tests/test_pipeline_routing_and_safety.py`
 - Modify: `tests/test_agent_autonomy.py`
 - Modify: `tests/test_model_call_accounting.py`
@@ -349,25 +349,25 @@
 
   ```powershell
   python -m pytest tests/test_execution_guard.py tests/test_pipeline_routing_and_safety.py tests/test_agent_autonomy.py tests/test_model_call_accounting.py tests/test_free_models.py -q
-  git add opaihub/execution_guard.py opaihub/ask.py opai/app_state.py opaihub/gui_pipeline.py opaihub/local_runner.py tests/test_execution_guard.py tests/test_pipeline_routing_and_safety.py tests/test_agent_autonomy.py tests/test_model_call_accounting.py tests/test_free_models.py
+  git add vestahub/execution_guard.py vestahub/ask.py vesta/app_state.py vestahub/gui_pipeline.py vestahub/local_runner.py tests/test_execution_guard.py tests/test_pipeline_routing_and_safety.py tests/test_agent_autonomy.py tests/test_model_call_accounting.py tests/test_free_models.py
   git commit -m "fix(runtime): guard every provider continuation"
   ```
 
 ### Task 7: Persist controller checkpoints and propagate honest completion
 
 **Files:**
-- Modify: `opaihub/checkpoints.py`
-- Modify: `opaihub/gui_pipeline.py`
-- Modify: `opai/gui_recents.py`
-- Modify: `opai/gui_web.py`
-- Modify: `opai/assets/web/message-state.js`
-- Modify: `opai/assets/web/app.js`
+- Modify: `vestahub/checkpoints.py`
+- Modify: `vestahub/gui_pipeline.py`
+- Modify: `vesta/gui_recents.py`
+- Modify: `vesta/gui_web.py`
+- Modify: `vesta/assets/web/message-state.js`
+- Modify: `vesta/assets/web/app.js`
 - Modify: `tests/test_run_checkpoints.py`
 - Modify: `tests/test_session_resume.py`
 - Modify: `tests/test_task_outcomes.py`
 - Modify: `tests/test_message_contract.py`
-- Modify: `opai/assets/web/__tests__/message-state.test.js`
-- Modify: `opai/assets/web/__tests__/e2e/activity-truth.spec.js`
+- Modify: `vesta/assets/web/__tests__/message-state.test.js`
+- Modify: `vesta/assets/web/__tests__/e2e/activity-truth.spec.js`
 
 **Interfaces:**
 - Advances: `RunCheckpoint` to schema 2 with `run_id`, controller state/revision, side-effect fingerprints, next turn, usage IDs, recovery state, and lease.
@@ -376,13 +376,13 @@
 
 - [ ] **Step 1: Write persistence and cross-surface red tests**
 
-  Assert v1 remains readable/non-resumable; schema 2 round-trips without prompt/tool/secret content; competing leases fail/expire; stuck -> restart -> Resume -> completed does not repeat a mutating fingerprint or usage event. Parameterize every non-complete state through runner, app state, pipeline, checkpoint, task outcome, registry, saved chat, CLI, and frontend; none may display `OPai completed`.
+  Assert v1 remains readable/non-resumable; schema 2 round-trips without prompt/tool/secret content; competing leases fail/expire; stuck -> restart -> Resume -> completed does not repeat a mutating fingerprint or usage event. Parameterize every non-complete state through runner, app state, pipeline, checkpoint, task outcome, registry, saved chat, CLI, and frontend; none may display `Vesta completed`.
 
 - [ ] **Step 2: Run red tests**
 
   ```powershell
   python -m pytest tests/test_run_checkpoints.py tests/test_session_resume.py tests/test_task_outcomes.py tests/test_message_contract.py tests/test_pipeline_routing_and_safety.py -q
-  npm run test:unit -- opai/assets/web/__tests__/message-state.test.js
+  npm run test:unit -- vesta/assets/web/__tests__/message-state.test.js
   ```
 
 - [ ] **Step 3: Implement schema-2 persistence, leases, resume, and typed mapping**
@@ -393,23 +393,23 @@
 
   ```powershell
   python -m pytest tests/test_run_checkpoints.py tests/test_session_resume.py tests/test_task_outcomes.py tests/test_message_contract.py tests/test_pipeline_routing_and_safety.py -q
-  npm run test:unit -- opai/assets/web/__tests__/message-state.test.js
-  npm run test:e2e -- opai/assets/web/__tests__/e2e/activity-truth.spec.js --project=chromium
+  npm run test:unit -- vesta/assets/web/__tests__/message-state.test.js
+  npm run test:e2e -- vesta/assets/web/__tests__/e2e/activity-truth.spec.js --project=chromium
   ```
 
 - [ ] **Step 5: Commit**
 
   ```powershell
-  git add opaihub/checkpoints.py opaihub/gui_pipeline.py opai/gui_recents.py opai/gui_web.py opai/assets/web/message-state.js opai/assets/web/app.js tests/test_run_checkpoints.py tests/test_session_resume.py tests/test_task_outcomes.py tests/test_message_contract.py opai/assets/web/__tests__/message-state.test.js opai/assets/web/__tests__/e2e/activity-truth.spec.js
+  git add vestahub/checkpoints.py vestahub/gui_pipeline.py vesta/gui_recents.py vesta/gui_web.py vesta/assets/web/message-state.js vesta/assets/web/app.js tests/test_run_checkpoints.py tests/test_session_resume.py tests/test_task_outcomes.py tests/test_message_contract.py vesta/assets/web/__tests__/message-state.test.js vesta/assets/web/__tests__/e2e/activity-truth.spec.js
   git commit -m "fix(runtime): preserve resumable completion truth"
   ```
 
 ### Task 8: Build honest snapshots, Unlimited semantics, and non-blocking advisories
 
 **Files:**
-- Modify: `opaihub/usage.py`
-- Modify: `opaihub/gui_preferences.py`
-- Modify: `opaihub/gui_pipeline.py`
+- Modify: `vestahub/usage.py`
+- Modify: `vestahub/gui_preferences.py`
+- Modify: `vestahub/gui_pipeline.py`
 - Create: `tests/test_usage_snapshots_v2.py`
 - Create: `tests/test_gui_preferences_atomic.py`
 - Create: `tests/test_usage_pipeline.py`
@@ -440,22 +440,22 @@
 
   ```powershell
   python -m pytest tests/test_usage_snapshots_v2.py tests/test_gui_preferences_atomic.py tests/test_usage_pipeline.py tests/test_reliable_ai_controls.py tests/test_model_call_accounting.py -q
-  git add opaihub/usage.py opaihub/gui_preferences.py opaihub/gui_pipeline.py tests/test_usage_snapshots_v2.py tests/test_gui_preferences_atomic.py tests/test_usage_pipeline.py tests/test_reliable_ai_controls.py tests/test_model_call_accounting.py
+  git add vestahub/usage.py vestahub/gui_preferences.py vestahub/gui_pipeline.py tests/test_usage_snapshots_v2.py tests/test_gui_preferences_atomic.py tests/test_usage_pipeline.py tests/test_reliable_ai_controls.py tests/test_model_call_accounting.py
   git commit -m "fix(usage): make limits advisory and resettable"
   ```
 
 ### Task 9: Introduce one immutable workspace snapshot and staged boot
 
 **Files:**
-- Create: `opaihub/workspace_snapshot.py`
+- Create: `vestahub/workspace_snapshot.py`
 - Create: `tests/test_workspace_snapshot.py`
 - Create: `tests/test_gui_boot_hydration.py`
-- Modify: `opaihub/budget.py`
-- Modify: `opai/app_state.py`
-- Modify: `opai/gui_web.py`
-- Modify: `opai/assets/web/app.js`
-- Modify: `opai/assets/web/__tests__/e2e/mock-bridge.js`
-- Modify: `opai/assets/web/__tests__/e2e/async-data.spec.js`
+- Modify: `vestahub/budget.py`
+- Modify: `vesta/app_state.py`
+- Modify: `vesta/gui_web.py`
+- Modify: `vesta/assets/web/app.js`
+- Modify: `vesta/assets/web/__tests__/e2e/mock-bridge.js`
+- Modify: `vesta/assets/web/__tests__/e2e/async-data.spec.js`
 
 **Interfaces:**
 - Produces: immutable `GitReadSnapshot`, `WorkspaceReadSnapshot`, and `WorkspaceSnapshotService.get/invalidate/revision/cancel_root/clear` with two-second TTL.
@@ -470,7 +470,7 @@
 
   ```powershell
   python -m pytest tests/test_workspace_snapshot.py tests/test_gui_boot_hydration.py tests/test_gui_web.py -q
-  npm run test:e2e -- opai/assets/web/__tests__/e2e/async-data.spec.js --project=chromium
+  npm run test:e2e -- vesta/assets/web/__tests__/e2e/async-data.spec.js --project=chromium
   ```
 
 - [ ] **Step 3: Implement snapshot service and staged boot**
@@ -481,17 +481,17 @@
 
   ```powershell
   python -m pytest tests/test_workspace_snapshot.py tests/test_gui_boot_hydration.py tests/test_gui_web.py -q
-  npm run test:e2e -- opai/assets/web/__tests__/e2e/async-data.spec.js --project=chromium
-  git add opaihub/workspace_snapshot.py opaihub/budget.py opai/app_state.py opai/gui_web.py opai/assets/web/app.js opai/assets/web/__tests__/e2e/mock-bridge.js opai/assets/web/__tests__/e2e/async-data.spec.js tests/test_workspace_snapshot.py tests/test_gui_boot_hydration.py
+  npm run test:e2e -- vesta/assets/web/__tests__/e2e/async-data.spec.js --project=chromium
+  git add vestahub/workspace_snapshot.py vestahub/budget.py vesta/app_state.py vesta/gui_web.py vesta/assets/web/app.js vesta/assets/web/__tests__/e2e/mock-bridge.js vesta/assets/web/__tests__/e2e/async-data.spec.js tests/test_workspace_snapshot.py tests/test_gui_boot_hydration.py
   git commit -m "perf(gui): hydrate from one workspace snapshot"
   ```
 
 ### Task 10: Add the versioned lazy Settings service and bounded worker pool
 
 **Files:**
-- Create: `opai/gui_settings.py`
+- Create: `vesta/gui_settings.py`
 - Create: `tests/test_gui_settings.py`
-- Modify: `opai/gui_web.py`
+- Modify: `vesta/gui_web.py`
 - Modify: `tests/test_gui_web.py`
 
 **Interfaces:**
@@ -518,25 +518,25 @@
 
   ```powershell
   python -m pytest tests/test_gui_settings.py tests/test_gui_web.py -q
-  git add opai/gui_settings.py opai/gui_web.py tests/test_gui_settings.py tests/test_gui_web.py
+  git add vesta/gui_settings.py vesta/gui_web.py tests/test_gui_settings.py tests/test_gui_web.py
   git commit -m "perf(settings): load sections and mutations lazily"
   ```
 
 ### Task 11: Rebuild Settings UX on the stable service contracts
 
 **Files:**
-- Modify: `opai/assets/web/settings.js`
-- Modify: `opai/assets/web/app.js`
-- Modify: `opai/assets/web/styles.css`
-- Modify: `opai/gui_web.py`
-- Modify: `opai/assets/web/__tests__/settings.test.js`
-- Modify: `opai/assets/web/__tests__/e2e/settings-pages.spec.js`
-- Modify: `opai/assets/web/__tests__/e2e/settings-search.spec.js`
-- Modify: `opai/assets/web/__tests__/e2e/settings-routing.spec.js`
-- Create: `opai/assets/web/__tests__/e2e/settings-responsive.spec.js`
+- Modify: `vesta/assets/web/settings.js`
+- Modify: `vesta/assets/web/app.js`
+- Modify: `vesta/assets/web/styles.css`
+- Modify: `vesta/gui_web.py`
+- Modify: `vesta/assets/web/__tests__/settings.test.js`
+- Modify: `vesta/assets/web/__tests__/e2e/settings-pages.spec.js`
+- Modify: `vesta/assets/web/__tests__/e2e/settings-search.spec.js`
+- Modify: `vesta/assets/web/__tests__/e2e/settings-routing.spec.js`
+- Create: `vesta/assets/web/__tests__/e2e/settings-responsive.spec.js`
 
 **Interfaces:**
-- Produces: `OPaiSettings.mount(page, ctx) -> SettingsController` with `navigate`, `acceptSection`, `acceptMutation`, `search`, and `destroy`.
+- Produces: `VestaSettings.mount(page, ctx) -> SettingsController` with `navigate`, `acceptSection`, `acceptMutation`, `search`, and `destroy`.
 - Stable DOM: `#settingsSearch`, `.settings-rail`, `#settingsSectionHost`, and `#settingsStatus[role=status][aria-live=polite]`.
 - Produces: `enterSettingsMode()`, `leaveSettingsMode()`, and `syncSettingsShellMode()`.
 
@@ -547,8 +547,8 @@
 - [ ] **Step 2: Run red tests**
 
   ```powershell
-  npm run test:unit -- opai/assets/web/__tests__/settings.test.js
-  npm run test:e2e -- opai/assets/web/__tests__/e2e/settings-pages.spec.js opai/assets/web/__tests__/e2e/settings-search.spec.js opai/assets/web/__tests__/e2e/settings-routing.spec.js opai/assets/web/__tests__/e2e/settings-responsive.spec.js --project=chromium
+  npm run test:unit -- vesta/assets/web/__tests__/settings.test.js
+  npm run test:e2e -- vesta/assets/web/__tests__/e2e/settings-pages.spec.js vesta/assets/web/__tests__/e2e/settings-search.spec.js vesta/assets/web/__tests__/e2e/settings-routing.spec.js vesta/assets/web/__tests__/e2e/settings-responsive.spec.js --project=chromium
   ```
 
 - [ ] **Step 3: Implement stable shell, Cost Firewall hierarchy, and responsive mode**
@@ -559,27 +559,27 @@
 
   ```powershell
   npm run test:unit
-  npm run test:e2e -- opai/assets/web/__tests__/e2e/settings-pages.spec.js opai/assets/web/__tests__/e2e/settings-search.spec.js opai/assets/web/__tests__/e2e/settings-routing.spec.js opai/assets/web/__tests__/e2e/settings-responsive.spec.js --project=chromium
-  git add opai/assets/web/settings.js opai/assets/web/app.js opai/assets/web/styles.css opai/gui_web.py opai/assets/web/__tests__/settings.test.js opai/assets/web/__tests__/e2e/settings-pages.spec.js opai/assets/web/__tests__/e2e/settings-search.spec.js opai/assets/web/__tests__/e2e/settings-routing.spec.js opai/assets/web/__tests__/e2e/settings-responsive.spec.js
+  npm run test:e2e -- vesta/assets/web/__tests__/e2e/settings-pages.spec.js vesta/assets/web/__tests__/e2e/settings-search.spec.js vesta/assets/web/__tests__/e2e/settings-routing.spec.js vesta/assets/web/__tests__/e2e/settings-responsive.spec.js --project=chromium
+  git add vesta/assets/web/settings.js vesta/assets/web/app.js vesta/assets/web/styles.css vesta/gui_web.py vesta/assets/web/__tests__/settings.test.js vesta/assets/web/__tests__/e2e/settings-pages.spec.js vesta/assets/web/__tests__/e2e/settings-search.spec.js vesta/assets/web/__tests__/e2e/settings-routing.spec.js vesta/assets/web/__tests__/e2e/settings-responsive.spec.js
   git commit -m "feat(settings): deliver honest responsive controls"
   ```
 
 ### Task 12: Add deterministic GUI performance evidence
 
 **Files:**
-- Create: `opai/gui_performance.py`
+- Create: `vesta/gui_performance.py`
 - Create: `tests/test_gui_performance.py`
-- Create: `opai/assets/web/performance.js`
-- Modify: `opai/assets/web/index.html`
-- Modify: `opai/assets/web/app.js`
-- Modify: `opai/cli.py`
-- Create: `opai/assets/web/__tests__/e2e/settings-performance.spec.js`
+- Create: `vesta/assets/web/performance.js`
+- Modify: `vesta/assets/web/index.html`
+- Modify: `vesta/assets/web/app.js`
+- Modify: `vesta/cli.py`
+- Create: `vesta/assets/web/__tests__/e2e/settings-performance.spec.js`
 - Modify: `docs/ALPHA_READINESS_2026-07-12.md`
 
 **Interfaces:**
 - Produces: immutable `GuiPerfReport` and `run_gui_perf(workspace, *, cold_samples, warm_samples, output=None)`.
-- Adds CLI: `opai perf gui --workspace PATH --cold-samples 5 --warm-samples 20 --output PATH`.
-- Adds JS: `OPaiPerf.mark()`, `measure()`, and `snapshot()`.
+- Adds CLI: `vesta perf gui --workspace PATH --cold-samples 5 --warm-samples 20 --output PATH`.
+- Adds JS: `VestaPerf.mark()`, `measure()`, and `snapshot()`.
 
 - [ ] **Step 1: Write deterministic counter/marker red tests**
 
@@ -589,7 +589,7 @@
 
   ```powershell
   python -m pytest tests/test_gui_performance.py -q
-  npm run test:e2e -- opai/assets/web/__tests__/e2e/settings-performance.spec.js --project=chromium
+  npm run test:e2e -- vesta/assets/web/__tests__/e2e/settings-performance.spec.js --project=chromium
   ```
 
 - [ ] **Step 3: Implement instrumentation, CLI harness, and release JSON**
@@ -599,10 +599,10 @@
 - [ ] **Step 4: Record before/after reference evidence and commit**
 
   ```powershell
-  opai perf gui --workspace C:\Users\Frist\Documents\website\QuotePack --cold-samples 5 --warm-samples 20 --output .opaihub\generated\gui-perf.json
+  vesta perf gui --workspace C:\Users\Frist\Documents\website\QuotePack --cold-samples 5 --warm-samples 20 --output .vestahub\generated\gui-perf.json
   python -m pytest tests/test_gui_performance.py -q
-  npm run test:e2e -- opai/assets/web/__tests__/e2e/settings-performance.spec.js --project=chromium
-  git add opai/gui_performance.py opai/assets/web/performance.js opai/assets/web/index.html opai/assets/web/app.js opai/cli.py tests/test_gui_performance.py opai/assets/web/__tests__/e2e/settings-performance.spec.js docs/ALPHA_READINESS_2026-07-12.md
+  npm run test:e2e -- vesta/assets/web/__tests__/e2e/settings-performance.spec.js --project=chromium
+  git add vesta/gui_performance.py vesta/assets/web/performance.js vesta/assets/web/index.html vesta/assets/web/app.js vesta/cli.py tests/test_gui_performance.py vesta/assets/web/__tests__/e2e/settings-performance.spec.js docs/ALPHA_READINESS_2026-07-12.md
   git commit -m "perf(gui): enforce alpha responsiveness budgets"
   ```
 
@@ -629,11 +629,11 @@
   python -m pytest -q
   python -B -m ruff format --check .
   python -B -m ruff check --no-cache .
-  python -B -m bandit -r opai opaihub opcoding -q
-  python -B -m opaihub validate
+  python -B -m bandit -r vesta vestahub opcoding -q
+  python -B -m vestahub validate
   python -m build
   python -m twine check dist\*
-  python -m opaihub.release_preflight --help
+  python -m vestahub.release_preflight --help
   git diff --check
   ```
 
@@ -645,7 +645,7 @@
 
   ```powershell
   git push -u origin codex/alpha-reliability
-  gh pr create --base main --head codex/alpha-reliability --title "fix: make OPai continuous, honest, and responsive" --body-file .opaihub\generated\alpha-reliability-pr.md
+  gh pr create --base main --head codex/alpha-reliability --title "fix: make Vesta continuous, honest, and responsive" --body-file .vestahub\generated\alpha-reliability-pr.md
   ```
 
 - [ ] **Step 5: Monitor CI, resolve failures, and merge**

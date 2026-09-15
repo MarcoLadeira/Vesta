@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from opaihub.desktop_artifacts import (  # noqa: E402
+from vestahub.desktop_artifacts import (  # noqa: E402
     ArtifactReleaseError,
     isolated_artifact_environment,
     native_platform_signature_problems,
@@ -28,7 +28,7 @@ from opaihub.desktop_artifacts import (  # noqa: E402
     smoke_commands,
     verify_bundle,
 )
-from opaihub.proc import no_window_kwargs  # noqa: E402
+from vestahub.proc import no_window_kwargs  # noqa: E402
 
 
 def _is_windows() -> bool:
@@ -164,7 +164,7 @@ def main() -> int:
             return 1
         owned_work = args.work_dir is None
         temporary = (
-            tempfile.TemporaryDirectory(prefix="opai-artifact-smoke-")
+            tempfile.TemporaryDirectory(prefix="vesta-artifact-smoke-")
             if owned_work
             else None
         )
@@ -178,7 +178,7 @@ def main() -> int:
         fixture = home / "fixture-project"
         fixture.mkdir(parents=True, exist_ok=True)
         (fixture / "pyproject.toml").write_text(
-            "[project]\nname = 'opai-artifact-smoke'\nversion = '0'\n", encoding="utf-8"
+            "[project]\nname = 'vesta-artifact-smoke'\nversion = '0'\n", encoding="utf-8"
         )
         (fixture / "app.py").write_text("value = 1\n", encoding="utf-8")
         environment = isolated_artifact_environment(home)

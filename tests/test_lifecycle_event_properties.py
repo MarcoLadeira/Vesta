@@ -24,7 +24,7 @@ from pathlib import Path
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from opaihub.generated_lifecycle import (
+from vestahub.generated_lifecycle import (
     DEGRADED_INPUTS,
     LEGACY_STATE_MAP,
     LEGACY_STATUS_MAP,
@@ -32,10 +32,10 @@ from opaihub.generated_lifecycle import (
     TERMINAL_STATE_IDS,
     transition_spec,
 )
-from opaihub.run_state import can_transition, is_terminal, transition
+from vestahub.run_state import can_transition, is_terminal, transition
 
 ROOT = Path(__file__).resolve().parents[1]
-BROWSER_CONTRACT = ROOT / "opai" / "assets" / "web" / "generated-lifecycle.js"
+BROWSER_CONTRACT = ROOT / "vesta" / "assets" / "web" / "generated-lifecycle.js"
 
 _EXAMPLES = 10_000
 _SETTINGS = settings(
@@ -203,7 +203,7 @@ class EventStreamPropertyTests(unittest.TestCase):
         self.assertNotEqual("blocked", "failed")
         # And the distinction survives into the CLI projection, which is where
         # a caller would otherwise be unable to tell them apart.
-        from opaihub.generated_lifecycle import EXIT_CODES
+        from vestahub.generated_lifecycle import EXIT_CODES
 
         self.assertNotEqual(EXIT_CODES["blocked"], EXIT_CODES["failed"])
 
@@ -222,7 +222,7 @@ class CrossLanguageGoldenTests(unittest.TestCase):
             self.skipTest("node is not installed on this machine")
         script = (
             f"require({json.dumps(str(BROWSER_CONTRACT))});"
-            "var c = globalThis.OPaiLifecycle;"
+            "var c = globalThis.VestaLifecycle;"
             f"var vectors = {json.dumps(vectors)};"
             "var out = vectors.map(function (v) {"
             "  return {"

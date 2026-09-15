@@ -18,7 +18,7 @@ python -m pip install -e .
 
 After either a verified release install or the contributor install above,
 restart your terminal once. If `op` is not yet on `PATH`, use
-`python -m opai ...` for any command below.
+`python -m vesta ...` for any command below.
 
 ## 2. Confirm activation across your AI clients
 

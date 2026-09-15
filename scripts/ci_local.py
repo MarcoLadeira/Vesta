@@ -32,18 +32,18 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 # Direct script execution puts ``scripts/`` first on sys.path, where
-# ``scripts/opai.py`` would shadow the real ``opai`` package. Qualification
+# ``scripts/vesta.py`` would shadow the real ``vesta`` package. Qualification
 # imports the canonical redactor, so make the repository package authoritative.
 if sys.path[0] != str(ROOT):
     sys.path.insert(0, str(ROOT))
-from opai.asset_identity import asset_manifest  # noqa: E402
-from opai.release_identity import artifact_identity_payload  # noqa: E402
+from vesta.asset_identity import asset_manifest  # noqa: E402
+from vesta.release_identity import artifact_identity_payload  # noqa: E402
 
 SCHEMA_VERSION = 2
 PROFILE_VERSION = 2
 MAX_DIAGNOSTIC_CHARS = 4_000
 DEFAULT_TIMEOUT_SECONDS = 30 * 60
-DEFAULT_MANIFEST = ROOT / ".opaihub" / "ci-evidence" / "local.json"
+DEFAULT_MANIFEST = ROOT / ".vestahub" / "ci-evidence" / "local.json"
 REQUIRED_CHECKS_MANIFEST = ROOT / ".github" / "required-checks.json"
 SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$", re.IGNORECASE)
 
@@ -143,8 +143,8 @@ PYTHON_STEPS = (
     ),
     Step(
         "registry-validation",
-        [sys.executable, "-m", "opaihub", "validate"],
-        required_modules=("opaihub",),
+        [sys.executable, "-m", "vestahub", "validate"],
+        required_modules=("vestahub",),
         failure_class="policy",
     ),
     Step(
@@ -154,8 +154,8 @@ PYTHON_STEPS = (
             "-m",
             "bandit",
             "-r",
-            "opai",
-            "opaihub",
+            "vesta",
+            "vestahub",
             "opcoding",
             "scripts",
             "-q",
@@ -283,12 +283,12 @@ PROVIDER_STEPS = (
         "provider-canary",
         [sys.executable, "scripts/run_provider_canary.py"],
         required_env=(
-            EnvRequirement("OPAI_LIVE_PROVIDER_SMOKE", "1", "credential"),
-            EnvRequirement("OPAI_CONFIRM_CLOUD_TESTS", "YES", "credential"),
-            EnvRequirement("OPAI_LIVE_PROVIDER_SMOKE_PROVIDERS", None, "credential"),
-            EnvRequirement("OPAI_LIVE_MODELS", None, "credential"),
-            EnvRequirement("OPAI_PROVIDER_CANARY_MAX_USD", None, "credential"),
-            EnvRequirement("OPAI_PROVIDER_CANARY_NON_PRODUCTION", "YES", "credential"),
+            EnvRequirement("VESTA_LIVE_PROVIDER_SMOKE", "1", "credential"),
+            EnvRequirement("VESTA_CONFIRM_CLOUD_TESTS", "YES", "credential"),
+            EnvRequirement("VESTA_LIVE_PROVIDER_SMOKE_PROVIDERS", None, "credential"),
+            EnvRequirement("VESTA_LIVE_MODELS", None, "credential"),
+            EnvRequirement("VESTA_PROVIDER_CANARY_MAX_USD", None, "credential"),
+            EnvRequirement("VESTA_PROVIDER_CANARY_NON_PRODUCTION", "YES", "credential"),
         ),
         network=True,
         timeout_seconds=15 * 60,
@@ -332,7 +332,7 @@ _DEFAULT_PROFILE_STEPS = PROFILE_STEPS
 _MODULE_DISTRIBUTIONS = {
     "bandit": "bandit",
     "detect_secrets": "detect-secrets",
-    "opaihub": "opai",
+    "vestahub": "vesta",
     "pip_audit": "pip-audit",
     "pytest": "pytest",
     "ruff": "ruff",
@@ -502,7 +502,7 @@ def _missing_environment(step: Step) -> list[str]:
 #: Playwright's webserver prints one HTTP access line per asset request --
 #: thousands of them, continuing past the test summary to the end of the run.
 #: With a head+tail bound that meant a failed web-e2e kept the suite banner and
-#: a wall of "GET /opai/assets/... 200" while the actual failing spec, which
+#: a wall of "GET /vesta/assets/... 200" while the actual failing spec, which
 #: sits between them, was the part discarded. Three runs in a row reported a
 #: web failure whose cause could not be read from CI at all.
 #: Playwright's list reporter also prints one "[N/M] spec › title" line per
@@ -588,7 +588,7 @@ def _print_structured_playwright_failures(failed_checks: list[dict[str, Any]]) -
 
 
 def _redact_and_bound(value: str) -> str:
-    from opai.provider_contract import redact_secrets
+    from vesta.provider_contract import redact_secrets
 
     safe = redact_secrets(value).strip()
     if len(safe) > MAX_DIAGNOSTIC_CHARS:
@@ -685,7 +685,7 @@ def _run(step: Step, *, candidate_sha: str | None = None) -> dict[str, Any]:
                 step,
                 "exact candidate SHA is required for native wheel qualification",
             )
-        child_environment["OPAI_BUILD_ID"] = candidate_sha.lower()
+        child_environment["VESTA_BUILD_ID"] = candidate_sha.lower()
         launch_argv.extend(("--candidate-sha", candidate_sha.lower()))
     start = time.monotonic()
     try:
@@ -1193,7 +1193,7 @@ def main(argv: list[str] | None = None) -> int:
         "release_identity": (
             artifact_identity_payload(
                 build_id=candidate_sha,
-                assets=asset_manifest(ROOT / "opai" / "assets"),
+                assets=asset_manifest(ROOT / "vesta" / "assets"),
                 platform_name=platform.system(),
                 architecture=platform.machine(),
                 install_type="qualification_source",

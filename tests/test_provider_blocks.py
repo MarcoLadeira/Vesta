@@ -13,7 +13,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub import auto_router, provider_blocks as blocks
+from vestahub import auto_router, provider_blocks as blocks
 
 
 def _free(model_id: str, provider: str) -> dict:
@@ -99,7 +99,7 @@ class BlockStoreTests(unittest.TestCase):
 
     def test_store_contains_only_closed_vocabulary_values(self) -> None:
         blocks.record_block(self.root, "codex", "cli_outdated", now=1000.0)
-        path = self.root / ".opaihub" / "health" / "provider_blocks.json"
+        path = self.root / ".vestahub" / "health" / "provider_blocks.json"
         data = json.loads(path.read_text(encoding="utf-8"))
         self.assertEqual(set(data["codex"]), {"reason", "at"})
         self.assertIn(data["codex"]["reason"], blocks.BLOCK_REASONS)

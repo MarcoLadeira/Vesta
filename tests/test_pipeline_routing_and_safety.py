@@ -13,13 +13,13 @@ from unittest import mock
 
 from _helpers import FakeAccountRunner, FakeLocalRunner, make_repo
 
-from opaihub.gui_pipeline import (
+from vestahub.gui_pipeline import (
     handle_gui_message,
     repo_fingerprint,
     request_tool_authority,
 )
-from opaihub.intent_router import safety_warnings
-from opaihub.verification_policy import PolicyArtifactRef
+from vestahub.intent_router import safety_warnings
+from vestahub.verification_policy import PolicyArtifactRef
 
 
 # ---------------------------------------------------------------------------
@@ -69,7 +69,7 @@ class SafeAutoInquiryTests(unittest.TestCase):
 
     def test_ask_mode_risky_question_is_answered_not_blocked(self):
         with mock.patch(
-            "opaihub.ask.run_ask",
+            "vestahub.ask.run_ask",
             return_value={"status": "answered_locally", "answer": "It resets HEAD."},
         ):
             res = handle_gui_message(
@@ -126,7 +126,7 @@ class SelectedLocalModelTests(unittest.TestCase):
         # picked model — not detect_local_runner's first hit — produced the text.
         selected = FakeLocalRunner(model="qwen2.5-coder:7b", answer="SELECTED-ANSWER")
         with mock.patch(
-            "opaihub.local_runner.runner_for_model", return_value=selected
+            "vestahub.local_runner.runner_for_model", return_value=selected
         ) as resolver:
             res = handle_gui_message(
                 self.root,
@@ -148,8 +148,8 @@ class SelectedLocalModelTests(unittest.TestCase):
 
         selected = FakeLocalRunner(answer="ok")
         with (
-            mock.patch("opaihub.local_runner.runner_for_model", return_value=selected),
-            mock.patch("opaihub.ask.run_ask", side_effect=fake_run_ask),
+            mock.patch("vestahub.local_runner.runner_for_model", return_value=selected),
+            mock.patch("vestahub.ask.run_ask", side_effect=fake_run_ask),
         ):
             handle_gui_message(
                 self.root, "task", model_id="ollama:llama3.2", mode="ask"
@@ -165,8 +165,8 @@ class SelectedLocalModelTests(unittest.TestCase):
             return {"status": "answered_locally", "answer": "ok"}
 
         with (
-            mock.patch("opaihub.local_runner.runner_for_model") as resolver,
-            mock.patch("opaihub.ask.run_ask", side_effect=fake_run_ask),
+            mock.patch("vestahub.local_runner.runner_for_model") as resolver,
+            mock.patch("vestahub.ask.run_ask", side_effect=fake_run_ask),
         ):
             handle_gui_message(self.root, "task", model_id="auto", mode="ask")
         resolver.assert_not_called()
@@ -176,11 +176,11 @@ class SelectedLocalModelTests(unittest.TestCase):
     def test_unavailable_selected_model_maps_to_needs_model(self):
         with (
             mock.patch(
-                "opaihub.local_runner.runner_for_model",
+                "vestahub.local_runner.runner_for_model",
                 return_value=FakeLocalRunner(available=False),
             ),
             mock.patch(
-                "opaihub.ask.run_ask",
+                "vestahub.ask.run_ask",
                 return_value={"status": "no_local_model", "hint": "start ollama"},
             ),
         ):
@@ -198,7 +198,7 @@ class SelectedLocalModelTests(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
-            with mock.patch("opaihub.ask.run_ask", return_value=mismatch) as run:
+            with mock.patch("vestahub.ask.run_ask", return_value=mismatch) as run:
                 result = handle_gui_message(
                     root,
                     "Fix app.py",
@@ -226,7 +226,7 @@ class VerificationPolicyPipelineTests(unittest.TestCase):
     def test_edit_pipeline_persists_policy_before_provider_dispatch(self):
         order: list[str] = []
         artifact = PolicyArtifactRef(
-            path=self.root / ".opaihub" / "verification-policies" / "task" / "run.json",
+            path=self.root / ".vestahub" / "verification-policies" / "task" / "run.json",
             digest="0" * 64,
         )
         mismatch = {
@@ -246,9 +246,9 @@ class VerificationPolicyPipelineTests(unittest.TestCase):
 
         with (
             mock.patch(
-                "opaihub.gui_pipeline.persist_effective_policy", side_effect=persist
+                "vestahub.gui_pipeline.persist_effective_policy", side_effect=persist
             ),
-            mock.patch("opaihub.ask.run_ask", side_effect=run_provider),
+            mock.patch("vestahub.ask.run_ask", side_effect=run_provider),
         ):
             result = handle_gui_message(
                 self.root,
@@ -261,12 +261,12 @@ class VerificationPolicyPipelineTests(unittest.TestCase):
         self.assertEqual(result["verification_policy"]["artifact"], artifact.to_dict())
 
     def test_malformed_policy_blocks_before_provider_dispatch(self):
-        (self.root / "opai-verification-policy.yaml").write_text(
+        (self.root / "vesta-verification-policy.yaml").write_text(
             "checks: [", encoding="utf-8"
         )
         mismatch = {"status": "answered", "answer": "should not run"}
 
-        with mock.patch("opaihub.ask.run_ask", return_value=mismatch) as provider:
+        with mock.patch("vestahub.ask.run_ask", return_value=mismatch) as provider:
             result = handle_gui_message(
                 self.root,
                 "Fix app.py",
@@ -293,8 +293,8 @@ class HonestCompletionTests(unittest.TestCase):
         events: list[dict] = []
         selected = FakeLocalRunner(answer=ask_result.get("answer", ""))
         with (
-            mock.patch("opaihub.local_runner.runner_for_model", return_value=selected),
-            mock.patch("opaihub.ask.run_ask", return_value=ask_result),
+            mock.patch("vestahub.local_runner.runner_for_model", return_value=selected),
+            mock.patch("vestahub.ask.run_ask", return_value=ask_result),
         ):
             result = handle_gui_message(
                 self.root,
@@ -340,7 +340,7 @@ class HonestCompletionTests(unittest.TestCase):
 
 class DiscoveryDetectionTests(unittest.TestCase):
     def test_positive_discovery_phrasings(self):
-        from opaihub.agent_policy import is_discovery_request
+        from vestahub.agent_policy import is_discovery_request
 
         for message in (
             "find me a git issue that we can solve",
@@ -352,7 +352,7 @@ class DiscoveryDetectionTests(unittest.TestCase):
             self.assertTrue(is_discovery_request(message), message)
 
     def test_editing_and_explaining_requests_are_not_discovery(self):
-        from opaihub.agent_policy import is_discovery_request
+        from vestahub.agent_policy import is_discovery_request
 
         for message in (
             "fix the login bug in app.py",
@@ -367,7 +367,7 @@ class SmallTalkRoutingTests(unittest.TestCase):
     """A bare greeting must be answered as chat, never forced into an edit run."""
 
     def test_greetings_and_pleasantries_are_smalltalk(self):
-        from opaihub.agent_policy import is_smalltalk_request
+        from vestahub.agent_policy import is_smalltalk_request
 
         for message in (
             "hi",
@@ -383,7 +383,7 @@ class SmallTalkRoutingTests(unittest.TestCase):
             self.assertTrue(is_smalltalk_request(message), message)
 
     def test_real_requests_are_not_smalltalk(self):
-        from opaihub.agent_policy import is_smalltalk_request
+        from vestahub.agent_policy import is_smalltalk_request
 
         for message in (
             "hi can you fix the login bug",
@@ -400,14 +400,14 @@ class SmallTalkRoutingTests(unittest.TestCase):
         # read-only EXPLAIN, so the model was given a read-only contract, refused
         # the mutation, and the refusal answer was scored a green "Completed".
         # A git-mutation or file-delete request is edit intent.
-        from opaihub.agent_policy import AgentMode, resolve_agent_policy
+        from vestahub.agent_policy import AgentMode, resolve_agent_policy
 
         for message in (
-            "Run git add and git commit for opai-test-notes.md",
+            "Run git add and git commit for vesta-test-notes.md",
             "commit the changes",
             "stage all files and commit them",
-            "delete opai-test-notes.md",
-            "Create opai-test-notes.md with the text 'Hello from Vesta QA test'",
+            "delete vesta-test-notes.md",
+            "Create vesta-test-notes.md with the text 'Hello from Vesta QA test'",
         ):
             self.assertIs(
                 resolve_agent_policy(message).mode, AgentMode.IMPLEMENT, message
@@ -425,7 +425,7 @@ class SmallTalkRoutingTests(unittest.TestCase):
     def test_greeting_under_build_focus_is_explain_not_implement(self):
         # The exact reported bug: a Build focus (or Full Auto) turned "hi" into
         # an implement run that changed nothing and was marked failed.
-        from opaihub.agent_policy import AgentMode, resolve_agent_policy
+        from vestahub.agent_policy import AgentMode, resolve_agent_policy
 
         self.assertIs(
             resolve_agent_policy("hi", focus_hint="build").mode, AgentMode.EXPLAIN
@@ -440,7 +440,7 @@ class SmallTalkRoutingTests(unittest.TestCase):
         # End to end: "hi" in Full Auto with a Build focus is answered directly
         # (read-only), not run as an edit task that fails for changing nothing.
         with mock.patch(
-            "opaihub.ask.run_ask",
+            "vestahub.ask.run_ask",
             return_value={
                 "status": "answered_locally",
                 "answer": "Hello! How can I help?",

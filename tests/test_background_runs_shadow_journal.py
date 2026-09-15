@@ -1,6 +1,6 @@
 """#613 Stage 2: background runs' shadow journal, and the states a terminal one hides.
 
-Stage 1 named ``opaihub/background_runs.py`` JOURNAL_OWNED -- "runs: background
+Stage 1 named ``vestahub/background_runs.py`` JOURNAL_OWNED -- "runs: background
 run records and notifications". Every lifecycle transition routes through one
 ``_save_run``, which makes this the cleanest module in the migration to mirror
 and the one where the journal buys the most: the file only ever shows the
@@ -24,7 +24,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub.background_runs import (
+from vestahub.background_runs import (
     _background_dir,
     enqueue_automation,
     list_runs,
@@ -191,7 +191,7 @@ class ContradictionReportIsExactTests(_RunFixture):
 
 
 def _journal_records(record_path: Path) -> list[dict]:
-    from opaihub import shadow_journal
+    from vestahub import shadow_journal
 
     journal = shadow_journal.journal_path_for(record_path)
     if not journal.exists():

@@ -8,8 +8,8 @@ import json
 import threading
 import unittest
 
-from opai.activity import make_event
-from opai.activity_batch import FLUSH_INTERVAL_MS, ActivityBatcher
+from vesta.activity import make_event
+from vesta.activity_batch import FLUSH_INTERVAL_MS, ActivityBatcher
 
 
 class ActivityBatcherTests(unittest.TestCase):

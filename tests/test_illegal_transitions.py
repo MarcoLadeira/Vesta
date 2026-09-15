@@ -23,7 +23,7 @@ from unittest import mock
 
 from _helpers import make_repo
 
-from opaihub.run_state import (
+from vestahub.run_state import (
     TERMINAL_STATES,
     RunState,
     illegal_transitions,
@@ -32,7 +32,7 @@ from opaihub.run_state import (
 )
 
 _MESSAGE_STATE_JS = (
-    Path(__file__).resolve().parents[1] / "opai" / "assets" / "web" / "message-state.js"
+    Path(__file__).resolve().parents[1] / "vesta" / "assets" / "web" / "message-state.js"
 )
 
 
@@ -142,9 +142,9 @@ class PipelineCleanlinessTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def _run(self, result: dict) -> None:
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
-        with mock.patch("opaihub.ask.run_ask", return_value=result):
+        with mock.patch("vestahub.ask.run_ask", return_value=result):
             handle_gui_message(
                 self.root, "explain this repo", model_id="auto", mode="ask"
             )
@@ -253,13 +253,13 @@ class BrowserSourceLabelTests(unittest.TestCase):
     def test_browser_is_a_distinct_recorded_source(self) -> None:
         """'a browser rejected this' and 'nobody said where this came from' are
         different findings; collapsing them hides which surface disagreed."""
-        from opaihub.lifecycle_diagnostics import source_label
+        from vestahub.lifecycle_diagnostics import source_label
 
         self.assertEqual(source_label("browser"), "browser")
         self.assertEqual(source_label("whatever the page sent"), "unknown")
 
     def test_a_browser_refusal_is_journalled_durably(self) -> None:
-        from opaihub.lifecycle_diagnostics import (
+        from vestahub.lifecycle_diagnostics import (
             read_diagnostics,
             record_illegal_transition,
         )
@@ -276,11 +276,11 @@ class BrowserSourceLabelTests(unittest.TestCase):
 
     def test_the_gui_bridge_exposes_the_slot_the_renderer_calls(self) -> None:
         source = (
-            Path(__file__).resolve().parents[1] / "opai" / "gui_web.py"
+            Path(__file__).resolve().parents[1] / "vesta" / "gui_web.py"
         ).read_text(encoding="utf-8")
         self.assertIn("def reportIllegalTransition", source)
         app_js = (
-            Path(__file__).resolve().parents[1] / "opai" / "assets" / "web" / "app.js"
+            Path(__file__).resolve().parents[1] / "vesta" / "assets" / "web" / "app.js"
         ).read_text(encoding="utf-8")
         self.assertIn("setRefusalSink", app_js)
         self.assertIn("reportIllegalTransition", app_js)

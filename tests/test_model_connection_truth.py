@@ -2,7 +2,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase, mock
 
-from opai.app_state import available_models
+from vesta.app_state import available_models
 
 
 class ModelConnectionTruthTests(TestCase):
@@ -35,13 +35,13 @@ class ModelConnectionTruthTests(TestCase):
         with TemporaryDirectory() as tmp:
             with (
                 mock.patch(
-                    "opaihub.accounts.list_connected_accounts", return_value=[account]
+                    "vestahub.accounts.list_connected_accounts", return_value=[account]
                 ),
                 mock.patch(
-                    "opaihub.accounts.provider_connection_doctor",
+                    "vestahub.accounts.provider_connection_doctor",
                     return_value=[verified],
                 ),
-                mock.patch("opaihub.local_runner.list_local_models", return_value=[]),
+                mock.patch("vestahub.local_runner.list_local_models", return_value=[]),
             ):
                 payload = available_models(Path(tmp))
 

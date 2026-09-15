@@ -12,8 +12,8 @@ from types import SimpleNamespace
 
 from _helpers import make_repo
 
-from opaihub.repository_safety import capture_repository_handle
-from opaihub.worktree_leases import WorktreeLeaseError, WorktreeManager
+from vestahub.repository_safety import capture_repository_handle
+from vestahub.worktree_leases import WorktreeLeaseError, WorktreeManager
 
 
 def _git(root: Path, *args: str) -> str:

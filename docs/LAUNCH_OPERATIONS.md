@@ -22,7 +22,7 @@ The review owner records the evidence link, status, decision owner, and review d
 | --- | --- | --- |
 | [#518 release governance](https://github.com/MarcoLadeira/OPai/issues/518) | Approved release decision and current blocker/waiver register | No unwaived P0 release gate is open. |
 | [#293 installation and distribution](https://github.com/MarcoLadeira/OPai/issues/293) | Tested package, install, upgrade, uninstall, and rollback evidence on supported platforms | A qualified stranger can follow the published path and recover safely. |
-| [#515 OPaiBench evidence](https://github.com/MarcoLadeira/OPai/issues/515) | Reproducible benchmark receipt for every quality, cost, latency, or productivity statement | Public claims match the source dataset, method, version, and known limitations. |
+| [#515 VestaBench evidence](https://github.com/MarcoLadeira/OPai/issues/515) | Reproducible benchmark receipt for every quality, cost, latency, or productivity statement | Public claims match the source dataset, method, version, and known limitations. |
 | [#529 onboarding and support](https://github.com/MarcoLadeira/OPai/issues/529) | First-use, documentation, and support readiness evidence | A user can reach a first verified outcome and obtain help without founder-only knowledge. |
 | [#526–#528 security, privacy, and evidence](https://github.com/MarcoLadeira/OPai/issues/526) | Current privacy, security, and evidence explanations | Public copy matches the implemented controls and escalation paths. |
 | [#557 customer economics](https://github.com/MarcoLadeira/OPai/issues/557) | Cohort-level verified-value and support-burden evidence | Significant paid promotion or broad commercial investment has an evidence-backed decision. |

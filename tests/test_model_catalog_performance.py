@@ -5,8 +5,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opai import app_state
-from opaihub import provider_balance, provider_blocks, provider_reliability
+from vesta import app_state
+from vestahub import provider_balance, provider_blocks, provider_reliability
 
 
 class ModelCatalogPerformanceTests(unittest.TestCase):
@@ -26,19 +26,19 @@ class ModelCatalogPerformanceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             with (
-                mock.patch("opaihub.accounts.list_connected_accounts", return_value=[]),
+                mock.patch("vestahub.accounts.list_connected_accounts", return_value=[]),
                 mock.patch(
-                    "opaihub.accounts.provider_connection_doctor", return_value=[]
+                    "vestahub.accounts.provider_connection_doctor", return_value=[]
                 ),
-                mock.patch("opaihub.accounts.account_models", return_value=[]),
+                mock.patch("vestahub.accounts.account_models", return_value=[]),
                 mock.patch(
-                    "opaihub.accounts.provider_contract_payload", return_value={}
+                    "vestahub.accounts.provider_contract_payload", return_value={}
                 ),
-                mock.patch("opaihub.free_models.list_free_models", return_value=models),
+                mock.patch("vestahub.free_models.list_free_models", return_value=models),
                 mock.patch(
-                    "opaihub.paid_api_models.list_paid_api_models", return_value=[]
+                    "vestahub.paid_api_models.list_paid_api_models", return_value=[]
                 ),
-                mock.patch("opaihub.local_runner.cached_local_models", return_value=[]),
+                mock.patch("vestahub.local_runner.cached_local_models", return_value=[]),
                 mock.patch.object(
                     provider_balance, "_load", wraps=provider_balance._load
                 ) as balance_load,

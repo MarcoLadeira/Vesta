@@ -55,7 +55,7 @@ itself verified is just a second opinion.
 ### 1. False completion: 0 — Partial (provider-manufactured completion closed)
 
 `completed` is computed from a verdict, never from model prose
-(`opaihub/completion.py`), and the pipeline emits the canonical run state
+(`vestahub/completion.py`), and the pipeline emits the canonical run state
 alongside it. `test_completion_contract.py` and `test_run_state.py` hold the
 one-for-one mapping between terminal states and verdicts.
 
@@ -103,7 +103,7 @@ Every submission is accepted, queued, rejected or visibly blocked.
 
 ### 3. Duplicate active run: 0 — Partial (in-process closed)
 
-`opaihub/admission.py` supplies the admission key the gate is worded against,
+`vestahub/admission.py` supplies the admission key the gate is worded against,
 and `SessionRegistry.claim()` enforces it.
 
 **The defect.** `handle_gui_message` minted a fresh random `turn_id` per call.
@@ -144,7 +144,7 @@ durability work gate 8 needs. #517.
 
 ### 4. Duplicate side effect: 0 — Partial
 
-`opaihub/idempotency.py` supplies operation keys with a **three-state** model,
+`vestahub/idempotency.py` supplies operation keys with a **three-state** model,
 and the two outward operations that had no protection at all are wired to it:
 
 - `open_pr` — `create_pull_request` POSTed straight to GitHub, so a retried,
@@ -237,7 +237,7 @@ Plus `test_process_tree.py` (26 tests) for the logic, adoption failure modes,
 single-release of the handle, and the self-group guard.
 
 **A second call site had the same defect (#539).** The primitive above was
-proven for `aci.py`'s command path, but `opaihub/verification_execution.py`'s
+proven for `aci.py`'s command path, but `vestahub/verification_execution.py`'s
 check runner had never been wired to it: on Windows, a timed-out or cancelled
 verification check called a bare `process.kill()` — direct child only, same
 class of bug `terminate_tree` exists to fix, just not reached from here. Fixed
@@ -283,9 +283,9 @@ contract they are and drives each ending through the real CLI.
 
 **#612/#618 landed on top of this:** the hand-maintained tables gate 6 describes
 above are now themselves generated from one versioned source
-(`opaihub/lifecycle_schema.json`) rather than kept in sync by hand — Python
-(`opaihub/generated_lifecycle.py`) and the browser
-(`opai/assets/web/generated-lifecycle.js`) read the *same* transition table,
+(`vestahub/lifecycle_schema.json`) rather than kept in sync by hand — Python
+(`vestahub/generated_lifecycle.py`) and the browser
+(`vesta/assets/web/generated-lifecycle.js`) read the *same* transition table,
 terminal set, and exit codes, with a CI drift check
 (`scripts/generate_lifecycle.py --check`, wired into `ci_local.py`'s fast
 profile) failing the build if either projection is stale or hand-edited. This
@@ -297,15 +297,15 @@ exhaustive 169-pair cross-language golden test
 (`test_lifecycle_properties.py`) that assert a terminal state can never
 regress and the transition facade never crashes on untrusted input. Illegal
 transitions are now persisted as durable diagnostic events through the #517
-journal (`opaihub/lifecycle_diagnostics.py`), not just held in process memory.
+journal (`vestahub/lifecycle_diagnostics.py`), not just held in process memory.
 
-`opaihub/run_result.py` (#618) adds the canonical, schema-validated `RunResult`
+`vestahub/run_result.py` (#618) adds the canonical, schema-validated `RunResult`
 envelope terminal evidence must satisfy — `completed` cannot be claimed
 without reconciled verification (for mutating tasks), delivery, and cost
 evidence, all referenced by stable `record_ref`s rather than embedded raw
-snapshots — plus `opaihub/legacy_status.py`, an explicit, telemetried
+snapshots — plus `vestahub/legacy_status.py`, an explicit, telemetried
 import/export boundary so legacy status strings stop being able to manufacture
-completion. `opaihub/run_result_projection.py` is the boundary projector
+completion. `vestahub/run_result_projection.py` is the boundary projector
 (verdict + evidence reference -> validated `RunResult`) every execution
 surface is meant to converge on.
 
@@ -344,7 +344,7 @@ detected rather than trusted on its own heartbeat — `test_owner_lease.py`'s
 clock-jitter cases #517 calls out explicitly.
 
 Workflow runs (#379's canonical run/step machine) are now backed by an
-append-only journal (`opaihub/run_journal.py`) with monotonic sequence
+append-only journal (`vestahub/run_journal.py`) with monotonic sequence
 numbers, atomic fsync'd appends, and a fenced supervisor lease per run
 (`workflow_runner.workflow_journal_path` / `workflow_lease_path`), additive to
 the existing snapshot file so no prior consumer changed. `replay_workflow_run`
@@ -374,7 +374,7 @@ only when the backend confirms the worker returned — `cancel-teardown.spec.js`
 **#380, first slice landed:** the gap the epic actually names — *"'Cancel
 requested' is not cancellation if provider calls, child processes... continue"*
 — is closed for the highest-risk case. `AgentComputerInterface.run_command`
-(`opaihub/aci.py`) now polls a real, isolated process tree and calls
+(`vestahub/aci.py`) now polls a real, isolated process tree and calls
 `terminate_tree` (#108) the moment a cancellation or timeout fires, instead of
 blocking inside one uninterruptible `subprocess.run` call; `test_aci_cancellation.py`
 proves this against a real spawned grandchild, not just injected logic — the
@@ -390,7 +390,7 @@ failure — required so a retry policy can never retry a cancellation — and
 leaves no idempotency residue (a cancelled commit's key is abandoned, not left
 `in_flight`).
 
-`opaihub/cancellation_lifecycle.py` adds the durable, ordered phase model the
+`vestahub/cancellation_lifecycle.py` adds the durable, ordered phase model the
 epic asks for — `requested -> acknowledged -> draining -> force_terminating ->
 terminated`, refining `CANCEL_REQUESTED` the way `RuntimePhase` refines the
 rest of the lifecycle — backed by the #517 journal, so "cancellation
@@ -414,7 +414,7 @@ produces it.
 
 ### 10. Provider conformance: 100% — Partial (matrix exists and is green)
 
-`opaihub/provider_conformance.py` states the contract as **14 named clauses**,
+`vestahub/provider_conformance.py` states the contract as **14 named clauses**,
 each recording the user-visible symptom of its breach, and
 `test_provider_conformance.py` runs every clause against every adapter with no
 network call and no spend.

@@ -30,9 +30,9 @@ controlled-alpha model with private checkout/application/proof placeholders.
 Command:
 
 ```sh
-python -m opai benchmark run --suite max --mode both
-python -m opai benchmark gate --min-effectiveness-index 95 --require-risk-blocks
-python -m opai benchmark report --format markdown
+python -m vesta benchmark run --suite max --mode both
+python -m vesta benchmark gate --min-effectiveness-index 95 --require-risk-blocks
+python -m vesta benchmark report --format markdown
 ```
 
 Result:
@@ -67,13 +67,13 @@ or Aider leaderboard result.
 
 | Check | Result |
 | --- | --- |
-| `python -m unittest tests.test_site_funnel tests.test_opai_finish tests.test_positioning_and_cli` | Pass, 21 tests |
+| `python -m unittest tests.test_site_funnel tests.test_vesta_finish tests.test_positioning_and_cli` | Pass, 21 tests |
 | `python -m unittest discover -s tests` | Pass, 217 tests |
 | `python -m ruff check .` | Pass |
 | `python -m ruff format --check .` | Pass |
-| `python -m opaihub validate` | Pass |
-| `python -m opai publish status` | Ready |
-| `python -m opai doctor` | Executes; Claude/Codex/Copilot active, Cursor/Cline missing in this worktree until `opai activate --repair` |
+| `python -m vestahub validate` | Pass |
+| `python -m vesta publish status` | Ready |
+| `python -m vesta doctor` | Executes; Claude/Codex/Copilot active, Cursor/Cline missing in this worktree until `vesta activate --repair` |
 
 ## Security Audit
 
@@ -99,7 +99,7 @@ stays public.
 Command:
 
 ```sh
-rg -n --hidden --glob '!.git' --glob '!.opaihub' --glob '!tests/**' --glob '!**/__pycache__/**' --glob '!site/assets/**' --glob '!*.png' "(sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|-----BEGIN (RSA|OPENSSH|DSA|EC|PRIVATE) KEY-----|CLOUDFLARE_API_TOKEN=|LEMON_SQUEEZY_API_KEY=|GUMROAD_ACCESS_TOKEN=)" .
+rg -n --hidden --glob '!.git' --glob '!.vestahub' --glob '!tests/**' --glob '!**/__pycache__/**' --glob '!site/assets/**' --glob '!*.png' "(sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|-----BEGIN (RSA|OPENSSH|DSA|EC|PRIVATE) KEY-----|CLOUDFLARE_API_TOKEN=|LEMON_SQUEEZY_API_KEY=|GUMROAD_ACCESS_TOKEN=)" .
 ```
 
 Result: pass outside tests. Test fixtures intentionally contain fake keys to
@@ -110,11 +110,11 @@ verify redaction behavior.
 Command:
 
 ```sh
-python -m bandit -r opai opaihub opcoding -q
+python -m bandit -r vesta vestahub opcoding -q
 ```
 
 Result: pass. Bandit reports only existing `nosec` warnings for the local-model
-bind constant in `opaihub/local_models.py`.
+bind constant in `vestahub/local_models.py`.
 
 ### Dependency Audit
 

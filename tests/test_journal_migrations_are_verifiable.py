@@ -28,7 +28,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub import journal_store
+from vestahub import journal_store
 
 SRC = str(Path(__file__).resolve().parents[1])
 
@@ -243,7 +243,7 @@ class AJournalAnotherBuildStampedHealsTests(_Journal):
         self.assertEqual([row[0] for row in rows], ["objective-1"])
 
     def test_a_lease_can_be_taken_on_the_healed_journal(self):
-        from opaihub import journal_runtime
+        from vestahub import journal_runtime
 
         self.stamped_by_another_build()
 
@@ -552,7 +552,7 @@ class HealingUnderConcurrencyTests(_Journal):
             "import sys\n"
             f"sys.path.insert(0, r'{SRC}')\n"
             "from pathlib import Path\n"
-            "from opaihub import journal_store\n"
+            "from vestahub import journal_store\n"
             "try:\n"
             f"    store = journal_store.open_store(Path(r'{self.root}'))\n"
             "    store.close()\n"

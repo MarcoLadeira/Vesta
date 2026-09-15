@@ -9,7 +9,7 @@ from pathlib import Path
 from queue import Empty
 from typing import Any
 
-from opaihub.eval_harness import eval_path, read_scorecard, run_eval
+from vestahub.eval_harness import eval_path, read_scorecard, run_eval
 
 
 _FIXTURES = [

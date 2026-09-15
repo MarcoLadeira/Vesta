@@ -13,11 +13,11 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opai.release_identity import (
+from vesta.release_identity import (
     derive_project_release,
     render_documentation_projection,
 )
-from opaihub import release_preflight as rp
+from vestahub import release_preflight as rp
 
 
 CANDIDATE_SHA = "1" * 40
@@ -59,13 +59,13 @@ def _fake_git(*, dirty=(), tags=(), head=CANDIDATE_SHA):
 def _write_release_repo(
     root: Path, *, version="0.2.0a2", stage="alpha.2", changelog=None
 ):
-    (root / "opai").mkdir(parents=True, exist_ok=True)
-    (root / "opaihub").mkdir(parents=True, exist_ok=True)
+    (root / "vesta").mkdir(parents=True, exist_ok=True)
+    (root / "vestahub").mkdir(parents=True, exist_ok=True)
     (root / "pyproject.toml").write_text(
-        f'[project]\nname = "opai"\nversion = "{version}"\n', encoding="utf-8"
+        f'[project]\nname = "vesta"\nversion = "{version}"\n', encoding="utf-8"
     )
     base, alpha = version.split("a", 1)
-    (root / "opai" / "_generated_release.py").write_text(
+    (root / "vesta" / "_generated_release.py").write_text(
         '"""Generated fixture."""\n\n'
         f'APPLICATION_VERSION = "{version}"\n'
         'RELEASE_CHANNEL = "alpha"\n'
@@ -74,14 +74,14 @@ def _write_release_repo(
         f'PUBLISHED_TAG = "v{version}"\n',
         encoding="utf-8",
     )
-    (root / "opai" / "__init__.py").write_text(
+    (root / "vesta" / "__init__.py").write_text(
         "from ._generated_release import APPLICATION_VERSION, RELEASE_STAGE\n\n"
         "__version__ = APPLICATION_VERSION\n"
         "__release_stage__ = RELEASE_STAGE\n",
         encoding="utf-8",
     )
-    (root / "opaihub" / "__init__.py").write_text(
-        "from opai._generated_release import APPLICATION_VERSION\n\n"
+    (root / "vestahub" / "__init__.py").write_text(
+        "from vesta._generated_release import APPLICATION_VERSION\n\n"
         "__version__ = APPLICATION_VERSION\n",
         encoding="utf-8",
     )
@@ -119,9 +119,9 @@ def _ctx(root, **kw):
 
 
 class DefaultGitRunnerTests(unittest.TestCase):
-    @mock.patch("opaihub.release_preflight.subprocess.run")
+    @mock.patch("vestahub.release_preflight.subprocess.run")
     @mock.patch(
-        "opaihub.release_preflight.shutil.which",
+        "vestahub.release_preflight.shutil.which",
         return_value=r"C:\Program Files\Git\cmd\git.exe",
     )
     def test_default_git_resolves_an_absolute_executable(self, _which, run):
@@ -132,8 +132,8 @@ class DefaultGitRunnerTests(unittest.TestCase):
         command = run.call_args.args[0]
         self.assertEqual(command[0], r"C:\Program Files\Git\cmd\git.exe")
 
-    @mock.patch("opaihub.release_preflight.subprocess.run")
-    @mock.patch("opaihub.release_preflight.shutil.which", return_value=None)
+    @mock.patch("vestahub.release_preflight.subprocess.run")
+    @mock.patch("vestahub.release_preflight.shutil.which", return_value=None)
     def test_default_git_fails_closed_when_git_is_unavailable(self, _which, run):
         completed = rp._default_git(Path("repo"), ["status", "--porcelain"])
 
@@ -262,14 +262,14 @@ class PreflightBlockerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _write_release_repo(root)
-            blockers = self._blockers(root, git=_fake_git(dirty=["opai/x.py"]))
+            blockers = self._blockers(root, git=_fake_git(dirty=["vesta/x.py"]))
         self.assertIn("clean_tree", blockers)
 
     def test_version_mismatch_blocks(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _write_release_repo(root)
-            generated = root / "opai" / "_generated_release.py"
+            generated = root / "vesta" / "_generated_release.py"
             generated.write_text(
                 generated.read_text(encoding="utf-8").replace(
                     'APPLICATION_VERSION = "0.2.0a2"',
@@ -599,7 +599,7 @@ class ArtifactChecksumTests(unittest.TestCase):
         release_tag=RELEASE_TAG,
     ):
         if not structured:
-            art = tmp / "OPai-setup.exe"
+            art = tmp / "Vesta-setup.exe"
             art.write_bytes(b"artifact-bytes")
             digest = rp.sha256_of(art)
             manifest = tmp / "manifest.json"
@@ -635,7 +635,7 @@ class ArtifactChecksumTests(unittest.TestCase):
             provider_path,
             {
                 **common,
-                "kind": "opai_provider_qualification",
+                "kind": "vesta_provider_qualification",
                 "candidate_sha": candidate_sha,
                 "verdict": "qualified",
             },
@@ -644,7 +644,7 @@ class ArtifactChecksumTests(unittest.TestCase):
         artifacts: list[dict] = []
         native_evidence: list[dict] = []
         for index, platform_name in enumerate(("windows-latest", "macos-latest")):
-            artifact = tmp / f"OPai-{platform_name}.zip"
+            artifact = tmp / f"Vesta-{platform_name}.zip"
             artifact.write_bytes(f"artifact-bytes-{platform_name}".encode())
             actual_digest = rp.sha256_of(artifact)
             declared_digest = "0" * 64 if corrupt and index == 0 else actual_digest
@@ -654,7 +654,7 @@ class ArtifactChecksumTests(unittest.TestCase):
                 native_path,
                 {
                     **common,
-                    "kind": "opai_native_qualification",
+                    "kind": "vesta_native_qualification",
                     "candidate_sha": provenance_sha,
                     "platform": platform_name,
                     "artifact_sha256": (
@@ -684,7 +684,7 @@ class ArtifactChecksumTests(unittest.TestCase):
                 report_path,
                 {
                     **common,
-                    "kind": "opai_artifact_verification",
+                    "kind": "vesta_artifact_verification",
                     "candidate_sha": signature_sha,
                     "platform": platform_name,
                     "artifact_sha256": declared_digest,
@@ -1135,16 +1135,16 @@ class RollbackTests(unittest.TestCase):
             tmp = Path(tmp)
             release_root = tmp / "install"
             release_root.mkdir()
-            (release_root / "OPai.bin").write_bytes(b"CURRENT v2")
+            (release_root / "Vesta.bin").write_bytes(b"CURRENT v2")
             pointer = release_root / "active.json"
             pointer.write_text(json.dumps({"version": "0.2.0a2"}), encoding="utf-8")
 
             staged = tmp / "previous"
             staged.mkdir()
-            (staged / "OPai.bin").write_bytes(b"PREVIOUS v1")
+            (staged / "Vesta.bin").write_bytes(b"PREVIOUS v1")
             manifest = staged / "manifest.json"
             manifest.write_text(
-                json.dumps({"version": "0.2.0a1", "artifacts": [{"path": "OPai.bin"}]}),
+                json.dumps({"version": "0.2.0a1", "artifacts": [{"path": "Vesta.bin"}]}),
                 encoding="utf-8",
             )
 
@@ -1154,7 +1154,7 @@ class RollbackTests(unittest.TestCase):
                 pointer_file=pointer,
             )
             self.assertEqual(result["version"], "0.2.0a1")
-            self.assertEqual((release_root / "OPai.bin").read_bytes(), b"PREVIOUS v1")
+            self.assertEqual((release_root / "Vesta.bin").read_bytes(), b"PREVIOUS v1")
             self.assertEqual(json.loads(pointer.read_text())["version"], "0.2.0a1")
 
     def test_rollback_never_touches_user_state(self):
@@ -1162,27 +1162,27 @@ class RollbackTests(unittest.TestCase):
             tmp = Path(tmp)
             release_root = tmp / "install"
             release_root.mkdir()
-            (release_root / "OPai.bin").write_bytes(b"CURRENT")
+            (release_root / "Vesta.bin").write_bytes(b"CURRENT")
             # User state lives under the install root but must be preserved.
-            user_state = release_root / ".opaihub"
+            user_state = release_root / ".vestahub"
             user_state.mkdir()
             ledger = user_state / "ledger.jsonl"
             ledger.write_bytes(b"precious user data")
 
             staged = tmp / "previous"
             staged.mkdir()
-            (staged / "OPai.bin").write_bytes(b"PREVIOUS")
+            (staged / "Vesta.bin").write_bytes(b"PREVIOUS")
             # A malicious/buggy manifest that tries to overwrite user state.
-            (staged / ".opaihub").mkdir()
-            (staged / ".opaihub" / "ledger.jsonl").write_bytes(b"attacker data")
+            (staged / ".vestahub").mkdir()
+            (staged / ".vestahub" / "ledger.jsonl").write_bytes(b"attacker data")
             manifest = staged / "manifest.json"
             manifest.write_text(
                 json.dumps(
                     {
                         "version": "0.1.0",
                         "artifacts": [
-                            {"path": "OPai.bin"},
-                            {"path": ".opaihub/ledger.jsonl"},
+                            {"path": "Vesta.bin"},
+                            {"path": ".vestahub/ledger.jsonl"},
                         ],
                     }
                 ),
@@ -1205,12 +1205,12 @@ class RollbackTests(unittest.TestCase):
             to_version="0.2.0a1",
             previous_manifest={
                 "version": "0.2.0a1",
-                "artifacts": [{"path": "OPai.bin"}],
+                "artifacts": [{"path": "Vesta.bin"}],
             },
         )
         self.assertTrue(plan["preserves_user_state"])
         self.assertEqual(plan["to_version"], "0.2.0a1")
-        self.assertIn("OPai.bin", plan["artifacts"])
+        self.assertIn("Vesta.bin", plan["artifacts"])
 
 
 class ReportTests(unittest.TestCase):
@@ -1220,7 +1220,7 @@ class ReportTests(unittest.TestCase):
             _write_release_repo(root)
             readiness = rp.run_preflight(_ctx(root))
         payload = json.loads(rp.render_report_json(readiness))
-        self.assertEqual(payload["kind"], "opai_rc_preflight")
+        self.assertEqual(payload["kind"], "vesta_rc_preflight")
         self.assertTrue(payload["ready"])
         self.assertEqual(payload["totals"]["blockers"], 0)
         md = rp.render_report_markdown(readiness)
@@ -1256,7 +1256,7 @@ class CliTests(unittest.TestCase):
         import contextlib
         import io
 
-        from opai.cli import main
+        from vesta.cli import main
 
         out = io.StringIO()
         with contextlib.redirect_stdout(out):

@@ -6,13 +6,13 @@
 
 ## Decision
 
-OPai's alpha ships with no paid edition, entitlement, licence, checkout, or
+Vesta's alpha ships with no paid edition, entitlement, licence, checkout, or
 feature-access gate. A capability may be unavailable because it has not been
 implemented safely, but never because a user has not bought or self-declared a
 tier.
 
 The current edition mechanism is an executable contradiction: its default
-`free` tier blocks `opai savings --export`. That block and all upgrade language
+`free` tier blocks `vesta savings --export`. That block and all upgrade language
 must be removed before the public alpha can be described as fully free.
 
 ## Options considered
@@ -23,13 +23,13 @@ must be removed before the public alpha can be described as fully free.
 2. **Delete the edition API immediately.** This removes the contradiction but
    needlessly breaks scripts and diagnostic callers during alpha. Rejected.
 3. **Keep a compatibility-facing availability API and make it free-alpha-only.**
-   This preserves `opai edition show` as a clear diagnostic, makes legacy
+   This preserves `vesta edition show` as a clear diagnostic, makes legacy
    `set` calls harmless no-ops, removes real gates, and leaves future pricing
    for a separately approved product decision. Selected.
 
 ## Runtime contract
 
-- `opai savings --export PATH` always performs its local export; it contains
+- `vesta savings --export PATH` always performs its local export; it contains
   no edition check and returns no upgrade-required outcome.
 - `current_edition()` always returns `free`; environment variables and project
   state cannot turn alpha features on or off.
@@ -62,7 +62,7 @@ and do not invite a user to select or buy a tier.
 
 ## Error handling and compatibility
 
-- Legacy `OPAI_EDITION` values are ignored, not persisted or silently treated
+- Legacy `VESTA_EDITION` values are ignored, not persisted or silently treated
   as entitlement.
 - Unknown feature IDs remain non-blocking because a missing catalog entry must
   not create a false product gate.
@@ -87,9 +87,9 @@ Tests are written before implementation and prove the user-facing boundary:
 
 ## Acceptance criteria
 
-- No executable OPai path returns `upgrade_required` for an implemented alpha
+- No executable Vesta path returns `upgrade_required` for an implemented alpha
   feature.
-- `opai savings --export` succeeds at the default free-alpha state.
+- `vesta savings --export` succeeds at the default free-alpha state.
 - No runtime configuration contains a nonzero price or `min_edition` gate.
 - The availability report has no paid catalog, upgrade hint, or locked feature
   list.

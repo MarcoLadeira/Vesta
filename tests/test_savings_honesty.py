@@ -21,14 +21,14 @@ from pathlib import Path
 from unittest import mock
 
 from _helpers import FakeAccountRunner, make_repo
-from opaihub.budget import budget_status
-from opaihub.cost_model import estimate_route_savings
-from opaihub.gui_pipeline import (
+from vestahub.budget import budget_status
+from vestahub.cost_model import estimate_route_savings
+from vestahub.gui_pipeline import (
     _record_gui_route,
     build_savings_receipt,
     handle_gui_message,
 )
-from opaihub.ledger import (
+from vestahub.ledger import (
     EVENT_MODEL_CALL,
     EVENT_ROUTE,
     read_events,
@@ -584,13 +584,13 @@ class RecordAfterOutcomeTests(unittest.TestCase):
 
     def _no_accounts(self):
         return mock.patch(
-            "opai.app_state.available_models", return_value={"models": []}
+            "vesta.app_state.available_models", return_value={"models": []}
         )
 
     def test_no_local_model_failure_records_nothing(self):
         with (
             mock.patch(
-                "opaihub.ask.run_ask", return_value={"status": "no_local_model"}
+                "vestahub.ask.run_ask", return_value={"status": "no_local_model"}
             ),
             self._no_accounts(),
         ):
@@ -605,7 +605,7 @@ class RecordAfterOutcomeTests(unittest.TestCase):
     def test_runner_error_records_nothing(self):
         with (
             mock.patch(
-                "opaihub.ask.run_ask",
+                "vestahub.ask.run_ask",
                 return_value={"status": "runner_error", "error": "boom"},
             ),
             self._no_accounts(),
@@ -616,7 +616,7 @@ class RecordAfterOutcomeTests(unittest.TestCase):
 
     def test_answered_local_run_records_exactly_one_route(self):
         with mock.patch(
-            "opaihub.ask.run_ask",
+            "vestahub.ask.run_ask",
             return_value={"status": "answered_locally", "answer": "hi"},
         ):
             result = handle_gui_message(self.root, "task", model_id="auto", mode="ask")
@@ -633,7 +633,7 @@ class RecordAfterOutcomeTests(unittest.TestCase):
         # returned — the mutation never reached disk. gui_receipt (written by
         # _decorate) is the only event that actually carries the receipt.
         with mock.patch(
-            "opaihub.ask.run_ask",
+            "vestahub.ask.run_ask",
             return_value={"status": "answered_locally", "answer": "hi"},
         ):
             result = handle_gui_message(self.root, "task", model_id="auto", mode="ask")
@@ -657,7 +657,7 @@ class RecordAfterOutcomeTests(unittest.TestCase):
 
     def test_answered_free_call_records_one_l2_route(self):
         with mock.patch(
-            "opai.app_state.ask",
+            "vesta.app_state.ask",
             return_value={"status": "answered_by_free_api", "answer": "4"},
         ):
             result = handle_gui_message(
@@ -674,7 +674,7 @@ class RecordAfterOutcomeTests(unittest.TestCase):
 
     def test_answered_free_call_records_exactly_one_receipt_event(self):
         with mock.patch(
-            "opai.app_state.ask",
+            "vesta.app_state.ask",
             return_value={"status": "answered_by_free_api", "answer": "4"},
         ):
             result = handle_gui_message(
@@ -720,7 +720,7 @@ class RecordAfterOutcomeTests(unittest.TestCase):
 
         selected = "free:gemini:gemini-3.1-flash-lite"
         with mock.patch(
-            "opaihub.local_runner.runner_for_model", return_value=FakeFreeRunner()
+            "vestahub.local_runner.runner_for_model", return_value=FakeFreeRunner()
         ):
             result = handle_gui_message(
                 self.root,

@@ -1,7 +1,7 @@
 """#613 Stage 2: connected-service consent mirrors into the shadow journal.
 
-``opai/integrations.py`` is Stage 1's "approvals: connected-service consent".
-``~/.opai/global.json`` records which AI clients the user has agreed to let
+``vesta/integrations.py`` is Stage 1's "approvals: connected-service consent".
+``~/.vesta/global.json`` records which AI clients the user has agreed to let
 Vesta manage, so losing or silently altering it changes what Vesta is permitted
 to touch on someone's machine.
 
@@ -20,12 +20,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opai.integrations import (
+from vesta.integrations import (
     install_global_integrations,
     load_global_status,
-    opai_home,
+    vesta_home,
 )
-from opaihub import shadow_journal
+from vestahub import shadow_journal
 
 
 class ConsentManifestShadowTests(unittest.TestCase):
@@ -38,7 +38,7 @@ class ConsentManifestShadowTests(unittest.TestCase):
         self.project.mkdir(parents=True, exist_ok=True)
 
     def _manifest_path(self) -> Path:
-        return opai_home(self.home) / "global.json"
+        return vesta_home(self.home) / "global.json"
 
     def _install(self, targets: list[str]) -> dict:
         return install_global_integrations(

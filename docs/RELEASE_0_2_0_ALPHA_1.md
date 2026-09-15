@@ -57,10 +57,10 @@ vesta savings --markdown
 - [ ] `python -m unittest discover -s tests`
 - [ ] `python -m ruff check .`
 - [ ] `python -m ruff format --check .`
-- [ ] `python -m opaihub validate`
-- [ ] `python -m opai doctor`
-- [ ] `python -m opai benchmark run --suite max --mode both`
-- [ ] `python -m opai benchmark gate --min-effectiveness-index 95 --require-risk-blocks`
+- [ ] `python -m vestahub validate`
+- [ ] `python -m vesta doctor`
+- [ ] `python -m vesta benchmark run --suite max --mode both`
+- [ ] `python -m vesta benchmark gate --min-effectiveness-index 95 --require-risk-blocks`
 - [ ] Replace Cloudflare Web Analytics token.
 - [ ] Replace private Founding Pro checkout URL.
 - [ ] Replace private Team Pilot application URL.

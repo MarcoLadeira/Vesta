@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make OPai editable modes truthfully grant repository edits to built-in API models and Gemini CLI while reducing explicit-provider dispatch overhead.
+**Goal:** Make Vesta editable modes truthfully grant repository edits to built-in API models and Gemini CLI while reducing explicit-provider dispatch overhead.
 
 **Architecture:** Resolve one provider execution plan from user intent, effective autonomy mode, and provider capabilities. Built-in free API models use a bounded OpenAI-compatible repository tool loop backed by the existing `AgentComputerInterface`; external Gemini CLI receives managed instructions and exact approval-mode arguments. Explicit providers bypass Auto recommendation, prose cache, and duplicate evidence collection.
 
@@ -12,20 +12,20 @@
 
 ## File structure
 
-- Create `opaihub/provider_tools.py`: provider-neutral repository tool schemas, argument validation, bounded execution, dirty-path protection, and fixed test-command allowlist.
-- Modify `opaihub/provider_adapters.py`: immutable provider capability and execution-plan contracts plus Gemini CLI approval-mode mapping.
-- Modify `opaihub/local_runner.py`: OpenAI-compatible tool-call loop for `FreeAPIRunner`.
-- Modify `opaihub/ask.py`: direct explicit-provider execution path with no Auto recommendation/cache/evidence duplication.
-- Modify `opai/app_state.py`: carry edit/mode intent into free-provider execution and report tool/change evidence.
-- Modify `opaihub/gui_pipeline.py`: preserve acknowledged Full Auto and pass edit authority to free providers.
-- Modify `opai/integrations.py`, `opai/clients.py`, `opaihub/agent_launch.py`, and `opai/cli.py`: Gemini project/global discovery, wrappers, and CLI mode mapping.
+- Create `vestahub/provider_tools.py`: provider-neutral repository tool schemas, argument validation, bounded execution, dirty-path protection, and fixed test-command allowlist.
+- Modify `vestahub/provider_adapters.py`: immutable provider capability and execution-plan contracts plus Gemini CLI approval-mode mapping.
+- Modify `vestahub/local_runner.py`: OpenAI-compatible tool-call loop for `FreeAPIRunner`.
+- Modify `vestahub/ask.py`: direct explicit-provider execution path with no Auto recommendation/cache/evidence duplication.
+- Modify `vesta/app_state.py`: carry edit/mode intent into free-provider execution and report tool/change evidence.
+- Modify `vestahub/gui_pipeline.py`: preserve acknowledged Full Auto and pass edit authority to free providers.
+- Modify `vesta/integrations.py`, `vesta/clients.py`, `vestahub/agent_launch.py`, and `vesta/cli.py`: Gemini project/global discovery, wrappers, and CLI mode mapping.
 - Modify focused test modules and add `tests/test_provider_tools.py` for the bounded tool boundary.
 
 ### Task 1: Normalize capabilities and preserve effective editable modes
 
 **Files:**
-- Modify: `opaihub/provider_adapters.py`
-- Modify: `opaihub/gui_pipeline.py`
+- Modify: `vestahub/provider_adapters.py`
+- Modify: `vestahub/gui_pipeline.py`
 - Test: `tests/test_agent_autonomy.py`
 - Test: `tests/test_provider_adapters.py`
 
@@ -36,7 +36,7 @@ Add tests equivalent to:
 ```python
 def test_pipeline_preserves_pinned_full_auto_for_implementation(self):
     prefs = {"run_mode": "full-auto", "full_auto_pinned": True, "full_auto_acknowledged": True}
-    with mock.patch("opaihub.gui_pipeline.load_gui_preferences", return_value=prefs):
+    with mock.patch("vestahub.gui_pipeline.load_gui_preferences", return_value=prefs):
         result = handle_gui_message(
             root,
             "Fix the bug and run tests.",
@@ -120,15 +120,15 @@ Run the Task 1 command. Expected: all tests pass.
 - [ ] **Step 6: Commit Task 1**
 
 ```powershell
-git add opaihub/provider_adapters.py opaihub/gui_pipeline.py tests/test_agent_autonomy.py tests/test_provider_adapters.py
+git add vestahub/provider_adapters.py vestahub/gui_pipeline.py tests/test_agent_autonomy.py tests/test_provider_adapters.py
 git commit -m "fix(autonomy): preserve provider edit permissions"
 ```
 
 ### Task 2: Build the bounded repository tool boundary
 
 **Files:**
-- Create: `opaihub/provider_tools.py`
-- Modify: `opaihub/aci.py`
+- Create: `vestahub/provider_tools.py`
+- Modify: `vestahub/aci.py`
 - Test: `tests/test_provider_tools.py`
 
 - [ ] **Step 1: Write failing repository-tool tests**
@@ -187,17 +187,17 @@ Run the Task 2 command. Expected: all tests pass.
 - [ ] **Step 5: Commit Task 2**
 
 ```powershell
-git add opaihub/provider_tools.py opaihub/aci.py tests/test_provider_tools.py
+git add vestahub/provider_tools.py vestahub/aci.py tests/test_provider_tools.py
 git commit -m "feat(providers): add bounded repository tools"
 ```
 
 ### Task 3: Add the free-provider tool loop and direct dispatch path
 
 **Files:**
-- Modify: `opaihub/local_runner.py`
-- Modify: `opaihub/ask.py`
-- Modify: `opai/app_state.py`
-- Modify: `opaihub/gui_pipeline.py`
+- Modify: `vestahub/local_runner.py`
+- Modify: `vestahub/ask.py`
+- Modify: `vesta/app_state.py`
+- Modify: `vestahub/gui_pipeline.py`
 - Test: `tests/test_free_models.py`
 - Test: `tests/test_pipeline_routing_and_safety.py`
 
@@ -246,7 +246,7 @@ Share the HTTP request helper with the existing one-shot `complete` method and p
 
 - [ ] **Step 4: Implement explicit-provider execution**
 
-Add `run_explicit_model` in `opaihub/ask.py`. It must not call `recommend_model`, `result_cache`, or `collect_evidence`. It sends the already-built provider message, records an L2 route only after success, and never stores mutating results in the prose cache.
+Add `run_explicit_model` in `vestahub/ask.py`. It must not call `recommend_model`, `result_cache`, or `collect_evidence`. It sends the already-built provider message, records an L2 route only after success, and never stores mutating results in the prose cache.
 
 Thread `allow_edits`, `mode`, and cancellation through `app_state.ask`, `_ask_free_model`, and `handle_gui_message`. Return actual `tool_trace` and changed files instead of hardcoded empty arrays.
 
@@ -261,18 +261,18 @@ Use a fake free runner and a temporary repository with at least 2,000 files. Rec
 - [ ] **Step 7: Commit Task 3**
 
 ```powershell
-git add opaihub/local_runner.py opaihub/ask.py opai/app_state.py opaihub/gui_pipeline.py tests/test_free_models.py tests/test_pipeline_routing_and_safety.py
+git add vestahub/local_runner.py vestahub/ask.py vesta/app_state.py vestahub/gui_pipeline.py tests/test_free_models.py tests/test_pipeline_routing_and_safety.py
 git commit -m "feat(providers): enable bounded API model edits"
 ```
 
 ### Task 4: Activate Gemini CLI with truthful modes
 
 **Files:**
-- Modify: `opai/integrations.py`
-- Modify: `opai/clients.py`
-- Modify: `opaihub/agent_launch.py`
-- Modify: `opai/cli.py`
-- Test: `tests/test_opai_integrations.py`
+- Modify: `vesta/integrations.py`
+- Modify: `vesta/clients.py`
+- Modify: `vestahub/agent_launch.py`
+- Modify: `vesta/cli.py`
+- Test: `tests/test_vesta_integrations.py`
 - Test: `tests/test_clients.py`
 - Test: `tests/test_agent_launch.py`
 
@@ -282,14 +282,14 @@ Assert that activation:
 
 - creates `GEMINI.md` with exactly one managed block while preserving user text;
 - includes Gemini in client status;
-- writes `opai-gemini` and `opai-gemini.ps1` wrappers;
+- writes `vesta-gemini` and `vesta-gemini.ps1` wrappers;
 - includes Gemini aliases when aliases are requested;
 - classifies `gemini -p`/`--prompt` calls and maps Plan, Safe Auto, and Full Auto to `plan`, `auto_edit`, and `yolo`.
 
 - [ ] **Step 2: Run tests and verify RED**
 
 ```powershell
-python -m unittest tests.test_opai_integrations tests.test_clients tests.test_agent_launch -v
+python -m unittest tests.test_vesta_integrations tests.test_clients tests.test_agent_launch -v
 ```
 
 Expected: missing Gemini files, status, wrappers, and classifier.
@@ -309,7 +309,7 @@ Run the Task 4 command. Expected: all tests pass.
 - [ ] **Step 5: Commit Task 4**
 
 ```powershell
-git add opai/integrations.py opai/clients.py opaihub/agent_launch.py opai/cli.py tests/test_opai_integrations.py tests/test_clients.py tests/test_agent_launch.py
+git add vesta/integrations.py vesta/clients.py vestahub/agent_launch.py vesta/cli.py tests/test_vesta_integrations.py tests/test_clients.py tests/test_agent_launch.py
 git commit -m "feat(integrations): activate Gemini CLI edit modes"
 ```
 
@@ -324,7 +324,7 @@ git commit -m "feat(integrations): activate Gemini CLI edit modes"
 ```powershell
 python -m ruff format --check .
 python -m ruff check .
-python -m bandit -q -r opai opaihub opcoding
+python -m bandit -q -r vesta vestahub opcoding
 python -m pip check
 ```
 
@@ -354,9 +354,9 @@ Expected: all tests pass and npm reports no high-severity audit failure.
 - [ ] **Step 4: Run release/security checks**
 
 ```powershell
-python -m opaihub validate
+python -m vestahub validate
 python -m pip_audit . --progress-spinner off --skip-editable
-detect-secrets scan --all-files --exclude-files "(^|[\\/])\\.opcoding-tools([\\/]|$)|(^|[\\/])\\.ruff_cache([\\/]|$)|(^|[\\/])\\.opcoding([\\/]|$)|(^|[\\/])\\.opaihub([\\/]|$)|(^|[\\/])opai[\\/]assets[\\/].*\\.png$" --exclude-lines "MORPH_API_KEY|api_key_env|api_key_present"
+detect-secrets scan --all-files --exclude-files "(^|[\\/])\\.opcoding-tools([\\/]|$)|(^|[\\/])\\.ruff_cache([\\/]|$)|(^|[\\/])\\.opcoding([\\/]|$)|(^|[\\/])\\.vestahub([\\/]|$)|(^|[\\/])vesta[\\/]assets[\\/].*\\.png$" --exclude-lines "MORPH_API_KEY|api_key_env|api_key_present"
 python scripts/smoke-install.py
 ```
 
@@ -383,7 +383,7 @@ Confirm there are no secrets, generated artifacts, unrelated changes, permission
 - [ ] **Step 6: Commit any verification-only corrections**
 
 ```powershell
-git add -- opaihub/provider_adapters.py opaihub/provider_tools.py opaihub/local_runner.py opaihub/ask.py opai/app_state.py opaihub/gui_pipeline.py opai/integrations.py opai/clients.py opaihub/agent_launch.py opai/cli.py tests/test_agent_autonomy.py tests/test_provider_adapters.py tests/test_provider_tools.py tests/test_free_models.py tests/test_pipeline_routing_and_safety.py tests/test_opai_integrations.py tests/test_clients.py tests/test_agent_launch.py
+git add -- vestahub/provider_adapters.py vestahub/provider_tools.py vestahub/local_runner.py vestahub/ask.py vesta/app_state.py vestahub/gui_pipeline.py vesta/integrations.py vesta/clients.py vestahub/agent_launch.py vesta/cli.py tests/test_agent_autonomy.py tests/test_provider_adapters.py tests/test_provider_tools.py tests/test_free_models.py tests/test_pipeline_routing_and_safety.py tests/test_vesta_integrations.py tests/test_clients.py tests/test_agent_launch.py
 git commit -m "test(providers): complete permission regression coverage"
 ```
 
@@ -393,7 +393,7 @@ Skip this commit when the worktree is already clean.
 
 ```powershell
 git push -u origin codex/provider-permissions-performance
-gh pr create --repo MarcoLadeira/OPai --base main --head codex/provider-permissions-performance --title "fix: honor editable modes across AI providers" --body "Fixes OPai's contradictory read-only behavior in editable modes. Preserves acknowledged Full Auto, gives explicit free API models bounded repository tools, activates Gemini CLI instructions/mode mapping, and removes redundant explicit-provider routing/cache work. Includes mocked end-to-end provider tests; no live cloud credentials or calls are used."
+gh pr create --repo MarcoLadeira/OPai --base main --head codex/provider-permissions-performance --title "fix: honor editable modes across AI providers" --body "Fixes Vesta's contradictory read-only behavior in editable modes. Preserves acknowledged Full Auto, gives explicit free API models bounded repository tools, activates Gemini CLI instructions/mode mapping, and removes redundant explicit-provider routing/cache work. Includes mocked end-to-end provider tests; no live cloud credentials or calls are used."
 ```
 
 The PR body must include root cause, mode/security behavior, benchmark evidence, tests, no-live-cloud-test disclosure, and rollback notes.

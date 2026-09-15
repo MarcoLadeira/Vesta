@@ -17,7 +17,7 @@ from unittest import mock
 
 from _helpers import make_repo
 
-from opaihub.opaibench import (
+from vestahub.vestabench import (
     PARITY_SUITE_VERSION,
     _file_sha,
     load_parity_baseline,
@@ -36,13 +36,13 @@ class ParityRunnerTests(unittest.TestCase):
             1
         ].split("\n[", 1)[0]
         assignment = re.search(
-            r"^opaihub\s*=\s*\[(.*?)\]",
+            r"^vestahub\s*=\s*\[(.*?)\]",
             package_data_section,
             flags=re.MULTILINE | re.DOTALL,
         )
         self.assertIsNotNone(assignment)
         patterns = re.findall(r'"([^"]+)"', assignment.group(1))
-        package_root = project_root / "opaihub"
+        package_root = project_root / "vestahub"
         packaged_files = {
             candidate.resolve()
             for pattern in patterns
@@ -52,7 +52,7 @@ class ParityRunnerTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            wheel_package = root / "site-packages" / "opaihub"
+            wheel_package = root / "site-packages" / "vestahub"
             for source in packaged_files:
                 destination = wheel_package / source.relative_to(package_root)
                 destination.parent.mkdir(parents=True, exist_ok=True)
@@ -63,14 +63,14 @@ class ParityRunnerTests(unittest.TestCase):
                 (parity_root / "manifest.json").read_text(encoding="utf-8")
             )
             fixture_manifests = [
-                parity_root / str(task["fixture"]) / ".opai-app.json"
+                parity_root / str(task["fixture"]) / ".vesta-app.json"
                 for task in manifest["tasks"]
             ]
             self.assertTrue(
                 all(path.is_file() for path in fixture_manifests),
                 [str(path) for path in fixture_manifests if not path.is_file()],
             )
-            with mock.patch("opaihub.opaibench._PARITY_DATA", parity_root):
+            with mock.patch("vestahub.vestabench._PARITY_DATA", parity_root):
                 report = run_parity_benchmark(root / "evidence", write=False)
 
         self.assertEqual(
@@ -88,7 +88,7 @@ class ParityRunnerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             report = run_parity_benchmark(Path(tmp), write=False)
 
-        self.assertEqual(report["kind"], "opaibench_parity")
+        self.assertEqual(report["kind"], "vestabench_parity")
         self.assertEqual(report["harness"], "hermetic-contract")
         self.assertEqual(
             {item["category"] for item in report["tasks"]},
@@ -243,9 +243,9 @@ class ParityRunnerTests(unittest.TestCase):
                 return True
 
             def complete(self, prompt: str, **_kwargs):
-                from opaihub.checkpoints import load_run_checkpoint
-                from opaihub.repo_context import load_active_repo
-                from opaihub.workflow_state import load_workflow_state
+                from vestahub.checkpoints import load_run_checkpoint
+                from vestahub.repo_context import load_active_repo
+                from vestahub.workflow_state import load_workflow_state
 
                 self.calls.append({"prompt": prompt})
                 prefix = "- Active repository: "
@@ -445,12 +445,12 @@ class BaselineAndRenderingTests(unittest.TestCase):
 
         self.assertIn("Vesta vs baseline", contents["markdown"])
         self.assertIn("<table", contents["html"])
-        self.assertEqual(json.loads(contents["json"])["kind"], "opaibench_parity")
+        self.assertEqual(json.loads(contents["json"])["kind"], "vestabench_parity")
 
 
 class ParityCliTests(unittest.TestCase):
     def test_hub_cli_parity_exit_code_and_json_report(self):
-        from opaihub.cli import main
+        from vestahub.cli import main
 
         with tempfile.TemporaryDirectory() as tmp:
             output = io.StringIO()
@@ -459,7 +459,7 @@ class ParityCliTests(unittest.TestCase):
                     [
                         "--project",
                         tmp,
-                        "opaibench",
+                        "vestabench",
                         "parity",
                         "--task",
                         "refactor",
@@ -470,16 +470,16 @@ class ParityCliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(output.getvalue())["totals"]["passed"], 1)
 
-    def test_primary_opai_cli_exposes_parity_with_same_result(self):
+    def test_primary_vesta_cli_exposes_parity_with_same_result(self):
         # The daily-driver proof (#309/#314) must be reachable from the primary
-        # `opai` CLI, not only the secondary op-hub tool. Same fixtures, same
+        # `vesta` CLI, not only the secondary op-hub tool. Same fixtures, same
         # report shape, same exit-code contract — parity by delegation.
-        from opai.cli import main as opai_main
+        from vesta.cli import main as vesta_main
 
         with tempfile.TemporaryDirectory() as tmp:
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
-                code = opai_main(
+                code = vesta_main(
                     [
                         "benchmark",
                         "parity",
@@ -494,16 +494,16 @@ class ParityCliTests(unittest.TestCase):
                 )
         self.assertEqual(code, 0)
         report = json.loads(output.getvalue())
-        self.assertEqual(report["kind"], "opaibench_parity")
+        self.assertEqual(report["kind"], "vestabench_parity")
         self.assertEqual(report["totals"]["passed"], 1)
 
-    def test_primary_opai_cli_parity_markdown_is_default(self):
-        from opai.cli import main as opai_main
+    def test_primary_vesta_cli_parity_markdown_is_default(self):
+        from vesta.cli import main as vesta_main
 
         with tempfile.TemporaryDirectory() as tmp:
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
-                code = opai_main(
+                code = vesta_main(
                     [
                         "benchmark",
                         "parity",
@@ -515,7 +515,7 @@ class ParityCliTests(unittest.TestCase):
                     ]
                 )
         self.assertEqual(code, 0)
-        self.assertIn("OPaiBench parity", output.getvalue())
+        self.assertIn("VestaBench parity", output.getvalue())
 
 
 if __name__ == "__main__":

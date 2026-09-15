@@ -13,9 +13,9 @@ import json
 import threading
 import unittest
 
-from opaihub.completion import CompletionState
-from opaihub.deadlines import DeadlineBudget, TASK_DEADLINE
-from opaihub.tool_loop import (
+from vestahub.completion import CompletionState
+from vestahub.deadlines import DeadlineBudget, TASK_DEADLINE
+from vestahub.tool_loop import (
     ChatTurn,
     InvalidCompletionDecision,
     ToolLoopController,
@@ -69,7 +69,7 @@ def decision_turn(
     state="completed", summary="done", evidence=(), question=""
 ) -> ChatTurn:
     payload = {
-        "opai_decision_version": 1,
+        "vesta_decision_version": 1,
         "state": state,
         "summary": summary,
         "evidence": list(evidence),
@@ -96,7 +96,7 @@ class DecisionParsingTests(unittest.TestCase):
 
     def test_valid_decision_is_parsed(self):
         decision = parse_completion_decision(
-            'result {"opai_decision_version": 1, "state": "completed", '
+            'result {"vesta_decision_version": 1, "state": "completed", '
             '"summary": "did it", "evidence": ["c1"]}'
         )
         assert decision is not None
@@ -105,7 +105,7 @@ class DecisionParsingTests(unittest.TestCase):
 
     def test_unicode_summary_survives_parsing(self):
         decision = parse_completion_decision(
-            '{"opai_decision_version": 1, "state": "completed", "summary": "café ✅ 完了"}'
+            '{"vesta_decision_version": 1, "state": "completed", "summary": "café ✅ 完了"}'
         )
         assert decision is not None
         self.assertEqual(decision.summary, "café ✅ 完了")
@@ -113,18 +113,18 @@ class DecisionParsingTests(unittest.TestCase):
     def test_wrong_version_is_invalid(self):
         with self.assertRaises(InvalidCompletionDecision):
             parse_completion_decision(
-                '{"opai_decision_version": 2, "state": "completed"}'
+                '{"vesta_decision_version": 2, "state": "completed"}'
             )
 
     def test_unknown_state_is_invalid(self):
         with self.assertRaises(InvalidCompletionDecision):
             parse_completion_decision(
-                '{"opai_decision_version": 1, "state": "winning"}'
+                '{"vesta_decision_version": 1, "state": "winning"}'
             )
 
     def test_malformed_json_block_is_invalid(self):
         with self.assertRaises(InvalidCompletionDecision):
-            parse_completion_decision('{"opai_decision_version": 1, "state": ')
+            parse_completion_decision('{"vesta_decision_version": 1, "state": ')
 
 
 class ControllerCompletionTests(unittest.TestCase):
@@ -450,7 +450,7 @@ class ControllerRecoverableStateTests(unittest.TestCase):
         self.assertEqual(executor.invocations, [])  # no partial, half-applied turn
 
     def test_two_invalid_decisions_stop_as_stuck(self):
-        bad = ChatTurn(content='{"opai_decision_version": 1, "state": "elated"}')
+        bad = ChatTurn(content='{"vesta_decision_version": 1, "state": "elated"}')
         result = self._controller().run(
             chat=scripted_chat([bad, bad]),
             executor=FakeExecutor(),
@@ -460,7 +460,7 @@ class ControllerRecoverableStateTests(unittest.TestCase):
         self.assertEqual(result.stopped_reason, "invalid_decision")
 
     def test_invalid_decision_is_recovered_when_the_retry_is_valid(self):
-        bad = ChatTurn(content='{"opai_decision_version": 1, "state": "elated"}')
+        bad = ChatTurn(content='{"vesta_decision_version": 1, "state": "elated"}')
         good = decision_turn(evidence=["apply_patch"])
         result = self._controller().run(
             chat=scripted_chat([tool_turn("c1", "apply_patch"), bad, good]),
@@ -631,7 +631,7 @@ class ControllerGuardTests(unittest.TestCase):
         return [{"role": "user", "content": "task"}]
 
     def test_guard_runs_before_every_provider_turn(self):
-        from opaihub.execution_guard import GuardDecision, GuardOutcome
+        from vestahub.execution_guard import GuardDecision, GuardOutcome
 
         checked: list[int] = []
 
@@ -652,8 +652,8 @@ class ControllerGuardTests(unittest.TestCase):
         self.assertIs(result.completion_state, CompletionState.COMPLETED)
 
     def test_guard_block_stops_the_run_before_spending(self):
-        from opaihub.completion import ProviderBlockedReason
-        from opaihub.execution_guard import GuardDecision, GuardOutcome
+        from vestahub.completion import ProviderBlockedReason
+        from vestahub.execution_guard import GuardDecision, GuardOutcome
 
         calls = {"chat": 0}
 
@@ -675,7 +675,7 @@ class ControllerGuardTests(unittest.TestCase):
         self.assertEqual(calls["chat"], 0)  # blocked before any provider call
 
     def test_guard_consent_maps_to_needs_consent(self):
-        from opaihub.execution_guard import GuardDecision, GuardOutcome
+        from vestahub.execution_guard import GuardDecision, GuardOutcome
 
         def guard(turn_index):
             return GuardDecision(GuardOutcome.NEEDS_CONSENT, detail="confirm cloud")

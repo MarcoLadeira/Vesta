@@ -1,6 +1,6 @@
 """The GUI store speaks the canonical run-state language (#379, slice 2).
 
-opai/assets/web/message-state.js is the GUI's run-state machine. It may refine
+vesta/assets/web/message-state.js is the GUI's run-state machine. It may refine
 the active phases (authenticating/sending/streaming/...), but it must never
 invent a *terminal* the backend doesn't know, and every state it carries must
 map back to a canonical run state. This guard reads the JS source and asserts
@@ -17,10 +17,10 @@ from unittest import mock
 
 from tests._helpers import FakeLocalRunner, make_repo
 
-from opaihub.run_state import TERMINAL_STATES, RunState, canonical_for, is_terminal
+from vestahub.run_state import TERMINAL_STATES, RunState, canonical_for, is_terminal
 
 _MESSAGE_STATE_JS = (
-    Path(__file__).resolve().parents[1] / "opai" / "assets" / "web" / "message-state.js"
+    Path(__file__).resolve().parents[1] / "vesta" / "assets" / "web" / "message-state.js"
 )
 _GENERATED_LIFECYCLE_JS = _MESSAGE_STATE_JS.with_name("generated-lifecycle.js")
 
@@ -94,7 +94,7 @@ def test_js_and_python_agree_on_which_statuses_are_awaiting_input() -> None:
     # from the engine's, the same turn is "waiting" on one surface and
     # "blocked" on the other — the exact class of bug this state was added to
     # kill, reintroduced one status at a time.
-    from opaihub.run_state import AWAITING_INPUT_STATUSES
+    from vestahub.run_state import AWAITING_INPUT_STATUSES
 
     for status in AWAITING_INPUT_STATUSES:
         assert (
@@ -113,7 +113,7 @@ def test_the_js_store_does_not_treat_waiting_as_an_ending() -> None:
 
 
 def test_repair_vector_is_legal_in_python_and_browser() -> None:
-    from opaihub.run_state import can_transition
+    from vestahub.run_state import can_transition
 
     assert can_transition("verifying", "running")
     assert _browser_reduce("verifying", "running") == "running"
@@ -130,10 +130,10 @@ def test_pipeline_emits_the_canonical_run_state_alongside_the_verdict() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = make_repo(Path(tmp))
         with (
-            mock.patch("opaihub.local_runner.runner_for_model", return_value=selected),
-            mock.patch("opaihub.ask.run_ask", side_effect=run_ask),
+            mock.patch("vestahub.local_runner.runner_for_model", return_value=selected),
+            mock.patch("vestahub.ask.run_ask", side_effect=run_ask),
         ):
-            from opaihub.gui_pipeline import handle_gui_message
+            from vestahub.gui_pipeline import handle_gui_message
 
             result = handle_gui_message(
                 root, "summarize the router", model_id="ollama:q", mode="ask"

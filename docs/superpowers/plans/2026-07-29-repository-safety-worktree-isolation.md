@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Implement #536 and #537 as one #521 foundation that blocks stale or ambiguous repository mutations and safely manages OPai-owned isolated worktrees.
+**Goal:** Implement #536 and #537 as one #521 foundation that blocks stale or ambiguous repository mutations and safely manages Vesta-owned isolated worktrees.
 
-**Architecture:** A new `opaihub.repository_safety` module becomes the canonical source for repository identity, null-delimited dirty-state parsing, task-bound handles, revalidation, and mutation decisions. `repo_context` projects that model for compatibility. `opaihub.worktree_leases` manages durable, reconciled worktree leases; existing parallel-agent, provider-tool, GUI, and CLI paths consume these contracts instead of making independent safety decisions.
+**Architecture:** A new `vestahub.repository_safety` module becomes the canonical source for repository identity, null-delimited dirty-state parsing, task-bound handles, revalidation, and mutation decisions. `repo_context` projects that model for compatibility. `vestahub.worktree_leases` manages durable, reconciled worktree leases; existing parallel-agent, provider-tool, GUI, and CLI paths consume these contracts instead of making independent safety decisions.
 
 **Tech Stack:** Python 3.10+, standard-library dataclasses/subprocess/pathlib, Git CLI with argv-only calls, existing `atomic_io.interprocess_transaction`, `unittest`, Hypothesis test extra, Ruff.
 
@@ -13,7 +13,7 @@
 - Start from the approved specification at `docs/superpowers/specs/2026-07-29-repository-safety-worktree-design.md`.
 - All Git commands use fixed executable plus argument vectors, `shell=False`, bounded timeouts, redacted diagnostics, and no force/reset/clean operations.
 - Parse repository status only from `git status --porcelain=v2 -z --branch --untracked-files=all --ignored=matching`; never infer safety from display-formatted output.
-- Revalidate the task-bound handle immediately before every OPai mutation; an unavailable, stale, ambiguous, or unknown decision blocks that mutation.
+- Revalidate the task-bound handle immediately before every Vesta mutation; an unavailable, stale, ambiguous, or unknown decision blocks that mutation.
 - Persist only redacted metadata through `atomic_write_text` inside `interprocess_transaction`; persistence failure is a blocked/degraded result, never a permissive fallback.
 - Worktree cleanup never deletes an unowned, changed, unpushed, inconsistent, or unknown worktree; it transitions to `needs_review`.
 - Run each focused suite once for its newly completed component. Run the complete test suite only in the final QA task, then run Ruff format and lint once.
@@ -22,13 +22,13 @@
 
 ## File Structure
 
-- Create `opaihub/repository_safety.py`: canonical capture, status parser, identity fingerprint, handle persistence/revalidation, classification, and mutation gate.
-- Modify `opaihub/repo_context.py`: compatibility projections and guarded worktree wrapper backed by the canonical service.
-- Create `opaihub/worktree_leases.py`: durable worktree lease lifecycle, registry reconciliation, conflict preview, and safe cleanup.
-- Modify `opaihub/parallel_agents.py`: replace ad-hoc assignment worktree creation with leases while retaining assignment APIs.
-- Modify `opaihub/provider_tools.py`: capture one task handle and gate each patch/write/branch/commit/push mutation.
-- Modify `opaihub/gui_pipeline.py` and `opai/gui_web.py`: expose the same identity/assessment payload and create a task handle before edit-capable work.
-- Modify `opai/cli.py`: add read-only repository inspection and lease recovery/listing commands.
+- Create `vestahub/repository_safety.py`: canonical capture, status parser, identity fingerprint, handle persistence/revalidation, classification, and mutation gate.
+- Modify `vestahub/repo_context.py`: compatibility projections and guarded worktree wrapper backed by the canonical service.
+- Create `vestahub/worktree_leases.py`: durable worktree lease lifecycle, registry reconciliation, conflict preview, and safe cleanup.
+- Modify `vestahub/parallel_agents.py`: replace ad-hoc assignment worktree creation with leases while retaining assignment APIs.
+- Modify `vestahub/provider_tools.py`: capture one task handle and gate each patch/write/branch/commit/push mutation.
+- Modify `vestahub/gui_pipeline.py` and `vesta/gui_web.py`: expose the same identity/assessment payload and create a task handle before edit-capable work.
+- Modify `vesta/cli.py`: add read-only repository inspection and lease recovery/listing commands.
 - Create `tests/test_repository_safety.py`, `tests/test_worktree_leases.py`, `tests/test_repository_safety_surfaces.py`: hermetic coverage of the new contracts.
 - Modify `tests/test_agent_autonomy.py`, `tests/test_parallel_agents.py`, and `tests/test_github_push_pr_loop.py`: retain compatibility and prove existing entry points use the new guard.
 - Modify `README.md` and `CHANGELOG.md`: document the repository-safety inspection/recovery contract and release-visible behavior.
@@ -38,7 +38,7 @@
 ### Task 1: Canonical repository identity and null-delimited status parser (#536)
 
 **Files:**
-- Create: `opaihub/repository_safety.py`
+- Create: `vestahub/repository_safety.py`
 - Create: `tests/test_repository_safety.py`
 
 **Interfaces:**
@@ -71,7 +71,7 @@ def test_porcelain_v2_parser_keeps_spaces_unicode_and_categories(self):
 
 Run: `python -m unittest tests.test_repository_safety -v`
 
-Expected: import failure because `opaihub.repository_safety` does not exist.
+Expected: import failure because `vestahub.repository_safety` does not exist.
 
 - [ ] **Step 3: Implement the immutable capture model**
 
@@ -141,14 +141,14 @@ Expected: all Task 1 tests pass, including deleted/replaced repository, remote r
 - [ ] **Step 6: Commit**
 
 ```bash
-git add opaihub/repository_safety.py tests/test_repository_safety.py
+git add vestahub/repository_safety.py tests/test_repository_safety.py
 git commit -m "feat(repo): capture canonical repository identity"
 ```
 
 ### Task 2: Evidence-based dirty classification, durable handles, and mutation gate (#536)
 
 **Files:**
-- Modify: `opaihub/repository_safety.py`
+- Modify: `vestahub/repository_safety.py`
 - Modify: `tests/test_repository_safety.py`
 
 **Interfaces:**
@@ -190,9 +190,9 @@ class DirtyAssessment:
     confidence: str
 
 def classify_dirty_state(dirty: DirtyState, *, planned_paths: Iterable[str] | None,
-                         opai_owned_paths: Iterable[str] = ()) -> DirtyAssessment:
+                         vesta_owned_paths: Iterable[str] = ()) -> DirtyAssessment:
     return _classify_paths(dirty, planned_paths=planned_paths,
-                           opai_owned_paths=opai_owned_paths)
+                           vesta_owned_paths=vesta_owned_paths)
 
 def require_mutation_permitted(handle: RepositoryHandle, *, planned_paths: Iterable[str],
                                operation: str, git_run=subprocess.run) -> MutationDecision:
@@ -200,7 +200,7 @@ def require_mutation_permitted(handle: RepositoryHandle, *, planned_paths: Itera
 ```
 
 Persist handles at a deterministic filename derived from the task/run digest in
-`.opaihub/repository/handles/` under a resource-specific transaction. Serialize
+`.vestahub/repository/handles/` under a resource-specific transaction. Serialize
 a redacted, versioned structure only. `save_repository_handle` and
 `load_repository_handle` must raise a typed degraded error on corrupt or
 unwritable state; neither may return a fresh/allowed result.
@@ -230,14 +230,14 @@ Expected: all new gate, persistence, property, and no-write tests pass.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add opaihub/repository_safety.py tests/test_repository_safety.py
+git add vestahub/repository_safety.py tests/test_repository_safety.py
 git commit -m "feat(repo): fail closed on stale mutation state"
 ```
 
 ### Task 3: Compatibility projection and guarded existing context API (#536)
 
 **Files:**
-- Modify: `opaihub/repo_context.py`
+- Modify: `vestahub/repo_context.py`
 - Modify: `tests/test_agent_autonomy.py`
 - Modify: `tests/test_repository_safety.py`
 
@@ -282,14 +282,14 @@ Expected: existing repository-context behavior remains compatible and new stale/
 - [ ] **Step 5: Commit**
 
 ```bash
-git add opaihub/repo_context.py tests/test_agent_autonomy.py tests/test_repository_safety.py
+git add vestahub/repo_context.py tests/test_agent_autonomy.py tests/test_repository_safety.py
 git commit -m "refactor(repo): project canonical safety context"
 ```
 
 ### Task 4: Durable worktree lease lifecycle and registry reconciliation (#537)
 
 **Files:**
-- Create: `opaihub/worktree_leases.py`
+- Create: `vestahub/worktree_leases.py`
 - Create: `tests/test_worktree_leases.py`
 
 **Interfaces:**
@@ -319,7 +319,7 @@ def test_cleanup_preserves_user_modified_worktree(self):
 
 Run: `python -m unittest tests.test_worktree_leases -v`
 
-Expected: import failure because `opaihub.worktree_leases` does not exist.
+Expected: import failure because `vestahub.worktree_leases` does not exist.
 
 - [ ] **Step 3: Implement lease persistence and creation**
 
@@ -351,7 +351,7 @@ class WorktreeManager:
 ```
 
 Use per-repository locks, persist `creating` before `git worktree add`, resolve
-the requested base to an immutable SHA before creation, enforce an OPai branch
+the requested base to an immutable SHA before creation, enforce an Vesta branch
 prefix, require a destination outside the authoritative root, and reconcile
 `git worktree list --porcelain` plus filesystem identity before `active`.
 
@@ -372,15 +372,15 @@ user-edit, unpushed-commit, and non-owner-cleanup cases all pass.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add opaihub/worktree_leases.py tests/test_worktree_leases.py
+git add vestahub/worktree_leases.py tests/test_worktree_leases.py
 git commit -m "feat(worktrees): manage durable isolated leases"
 ```
 
 ### Task 5: Safe integration preview, recovery actions, and parallel-agent migration (#537)
 
 **Files:**
-- Modify: `opaihub/worktree_leases.py`
-- Modify: `opaihub/parallel_agents.py`
+- Modify: `vestahub/worktree_leases.py`
+- Modify: `vestahub/parallel_agents.py`
 - Modify: `tests/test_worktree_leases.py`
 - Modify: `tests/test_parallel_agents.py`
 
@@ -434,14 +434,14 @@ Expected: all preview, recovery, concurrent-claim, and legacy assignment tests p
 - [ ] **Step 6: Commit**
 
 ```bash
-git add opaihub/worktree_leases.py opaihub/parallel_agents.py tests/test_worktree_leases.py tests/test_parallel_agents.py
+git add vestahub/worktree_leases.py vestahub/parallel_agents.py tests/test_worktree_leases.py tests/test_parallel_agents.py
 git commit -m "feat(worktrees): reconcile leases before integration"
 ```
 
 ### Task 6: Gate provider and Git mutation paths (#521 integration)
 
 **Files:**
-- Modify: `opaihub/provider_tools.py`
+- Modify: `vestahub/provider_tools.py`
 - Modify: `tests/test_github_push_pr_loop.py`
 - Modify: `tests/test_repository_safety.py`
 
@@ -491,23 +491,23 @@ Expected: stale/replaced/index-changed repository cases are blocked before any f
 - [ ] **Step 5: Commit**
 
 ```bash
-git add opaihub/provider_tools.py tests/test_github_push_pr_loop.py tests/test_repository_safety.py
+git add vestahub/provider_tools.py tests/test_github_push_pr_loop.py tests/test_repository_safety.py
 git commit -m "feat(repo): gate agent mutations on fresh identity"
 ```
 
 ### Task 7: GUI/CLI parity, documentation, and QA fixtures (#521 integration)
 
 **Files:**
-- Modify: `opaihub/gui_pipeline.py`
-- Modify: `opai/gui_web.py`
-- Modify: `opai/cli.py`
+- Modify: `vestahub/gui_pipeline.py`
+- Modify: `vesta/gui_web.py`
+- Modify: `vesta/cli.py`
 - Create: `tests/test_repository_safety_surfaces.py`
 - Modify: `README.md`
 - Modify: `CHANGELOG.md`
 
 **Interfaces:**
 - Consumes `RepoContext.to_dict()` and `WorktreeManager` read-only list/recover APIs.
-- Produces `build_repository_safety_receipt(handle, assessment, leases) -> dict[str, object]`, `opai repo inspect --project PROJECT_PATH --json`, `opai repo worktrees --project PROJECT_PATH --json`, and GUI workspace fields `repository_safety` and `worktree_leases`.
+- Produces `build_repository_safety_receipt(handle, assessment, leases) -> dict[str, object]`, `vesta repo inspect --project PROJECT_PATH --json`, `vesta repo worktrees --project PROJECT_PATH --json`, and GUI workspace fields `repository_safety` and `worktree_leases`.
 
 - [ ] **Step 1: Write failing cross-surface tests**
 
@@ -551,7 +551,7 @@ Expected: CLI and GUI render the same canonical data and neither leaks remote cr
 - [ ] **Step 5: Commit**
 
 ```bash
-git add opaihub/gui_pipeline.py opai/gui_web.py opai/cli.py tests/test_repository_safety_surfaces.py README.md CHANGELOG.md
+git add vestahub/gui_pipeline.py vesta/gui_web.py vesta/cli.py tests/test_repository_safety_surfaces.py README.md CHANGELOG.md
 git commit -m "feat(repo): expose shared repository safety state"
 ```
 
@@ -584,7 +584,7 @@ Expected: only #521 scope files are present; PR notes name #536/#537, exact test
 - [ ] **Step 4: Commit any QA repair and publish**
 
 ```bash
-git add -- opaihub/repository_safety.py opaihub/repo_context.py opaihub/worktree_leases.py opaihub/parallel_agents.py opaihub/provider_tools.py opaihub/gui_pipeline.py opai/gui_web.py opai/cli.py tests/test_repository_safety.py tests/test_worktree_leases.py tests/test_repository_safety_surfaces.py tests/test_agent_autonomy.py tests/test_parallel_agents.py tests/test_github_push_pr_loop.py README.md CHANGELOG.md
+git add -- vestahub/repository_safety.py vestahub/repo_context.py vestahub/worktree_leases.py vestahub/parallel_agents.py vestahub/provider_tools.py vestahub/gui_pipeline.py vesta/gui_web.py vesta/cli.py tests/test_repository_safety.py tests/test_worktree_leases.py tests/test_repository_safety_surfaces.py tests/test_agent_autonomy.py tests/test_parallel_agents.py tests/test_github_push_pr_loop.py README.md CHANGELOG.md
 git commit -m "fix(repo): address repository safety QA findings"
 git push -u origin codex/issue-521-repository-safety
 gh pr create --base main --head codex/issue-521-repository-safety --title "feat(repo): enforce repository safety and worktree leases" --body "Closes #521\n\nImplements #536 and #537."

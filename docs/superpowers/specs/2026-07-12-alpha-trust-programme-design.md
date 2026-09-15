@@ -1,4 +1,4 @@
-# OPai Free-Launch Alpha Trust Programme Design
+# Vesta Free-Launch Alpha Trust Programme Design
 
 - **Date:** 2026-07-12
 - **Status:** Approved for implementation
@@ -7,7 +7,7 @@
 
 ## Decision
 
-OPai will launch as a fully free product. Paid editions, license enforcement,
+Vesta will launch as a fully free product. Paid editions, license enforcement,
 and closed-source fulfillment are not alpha gates. Pricing will be introduced
 only after real usage shows which future capabilities create durable paid
 value.
@@ -51,7 +51,7 @@ retrieved, or handled deterministically.
 
 ### Product promise
 
-OPai is the local-first cost and control plane around coding agents: it chooses
+Vesta is the local-first cost and control plane around coding agents: it chooses
 the cheapest safe execution path, constrains what that path may do, and returns
 an understandable, locally verifiable receipt.
 
@@ -82,11 +82,11 @@ an understandable, locally verifiable receipt.
 
 `AccountRunner.build_command()` adds `--allow-all-tools` to Copilot in both
 Safe Auto and Full Auto. The production account path does not place Copilot
-behind OPai's repository tool executor or command sandbox. A prompt contract
+behind Vesta's repository tool executor or command sandbox. A prompt contract
 cannot substitute for an enforceable tool boundary.
 
 **Impact:** a mode named Safe Auto can expose shell, network, Git, and other
-native Copilot tools without granular OPai approval.
+native Copilot tools without granular Vesta approval.
 
 ### 2. Ordinary implementation intent includes push and PR capabilities
 
@@ -104,7 +104,7 @@ A successful GUI free-model call currently records a route in
 Budget and ledger summaries add route estimates and model-call costs together.
 
 **Impact:** spend, routed-task counts, baseline cost, and savings can be
-inflated, contradicting OPai's central cost-truth promise.
+inflated, contradicting Vesta's central cost-truth promise.
 
 ### 4. Local implementation can report false success
 
@@ -166,7 +166,7 @@ become request-exact:
 - Read-only and dangerous classifications continue to override stale UI focus.
 
 The capability contract shown to a provider must never advertise an operation
-that OPai did not derive from the current request.
+that Vesta did not derive from the current request.
 
 ### 2. Fail-closed provider execution
 
@@ -175,11 +175,11 @@ Native providers require an enforcement profile, not only a prompt:
 - Codex retains its read-only/workspace-write sandbox and approval policy.
 - Claude retains its existing permission behavior; its effective contract is
   narrowed by the exact intent policy.
-- Copilot is read-only through OPai for Ask, Plan, and Approve Edits.
+- Copilot is read-only through Vesta for Ask, Plan, and Approve Edits.
 - Copilot edit modes return `capability_mismatch` before process launch because
   its current non-interactive integration exposes only an all-tools bypass.
-  OPai will not call that flag from production.
-- OPai's bounded free-API repository tool loop remains available for providers
+  Vesta will not call that flag from production.
+- Vesta's bounded free-API repository tool loop remains available for providers
   that support structured tool calls.
 
 This restriction is intentionally conservative. A later child issue may add a
@@ -206,7 +206,7 @@ pass the provider-tool contract suite.
 
 The ledger distinguishes decisions from spend:
 
-- A route event records why OPai selected a path and the comparison baseline.
+- A route event records why Vesta selected a path and the comparison baseline.
 - A model-call event is the authoritative spend event.
 - A successful GUI free-model run creates one route event and one model-call
   event. The internal explicit-model helper does not add a second route when
@@ -223,7 +223,7 @@ The ledger distinguishes decisions from spend:
 
 A separate P1 change will hash the contents of tracked dirty and untracked
 source files into the repository fingerprint while excluding dependencies,
-generated trees, and OPai state. It will include performance fixtures and
+generated trees, and Vesta state. It will include performance fixtures and
 explicit bypass rules for oversized/binary files. This avoids mixing a
 security/accounting patch with a repository-index rewrite.
 
@@ -233,9 +233,9 @@ security/accounting patch with a repository-index rewrite.
 2. The shared policy resolves read, implement, publish, ship, or dangerous
    intent and produces exact capabilities.
 3. The selected provider adapter proves it can enforce those capabilities.
-4. If it cannot, OPai returns a typed mismatch without launching a process.
+4. If it cannot, Vesta returns a typed mismatch without launching a process.
 5. If it can, the provider runs within its enforceable boundary.
-6. OPai records one route decision and, only after a real call, one model-call
+6. Vesta records one route decision and, only after a real call, one model-call
    spend event.
 7. Runtime status, receipt, changed files, and next actions derive from the
    verified result rather than the requested mode.
@@ -247,8 +247,8 @@ security/accounting patch with a repository-index rewrite.
 - Messages name the selected provider, the unsupported capability, and a safe
   alternative without exposing credentials or raw prompts.
 - Existing Ask/Plan behavior and bounded free-API edit tools remain compatible.
-- Copilot editing through OPai becomes intentionally unavailable until it can
-  be bounded. Direct interactive Copilot use outside OPai is unaffected.
+- Copilot editing through Vesta becomes intentionally unavailable until it can
+  be bounded. Direct interactive Copilot use outside Vesta is unaffected.
 - Ledger files remain append-only and readable; only aggregation semantics and
   future event multiplicity change.
 
@@ -288,15 +288,15 @@ Tests are written before implementation.
 - `python -B -m unittest discover -s tests`
 - `python -B -m ruff format --check .`
 - `python -B -m ruff check --no-cache .`
-- `python -B -m bandit -r opai opaihub opcoding -q`
-- `python -B -m opaihub validate`
+- `python -B -m bandit -r vesta vestahub opcoding -q`
+- `python -B -m vestahub validate`
 - `npm ci`, `npm run test:unit`, and relevant Playwright flows if web behavior
   or status rendering changes.
-- `python -B -m opai gui --once` for the local headless smoke.
+- `python -B -m vesta gui --once` for the local headless smoke.
 
 ## Acceptance criteria
 
-- No OPai production path passes Copilot `--allow-all-tools`.
+- No Vesta production path passes Copilot `--allow-all-tools`.
 - Safe Auto never launches a provider that cannot enforce its requested edit
   boundary.
 - Ordinary implementation intent never advertises push, PR, or merge.
@@ -320,7 +320,7 @@ existing epics/issues rather than duplicate them:
 4. Repository intelligence, cache correctness, and memory.
 5. GUI/CLI parity, onboarding, and accessibility.
 6. Observability, evaluations, and recovery.
-7. Post-alpha product expansion, including OPai Build.
+7. Post-alpha product expansion, including Vesta Build.
 
 The current namespaced taxonomy (`importance:*`, `area:*`, `type:*`,
 `status:*`) remains canonical. New slash-style duplicates will not be created.
@@ -335,6 +335,6 @@ alpha risks.
 
 The code patch is separable into policy, outcome, and accounting commits. A
 rollback can revert any layer independently. No destructive ledger migration
-is performed. If a provider compatibility regression appears, OPai continues
+is performed. If a provider compatibility regression appears, Vesta continues
 to fail closed and Ask/Plan remain available while the affected edit adapter is
 disabled.

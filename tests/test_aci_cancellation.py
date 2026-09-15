@@ -30,7 +30,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub.aci import AgentComputerInterface
+from vestahub.aci import AgentComputerInterface
 
 
 class _FakeCompleted:
@@ -135,7 +135,7 @@ class InjectedFastPathTests(_Temp):
             cancel.set()
 
         threading.Thread(target=flip_soon).start()
-        with mock.patch("opaihub.aci.terminate_tree") as terminate_tree:
+        with mock.patch("vestahub.aci.terminate_tree") as terminate_tree:
             observation = aci.run_command(
                 ["sleep-forever"], purpose="test", cancel=cancel, drain_seconds=0.2
             )
@@ -148,7 +148,7 @@ class InjectedFastPathTests(_Temp):
         aci = AgentComputerInterface(
             self.repo, popen=mock.Mock(return_value=fake), timeout=0.05
         )
-        with mock.patch("opaihub.aci.terminate_tree") as terminate_tree:
+        with mock.patch("vestahub.aci.terminate_tree") as terminate_tree:
             observation = aci.run_command(
                 ["sleep-forever"],
                 purpose="test",
@@ -169,7 +169,7 @@ class InjectedFastPathTests(_Temp):
         cancel = threading.Event()
         cancel.set()
 
-        with mock.patch("opaihub.aci.terminate_tree") as terminate_tree:
+        with mock.patch("vestahub.aci.terminate_tree") as terminate_tree:
             observation = aci.run_command(
                 ["quick"], purpose="test", cancel=cancel, drain_seconds=5.0
             )
@@ -234,7 +234,7 @@ class TeardownEvidenceTests(_Temp):
     def test_forced_teardown_records_every_phase_as_it_happens(self) -> None:
         fake = _FakePopen(timeouts_before_result=1_000_000)
         with mock.patch(
-            "opaihub.aci.terminate_tree",
+            "vestahub.aci.terminate_tree",
             side_effect=lambda proc: proc.terminate(),
         ) as terminate_tree:
             observation = self._run_with_cancel(fake)
@@ -263,7 +263,7 @@ class TeardownEvidenceTests(_Temp):
 
     def test_a_process_that_drains_is_never_marked_forced(self) -> None:
         fake = _DrainingFakePopen(timeouts_before_result=1_000_000)
-        with mock.patch("opaihub.aci.terminate_tree") as terminate_tree:
+        with mock.patch("vestahub.aci.terminate_tree") as terminate_tree:
             observation = self._run_with_cancel(fake, drain_seconds=5.0)
         self.assertEqual(observation.error_code, "CANCELLED")
         terminate_tree.assert_not_called()
@@ -276,7 +276,7 @@ class TeardownEvidenceTests(_Temp):
 
     def test_a_stubborn_process_never_claims_terminated(self) -> None:
         fake = _FakePopen(timeouts_before_result=1_000_000)
-        with mock.patch("opaihub.aci.terminate_tree"):  # kill achieves nothing
+        with mock.patch("vestahub.aci.terminate_tree"):  # kill achieves nothing
             observation = self._run_with_cancel(fake)
         self.assertEqual(observation.error_code, "CANCELLED")
         evidence = observation.data.get("cancellation") or {}

@@ -12,9 +12,9 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-from opai.update.manifest import verify_manifest
-from opai.update.models import InstallType, InstalledBuild
-from opai.update.release import (
+from vesta.update.manifest import verify_manifest
+from vesta.update.models import InstallType, InstalledBuild
+from vesta.update.release import (
     ReleaseArtifact,
     ReleaseError,
     generate_release_files,
@@ -32,17 +32,17 @@ def _key() -> tuple[Ed25519PrivateKey, str]:
 
 
 def _msix(
-    path: Path, *, name: str = "OPai.Desktop", publisher: str = "CN=Vesta"
+    path: Path, *, name: str = "Vesta.Desktop", publisher: str = "CN=Vesta"
 ) -> None:
     manifest = (
         '<?xml version="1.0" encoding="utf-8"?>'
         '<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10">'
         f'<Identity Name="{name}" Publisher="{publisher}" Version="0.3.0.65535" />'
-        '<Applications><Application Id="OPai" /></Applications></Package>'
+        '<Applications><Application Id="Vesta" /></Applications></Package>'
     )
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr("AppxManifest.xml", manifest)
-        archive.writestr("gui/OPai.exe", b"signed-code")
+        archive.writestr("gui/Vesta.exe", b"signed-code")
         archive.writestr(
             "release-identity.json",
             json.dumps(
@@ -63,10 +63,10 @@ def _msix(
 
 def _mac_zip(path: Path) -> bytes:
     with zipfile.ZipFile(path, "w") as archive:
-        archive.writestr("OPai.app/Contents/MacOS/OPai", b"signed-code")
-        archive.writestr("OPai.app/Contents/Resources/opai", b"signed-cli")
+        archive.writestr("Vesta.app/Contents/MacOS/Vesta", b"signed-code")
+        archive.writestr("Vesta.app/Contents/Resources/vesta", b"signed-cli")
         archive.writestr(
-            "OPai.app/Contents/Resources/release-identity.json",
+            "Vesta.app/Contents/Resources/release-identity.json",
             json.dumps(
                 {
                     "schema_version": 1,
@@ -76,7 +76,7 @@ def _mac_zip(path: Path) -> bytes:
                     "platform": "macos",
                     "architecture": "arm64",
                     "install_type": "macos_sparkle",
-                    "package_identity": "com.opai.desktop",
+                    "package_identity": "com.vesta.desktop",
                     "publisher_identity": "ABCDE12345",
                 }
             ),
@@ -85,8 +85,8 @@ def _mac_zip(path: Path) -> bytes:
 
 
 def _artifacts(tmp_path: Path) -> tuple[list[ReleaseArtifact], str]:
-    msix = tmp_path / "OPai-0.3.0-x64.msix"
-    mac = tmp_path / "OPai-0.3.0-macos.zip"
+    msix = tmp_path / "Vesta-0.3.0-x64.msix"
+    mac = tmp_path / "Vesta-0.3.0-macos.zip"
     _msix(msix)
     mac_bytes = _mac_zip(mac)
     sparkle_key, sparkle_public = _key()
@@ -94,22 +94,22 @@ def _artifacts(tmp_path: Path) -> tuple[list[ReleaseArtifact], str]:
     return [
         ReleaseArtifact(
             path=msix,
-            url="https://updates.example.test/releases/v0.3.0/OPai-0.3.0-x64.msix",
+            url="https://updates.example.test/releases/v0.3.0/Vesta-0.3.0-x64.msix",
             platform="windows",
             architecture="x86_64",
             install_type=InstallType.WINDOWS_MSIX,
             publisher_identity="CN=Vesta",
-            package_identity="OPai.Desktop",
+            package_identity="Vesta.Desktop",
             native={"windows_signer_thumbprint": "A" * 40},
         ),
         ReleaseArtifact(
             path=mac,
-            url="https://updates.example.test/releases/v0.3.0/OPai-0.3.0-macos.zip",
+            url="https://updates.example.test/releases/v0.3.0/Vesta-0.3.0-macos.zip",
             platform="macos",
             architecture="arm64",
             install_type=InstallType.MACOS_SPARKLE,
             publisher_identity="ABCDE12345",
-            package_identity="com.opai.desktop",
+            package_identity="com.vesta.desktop",
             native={"sparkle_ed_signature": sparkle_signature},
         ),
     ], sparkle_public
@@ -184,7 +184,7 @@ def test_generated_manifest_authenticates_for_each_platform(tmp_path: Path):
             platform="windows",
             architecture="x86_64",
             install_type=InstallType.WINDOWS_MSIX,
-            package_identity="OPai.Desktop",
+            package_identity="Vesta.Desktop",
             publisher_identity="CN=Vesta",
         ),
         cohort=1,
@@ -201,7 +201,7 @@ def test_generated_manifest_authenticates_for_each_platform(tmp_path: Path):
             platform="macos",
             architecture="arm64",
             install_type=InstallType.MACOS_SPARKLE,
-            package_identity="com.opai.desktop",
+            package_identity="com.vesta.desktop",
             publisher_identity="ABCDE12345",
         ),
         cohort=1,
@@ -210,7 +210,7 @@ def test_generated_manifest_authenticates_for_each_platform(tmp_path: Path):
     )
 
     assert windows.candidate and windows.candidate.native["appinstaller_url"].endswith(
-        "OPai.appinstaller"
+        "Vesta.appinstaller"
     )
     assert macos.candidate and macos.candidate.native["appcast_url"].endswith(
         "appcast.xml"
@@ -242,9 +242,9 @@ def test_release_embeds_complete_prior_candidates_as_recovery_packages(tmp_path:
         recovery["version"] = "0.2.1"
         recovery["build_id"] = "a" * 40
         recovery["artifact_url"] = "https://updates.example.test/releases/v0.2.1/" + (
-            "OPai-0.2.1-x64.msix"
+            "Vesta-0.2.1-x64.msix"
             if raw["platform"] == "windows"
-            else "OPai-0.2.1-macos.zip"
+            else "Vesta-0.2.1-macos.zip"
         )
         recovery["rollback_compatible"] = False
         recovery_by_platform[raw["platform"]] = recovery
@@ -288,7 +288,7 @@ def test_appinstaller_identity_and_uri_match_manifest_candidate(tmp_path: Path):
         node for node in root.iter() if node.tag.rsplit("}", 1)[-1] == "MainPackage"
     )
 
-    assert package.attrib["Name"] == "OPai.Desktop"
+    assert package.attrib["Name"] == "Vesta.Desktop"
     assert package.attrib["Publisher"] == "CN=Vesta"
     assert package.attrib["Uri"].endswith(".msix")
     assert package.attrib["Version"] == "0.3.0.65535"
@@ -300,7 +300,7 @@ def test_sparkle_appcast_matches_final_archive_and_signature(tmp_path: Path):
     enclosure = next(
         node for node in root.iter() if node.tag.rsplit("}", 1)[-1] == "enclosure"
     )
-    mac = tmp_path / "OPai-0.3.0-macos.zip"
+    mac = tmp_path / "Vesta-0.3.0-macos.zip"
 
     assert enclosure.attrib["url"].endswith(mac.name)
     assert int(enclosure.attrib["length"]) == mac.stat().st_size
@@ -410,8 +410,8 @@ def test_release_inventory_makes_atomic_publication_order_explicit(tmp_path: Pat
 
     assert inventory["publication_order"][-1].endswith("manifest.json")
     assert set(inventory["artifact_urls"]) == {
-        "https://updates.example.test/releases/v0.3.0/OPai-0.3.0-x64.msix",
-        "https://updates.example.test/releases/v0.3.0/OPai-0.3.0-macos.zip",
+        "https://updates.example.test/releases/v0.3.0/Vesta-0.3.0-x64.msix",
+        "https://updates.example.test/releases/v0.3.0/Vesta-0.3.0-macos.zip",
     }
     assert inventory["metadata_version"] == 8
 

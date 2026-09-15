@@ -1,6 +1,6 @@
 """#613 Stage 2: schedules mirror into the shadow journal, and are written safely.
 
-``opaihub/scheduler.py`` is Stage 1's "runs: scheduled work". It is the first
+``vestahub/scheduler.py`` is Stage 1's "runs: scheduled work". It is the first
 migrated module that keeps *one document* rather than one file per record, so
 the thing being journalled is the document itself.
 
@@ -24,7 +24,7 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from opaihub import scheduler
+from vestahub import scheduler
 
 
 class ScheduleShadowTests(unittest.TestCase):

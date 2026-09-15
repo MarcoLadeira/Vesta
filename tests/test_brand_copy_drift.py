@@ -19,10 +19,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from opai import brand
+from vesta import brand
 
 
-_INDEX = Path(__file__).resolve().parents[1] / "opai" / "assets" / "web" / "index.html"
+_INDEX = Path(__file__).resolve().parents[1] / "vesta" / "assets" / "web" / "index.html"
 
 
 def _empty_state_html() -> str:

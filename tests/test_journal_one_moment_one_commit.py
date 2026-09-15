@@ -19,7 +19,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub import journal_runtime, journal_store
+from vestahub import journal_runtime, journal_store
 
 NOW = "2026-09-10T10:00:00+00:00"
 LATER = "2026-09-10T10:01:00+00:00"

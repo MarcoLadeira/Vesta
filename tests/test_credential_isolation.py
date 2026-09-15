@@ -29,7 +29,7 @@ from _helpers import (
     MemoryKeyring,
     isolated_credential_store,
 )
-from opaihub.credentials import PROVIDER_ENV, SERVICE_NAME
+from vestahub.credentials import PROVIDER_ENV, SERVICE_NAME
 
 TESTS_DIR = Path(__file__).resolve().parent
 
@@ -202,7 +202,7 @@ class IsolatedStoreIgnoresTheMachineTests(unittest.TestCase):
     def test_a_populated_keyring_is_not_read(self) -> None:
         keyring = self._populated_keyring()
         with mock.patch(
-            "opaihub.credentials._default_backend", return_value=keyring
+            "vestahub.credentials._default_backend", return_value=keyring
         ) as default_backend:
             store = isolated_credential_store()
             for provider in PROVIDER_ENV:
@@ -227,10 +227,10 @@ class IsolatedStoreIgnoresTheMachineTests(unittest.TestCase):
 
     def test_an_unpatched_store_would_have_read_the_keyring(self) -> None:
         """Proves the hazard is real, not theoretical -- the bug this file fixes."""
-        from opaihub.credentials import CredentialStore
+        from vestahub.credentials import CredentialStore
 
         keyring = self._populated_keyring()
-        with mock.patch("opaihub.credentials._default_backend", return_value=keyring):
+        with mock.patch("vestahub.credentials._default_backend", return_value=keyring):
             leaky = CredentialStore(
                 backend=None, environ={}
             )  # credential-isolation: hazard-demo

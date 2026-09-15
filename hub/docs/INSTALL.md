@@ -1,6 +1,6 @@
 # Vesta Install
 
-Vesta 0.2.0 alpha.1 installs as a small Python CLI with local registry files. The default install creates `.opaihub/` project state, validates registries, and writes dashboards. It does not enable paid APIs, cloud model calls, or destructive automation.
+Vesta 0.2.0 alpha.1 installs as a small Python CLI with local registry files. The default install creates `.vestahub/` project state, validates registries, and writes dashboards. It does not enable paid APIs, cloud model calls, or destructive automation.
 
 ## One Command Install
 
@@ -16,7 +16,7 @@ macOS/Linux:
 curl -fsSL https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.sh | sh
 ```
 
-The remote installer clones or updates Vesta under `~/.opai/source`, installs the `op`/`opai` CLI, activates the project you ran it from, writes global AI-client discovery files, clones or updates the free open-source Superpowers repo, enables Superpowers discovery, and installs persistent AI-client shell wrappers by default.
+The remote installer clones or updates Vesta under `~/.vesta/source`, installs the `op`/`vesta` CLI, activates the project you ran it from, writes global AI-client discovery files, clones or updates the free open-source Superpowers repo, enables Superpowers discovery, and installs persistent AI-client shell wrappers by default.
 
 After first install, restart terminals and AI coding clients once, then run:
 
@@ -27,14 +27,14 @@ op status
 To download the heavier free local tool bundle during install:
 
 ```powershell
-$env:OPAI_WITH_TOOLS = "1"
+$env:VESTA_WITH_TOOLS = "1"
 irm https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.ps1 | iex
 ```
 
 To skip the Superpowers network clone in locked-down environments:
 
 ```powershell
-$env:OPAI_NO_SUPERPOWERS = "1"
+$env:VESTA_NO_SUPERPOWERS = "1"
 irm https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.ps1 | iex
 ```
 
@@ -61,18 +61,18 @@ op doctor
 If your Python scripts directory is not on `PATH`, use:
 
 ```sh
-python -m opai doctor
+python -m vesta doctor
 ```
 
 ## AI Client Badge Setup
 
 The default `vesta install` writes safe global discovery files so supported AI coding clients can find Vesta:
 
-- `~/.opai/status.txt`
-- `~/.opai/instructions/OPAI.md`
-- `~/.agents/skills/opai/SKILL.md`
+- `~/.vesta/status.txt`
+- `~/.vesta/instructions/VESTA.md`
+- `~/.agents/skills/vesta/SKILL.md`
 - `~/.claude/CLAUDE.md` managed Vesta block
-- `~/.opai/integrations/copilot-instructions.md`
+- `~/.vesta/integrations/copilot-instructions.md`
 - `~/.codex/superpowers`: Superpowers source checkout
 - `~/.agents/skills/superpowers`: native skill discovery bridge
 
@@ -84,7 +84,7 @@ vesta launch claude
 vesta launch copilot
 ```
 
-The one-command installer writes managed shell aliases that shadow `op`, `opai`, `codex`, `claude`, and `copilot` with Vesta wrappers by default. PowerShell profiles are supported on Windows; `.profile`, `.bashrc`, and `.zshrc` are written for POSIX shells. To opt out from a local checkout:
+The one-command installer writes managed shell aliases that shadow `op`, `vesta`, `codex`, `claude`, and `copilot` with Vesta wrappers by default. PowerShell profiles are supported on Windows; `.profile`, `.bashrc`, and `.zshrc` are written for POSIX shells. To opt out from a local checkout:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -NoShellAliases
@@ -116,7 +116,7 @@ vesta welcome --image iterm
 For packaged installs, install the optional terminal image renderer with:
 
 ```sh
-pip install "opai[terminal-ui]"
+pip install "vesta[terminal-ui]"
 ```
 
 Closed desktop apps may not expose a place for Vesta to draw a bottom-right status label. Vesta still installs discovery/instruction files for clients that support local skills, memory, or project instructions.
@@ -143,14 +143,14 @@ This may download free open-source tools such as linters and scanners. It still 
 When Vesta is published, the intended user flow is:
 
 ```sh
-pipx install opai
+pipx install vesta
 vesta install
 ```
 
 For a Git repository before package publishing:
 
 ```sh
-pipx install git+https://github.com/<owner>/opai.git
+pipx install git+https://github.com/<owner>/vesta.git
 vesta install
 ```
 

@@ -9,8 +9,8 @@ from pathlib import Path
 
 from _helpers import make_repo
 
-from opaihub.dashboard_html import build_dashboard_html
-from opaihub.state import state_dir
+from vestahub.dashboard_html import build_dashboard_html
+from vestahub.state import state_dir
 
 
 class DashboardHtmlAtomicTests(unittest.TestCase):

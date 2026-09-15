@@ -8,7 +8,7 @@ from pathlib import Path
 from queue import Empty
 from typing import Any
 
-from opaihub import scheduler
+from vestahub import scheduler
 
 
 def _create_schedule_slowly(

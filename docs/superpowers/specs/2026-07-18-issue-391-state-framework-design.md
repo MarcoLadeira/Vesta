@@ -2,14 +2,14 @@
 
 ## Goal
 
-Make every core OPai surface explain its real state, why it occurred, and the
+Make every core Vesta surface explain its real state, why it occurred, and the
 safest next action without inventing new backend error taxonomies or fake
 progress.
 
 ## Chosen approach
 
 Introduce a browser-side `stateCardHtml` / `renderViewState` helper in
-`opai/assets/web/app.js`. It accepts one small canonical state object:
+`vesta/assets/web/app.js`. It accepts one small canonical state object:
 `kind`, `title`, `reason`, `action`, `actionLabel`, and optional technical
 detail. It produces accessible status, error, and empty cards with an action
 that is disabled or absent when it would cause spend. The existing in-chat

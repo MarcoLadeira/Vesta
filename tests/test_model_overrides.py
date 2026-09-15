@@ -1,6 +1,6 @@
 """The model list can be corrected without shipping a new Vesta.
 
-`opai/model_registry.py` is a table compiled into the release, so it goes stale
+`vesta/model_registry.py` is a table compiled into the release, so it goes stale
 the moment a provider ships something new: the model exists, the user's CLI
 accepts it, and Vesta's picker does not offer it. That coupling is wrong —
 provider model names change far more often than this app does.
@@ -22,7 +22,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opai.model_overrides import (
+from vesta.model_overrides import (
     MAX_MODELS_PER_PROVIDER,
     apply_overrides,
     load_overrides,
@@ -30,7 +30,7 @@ from opai.model_overrides import (
     save_override_payload,
     save_overrides,
 )
-from opai.model_registry import ModelSpec
+from vesta.model_registry import ModelSpec
 
 BUILTIN = (
     ModelSpec("gpt-a", "GPT A", "GPT A", "best"),
@@ -218,7 +218,7 @@ class SaveTests(_Temp):
 
         report = overrides_report_payload(load_overrides(self.path))
         self.assertTrue(report["global"])
-        self.assertEqual(report["path"], "~/.opai/models.json")
+        self.assertEqual(report["path"], "~/.vesta/models.json")
         self.assertEqual(report["providers"]["codex"]["models"][0]["id"], "gpt-custom")
         self.assertEqual(report["hidden"]["codex"], ["gpt-old"])
 
@@ -311,8 +311,8 @@ class RegistryIntegrationTests(_Temp):
                 }
             }
         )
-        with mock.patch("opai.model_overrides.overrides_path", return_value=self.path):
-            from opai.model_registry import models_for, resolve_id
+        with mock.patch("vesta.model_overrides.overrides_path", return_value=self.path):
+            from vesta.model_registry import models_for, resolve_id
 
             ids = [m.id for m in models_for("codex")]
             self.assertIn("luna", ids)
@@ -324,8 +324,8 @@ class RegistryIntegrationTests(_Temp):
         from unittest import mock
 
         self.path.write_text("{broken", encoding="utf-8")
-        with mock.patch("opai.model_overrides.overrides_path", return_value=self.path):
-            from opai.model_registry import models_for
+        with mock.patch("vesta.model_overrides.overrides_path", return_value=self.path):
+            from vesta.model_registry import models_for
 
             self.assertTrue(len(models_for("codex")) > 0)
 
@@ -334,7 +334,7 @@ class BuiltinFreshnessTests(unittest.TestCase):
     def test_the_current_claude_flagship_is_offered(self) -> None:
         # The staleness that prompted this work: the registry topped out at
         # Opus 4.8 while Opus 5 was current, so the picker could not reach it.
-        from opai.model_registry import find, models_for
+        from vesta.model_registry import find, models_for
 
         ids = {m.id for m in models_for("claude")}
         self.assertIn("claude-opus-5", ids)
@@ -350,7 +350,7 @@ class CacheTests(_Temp):
 
     def setUp(self) -> None:
         super().setUp()
-        from opai.model_overrides import clear_cache
+        from vesta.model_overrides import clear_cache
 
         clear_cache()
 
@@ -389,7 +389,7 @@ class CacheTests(_Temp):
         )
 
     def test_the_cache_is_bounded(self) -> None:
-        from opai.model_overrides import _CACHE, _CACHE_MAX
+        from vesta.model_overrides import _CACHE, _CACHE_MAX
 
         for index in range(_CACHE_MAX + 4):
             self.write(

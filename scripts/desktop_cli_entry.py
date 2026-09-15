@@ -1,6 +1,6 @@
 """Narrow frozen-entry point for the source-free Vesta command line."""
 
-from opai.bootstrap import cli_main
+from vesta.bootstrap import cli_main
 
 
 if __name__ == "__main__":

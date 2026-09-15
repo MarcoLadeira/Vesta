@@ -6,10 +6,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
-from opaihub import result_cache
-from opaihub.ask import run_ask
-from opaihub.ledger import EVENT_CACHE, EVENT_MODEL_CALL, read_events, summarize_ledger
-from opaihub.local_runner import (
+from vestahub import result_cache
+from vestahub.ask import run_ask
+from vestahub.ledger import EVENT_CACHE, EVENT_MODEL_CALL, read_events, summarize_ledger
+from vestahub.local_runner import (
     LocalRunner,
     OpenAICompatibleRunner,
     detect_local_runner,
@@ -96,7 +96,7 @@ class ResultCacheTests(unittest.TestCase):
 
 class AskExecutionTests(unittest.TestCase):
     def test_local_runner_receives_the_shared_deadline_budget(self):
-        from opaihub.deadlines import DeadlineBudget
+        from vestahub.deadlines import DeadlineBudget
 
         class DeadlineAwareRunner(_FakeRunner):
             def __init__(self):
@@ -154,7 +154,7 @@ class AskExecutionTests(unittest.TestCase):
             root = _git_repo(Path(tmp))
             changing_runner = _WorkspaceChangingRunner(root / "app.py")
             stable_runner = _FakeRunner(answer="fresh answer")
-            with mock.patch("opaihub.ask._build_prompt", return_value="prompt"):
+            with mock.patch("vestahub.ask._build_prompt", return_value="prompt"):
                 first = run_ask(
                     root,
                     "summarize the diff",
@@ -202,7 +202,7 @@ class AskExecutionTests(unittest.TestCase):
             root = _git_repo(Path(tmp))
             (root / "payload.bin").write_bytes(b"\x00binary")
             runner = _FakeRunner()
-            with mock.patch("opaihub.ask._build_prompt", return_value="prompt"):
+            with mock.patch("vestahub.ask._build_prompt", return_value="prompt"):
                 result = run_ask(
                     root,
                     "summarize the diff",
@@ -210,7 +210,7 @@ class AskExecutionTests(unittest.TestCase):
                     selected_model_id="local",
                 )
             events = read_events(root)
-            answers = root / ".opaihub" / "answers"
+            answers = root / ".vestahub" / "answers"
 
         cache_event = next(
             event for event in events if event.get("event_type") == EVENT_CACHE
@@ -234,7 +234,7 @@ class AskExecutionTests(unittest.TestCase):
                 ttl_seconds=1,
             )
             runner = _FakeRunner()
-            with mock.patch("opaihub.ask._build_prompt", return_value="prompt"):
+            with mock.patch("vestahub.ask._build_prompt", return_value="prompt"):
                 result = run_ask(
                     root,
                     "summarize the diff",
@@ -295,7 +295,7 @@ class LocalRunnerSafetyTests(unittest.TestCase):
                 OpenAICompatibleRunner, "available", return_value=True
             ):
                 with mock.patch(
-                    "opaihub.local_runner.OllamaRunner.available", return_value=False
+                    "vestahub.local_runner.OllamaRunner.available", return_value=False
                 ):
                     runner = detect_local_runner(Path(tmp))
         self.assertIsNone(runner)

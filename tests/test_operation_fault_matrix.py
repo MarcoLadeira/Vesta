@@ -27,12 +27,12 @@ from unittest import mock
 
 from _helpers import make_repo
 
-from opaihub import idempotency
-from opaihub.idempotency import DONE, FRESH, IN_FLIGHT, begin, operation_key, status
+from vestahub import idempotency
+from vestahub.idempotency import DONE, FRESH, IN_FLIGHT, begin, operation_key, status
 
 
 def _executor(root: Path, **kwargs):
-    from opaihub.provider_tools import RepositoryToolExecutor
+    from vestahub.provider_tools import RepositoryToolExecutor
 
     defaults = {"allow_edits": True, "allow_git_ops": True, "allow_github_write": True}
     defaults.update(kwargs)
@@ -46,7 +46,7 @@ def _pr_executor(root: Path):
 
 
 def _adapter(root: Path, run):
-    from opaihub.github_workflow import GitHubAdapter
+    from vestahub.github_workflow import GitHubAdapter
 
     adapter = GitHubAdapter(root)
     adapter._run = run  # type: ignore[method-assign]
@@ -182,13 +182,13 @@ class FaultMatrixTests(unittest.TestCase):
             }
 
         with mock.patch(
-            "opaihub.github_connector.create_pull_request", side_effect=fake_create
+            "vestahub.github_connector.create_pull_request", side_effect=fake_create
         ):
             with _CrashAfterSuccess():
                 with self.assertRaises(idempotency.OperationPersistenceError):
                     _pr_executor(self.root)._open_pr({"title": "Fix", "base": "main"})
         with mock.patch(
-            "opaihub.github_connector.find_pull_request", side_effect=fake_find
+            "vestahub.github_connector.find_pull_request", side_effect=fake_find
         ):
             result = _pr_executor(self.root)._open_pr({"title": "Fix", "base": "main"})
         self.assertTrue(result["ok"], result)
@@ -207,11 +207,11 @@ class FaultMatrixTests(unittest.TestCase):
 
         first = _executor(self.root)
         first.grant_command_once("gh pr comment 5")
-        with mock.patch("opaihub.github_connector.add_comment", side_effect=fake_add):
+        with mock.patch("vestahub.github_connector.add_comment", side_effect=fake_add):
             with _CrashAfterSuccess():
                 with self.assertRaises(idempotency.OperationPersistenceError):
                     first._github_comment({"number": 5, "body": "ship it"})
-        with mock.patch("opaihub.github_connector.find_comment", side_effect=fake_find):
+        with mock.patch("vestahub.github_connector.find_comment", side_effect=fake_find):
             result = _executor(self.root)._github_comment(
                 {"number": 5, "body": "ship it"}
             )
@@ -232,13 +232,13 @@ class FaultMatrixTests(unittest.TestCase):
         first = _executor(self.root)
         first.grant_command_once("gh pr edit 7 --add-reviewer alice")
         with mock.patch(
-            "opaihub.github_connector.request_reviewers", side_effect=fake_request
+            "vestahub.github_connector.request_reviewers", side_effect=fake_request
         ):
             with _CrashAfterSuccess():
                 with self.assertRaises(idempotency.OperationPersistenceError):
                     first._github_request_review({"number": 7, "reviewers": ["alice"]})
         with mock.patch(
-            "opaihub.github_connector.find_requested_reviewers", side_effect=fake_find
+            "vestahub.github_connector.find_requested_reviewers", side_effect=fake_find
         ):
             result = _executor(self.root)._github_request_review(
                 {"number": 7, "reviewers": ["alice"]}

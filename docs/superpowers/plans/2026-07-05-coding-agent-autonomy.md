@@ -1,4 +1,4 @@
-# OPai Coding-Agent Autonomy Implementation Plan
+# Vesta Coding-Agent Autonomy Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -13,7 +13,7 @@
 ### Task 1: Intent and authorization policy
 
 **Files:**
-- Create: `opaihub/agent_policy.py`
+- Create: `vestahub/agent_policy.py`
 - Create: `tests/test_agent_autonomy.py`
 
 - [ ] Write failing tests proving Explain, Review, Implement, Ship, Dangerous, latest-instruction precedence, PR authorization, merge gates, and secret-safe contracts.
@@ -24,7 +24,7 @@
 ### Task 2: Persistent repository context and dirty classification
 
 **Files:**
-- Create: `opaihub/repo_context.py`
+- Create: `vestahub/repo_context.py`
 - Modify: `tests/test_agent_autonomy.py`
 
 - [ ] Write failing tests for Git-root resolution, active-context persistence, remote/branch capture, unrelated dirty paths, conflicting dirty paths, and safe worktree command construction.
@@ -35,7 +35,7 @@
 ### Task 3: Issue ranking and GitHub orchestration
 
 **Files:**
-- Create: `opaihub/github_workflow.py`
+- Create: `vestahub/github_workflow.py`
 - Modify: `tests/test_agent_autonomy.py`
 
 - [ ] Write failing tests for deterministic issue ranking, manageable high-value selection, mockable list/create/merge calls, and every merge safety gate.
@@ -46,11 +46,11 @@
 ### Task 4: Pipeline capability contract and workflow state
 
 **Files:**
-- Create: `opaihub/workflow_state.py`
-- Modify: `opaihub/gui_pipeline.py`
-- Modify: `opai/gui_modes.py`
-- Modify: `opai/gui_desktop.py`
-- Modify: `opai/gui_web.py`
+- Create: `vestahub/workflow_state.py`
+- Modify: `vestahub/gui_pipeline.py`
+- Modify: `vesta/gui_modes.py`
+- Modify: `vesta/gui_desktop.py`
+- Modify: `vesta/gui_web.py`
 - Modify: `tests/test_agent_autonomy.py`
 - Modify: `tests/test_gui_modes.py`
 
@@ -63,11 +63,11 @@
 ### Task 5: UI/status surface
 
 **Files:**
-- Modify: `opai/gui_web.py`
-- Modify: `opai/assets/web/app.js`
-- Modify: `opai/gui_desktop.py`
+- Modify: `vesta/gui_web.py`
+- Modify: `vesta/assets/web/app.js`
+- Modify: `vesta/gui_desktop.py`
 - Modify: `tests/test_agent_autonomy.py`
-- Modify: `opai/assets/web/__tests__/e2e/inspector.spec.js`
+- Modify: `vesta/assets/web/__tests__/e2e/inspector.spec.js`
 
 - [ ] Write failing payload/DOM tests for active path, branch, remote, dirty state, effective mode, workflow phase, tests, PR, merge, and blocker display.
 - [ ] Run focused Python and web tests and confirm they fail for the missing fields.
@@ -77,10 +77,10 @@
 ### Task 6: Managed autonomy instructions and regression coverage
 
 **Files:**
-- Modify: `opai/integrations.py`
+- Modify: `vesta/integrations.py`
 - Modify: `configs/permissions.yaml`
-- Modify: `opaihub/data/hub/prompts/gitops.md`
-- Modify: `tests/test_opai_integrations.py`
+- Modify: `vestahub/data/hub/prompts/gitops.md`
+- Modify: `tests/test_vesta_integrations.py`
 - Modify: `tests/test_agent_autonomy.py`
 
 - [ ] Write failing tests for action-oriented managed instructions, current-task precedence, authorized push/PR behavior, dangerous confirmation, secret redaction, and avoidance of unnecessary clarification loops.
@@ -94,10 +94,10 @@
 - Modify: `.github/PULL_REQUEST_TEMPLATE.md` only if required by repository conventions.
 
 - [ ] Run `python -m unittest discover -s tests` and require zero failures.
-- [ ] Run `python -m ruff check opai opaihub tests` and require zero errors.
+- [ ] Run `python -m ruff check vesta vestahub tests` and require zero errors.
 - [ ] Run `npm ci` if dependencies are absent, then `npm run test:unit` and relevant Playwright tests.
 - [ ] Inspect `git diff --check`, `git status -sb`, and the complete diff for unrelated or secret-bearing content.
-- [ ] Commit the focused change, push `codex/improve-agent-autonomy`, and open a ready PR titled `Upgrade OPai agent runtime, workflow state, and coding autonomy` with diagnosis, behavior, tests, before/after examples, and follow-ups.
+- [ ] Commit the focused change, push `codex/improve-agent-autonomy`, and open a ready PR titled `Upgrade Vesta agent runtime, workflow state, and coding autonomy` with diagnosis, behavior, tests, before/after examples, and follow-ups.
 - [ ] Inspect PR checks. Merge only if every `ShipChecks` condition and repository check succeeds; otherwise report the exact blocker.
 
 ### Task 8: Durable runtime, ACI, and task packets
@@ -110,7 +110,7 @@
 
 - [ ] Add failing tests for test discovery, focused/full ordering, failure parsing, bounded retries, secret/risky-file/destructive/production/unrelated-diff gates, and fail-closed merge.
 - [ ] Implement the test loop, workflow ledger, and safety gate report.
-- [ ] Add deterministic OPaiBench scenarios under `tests/agent_evals`.
+- [ ] Add deterministic VestaBench scenarios under `tests/agent_evals`.
 
 ### Task 10: GitHub workbench and cockpit
 

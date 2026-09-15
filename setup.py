@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parent
 if sys.path[0] != str(ROOT):
     sys.path.insert(0, str(ROOT))
 
-from opai.build_metadata import write_build_metadata  # noqa: E402
+from vesta.build_metadata import write_build_metadata  # noqa: E402
 
 
 class CanonicalBuildPy(build_py):
@@ -23,7 +23,7 @@ class CanonicalBuildPy(build_py):
         version = self.distribution.get_version()
         # Validate before setuptools creates an apparently successful artifact.
         write_build_metadata(
-            Path(self.build_lib) / "opai",
+            Path(self.build_lib) / "vesta",
             application_version=version,
             source_root=ROOT,
         )
@@ -31,7 +31,7 @@ class CanonicalBuildPy(build_py):
         # Package-data copying may replace the staging directory; write the
         # authoritative generated file last as well.
         write_build_metadata(
-            Path(self.build_lib) / "opai",
+            Path(self.build_lib) / "vesta",
             application_version=version,
             source_root=ROOT,
         )
@@ -43,7 +43,7 @@ class CanonicalSdist(sdist):
     def make_release_tree(self, base_dir: str, files: list[str]) -> None:
         super().make_release_tree(base_dir, files)
         write_build_metadata(
-            Path(base_dir) / "opai",
+            Path(base_dir) / "vesta",
             application_version=self.distribution.get_version(),
             source_root=ROOT,
         )

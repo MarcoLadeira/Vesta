@@ -2,7 +2,7 @@
 
 ## Outcome
 
-OPai has one human-edited application version, deterministic build and artifact
+Vesta has one human-edited application version, deterministic build and artifact
 identity, and a dependency-light startup preflight that reports the real missing
 requirement before CLI, GUI, provider, or runtime initialization. Generated
 metadata and validation gates make drift a build or CI failure instead of a
@@ -28,12 +28,12 @@ already on main.
 ## Current state discovered
 
 - `pyproject.toml` declares application version `0.2.1a1`.
-- `opai.__version__` and `opaihub.__version__` manually repeat `0.2.1a1`;
-  `opai.__release_stage__` separately repeats `alpha.1`.
-- `[tool.opai].release`, CLI parser description, README prose, and
+- `vesta.__version__` and `vestahub.__version__` manually repeat `0.2.1a1`;
+  `vesta.__release_stage__` separately repeats `alpha.1`.
+- `[tool.vesta].release`, CLI parser description, README prose, and
   `docs/INSTALL_PROOF.md` contain older `0.2.0` identities.
 - CLI version, doctor, support bundle, and GUI About currently project the
-  manually maintained `opai` module constants.
+  manually maintained `vesta` module constants.
 - The desktop/update pipeline already models semantic version, release channel,
   exact 40-character candidate SHA, platform, architecture, install type,
   package/publisher identity, updater protocol, and native Windows/macOS
@@ -55,12 +55,12 @@ already on main.
 | Surface | Current role | Target classification |
 | --- | --- | --- |
 | `pyproject.toml [project].version` | Distribution version | Canonical human-edited application version |
-| `pyproject.toml [tool.opai].release` | Older display release | Remove as a duplicate source |
-| `opai/__init__.py` version/stage | CLI/GUI/doctor projection | Runtime projection from canonical identity |
-| `opaihub/__init__.py` version | Duplicate distribution version | Runtime projection from canonical identity |
+| `pyproject.toml [tool.vesta].release` | Older display release | Remove as a duplicate source |
+| `vesta/__init__.py` version/stage | CLI/GUI/doctor projection | Runtime projection from canonical identity |
+| `vestahub/__init__.py` version | Duplicate distribution version | Runtime projection from canonical identity |
 | `opcoding/__init__.py` version | Legacy component value | Classify explicitly; do not silently treat as app version |
-| `importlib.metadata.version("opai")` | Installed distribution metadata | Generated packaging projection and validation input |
-| `opai/update/models.py` schema/protocol constants | Compatibility contracts | Independently versioned compatibility metadata |
+| `importlib.metadata.version("vesta")` | Installed distribution metadata | Generated packaging projection and validation input |
+| `vesta/update/models.py` schema/protocol constants | Compatibility contracts | Independently versioned compatibility metadata |
 | lifecycle/provider/receipt/support schemas | Data/protocol contracts | Independently versioned compatibility metadata |
 | `release-identity.json` | Packaged runtime identity | Generated immutable build projection |
 | MSIX manifest and macOS `Info.plist` | Native package metadata | Generated artifact projection |
@@ -73,11 +73,11 @@ already on main.
 Historical changelog and archived release-note values remain historical. Current
 install/version claims must be generated or validated. Test versions such as
 `0.3.0` remain fixtures when they represent an update candidate rather than the
-running OPai application.
+running Vesta application.
 
 ## Canonical identity architecture
 
-1. Keep `[project].version` in `pyproject.toml` as the only human-edited OPai
+1. Keep `[project].version` in `pyproject.toml` as the only human-edited Vesta
    application version. It is already the build backend's package-metadata
    input and therefore avoids a second packaging ecosystem.
 2. Add a dependency-light release-identity module that exposes a typed identity

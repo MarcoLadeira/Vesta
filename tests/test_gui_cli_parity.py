@@ -1,6 +1,6 @@
 """GUI and CLI speak one language for the same run (#396).
 
-The verdict vocabulary lives once in opaihub.completion; the receipt summary, the
+The verdict vocabulary lives once in vestahub.completion; the receipt summary, the
 CLI outcome block, and the GUI (assets/web/app.js) all render from it, so an
 equivalent run never reads as "Timeout" on one surface and "Timed out" on
 another. These tests are the sync guard that keeps them from drifting apart.
@@ -11,11 +11,11 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from opaihub.completion import VERDICT_LABELS, CompletionVerdict, verdict_label
-from opaihub.run_summary import build_run_summary
-from opai.cli_stream import _evidence_line
+from vestahub.completion import VERDICT_LABELS, CompletionVerdict, verdict_label
+from vestahub.run_summary import build_run_summary
+from vesta.cli_stream import _evidence_line
 
-_APP_JS = Path(__file__).resolve().parents[1] / "opai" / "assets" / "web" / "app.js"
+_APP_JS = Path(__file__).resolve().parents[1] / "vesta" / "assets" / "web" / "app.js"
 
 
 def test_every_verdict_has_one_shared_label() -> None:

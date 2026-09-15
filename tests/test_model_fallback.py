@@ -14,7 +14,7 @@ from unittest import mock
 
 from _helpers import make_repo
 
-from opai import app_state
+from vesta import app_state
 
 
 class _ModelAwareRunner:
@@ -54,7 +54,7 @@ class ModelFallbackTests(unittest.TestCase):
 
     def test_rejected_model_recovers_on_the_default(self):
         with mock.patch(
-            "opaihub.accounts.runner_for_account",
+            "vestahub.accounts.runner_for_account",
             side_effect=_factory("claude-sonnet-5"),
         ):
             result = self._ask("claude-sonnet-5")
@@ -71,7 +71,7 @@ class ModelFallbackTests(unittest.TestCase):
         # Both the selected model and the default are rejected -> honest failure,
         # no masking, no fallback annotation.
         with mock.patch(
-            "opaihub.accounts.runner_for_account",
+            "vestahub.accounts.runner_for_account",
             side_effect=_factory("claude-sonnet-5", "sonnet"),
         ):
             result = self._ask("claude-sonnet-5")
@@ -86,7 +86,7 @@ class ModelFallbackTests(unittest.TestCase):
                 return {"error": "401 unauthorized: invalid api key", "returncode": 1}
 
         with mock.patch(
-            "opaihub.accounts.runner_for_account",
+            "vestahub.accounts.runner_for_account",
             side_effect=lambda a, *, model=None, home=None: _AuthFailRunner(
                 model, bad=set()
             ),
@@ -97,7 +97,7 @@ class ModelFallbackTests(unittest.TestCase):
         self.assertNotEqual(result["error"]["code"], "MODEL_UNAVAILABLE")
 
     def test_a_working_model_never_falls_back(self):
-        with mock.patch("opaihub.accounts.runner_for_account", side_effect=_factory()):
+        with mock.patch("vestahub.accounts.runner_for_account", side_effect=_factory()):
             result = self._ask("opus")
         self.assertEqual(result["status"], "answered_by_account")
         self.assertNotIn("model_fallback", result)

@@ -3,7 +3,7 @@
 Criterion: "Budget protection fails closed or requires explicit policy when
 authoritative maximum is unknown."
 
-``opaihub.budget.budget_gate`` step 3 compares ``spent + next_cost`` against
+``vestahub.budget.budget_gate`` step 3 compares ``spent + next_cost`` against
 the daily/monthly cap. But ``_spent`` sums ``estimated_actual_usd``, which
 omits real spend, so it is a **lower bound**. Comparing a lower bound
 against a cap under-triggers the ceiling: actual spend can already be over
@@ -28,8 +28,8 @@ deliberate exclusions, both pinned by tests below:
   through. They are still *reported* by ``budget_status`` and
   ``vesta savings``, which is the half that costs nothing.
 
-Isolation note: these set ``OPAI_HUB_ROOT``. ``loader.hub_root`` otherwise
-falls back to the packaged ``opaihub/data/hub``, and a fixture written
+Isolation note: these set ``VESTA_HUB_ROOT``. ``loader.hub_root`` otherwise
+falls back to the packaged ``vestahub/data/hub``, and a fixture written
 without redirecting it edits the shipped cost model in the working tree.
 """
 
@@ -44,9 +44,9 @@ from pathlib import Path
 
 from datetime import datetime, timezone
 
-from opaihub.budget import budget_gate, budget_status, set_budget
-from opaihub.cost_model import DEFAULT_COST_MODEL
-from opaihub.ledger import record_model_call, record_model_call_started
+from vestahub.budget import budget_gate, budget_status, set_budget
+from vestahub.cost_model import DEFAULT_COST_MODEL
+from vestahub.ledger import record_model_call, record_model_call_started
 
 # Drops L2, so an L2 call has no known price and records $0.00.
 PARTIAL_COST_MODEL = dict(DEFAULT_COST_MODEL, tier_usd_per_1k_tokens={"L3": 0.02})
@@ -68,7 +68,7 @@ class _Project:
             (directory / "cost_model.yaml").write_text(
                 json.dumps(self._cost_model), encoding="utf-8"
             )
-        self._patch = mock.patch.dict(os.environ, {"OPAI_HUB_ROOT": str(hub)})
+        self._patch = mock.patch.dict(os.environ, {"VESTA_HUB_ROOT": str(hub)})
         self._patch.start()
         return Path(self._tmp.name)
 
@@ -222,7 +222,7 @@ class TodaysFigureIsQualifiedByTodaysFactsTests(unittest.TestCase):
             set_budget(root, daily_usd=5.0)
             _record_lost_call(root)
             # Age it out of "today" without touching anything else.
-            with mock.patch("opaihub.budget.datetime") as clock:
+            with mock.patch("vestahub.budget.datetime") as clock:
                 clock.now.return_value = datetime(2099, 1, 1, tzinfo=timezone.utc)
                 completeness = budget_status(root)["spend_completeness"]
 
@@ -274,7 +274,7 @@ class OneReportOneDayTests(unittest.TestCase):
     """
 
     def test_the_clock_is_read_once_per_report(self):
-        from opaihub import budget
+        from vestahub import budget
 
         days = iter(["2026-09-10", "2026-09-11", "2026-09-12", "2026-09-13"])
         with _Project(cost_model=PARTIAL_COST_MODEL) as root:
@@ -286,7 +286,7 @@ class OneReportOneDayTests(unittest.TestCase):
         self.assertEqual(clock.call_count, 1)
 
     def test_one_phrase_for_a_partial_total(self):
-        from opaihub.budget import spend_prefix
+        from vestahub.budget import spend_prefix
 
         self.assertEqual(spend_prefix(True), "")
         self.assertEqual(spend_prefix(False), "at least ")

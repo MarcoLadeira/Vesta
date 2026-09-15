@@ -117,7 +117,7 @@ Legacy routes remain aliases only. New navigation writes canonical hashes.
 | Appearance | Density | `savePref("density")` | Retained |
 | Appearance | Reduced motion | `savePref("reduced_motion")` | Retained |
 | Appearance | Copy activity | `savePref("activity_copy")` | Retained |
-| Appearance | Theme: Light, Viber Coder, Dark, Vesta, System | `savePref("theme")`, stored app-wide in `~/.opai/gui_theme.json` by `opai/gui_theme.py` | New; replaces the read-only "Dark (default)" status. Viber Coder (the original look) stays the default |
+| Appearance | Theme: Light, Viber Coder, Dark, Vesta, System | `savePref("theme")`, stored app-wide in `~/.vesta/gui_theme.json` by `vesta/gui_theme.py` | New; replaces the read-only "Dark (default)" status. Viber Coder (the original look) stays the default |
 
 Every segmented control is exposed as a radio group with one checked, tabbable option. Left/right and up/down arrow keys move and select within the group. The theme picker is the same radio group drawn as five preview tiles; each tile renders with the real tokens of the palette it names, stars included.
 
@@ -173,11 +173,11 @@ Every segmented control is exposed as a radio group with one checked, tabbable o
 
 This redesign changes frontend organization, interaction, accessibility semantics, responsive layout, and tests only. It does not add or alter backend endpoints, persistence formats, provider credentials, permission policy, update policy, routing policy, or usage accounting. Existing native bridge methods and preference keys remain the source of truth.
 
-The one addition is the theme picker (Light, Viber Coder, Dark, Vesta, System). It adds a `theme` key to the existing `savePref` bridge method and a small app-wide store (`~/.opai/gui_theme.json`), so a theme chosen in one workspace holds in every workspace. Every other preference keeps its existing per-project owner. The theming contract itself is documented in [`docs/WEB_UI.md`](WEB_UI.md#themes).
+The one addition is the theme picker (Light, Viber Coder, Dark, Vesta, System). It adds a `theme` key to the existing `savePref` bridge method and a small app-wide store (`~/.vesta/gui_theme.json`), so a theme chosen in one workspace holds in every workspace. Every other preference keeps its existing per-project owner. The theming contract itself is documented in [`docs/WEB_UI.md`](WEB_UI.md#themes).
 
 ## Screenshot gallery
 
-The inspected Playwright baselines live in [`settings-gallery.spec.js-snapshots`](../opai/assets/web/__tests__/e2e/settings-gallery.spec.js-snapshots). The gallery uses deterministic fake data and contains no credential values.
+The inspected Playwright baselines live in [`settings-gallery.spec.js-snapshots`](../vesta/assets/web/__tests__/e2e/settings-gallery.spec.js-snapshots). The gallery uses deterministic fake data and contains no credential values.
 
 ### Desktop, 1440x900
 
@@ -221,7 +221,7 @@ The inspected Playwright baselines live in [`settings-gallery.spec.js-snapshots`
 
 ### Light, Dark and Vesta themes
 
-The baselines for the Light, Dark and Vesta palettes live in [`theme.spec.js-snapshots`](../opai/assets/web/__tests__/e2e/theme.spec.js-snapshots). The Settings gallery above shows Viber Coder, the default.
+The baselines for the Light, Dark and Vesta palettes live in [`theme.spec.js-snapshots`](../vesta/assets/web/__tests__/e2e/theme.spec.js-snapshots). The Settings gallery above shows Viber Coder, the default.
 
 - `light-chat-finished-turn.png`
 - `light-settings-appearance.png`

@@ -11,8 +11,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opai import brand
-from opai.gui_identity import apply_window_identity, set_windows_app_id
+from vesta import brand
+from vesta.gui_identity import apply_window_identity, set_windows_app_id
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -44,7 +44,7 @@ class AppIconTests(unittest.TestCase):
         path = brand.app_icon_path()
         self.assertIsNotNone(path)
         self.assertTrue(path.is_file())
-        self.assertEqual(path.name, "opai-icon.png")
+        self.assertEqual(path.name, "vesta-icon.png")
 
     def test_app_icon_is_a_square_png(self):
         import struct
@@ -58,7 +58,7 @@ class AppIconTests(unittest.TestCase):
 
     def test_missing_icon_degrades_to_none(self):
         with mock.patch(
-            "opai.brand._resources.files",
+            "vesta.brand._resources.files",
             side_effect=FileNotFoundError,
         ):
             self.assertIsNone(brand.app_icon_path())
@@ -86,7 +86,7 @@ class WindowIdentityTests(unittest.TestCase):
 
     def test_missing_icon_still_sets_name_and_never_raises(self):
         app, window = _Recorder(), _Recorder()
-        with mock.patch("opai.gui_identity.app_icon_path", return_value=None):
+        with mock.patch("vesta.gui_identity.app_icon_path", return_value=None):
             result = apply_window_identity(app, window, icon_factory=lambda p: p)
         self.assertFalse(result["icon_set"])
         self.assertTrue(result["app_name_set"])
@@ -108,17 +108,17 @@ class WindowIdentityTests(unittest.TestCase):
 
 class EntryPointTests(unittest.TestCase):
     def test_gui_main_forwards_args_to_gui_subcommand(self):
-        from opai import cli
+        from vesta import cli
 
-        with mock.patch.object(cli.sys, "argv", ["opai-gui", "--project", "X"]):
+        with mock.patch.object(cli.sys, "argv", ["vesta-gui", "--project", "X"]):
             with mock.patch.object(cli, "main", return_value=0) as fake_main:
                 self.assertEqual(cli.gui_main(), 0)
         fake_main.assert_called_once_with(["gui", "--project", "X"])
 
     def test_gui_main_propagates_exit_code(self):
-        from opai import cli
+        from vesta import cli
 
-        with mock.patch.object(cli.sys, "argv", ["opai-gui"]):
+        with mock.patch.object(cli.sys, "argv", ["vesta-gui"]):
             with mock.patch.object(cli, "main", return_value=3):
                 self.assertEqual(cli.gui_main(), 3)
 
@@ -130,12 +130,12 @@ class EntryPointTests(unittest.TestCase):
             data = tomllib.loads(text)
             # PEP 621 canonical table name is dashed: [project.gui-scripts].
             gui_scripts = data["project"]["gui-scripts"]
-            self.assertEqual(gui_scripts.get("opai-gui"), "opai.bootstrap:desktop_main")
+            self.assertEqual(gui_scripts.get("vesta-gui"), "vesta.bootstrap:desktop_main")
         except ModuleNotFoundError:  # Python 3.10 has no tomllib
-            self.assertIn('opai-gui = "opai.bootstrap:desktop_main"', text)
+            self.assertIn('vesta-gui = "vesta.bootstrap:desktop_main"', text)
 
     def test_gui_main_target_is_callable(self):
-        from opai import cli
+        from vesta import cli
 
         self.assertTrue(callable(cli.gui_main))
 

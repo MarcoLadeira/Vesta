@@ -24,7 +24,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-OPAIHUB = ROOT / "opaihub"
+VESTAHUB = ROOT / "vestahub"
 
 #: Raw GitHub mutation adapters: calling one is an outward side effect.
 GITHUB_ADAPTER_SINKS = {"create_pull_request", "add_comment", "request_reviewers"}
@@ -102,7 +102,7 @@ class SideEffectBoundaryTests(unittest.TestCase):
     def test_every_outward_mutation_is_inside_a_claimed_operation(self) -> None:
         violations: list[str] = []
         for module_name in POLICED_MODULES:
-            path = OPAIHUB / module_name
+            path = VESTAHUB / module_name
             source = path.read_text(encoding="utf-8")
             tree = ast.parse(source, filename=str(path))
             for node in ast.walk(tree):
@@ -134,7 +134,7 @@ class SideEffectBoundaryTests(unittest.TestCase):
     def test_policed_modules_still_exist(self) -> None:
         # A rename must fail loudly here rather than silently policing nothing.
         for module_name in POLICED_MODULES:
-            self.assertTrue((OPAIHUB / module_name).is_file(), module_name)
+            self.assertTrue((VESTAHUB / module_name).is_file(), module_name)
 
 
 if __name__ == "__main__":  # pragma: no cover

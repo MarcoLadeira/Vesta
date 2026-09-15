@@ -11,7 +11,7 @@ review, and silently re-create the split this issue exists to remove.
 
 So the rule is enforced structurally rather than by convention:
 
-* only ``opaihub/generated_lifecycle.py`` may enumerate the canonical state IDs
+* only ``vestahub/generated_lifecycle.py`` may enumerate the canonical state IDs
   as a literal collection -- everything else imports it;
 * only ``generated-lifecycle.js`` may hold a browser transition table;
 * presentation may group, rename and re-order states, but may not decide
@@ -28,7 +28,7 @@ import ast
 import unittest
 from pathlib import Path
 
-from opaihub.generated_lifecycle import STATE_IDS, TERMINAL_STATE_IDS
+from vestahub.generated_lifecycle import STATE_IDS, TERMINAL_STATE_IDS
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -36,12 +36,12 @@ ROOT = Path(__file__).resolve().parents[1]
 #: runtime consumer that re-exposes it as an Enum, which necessarily names the
 #: members. Nothing else may enumerate the vocabulary.
 PYTHON_AUTHORITIES = {
-    Path("opaihub/generated_lifecycle.py"),
-    Path("opaihub/run_state.py"),
+    Path("vestahub/generated_lifecycle.py"),
+    Path("vestahub/run_state.py"),
 }
 
 #: Generated browser contract, plus the schema/generator that produce it.
-BROWSER_AUTHORITY = Path("opai/assets/web/generated-lifecycle.js")
+BROWSER_AUTHORITY = Path("vesta/assets/web/generated-lifecycle.js")
 
 #: A collection literal containing at least this many canonical state IDs is
 #: treated as a rival vocabulary. Two is deliberate: a pair like
@@ -61,46 +61,46 @@ REDEFINITION_THRESHOLD = 2
 #: and an entry that no longer fires fails too, so a fixed module cannot keep
 #: silent permission it no longer needs.
 REVIEWED_LITERALS: dict[str, str] = {
-    "opai/activity.py": (
+    "vesta/activity.py": (
         "activity-row vocabulary (pending/success/warning/error) for the UI "
         "timeline. Overlaps the lifecycle only in the words 'running' and "
         "'cancelled'; an activity row is not a run."
     ),
-    "opai/gui_recents.py": (
+    "vesta/gui_recents.py": (
         "persisted thread-status projection for the recents list. Presentation "
         "and storage, downstream of the completion verdict, never an authority "
         "over it."
     ),
-    "opai/update/runtime.py": (
+    "vesta/update/runtime.py": (
         "GUI workflow-phase vocabulary used only to detect a safe replacement "
         "boundary. A workflow phase is active work, not a run lifecycle state."
     ),
-    "opaihub/change_attribution.py": (
+    "vestahub/change_attribution.py": (
         "external-operation and change-set outcomes for #620 run-scoped "
         "attribution (intent / succeeded / uncertain, plus worktree probe "
         "kinds). These describe whether a repository *mutation* happened and "
         "who caused it, not what state a run is in; the overlap with the "
         "lifecycle is only the generic words 'failed' and 'cancelled'."
     ),
-    "opaihub/checkpoints.py": (
+    "vestahub/checkpoints.py": (
         "checkpoint outcomes (answered / read_only / cancelled_before_edit). A "
         "different domain that happens to share several words."
     ),
-    "opaihub/legacy_status.py": (
+    "vestahub/legacy_status.py": (
         "the designated compatibility boundary. Naming legacy strings is its "
         "entire job; #612 AC7 makes these output-only, and #612 AC9 gives them "
         "per-alias telemetry and a removal criterion."
     ),
-    "opaihub/provider_reliability.py": (
+    "vestahub/provider_reliability.py": (
         "provider failure reasons (auth / rate limit / timeout), not run "
         "lifecycle states."
     ),
-    "opaihub/auto_router.py": (
+    "vestahub/auto_router.py": (
         "routing eligibility checks against two terminal states; reads the "
         "vocabulary, does not define it."
     ),
     # --- lifecycle meaning still held by hand: recorded as debt, not blessed ---
-    "opaihub/ledger.py": (
+    "vestahub/ledger.py": (
         "DEBT: OUTCOME_CATEGORIES is a hand-maintained set of terminal classes. "
         "It is deliberately NARROWER than TERMINAL_STATE_IDS (no timeout, no "
         "needs_attention), so deriving it mechanically would change which "
@@ -108,7 +108,7 @@ REVIEWED_LITERALS: dict[str, str] = {
         "recordable as timeout is a product decision for #288/#618, not a "
         "rename this issue may make silently."
     ),
-    # opaihub/run_result.py held a DEBT entry here for _AUTOMATIC_RETRY_STATES
+    # vestahub/run_result.py held a DEBT entry here for _AUTOMATIC_RETRY_STATES
     # ({failed, timeout}) -- retry eligibility restated outside the schema. #618
     # paid it: automatic_retry_eligible is now a required per-state field in
     # lifecycle_schema.json, generated into STATE_SPECS, and derived in
@@ -123,7 +123,7 @@ _SKIP_DIRS = {
     "node_modules",
     "__pycache__",
     ".ruff_cache",
-    ".opaihub",
+    ".vestahub",
     ".opcoding",
     "build",
     "dist",
@@ -189,7 +189,7 @@ class NoSecondPythonAuthorityTests(unittest.TestCase):
             [],
             "these modules enumerate canonical lifecycle states outside the "
             "generated contract, which is how a second, drifting authority "
-            "starts. Import from opaihub.generated_lifecycle, or add the module "
+            "starts. Import from vestahub.generated_lifecycle, or add the module "
             "to REVIEWED_LITERALS with the reason it is a different domain:\n  "
             + detail,
         )
@@ -225,7 +225,7 @@ class NoSecondPythonAuthorityTests(unittest.TestCase):
         # frozenset written by hand. ledger.py's OUTCOME_CATEGORIES remains,
         # and it is genuinely not #618's to move -- it changes which outcomes a
         # task may record, which #288 owns.
-        for module in ("opaihub/ledger.py",):
+        for module in ("vestahub/ledger.py",):
             with self.subTest(module=module):
                 self.assertTrue(
                     REVIEWED_LITERALS[module].startswith("DEBT:"),
@@ -256,14 +256,14 @@ class NoSecondPythonAuthorityTests(unittest.TestCase):
     def test_the_scan_actually_reaches_production_modules(self):
         """Guard against a glob that silently matches nothing."""
         scanned = {p.relative_to(ROOT).as_posix() for p in _python_sources()}
-        self.assertIn("opaihub/run_state.py", scanned)
-        self.assertIn("opai/app_state.py", scanned)
+        self.assertIn("vestahub/run_state.py", scanned)
+        self.assertIn("vesta/app_state.py", scanned)
         self.assertGreater(len(scanned), 100)
 
 
 class NoSecondBrowserAuthorityTests(unittest.TestCase):
     def _web_sources(self) -> list[Path]:
-        web = ROOT / "opai" / "assets" / "web"
+        web = ROOT / "vesta" / "assets" / "web"
         return sorted(
             path
             for path in web.rglob("*.js")
@@ -289,10 +289,10 @@ class NoSecondBrowserAuthorityTests(unittest.TestCase):
 
     def test_the_message_store_derives_from_the_generated_contract(self):
         """It must fail loudly if the contract is absent, never fall back."""
-        source = (ROOT / "opai" / "assets" / "web" / "message-state.js").read_text(
+        source = (ROOT / "vesta" / "assets" / "web" / "message-state.js").read_text(
             encoding="utf-8"
         )
-        self.assertIn("global.OPaiLifecycle", source)
+        self.assertIn("global.VestaLifecycle", source)
         self.assertIn("lifecycle.canTransition", source)
         self.assertIn("lifecycle.isTerminal", source)
         self.assertIn("must load first", source)
@@ -320,9 +320,9 @@ class GeneratedArtefactsAreByteStableTests(unittest.TestCase):
     """
 
     TARGETS = (
-        "opaihub/generated_lifecycle.py",
-        "opai/assets/web/generated-lifecycle.js",
-        "opaihub/data/lifecycle-fixtures.json",
+        "vestahub/generated_lifecycle.py",
+        "vesta/assets/web/generated-lifecycle.js",
+        "vestahub/data/lifecycle-fixtures.json",
         "docs/lifecycle-schema.md",
     )
 
@@ -365,7 +365,7 @@ class TerminalityAgreesAcrossTargetsTests(unittest.TestCase):
         """Evaluate the generated contract in Node and return what it exposes.
 
         Deliberately executed rather than pattern-matched: the file is an IIFE
-        that assigns ``global.OPaiLifecycle`` and freezes it, so a regex over
+        that assigns ``global.VestaLifecycle`` and freezes it, so a regex over
         the source proves nothing about what the browser actually receives --
         and my first attempt at one silently matched the wrong thing.
         """
@@ -378,7 +378,7 @@ class TerminalityAgreesAcrossTargetsTests(unittest.TestCase):
             self.skipTest("node is not installed on this machine")
         script = (
             f"require({json.dumps(str(ROOT / BROWSER_AUTHORITY))});"
-            "var c = globalThis.OPaiLifecycle;"
+            "var c = globalThis.VestaLifecycle;"
             "process.stdout.write(JSON.stringify({"
             "  stateIds: c.stateIds,"
             "  terminalStateIds: c.terminalStateIds,"
@@ -421,21 +421,21 @@ class TerminalityAgreesAcrossTargetsTests(unittest.TestCase):
         or dead-end state. Both sides now read one generated table; this is the
         permanent regression fixture for that disagreement.
         """
-        from opaihub.run_state import can_transition
+        from vestahub.run_state import can_transition
 
         contract = self._browser_contract()
         self.assertTrue(can_transition("verifying", "running"), "Python rejects repair")
         self.assertTrue(contract["verifyingToRunning"], "browser rejects repair")
 
     def test_terminal_regression_is_illegal_on_both_sides(self):
-        from opaihub.run_state import can_transition
+        from vestahub.run_state import can_transition
 
         contract = self._browser_contract()
         self.assertFalse(can_transition("completed", "running"))
         self.assertFalse(contract["completedToRunning"])
 
     def test_cancel_requested_is_non_terminal_on_both_sides(self):
-        from opaihub.run_state import is_terminal
+        from vestahub.run_state import is_terminal
 
         contract = self._browser_contract()
         self.assertFalse(is_terminal("cancel_requested"))

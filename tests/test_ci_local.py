@@ -19,7 +19,7 @@ def _check(evidence: dict, check_id: str) -> dict:
 
 def _load_ci_local_module():
     path = ROOT / "scripts" / "ci_local.py"
-    spec = importlib.util.spec_from_file_location("opai_ci_local", path)
+    spec = importlib.util.spec_from_file_location("vesta_ci_local", path)
     if spec is None or spec.loader is None:
         raise AssertionError("Could not load ci_local.py")
     module = importlib.util.module_from_spec(spec)
@@ -53,7 +53,7 @@ class LocalCiEvidenceTests(unittest.TestCase):
 
     def test_required_missing_executable_fails_instead_of_becoming_a_green_skip(self):
         ci = _load_ci_local_module()
-        step = ci.Step("missing executable", ["opai-tool-that-does-not-exist"])
+        step = ci.Step("missing executable", ["vesta-tool-that-does-not-exist"])
 
         with tempfile.TemporaryDirectory() as temporary_directory:
             manifest = Path(temporary_directory) / "evidence.json"
@@ -68,14 +68,14 @@ class LocalCiEvidenceTests(unittest.TestCase):
         self.assertEqual(
             check["status"], {"execution": "unavailable", "outcome": "failed"}
         )
-        self.assertIn("opai-tool-that-does-not-exist", check["message"])
+        self.assertIn("vesta-tool-that-does-not-exist", check["message"])
 
     def test_required_missing_tool_fails_and_records_unavailable_evidence(self):
         ci = _load_ci_local_module()
         step = ci.Step(
             "missing required tool",
-            ["opai-tool-that-does-not-exist"],
-            required_modules=("opai_tool_that_does_not_exist",),
+            ["vesta-tool-that-does-not-exist"],
+            required_modules=("vesta_tool_that_does_not_exist",),
         )
 
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -93,7 +93,7 @@ class LocalCiEvidenceTests(unittest.TestCase):
             check["status"], {"execution": "unavailable", "outcome": "failed"}
         )
         self.assertTrue(check["required"])
-        self.assertIn("opai_tool_that_does_not_exist", check["message"])
+        self.assertIn("vesta_tool_that_does_not_exist", check["message"])
 
     def test_fast_profile_writes_machine_readable_passing_evidence(self):
         ci = _load_ci_local_module()
@@ -211,7 +211,7 @@ class LocalCiEvidenceTests(unittest.TestCase):
             record = ci._run(ci.NATIVE_STEPS[0], candidate_sha=candidate_sha)
 
         self.assertEqual(record["status"]["outcome"], "passed")
-        self.assertEqual(run.call_args.kwargs["env"]["OPAI_BUILD_ID"], candidate_sha)
+        self.assertEqual(run.call_args.kwargs["env"]["VESTA_BUILD_ID"], candidate_sha)
         self.assertEqual(run.call_args.args[0][-2:], ["--candidate-sha", candidate_sha])
 
     def test_required_timeout_is_typed_infrastructure_blockage(self):
@@ -289,7 +289,7 @@ class LocalCiEvidenceTests(unittest.TestCase):
 
     def test_failure_diagnostics_are_redacted_and_bounded(self):
         ci = _load_ci_local_module()
-        secret = "sk-opai-this-must-never-enter-evidence"
+        secret = "sk-vesta-this-must-never-enter-evidence"
         script = f"print({secret!r}); print('x' * 10000); raise SystemExit(4)"
         step = ci.Step("noisy failure", [sys.executable, "-c", script])
 

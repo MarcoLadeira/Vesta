@@ -8,7 +8,7 @@ from pathlib import Path
 
 from _helpers import make_repo
 
-from opaihub.audit import (
+from vestahub.audit import (
     audit_path,
     read_audit,
     record_audit_event,

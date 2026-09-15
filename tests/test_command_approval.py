@@ -22,7 +22,7 @@ import pytest
 
 from _helpers import FakeAccountRunner, FakeStreamingRunner, make_repo
 
-from opaihub.completion import (
+from vestahub.completion import (
     CompletionState,
     completion_state_from_legacy,
     result_is_completed,
@@ -72,7 +72,7 @@ class ExplicitModelApprovalTests(unittest.TestCase):
     """run_explicit_model normalizes the loop's approval signal (F17/F9)."""
 
     def _run(self, runner):
-        from opaihub.ask import run_explicit_model
+        from vestahub.ask import run_explicit_model
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
@@ -159,12 +159,12 @@ class GuiApprovalReplyTests(unittest.TestCase):
         }
 
     def test_free_run_reports_needs_command_approval_with_command_and_reason(self):
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
             with mock.patch(
-                "opai.app_state.ask", return_value=self._free_result()
+                "vesta.app_state.ask", return_value=self._free_result()
             ) as ask_mock:
                 result = handle_gui_message(
                     root,
@@ -189,12 +189,12 @@ class GuiApprovalReplyTests(unittest.TestCase):
         self.assertTrue(ask_mock.call_args.kwargs["tool_calling_enabled"])
 
     def test_allow_command_kwarg_threads_to_free_ask(self):
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
             with mock.patch(
-                "opai.app_state.ask", return_value=self._free_result()
+                "vesta.app_state.ask", return_value=self._free_result()
             ) as ask_mock:
                 handle_gui_message(
                     root,
@@ -210,12 +210,12 @@ class GuiApprovalReplyTests(unittest.TestCase):
         )
 
     def test_allowCommand_frontend_spelling_threads_verbatim(self):
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
             with mock.patch(
-                "opai.app_state.ask", return_value=self._free_result()
+                "vesta.app_state.ask", return_value=self._free_result()
             ) as ask_mock:
                 handle_gui_message(
                     root,
@@ -232,12 +232,12 @@ class GuiApprovalReplyTests(unittest.TestCase):
         )
 
     def test_no_grant_sends_no_allow_command(self):
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
             with mock.patch(
-                "opai.app_state.ask", return_value=self._free_result()
+                "vesta.app_state.ask", return_value=self._free_result()
             ) as ask_mock:
                 handle_gui_message(
                     root,
@@ -255,7 +255,7 @@ class ProviderCliPushApprovalTests(unittest.TestCase):
 
     A provider CLI runs git in its own shell, so its blocked push is refused by
     the out-of-process PreToolUse hook, which cannot put anything into the run
-    result. It records the refusal through ``opaihub.command_consent`` instead.
+    result. It records the refusal through ``vestahub.command_consent`` instead.
     Without reading that back, the turn ended on the model's own prose — which in
     the live session claimed the branch "has been successfully pushed" while the
     status pill read Failed. These pin both halves of the fix.
@@ -265,7 +265,7 @@ class ProviderCliPushApprovalTests(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         patcher = mock.patch.dict(
-            os.environ, {"OPAI_COMMAND_CONSENT_DIR": self._tmp.name}
+            os.environ, {"VESTA_COMMAND_CONSENT_DIR": self._tmp.name}
         )
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -277,8 +277,8 @@ class ProviderCliPushApprovalTests(unittest.TestCase):
         inside the provider call — the only point at which it can happen, since
         the pipeline clears stale refusals before the run starts.
         """
-        from opaihub import command_consent
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub import command_consent
+        from vestahub.gui_pipeline import handle_gui_message
 
         def _provider(*_args, **_kwargs):
             if refuses:
@@ -293,7 +293,7 @@ class ProviderCliPushApprovalTests(unittest.TestCase):
                 "tool_trace": [],
             }
 
-        with mock.patch("opai.app_state.ask", side_effect=_provider):
+        with mock.patch("vesta.app_state.ask", side_effect=_provider):
             return handle_gui_message(
                 root,
                 "Push the current branch",
@@ -340,7 +340,7 @@ class ProviderCliPushApprovalTests(unittest.TestCase):
         self.assertNotIn("pull request is updated", result["answer"])
 
     def test_a_grant_is_armed_where_the_hook_can_read_it(self):
-        from opaihub import command_consent
+        from vestahub import command_consent
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
@@ -357,9 +357,9 @@ class ProviderCliPushApprovalTests(unittest.TestCase):
                     "tool_trace": [],
                 }
 
-            from opaihub.gui_pipeline import handle_gui_message
+            from vestahub.gui_pipeline import handle_gui_message
 
-            with mock.patch("opai.app_state.ask", side_effect=_capture):
+            with mock.patch("vesta.app_state.ask", side_effect=_capture):
                 handle_gui_message(
                     root,
                     "Push the current branch",
@@ -385,12 +385,12 @@ class ProviderCliPushApprovalTests(unittest.TestCase):
         self.assertNotEqual(second["status"], "needs_command_approval")
 
     def test_success_prose_under_a_non_completed_verdict_is_marked_unverified(self):
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
             with mock.patch(
-                "opai.app_state.ask",
+                "vesta.app_state.ask",
                 return_value={
                     "status": "answered_by_account",
                     "answer": (
@@ -417,12 +417,12 @@ class ProviderCliPushApprovalTests(unittest.TestCase):
         self.assertTrue(verdict["answer_conflicts"])
 
     def test_a_verified_run_carries_no_conflict_flag(self):
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
             with mock.patch(
-                "opai.app_state.ask",
+                "vesta.app_state.ask",
                 return_value={
                     "status": "answered_by_account",
                     "answer": "The branch has been successfully pushed to origin.",
@@ -447,7 +447,7 @@ class AccountCompletionTruthTests(unittest.TestCase):
     """F24: _ask_account emits canonical completion truth from runner signals."""
 
     def _ask(self, runner):
-        from opai.app_state import ask
+        from vesta.app_state import ask
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
@@ -526,7 +526,7 @@ class AccountCompletionTruthTests(unittest.TestCase):
                     "permission_denied": True,
                 }
 
-        from opai.app_state import ask
+        from vesta.app_state import ask
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
@@ -561,7 +561,7 @@ class EditIntentHonestyTests(unittest.TestCase):
     """F14/F24: edit-intent runs with zero change evidence are not green."""
 
     def test_implement_run_with_zero_changes_is_not_green_completed(self):
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         events: list[dict] = []
         with tempfile.TemporaryDirectory() as tmp:
@@ -590,7 +590,7 @@ class EditIntentHonestyTests(unittest.TestCase):
         self.assertEqual(result["workflow"]["tests_status"], "not_verified")
 
     def test_implement_run_with_real_changes_needs_policy_evidence(self):
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         class EditingRunner(FakeAccountRunner):
             def __init__(self, target: Path):
@@ -629,7 +629,7 @@ class EditIntentHonestyTests(unittest.TestCase):
         self.assertTrue(result["changed_files"])
 
     def test_read_only_run_stays_green_on_a_real_answer(self):
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         events: list[dict] = []
         with tempfile.TemporaryDirectory() as tmp:
@@ -651,7 +651,7 @@ class EditIntentHonestyTests(unittest.TestCase):
         self.assertEqual(result["workflow"]["phase"], "completed")
 
     def test_free_implement_run_with_zero_changes_is_not_green(self):
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         fake_result = {
             "status": "answered_by_free_api",
@@ -665,7 +665,7 @@ class EditIntentHonestyTests(unittest.TestCase):
         events: list[dict] = []
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
-            with mock.patch("opai.app_state.ask", return_value=fake_result):
+            with mock.patch("vesta.app_state.ask", return_value=fake_result):
                 result = handle_gui_message(
                     root,
                     "Solve GitHub issue #219 in this repo for me.",
@@ -729,12 +729,12 @@ class LocalRunRepoMovementIsChangeEvidenceTests(unittest.TestCase):
         return _ask
 
     def test_a_landed_commit_is_not_reported_as_no_changes(self):
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         events: list[dict] = []
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
-            with mock.patch("opai.app_state.ask", side_effect=self._commit_into(root)):
+            with mock.patch("vesta.app_state.ask", side_effect=self._commit_into(root)):
                 result = handle_gui_message(
                     root,
                     "Fix the value in app.py and commit it.",

@@ -1,6 +1,6 @@
 """Capability classification and the autonomy matrix.
 
-The regressions that motivated :mod:`opaihub.command_policy` are pinned here as
+The regressions that motivated :mod:`vestahub.command_policy` are pinned here as
 executable claims, because each one shipped as a user-visible "COMMAND BLOCKED"
 wall:
 
@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import unittest
 
-from opaihub.command_policy import (
+from vestahub.command_policy import (
     ASK,
     AUTO_EDITS,
     BLOCK,
@@ -42,7 +42,7 @@ class ReadOnlyCommandTests(unittest.TestCase):
     def test_plain_file_reads_are_read_only(self) -> None:
         for command in (
             "cat package.json",
-            "ls -la opai/assets/web",
+            "ls -la vesta/assets/web",
             "head -40 README.md",
             "tail -n 20 log.txt",
             "wc -l setup.py",
@@ -326,7 +326,7 @@ class ClaudeCodeModeParityTests(unittest.TestCase):
     }
 
     def test_edit_and_command_authority_agree_per_mode(self) -> None:
-        from opai.gui_permissions import permissions_for
+        from vesta.gui_permissions import permissions_for
 
         for mode, (edit_state, command_action) in self.EXPECTED.items():
             with self.subTest(mode=mode):
@@ -338,7 +338,7 @@ class ClaudeCodeModeParityTests(unittest.TestCase):
                 )
 
     def test_accept_edits_is_the_only_mode_that_edits_but_still_asks(self) -> None:
-        from opai.gui_permissions import permissions_for
+        from vesta.gui_permissions import permissions_for
 
         states = {row["id"]: row["state"] for row in permissions_for("auto-edits")}
         self.assertEqual(states["edit"], "allow")
@@ -374,7 +374,7 @@ class BypassIsASwitchNotAModeTests(unittest.TestCase):
     MODES = ("plan", "ask", "approve-edits", "safe-auto", "auto-edits")
 
     def test_the_switch_grants_full_authority_from_any_mode(self) -> None:
-        from opaihub.command_policy import resolve_autonomy
+        from vestahub.command_policy import resolve_autonomy
 
         for mode in self.MODES:
             with self.subTest(mode=mode):
@@ -383,7 +383,7 @@ class BypassIsASwitchNotAModeTests(unittest.TestCase):
                 )
 
     def test_switching_it_off_returns_the_mode_you_were_in(self) -> None:
-        from opaihub.command_policy import resolve_autonomy
+        from vestahub.command_policy import resolve_autonomy
 
         expected = {
             "plan": PLAN,
@@ -400,13 +400,13 @@ class BypassIsASwitchNotAModeTests(unittest.TestCase):
                 self.assertEqual(resolve_autonomy(mode), level)
 
     def test_the_legacy_full_auto_mode_id_still_means_bypass(self) -> None:
-        from opaihub.command_policy import resolve_autonomy
+        from vestahub.command_policy import resolve_autonomy
 
         self.assertEqual(resolve_autonomy("full-auto"), BYPASS)
         self.assertEqual(resolve_autonomy("full-auto", bypass_permissions=True), BYPASS)
 
     def test_the_switch_actually_changes_what_runs(self) -> None:
-        from opaihub.command_policy import resolve_autonomy
+        from vestahub.command_policy import resolve_autonomy
 
         for mode in self.MODES:
             with self.subTest(mode=mode):
@@ -423,6 +423,6 @@ class BypassIsASwitchNotAModeTests(unittest.TestCase):
                 )
 
     def test_the_preference_defaults_off(self) -> None:
-        from opaihub.gui_preferences import DEFAULT_PREFERENCES
+        from vestahub.gui_preferences import DEFAULT_PREFERENCES
 
         self.assertIs(DEFAULT_PREFERENCES["bypass_permissions"], False)

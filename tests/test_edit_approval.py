@@ -27,7 +27,7 @@ import pytest
 
 from _helpers import FakeStreamingRunner, make_repo
 
-from opaihub.completion import result_is_completed
+from vestahub.completion import result_is_completed
 
 
 @pytest.fixture(autouse=True)
@@ -88,7 +88,7 @@ class ActivityEditDenialTests(unittest.TestCase):
     """The stream session records which files were permission-refused."""
 
     def _session(self):
-        from opai.activity import ActivitySession
+        from vesta.activity import ActivitySession
 
         return ActivitySession()
 
@@ -144,7 +144,7 @@ class CommandLengthErrorTests(unittest.TestCase):
     """F25: the CLI's ~965-byte parser limit renders as actionable guidance."""
 
     def _session(self):
-        from opai.activity import ActivitySession
+        from vesta.activity import ActivitySession
 
         return ActivitySession()
 
@@ -168,7 +168,7 @@ class CommandLengthErrorTests(unittest.TestCase):
         self.assertNotIn("965 bytes.", detail)  # raw diagnostic is replaced
 
     def test_ordinary_command_error_is_unchanged(self):
-        from opai.activity import _friendly_tool_error
+        from vesta.activity import _friendly_tool_error
 
         self.assertIsNone(_friendly_tool_error("command not found: gh"))
 
@@ -177,7 +177,7 @@ class BuildCommandGrantTests(unittest.TestCase):
     """edit_grant maps to acceptEdits in Safe Auto only (F26)."""
 
     def _runner(self):
-        from opaihub.accounts import AccountRunner
+        from vestahub.accounts import AccountRunner
 
         return AccountRunner("claude", "claude")
 
@@ -254,7 +254,7 @@ class PipelineEditApprovalTests(unittest.TestCase):
     """The pipeline turns edit denials into an actionable card (F26)."""
 
     def _run(self, runner, **kwargs):
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
@@ -313,7 +313,7 @@ class NoProgressGuardTests(unittest.TestCase):
     """F27: a guard-checkpointed run is honest — never green, never empty."""
 
     def test_guard_result_maps_to_stuck_no_progress(self):
-        from opai.app_state import ask
+        from vesta.app_state import ask
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
@@ -341,15 +341,15 @@ class NoProgressGuardTests(unittest.TestCase):
         self.assertNotIn("without a single edit attempt", result["answer"])
 
     def test_guard_env_knobs_parse_defensively(self):
-        from opaihub.accounts import _guard_int_env
+        from vestahub.accounts import _guard_int_env
 
-        with mock.patch.dict(os.environ, {"OPAI_NO_PROGRESS_STEP_BUDGET": "25"}):
-            self.assertEqual(_guard_int_env("OPAI_NO_PROGRESS_STEP_BUDGET", 60), 25)
-        with mock.patch.dict(os.environ, {"OPAI_NO_PROGRESS_STEP_BUDGET": "0"}):
-            self.assertEqual(_guard_int_env("OPAI_NO_PROGRESS_STEP_BUDGET", 60), 0)
+        with mock.patch.dict(os.environ, {"VESTA_NO_PROGRESS_STEP_BUDGET": "25"}):
+            self.assertEqual(_guard_int_env("VESTA_NO_PROGRESS_STEP_BUDGET", 60), 25)
+        with mock.patch.dict(os.environ, {"VESTA_NO_PROGRESS_STEP_BUDGET": "0"}):
+            self.assertEqual(_guard_int_env("VESTA_NO_PROGRESS_STEP_BUDGET", 60), 0)
         for bad in ("nope", "-5", ""):
-            with mock.patch.dict(os.environ, {"OPAI_NO_PROGRESS_STEP_BUDGET": bad}):
-                self.assertEqual(_guard_int_env("OPAI_NO_PROGRESS_STEP_BUDGET", 60), 60)
+            with mock.patch.dict(os.environ, {"VESTA_NO_PROGRESS_STEP_BUDGET": bad}):
+                self.assertEqual(_guard_int_env("VESTA_NO_PROGRESS_STEP_BUDGET", 60), 60)
 
 
 if __name__ == "__main__":

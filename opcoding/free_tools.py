@@ -15,7 +15,7 @@ GO_TOOLS = [
     "github.com/zricethezav/gitleaks/v8@latest",
     "github.com/rhysd/actionlint/cmd/actionlint@latest",
 ]
-TOOLS_DIR_ENV = "OPAI_TOOLS_DIR"
+TOOLS_DIR_ENV = "VESTA_TOOLS_DIR"
 
 
 def _tool_cache_base() -> Path:
@@ -25,11 +25,11 @@ def _tool_cache_base() -> Path:
     if os.name == "nt":
         local_app_data = os.environ.get("LOCALAPPDATA")
         if local_app_data:
-            return Path(local_app_data).expanduser().resolve() / "OPai" / "tool-cache"
+            return Path(local_app_data).expanduser().resolve() / "Vesta" / "tool-cache"
     xdg_cache = os.environ.get("XDG_CACHE_HOME")
     if xdg_cache:
-        return Path(xdg_cache).expanduser().resolve() / "opai" / "tool-cache"
-    return Path.home().expanduser().resolve() / ".opai" / "tool-cache"
+        return Path(xdg_cache).expanduser().resolve() / "vesta" / "tool-cache"
+    return Path.home().expanduser().resolve() / ".vesta" / "tool-cache"
 
 
 def _project_cache_name(root: Path) -> str:
@@ -218,8 +218,8 @@ def run_tool(root: Path, name: str, timeout: int = 300) -> dict[str, Any]:
         "bandit": [
             str(python_bin(root, "bandit.exe" if os.name == "nt" else "bandit")),
             "-r",
-            "opai",
-            "opaihub",
+            "vesta",
+            "vestahub",
             "opcoding",
             "-q",
         ],
@@ -239,7 +239,7 @@ def run_tool(root: Path, name: str, timeout: int = 300) -> dict[str, Any]:
             "scan",
             "--all-files",
             "--exclude-files",
-            r"(^|[\\/])\.opcoding-tools([\\/]|$)|(^|[\\/])\.ruff_cache([\\/]|$)|(^|[\\/])\.opcoding([\\/]|$)|(^|[\\/])\.opaihub([\\/]|$)|(^|[\\/])opai[\\/]assets[\\/].*\.png$",
+            r"(^|[\\/])\.opcoding-tools([\\/]|$)|(^|[\\/])\.ruff_cache([\\/]|$)|(^|[\\/])\.opcoding([\\/]|$)|(^|[\\/])\.vestahub([\\/]|$)|(^|[\\/])vesta[\\/]assets[\\/].*\.png$",
             "--exclude-lines",
             "MORPH_API_KEY|api_key_env|api_key_present",
         ],

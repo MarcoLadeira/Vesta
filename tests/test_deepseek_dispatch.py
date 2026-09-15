@@ -16,7 +16,7 @@ from pathlib import Path
 
 class AskDeepSeekTests(unittest.TestCase):
     def test_ask_paid_requires_confirmation_with_billing_language(self):
-        from opai.app_state import ask
+        from vesta.app_state import ask
 
         with mock.patch.dict(
             os.environ,
@@ -37,7 +37,7 @@ class AskDeepSeekTests(unittest.TestCase):
 
     def test_free_confirmation_wording_is_unchanged(self):
         # Regression guard for the shared function's other branch.
-        from opai.app_state import ask
+        from vesta.app_state import ask
 
         with mock.patch.dict(
             os.environ,
@@ -53,12 +53,12 @@ class AskDeepSeekTests(unittest.TestCase):
         self.assertNotIn("bills per token", result["message"])
 
     def test_ask_paid_dispatches_and_labels_status_correctly(self):
-        from opai.app_state import ask
+        from vesta.app_state import ask
 
         fake_result = {"status": "answered_locally", "answer": "4", "source": "x"}
         with (
             mock.patch(
-                "opaihub.ask.run_explicit_model", return_value=fake_result
+                "vestahub.ask.run_explicit_model", return_value=fake_result
             ) as run_explicit,
             mock.patch.dict(
                 os.environ,
@@ -83,11 +83,11 @@ class AskDeepSeekTests(unittest.TestCase):
 
     def test_free_dispatch_status_labelling_is_unchanged(self):
         # Regression guard: the free branch's free_tier flag must stay True.
-        from opai.app_state import ask
+        from vesta.app_state import ask
 
         fake_result = {"status": "answered_locally", "answer": "4", "source": "x"}
         with (
-            mock.patch("opaihub.ask.run_explicit_model", return_value=fake_result),
+            mock.patch("vestahub.ask.run_explicit_model", return_value=fake_result),
             mock.patch.dict(
                 os.environ,
                 {"GOOGLE_API_KEY": "sk-test"},  # pragma: allowlist secret
@@ -108,8 +108,8 @@ class AskDeepSeekTests(unittest.TestCase):
         a real dollar figure computed from real usage, never fall through to
         the L2 tier rate (calibrated for genuinely-free providers, so it
         would silently under-report a real DeepSeek charge)."""
-        from opai.app_state import ask
-        from opaihub.local_runner import PaidAPIRunner
+        from vesta.app_state import ask
+        from vestahub.local_runner import PaidAPIRunner
 
         runner = PaidAPIRunner(
             "https://api.deepseek.com",
@@ -137,10 +137,10 @@ class AskDeepSeekTests(unittest.TestCase):
             return {}
 
         with (
-            mock.patch("opaihub.local_runner.runner_for_model", return_value=runner),
-            mock.patch("opaihub.ask.run_explicit_model", return_value=fake_result),
+            mock.patch("vestahub.local_runner.runner_for_model", return_value=runner),
+            mock.patch("vestahub.ask.run_explicit_model", return_value=fake_result),
             mock.patch(
-                "opaihub.ledger.record_model_call",
+                "vestahub.ledger.record_model_call",
                 side_effect=_capture_record_model_call,
             ),
             mock.patch.dict(
@@ -169,8 +169,8 @@ class AskDeepSeekTests(unittest.TestCase):
         gain a real_cost_usd it never had — None still means "use the L2
         tier fallback", which is correctly $0-ish for a genuinely free call.
         """
-        from opai.app_state import ask
-        from opaihub.local_runner import FreeAPIRunner
+        from vesta.app_state import ask
+        from vestahub.local_runner import FreeAPIRunner
 
         runner = FreeAPIRunner("https://api.groq.com/openai/v1", "model", "key")
         runner.last_usage = {
@@ -187,10 +187,10 @@ class AskDeepSeekTests(unittest.TestCase):
             return {}
 
         with (
-            mock.patch("opaihub.local_runner.runner_for_model", return_value=runner),
-            mock.patch("opaihub.ask.run_explicit_model", return_value=fake_result),
+            mock.patch("vestahub.local_runner.runner_for_model", return_value=runner),
+            mock.patch("vestahub.ask.run_explicit_model", return_value=fake_result),
             mock.patch(
-                "opaihub.ledger.record_model_call",
+                "vestahub.ledger.record_model_call",
                 side_effect=_capture_record_model_call,
             ),
             mock.patch.dict(

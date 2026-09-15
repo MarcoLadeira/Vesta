@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 import unittest
 
-from opai.message_render import render_message_html as R
+from vesta.message_render import render_message_html as R
 
 
 class RenderBasicsTests(unittest.TestCase):

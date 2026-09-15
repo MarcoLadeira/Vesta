@@ -1,6 +1,6 @@
 """The desktop GUI's app-wide colour theme (Qt-free).
 
-Uses isolated_home so the developer's real ~/.opai/gui_theme.json is never read
+Uses isolated_home so the developer's real ~/.vesta/gui_theme.json is never read
 or written: a theme saved on this machine must not change a test's answer.
 """
 
@@ -13,7 +13,7 @@ from pathlib import Path
 
 from _helpers import isolated_home
 
-from opai.gui_theme import (
+from vesta.gui_theme import (
     DEFAULT_THEME,
     PALETTES,
     SYSTEM_DARK_THEME,
@@ -27,7 +27,7 @@ from opai.gui_theme import (
     theme_path,
 )
 
-WEB_DIR = Path(__file__).resolve().parents[1] / "opai" / "assets" / "web"
+WEB_DIR = Path(__file__).resolve().parents[1] / "vesta" / "assets" / "web"
 
 
 class NormalizeTests(unittest.TestCase):
@@ -57,7 +57,7 @@ class PersistenceTests(unittest.TestCase):
             for theme in THEMES:
                 self.assertEqual(save_theme(theme), theme)
                 self.assertEqual(load_theme(), theme)
-            self.assertEqual(theme_path(), home / ".opai" / "gui_theme.json")
+            self.assertEqual(theme_path(), home / ".vesta" / "gui_theme.json")
             stored = json.loads(theme_path().read_text(encoding="utf-8"))
             self.assertEqual(stored, {"theme": "system"})
 

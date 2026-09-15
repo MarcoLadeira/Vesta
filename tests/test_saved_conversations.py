@@ -25,7 +25,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opai.gui_recents import (
+from vesta.gui_recents import (
     CONVERSATION_SCHEMA_VERSION,
     MAX_CONVERSATIONS,
     archive_conversation,

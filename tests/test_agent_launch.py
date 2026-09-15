@@ -14,14 +14,14 @@ from pathlib import Path
 from unittest import mock
 
 from _helpers import FakeAccountRunner, make_repo
-from opaihub.agent_launch import (
+from vestahub.agent_launch import (
     PASSTHROUGH_EXIT,
     classify_invocation,
     launch_agent,
 )
-from opaihub.ledger import EVENT_CAPTURE_SESSION, read_events
-from opai.integrations import install_global_integrations
-from opai.gui_view_model import _client_card
+from vestahub.ledger import EVENT_CAPTURE_SESSION, read_events
+from vesta.integrations import install_global_integrations
+from vesta.gui_view_model import _client_card
 
 
 def _capture_events(root: Path) -> list[dict]:
@@ -81,7 +81,7 @@ class InvocationClassifierTests(unittest.TestCase):
         self.assertEqual(plan.kind, "passthrough")
         self.assertEqual(plan.argv, tuple(argv))
 
-    def test_gemini_approval_modes_map_to_opai_modes(self):
+    def test_gemini_approval_modes_map_to_vesta_modes(self):
         cases = {
             "plan": "plan",
             "default": "ask",
@@ -213,7 +213,7 @@ class AgentLaunchTests(unittest.TestCase):
         self.assertFalse(_capture_events(self.root)[0]["captured"])
 
     def test_missing_connected_runner_falls_back_before_proxying(self):
-        with mock.patch("opaihub.accounts.runner_for_account", return_value=None):
+        with mock.patch("vestahub.accounts.runner_for_account", return_value=None):
             result = launch_agent(self.root, "codex", ["exec", "fix tests"])
         self.assertEqual(result["status"], "passthrough")
         self.assertEqual(result["reason"], "account_runner_unavailable")
@@ -225,7 +225,7 @@ class AgentLaunchTests(unittest.TestCase):
         self.assertEqual(result["exit_code"], PASSTHROUGH_EXIT)
 
     def test_cli_passthrough_is_silent_and_keeps_project_out_of_agent_argv(self):
-        from opai.cli import main
+        from vesta.cli import main
 
         output = StringIO()
         with redirect_stdout(output):
@@ -260,7 +260,7 @@ class PowerShellWrapperE2ETests(unittest.TestCase):
         self.home.mkdir()
         self.bin.mkdir()
         install_global_integrations(self.root, home=self.home, targets=["shell"])
-        self.wrapper = self.home / ".opai" / "bin" / "opai-claude.ps1"
+        self.wrapper = self.home / ".vesta" / "bin" / "vesta-claude.ps1"
         self.powershell = shutil.which("powershell") or shutil.which("pwsh")
         if not self.powershell:
             self.skipTest("PowerShell is unavailable")
@@ -274,9 +274,9 @@ class PowerShellWrapperE2ETests(unittest.TestCase):
         env["USERPROFILE"] = str(self.home)
         env["PATH"] = str(self.bin) + os.pathsep + env.get("PATH", "")
         env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1])
-        env["OPAI_WELCOME"] = "0"
-        env["OPAI_TEST_WRAPPER"] = str(
-            self.home / ".opai" / "bin" / f"opai-{agent}.ps1"
+        env["VESTA_WELCOME"] = "0"
+        env["VESTA_TEST_WRAPPER"] = str(
+            self.home / ".vesta" / "bin" / f"vesta-{agent}.ps1"
         )
         return env
 
@@ -286,7 +286,7 @@ class PowerShellWrapperE2ETests(unittest.TestCase):
         quoted = ",".join("'" + item.replace("'", "''") + "'" for item in args)
         command = (
             f"$invokeArgs = @({quoted}); "
-            "& $env:OPAI_TEST_WRAPPER @invokeArgs; exit $LASTEXITCODE"
+            "& $env:VESTA_TEST_WRAPPER @invokeArgs; exit $LASTEXITCODE"
         )
         return subprocess.run(  # nosec B603 - isolated fake wrapper fixture
             [str(self.powershell), "-NoProfile", "-Command", command],

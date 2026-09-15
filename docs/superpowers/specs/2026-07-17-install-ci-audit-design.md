@@ -2,7 +2,7 @@
 
 ## Scope
 
-Solve four GitHub issues in the OPai repository:
+Solve four GitHub issues in the Vesta repository:
 
 - **#353** — Fix and test Windows installer (`install.ps1`) for production use
 - **#354** — Fix and test macOS/Linux installer (`install.sh`) for production use
@@ -30,12 +30,12 @@ Grouped implementation in three workstreams:
 
 1. Detect Python 3.10+.
 2. Detect or install `pipx` (preferred) or `uv`.
-3. Attempt PyPI install: `pipx install opai` (or `uv tool install opai`).
+3. Attempt PyPI install: `pipx install vesta` (or `uv tool install vesta`).
 4. If PyPI is unavailable or the package is not yet published, fall back to:
-   - Clone or update `https://github.com/MarcoLadeira/OPai.git` into `~/.opai/source`
+   - Clone or update `https://github.com/MarcoLadeira/OPai.git` into `~/.vesta/source`
    - `pip install -e .` inside that clone
 5. Add the install bin directory to the user PATH if needed.
-6. Run verification: `opai --version` and `opai doctor`.
+6. Run verification: `vesta --version` and `vesta doctor`.
 7. Exit 0 on success, non-zero with a clear error on failure.
 
 ### Flags

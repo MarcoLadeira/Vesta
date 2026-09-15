@@ -7,11 +7,11 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub.intent_router import (
+from vestahub.intent_router import (
     clear_repo_work_cache,
     route_intents,
 )
-from opaihub.ledger import (
+from vestahub.ledger import (
     clear_ledger_summary_cache,
     record_route_decision,
     summarize_ledger,
@@ -28,7 +28,7 @@ class LedgerSummaryCacheTests(unittest.TestCase):
         clear_ledger_summary_cache()
 
     def test_repeated_reads_parse_the_file_once(self):
-        import opaihub.ledger as ledger_mod
+        import vestahub.ledger as ledger_mod
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
@@ -88,7 +88,7 @@ class RouteIntentsOverheadTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), commit=True)
             with mock.patch(
-                "opaihub.context_engine.profile_context",
+                "vestahub.context_engine.profile_context",
                 return_value={"waste_share": 0.1, "estimated_tokens_wasted": 5},
             ) as profile:
                 route_intents(root, "fix this bug", mode="safe-auto")
@@ -101,7 +101,7 @@ class RouteIntentsOverheadTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), commit=True)
             with mock.patch(
-                "opaihub.context_engine.profile_context",
+                "vestahub.context_engine.profile_context",
                 return_value={"waste_share": 0.1, "estimated_tokens_wasted": 5},
             ) as profile:
                 route_intents(root, "fix this bug", mode="safe-auto")
@@ -113,7 +113,7 @@ class RouteIntentsOverheadTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), commit=True)
             with mock.patch(
-                "opaihub.test_select.select_tests",
+                "vestahub.test_select.select_tests",
                 return_value={"selected_tests": ["a"], "targeted_command": "pytest a"},
             ) as select:
                 route_intents(root, "fix the failing test", mode="safe-auto")
@@ -124,7 +124,7 @@ class RouteIntentsOverheadTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), commit=True)
             with mock.patch(
-                "opaihub.context_engine.profile_context",
+                "vestahub.context_engine.profile_context",
                 return_value={"waste_share": 0.25, "estimated_tokens_wasted": 42},
             ):
                 first = route_intents(root, "fix this bug", mode="safe-auto")
@@ -138,8 +138,8 @@ class RouteIntentsOverheadTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), commit=True)
             with (
-                mock.patch("opaihub.context_engine.profile_context") as profile,
-                mock.patch("opaihub.test_select.select_tests") as select,
+                mock.patch("vestahub.context_engine.profile_context") as profile,
+                mock.patch("vestahub.test_select.select_tests") as select,
             ):
                 trace = route_intents(root, "say hello", mode="safe-auto")
             profile.assert_not_called()

@@ -22,7 +22,7 @@ const assertTimeout = process.env.CI ? 10_000 : 5_000;
 // E2E for the web UI front-end. A static server serves the repo; each spec
 // injects the mock bridge (no Qt) and drives streaming/cancellation.
 export default defineConfig({
-  testDir: "opai/assets/web/__tests__/e2e",
+  testDir: "vesta/assets/web/__tests__/e2e",
   timeout: testTimeout,
   expect: { timeout: assertTimeout },
   // A mandatory attempt is evidence, not a flake vote. Keep one attempt so an

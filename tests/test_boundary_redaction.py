@@ -4,14 +4,14 @@ result, log, receipt or CLI payload — never downstream, never per-consumer.
 Two things were true before this fix, both measured directly rather than
 assumed from the issue text:
 
-1. ``opai.provider_contract.redact_secrets`` was a second, independent
+1. ``vesta.provider_contract.redact_secrets`` was a second, independent
    pattern list, narrower than and drifted from the canonical
-   ``opaihub.command_runner.redact`` (imported by 28+ modules). It missed
+   ``vestahub.command_runner.redact`` (imported by 28+ modules). It missed
    GitHub fine-grained PATs, Google/Gemini keys, Groq keys, AWS access key
    IDs and Slack tokens — the exact five categories #549/#546 had already
    fixed in the canonical redactor, just never propagated here.
 
-2. ``opaihub/ask.py``'s two ``except Exception`` handlers returned a raw,
+2. ``vestahub/ask.py``'s two ``except Exception`` handlers returned a raw,
    un-redacted ``str(exc)`` that reached ``render_ask``'s plain-text CLI
    output completely unmodified — reproduced end to end before fixing:
    a runner raising ``RuntimeError("... Bearer sk-live-...")`` printed the
@@ -26,9 +26,9 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opai.provider_contract import redact_secrets
-from opaihub.ask import render_ask, run_ask
-from opaihub.boundary_errors import BoundaryError
+from vesta.provider_contract import redact_secrets
+from vestahub.ask import render_ask, run_ask
+from vestahub.boundary_errors import BoundaryError
 
 
 class BoundaryErrorContractTests(unittest.TestCase):
@@ -56,7 +56,7 @@ class BoundaryErrorContractTests(unittest.TestCase):
 
     def test_redactor_failure_fails_closed_with_a_safe_meta_error(self):
         with mock.patch(
-            "opaihub.boundary_errors.redact",
+            "vestahub.boundary_errors.redact",
             side_effect=RuntimeError("redactor unavailable"),
         ):
             error = BoundaryError.create(
@@ -122,7 +122,7 @@ class ProviderContractDelegationTests(unittest.TestCase):
 
 
 class AskBoundaryRedactionTests(unittest.TestCase):
-    """opaihub/ask.py's two failure-return sites redact before returning."""
+    """vestahub/ask.py's two failure-return sites redact before returning."""
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -156,8 +156,8 @@ class AskBoundaryRedactionTests(unittest.TestCase):
     def test_edit_path_also_redacts(self):
         # The second leak site is in a *different* function from run_ask:
         # run_explicit_model (the tool-loop/edit dispatcher used by
-        # opai.app_state's paid/free-tier callers). Same reproduction shape.
-        from opaihub.ask import run_explicit_model
+        # vesta.app_state's paid/free-tier callers). Same reproduction shape.
+        from vestahub.ask import run_explicit_model
 
         class LeakyEditRunner:
             def available(self):

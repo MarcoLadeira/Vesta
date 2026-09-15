@@ -1,6 +1,6 @@
 """#613 Stage 2: repository_safety's shadow journal, and where best-effort is the point.
 
-Stage 1 named ``opaihub/repository_safety.py`` JOURNAL_OWNED -- "operations:
+Stage 1 named ``vestahub/repository_safety.py`` JOURNAL_OWNED -- "operations:
 repository mutation guards". A handle records the repository identity and
 dirty state captured before Vesta is allowed to mutate anything, so it is the
 record that decides whether a mutation may proceed at all.
@@ -30,8 +30,8 @@ from unittest import mock
 
 from _helpers import make_repo
 
-from opaihub import run_journal
-from opaihub.repository_safety import (
+from vestahub import run_journal
+from vestahub.repository_safety import (
     capture_repository_handle,
     load_repository_handle,
     repository_handle_contradiction_report,

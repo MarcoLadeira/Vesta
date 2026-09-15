@@ -17,8 +17,8 @@ from unittest import mock
 
 from _helpers import FakeStreamingRunner, make_repo
 
-from opaihub.app_scaffold import scaffold_app
-from opaihub.build_loop import (
+from vestahub.app_scaffold import scaffold_app
+from vestahub.build_loop import (
     BACKUP_DIR,
     BUILD_LOG_NAME,
     MANIFEST_NAME,
@@ -33,7 +33,7 @@ from opaihub.build_loop import (
     save_app_manifest,
     select_context,
 )
-from opaihub.checkpoints import load_run_checkpoint
+from vestahub.checkpoints import load_run_checkpoint
 
 
 def _scaffold(tmp: str):
@@ -495,7 +495,7 @@ class RunBuildRequestTests(unittest.TestCase):
                 "completion_verdict": {"verdict": "blocked"},
             }
             with mock.patch(
-                "opaihub.gui_pipeline.handle_gui_message", return_value=blocked
+                "vestahub.gui_pipeline.handle_gui_message", return_value=blocked
             ) as handle:
                 report = run_build_request(
                     root,
@@ -539,7 +539,7 @@ class RunBuildRequestTests(unittest.TestCase):
             self.assertEqual(outside.read_text(encoding="utf-8"), "OUTSIDE_RUN_LOG\n")
 
     def test_end_to_end_edit_lands_on_disk_through_the_real_pipeline(self):
-        answer = "```file:app.js\nconsole.log('built by opai');\n```"
+        answer = "```file:app.js\nconsole.log('built by vesta');\n```"
         with tempfile.TemporaryDirectory() as tmp:
             result = _scaffold(tmp)
             runner = _EditingRunner(answer)
@@ -553,7 +553,7 @@ class RunBuildRequestTests(unittest.TestCase):
             self.assertEqual(report["status"], "applied")
             self.assertEqual(report["applied"][0]["path"], "app.js")
             self.assertIn(
-                "built by opai",
+                "built by vesta",
                 (Path(result.root) / "app.js").read_text(encoding="utf-8"),
             )
             # The prompt the model saw was the targeted slice with file blocks.
@@ -618,8 +618,8 @@ class RunBuildRequestTests(unittest.TestCase):
 
 
 class CliBuildCommandTests(unittest.TestCase):
-    def test_opai_build_wires_through_and_reports_json(self):
-        from opai.cli import main
+    def test_vesta_build_wires_through_and_reports_json(self):
+        from vesta.cli import main
 
         canned = {
             "ok": True,
@@ -637,7 +637,7 @@ class CliBuildCommandTests(unittest.TestCase):
             "preview_cmd": "python -m http.server 8000",
         }
         with mock.patch(
-            "opaihub.build_loop.run_build_request", return_value=canned
+            "vestahub.build_loop.run_build_request", return_value=canned
         ) as run:
             buf = io.StringIO()
             with redirect_stdout(buf):
@@ -646,8 +646,8 @@ class CliBuildCommandTests(unittest.TestCase):
         self.assertTrue(json.loads(buf.getvalue())["ok"])
         self.assertEqual(run.call_args.args[1], "tweak it")
 
-    def test_opai_build_dry_run_end_to_end(self):
-        from opai.cli import main
+    def test_vesta_build_dry_run_end_to_end(self):
+        from vesta.cli import main
 
         with tempfile.TemporaryDirectory() as tmp:
             result = _scaffold(tmp)

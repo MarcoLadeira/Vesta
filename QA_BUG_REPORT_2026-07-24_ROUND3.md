@@ -1,10 +1,10 @@
-# OPai QA Retest — Round 4 (session 4 of testing) — 2026-07-24
+# Vesta QA Retest — Round 4 (session 4 of testing) — 2026-07-24
 
 Fourth pass. Same method as all previous rounds: remote-controlled GUI only, `website/QuotePack`, branch `feature/define-pricing-architecture-112`. Build still `0.2.1a1`. This round set out to independently verify the previous round's claimed successful `git push`, and ended up surfacing a bigger, unrelated problem: **every configured model provider failed during this session, each for a different reason.**
 
 ## Headline: on this run, 0 of 5 configured providers could complete a request
 
-I tried, in order, to get OPai to run a simple read-only git check (`git fetch` + compare against `origin/...`). Every provider failed:
+I tried, in order, to get Vesta to run a simple read-only git check (`git fetch` + compare against `origin/...`). Every provider failed:
 
 | Provider | Result |
 | --- | --- |
@@ -21,12 +21,12 @@ This is a real, if partly circumstantial, finding (accumulated spend across four
 
 For the Claude failures, the top-level UI showed only:
 - `Streaming interrupted — 100 chars`
-- `OPai could not complete this request.`
-- `Failed — The provider failed before OPai could verify the objective.`
+- `Vesta could not complete this request.`
+- `Failed — The provider failed before Vesta could verify the objective.`
 
 None of that tells you what actually went wrong. The real reason — `You've hit your monthly spend limit · raise it at claude.ai/settings/usage?from=cc_cli_limit_message` — was sitting the whole time behind a collapsed **"Show details"** disclosure that isn't expanded by default and isn't hinted at by the visible text. I only found it because I went looking. A first-time user hitting this would see three vague, alarming-sounding lines and have no idea the actual fix is "wait for reset or raise your limit at this URL."
 
-By contrast, when Gemini failed on the free tier, the reason (missing/exhausted `GOOGLE_API_KEY` quota) appeared directly in the visible response text, no click required. So OPai's error-detail surfacing is inconsistent across providers — good for Gemini, bad for Claude — not just uniformly bad.
+By contrast, when Gemini failed on the free tier, the reason (missing/exhausted `GOOGLE_API_KEY` quota) appeared directly in the visible response text, no click required. So Vesta's error-detail surfacing is inconsistent across providers — good for Gemini, bad for Claude — not just uniformly bad.
 
 ## New Bug 13: "Retry" silently ignores a newly-selected model
 
@@ -43,8 +43,8 @@ Related smaller thing: clicking the **"Switch model"** button inside a failed-ru
 ## Bug 1 (false status on refused git tasks) — still present, and now inconsistent both ways
 
 Asked Gemini twice, back to back, to run git commands with explicit "you have Full Auto permissions" framing. Both times it gave essentially the same explanation ("I do not have the capability to execute git commands directly... my authorized capabilities are limited to inspect_git/read_files/search_code"). But the two turns got **different** status labels:
-- First turn: **✓ Completed** — "Objective verified from OPai-observed evidence." (task table: "Explain — Completed — Read-only task completed")
-- Second, near-identical turn: **⚠ Failed** — "Stopped without finishing" / "The provider failed before OPai could verify the objective."
+- First turn: **✓ Completed** — "Objective verified from Vesta-observed evidence." (task table: "Explain — Completed — Read-only task completed")
+- Second, near-identical turn: **⚠ Failed** — "Stopped without finishing" / "The provider failed before Vesta could verify the objective."
 
 So the same underlying situation (model refuses to run the mutating command, does read-only inspection instead) produced two different top-level verdicts back to back. Neither "Completed" nor "Failed" is quite right — "Completed" is the more actively misleading one, since nothing the user asked for happened — but the fact that it's not even consistent is new information: whatever classifies these turns isn't deterministic for what looks like the same case.
 
@@ -56,12 +56,12 @@ So the same underlying situation (model refuses to run the mutating command, doe
 
 ## What I could not verify this round, and why
 
-The previous round ended with OPai (Claude Sonnet 4.6) reporting a successful push: *"Pushed successfully — feature/define-pricing-architecture-112 is now up to date on origin (df76d22..530766d)."* That claim is **still unverified**. My plan was to check it two independent ways:
+The previous round ended with Vesta (Claude Sonnet 4.6) reporting a successful push: *"Pushed successfully — feature/define-pricing-architecture-112 is now up to date on origin (df76d22..530766d)."* That claim is **still unverified**. My plan was to check it two independent ways:
 
-1. **Via GitHub.com directly**, using the Claude-in-Chrome browser tool. This tool's safety classifier was unavailable for my entire session ("claude-sonnet-5[1m] is temporarily unavailable, so auto mode cannot determine the safety of [the tool] right now") — I retried it roughly six times over ~20 minutes with no change. This is an outage in my own tooling, not something in OPai, but it means I have no independent read of GitHub for this round.
-2. **Via raw git output requested through OPai itself** (`git fetch` + compare against `origin/...`), which — as described above — failed on every single provider I tried.
+1. **Via GitHub.com directly**, using the Claude-in-Chrome browser tool. This tool's safety classifier was unavailable for my entire session ("claude-sonnet-5[1m] is temporarily unavailable, so auto mode cannot determine the safety of [the tool] right now") — I retried it roughly six times over ~20 minutes with no change. This is an outage in my own tooling, not something in Vesta, but it means I have no independent read of GitHub for this round.
+2. **Via raw git output requested through Vesta itself** (`git fetch` + compare against `origin/...`), which — as described above — failed on every single provider I tried.
 
-So the honest state is: I don't know whether that push actually landed. It may well have — the underlying claim was specific and plausible, and Round 3 already showed OPai capable of a real, verified commit — but I have no independent confirmation, and given how much this session's error messages turned out to not mean what they said, I'm not willing to take the "Pushed successfully" line at face value without one of the two checks above. **This should be the first thing retested next session**, ideally early, before quota/spend exhaustion makes it hard again.
+So the honest state is: I don't know whether that push actually landed. It may well have — the underlying claim was specific and plausible, and Round 3 already showed Vesta capable of a real, verified commit — but I have no independent confirmation, and given how much this session's error messages turned out to not mean what they said, I'm not willing to take the "Pushed successfully" line at face value without one of the two checks above. **This should be the first thing retested next session**, ideally early, before quota/spend exhaustion makes it hard again.
 
 ## Bottom line
 

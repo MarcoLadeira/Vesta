@@ -29,7 +29,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub import journal_projections, journal_runtime, journal_store
+from vestahub import journal_projections, journal_runtime, journal_store
 
 NOW = "2026-09-08T10:00:00+00:00"
 LATER = "2026-09-08T10:05:00+00:00"
@@ -418,7 +418,7 @@ class DoctorActuallyAsksTests(unittest.TestCase):
         self.root = Path(self._tmp.name)
 
     def test_journal_doctor_reports_parity(self):
-        from opai import cli
+        from vesta import cli
 
         fence = journal_runtime.record_admission(
             self.root,
@@ -444,7 +444,7 @@ class DoctorActuallyAsksTests(unittest.TestCase):
         self.assertEqual(facts["event_table_disagreements"], 0)
 
     def test_doctor_reports_a_disagreement_it_finds(self):
-        from opai import cli
+        from vesta import cli
 
         journal_runtime.record_admission(
             self.root,

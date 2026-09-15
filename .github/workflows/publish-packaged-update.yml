@@ -17,14 +17,14 @@ permissions:
   contents: read
 
 concurrency:
-  group: opai-update-publication-${{ inputs.release_tag }}
+  group: vesta-update-publication-${{ inputs.release_tag }}
   cancel-in-progress: false
 
 jobs:
   stage:
     name: Stage candidate without changing the live feed
     environment:
-      name: opai-production-updates
+      name: vesta-production-updates
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -38,15 +38,15 @@ jobs:
       RELEASE_TAG: ${{ inputs.release_tag }}
       PACKAGE_VERSION: ${{ inputs.package_version }}
       EXPECTED_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
-      UPDATE_CHANNEL: ${{ vars.OPAI_UPDATE_CHANNEL }}
-      UPDATE_TRUST_JSON: ${{ vars.OPAI_UPDATE_TRUST_JSON }}
-      WINDOWS_PACKAGE_IDENTITY: ${{ vars.OPAI_WINDOWS_PACKAGE_IDENTITY }}
-      WINDOWS_PUBLISHER_IDENTITY: ${{ vars.OPAI_WINDOWS_PUBLISHER_IDENTITY }}
-      WINDOWS_SIGNER_THUMBPRINT: ${{ vars.OPAI_WINDOWS_SIGNER_THUMBPRINT }}
-      MACOS_PACKAGE_IDENTITY: ${{ vars.OPAI_MACOS_PACKAGE_IDENTITY }}
-      MACOS_TEAM_ID: ${{ vars.OPAI_MACOS_TEAM_ID }}
-      WINDOWS_BASELINE_URL: ${{ vars.OPAI_WINDOWS_BASELINE_MSIX_URL }}
-      MACOS_BASELINE_URL: ${{ vars.OPAI_MACOS_BASELINE_ARCHIVE_URL }}
+      UPDATE_CHANNEL: ${{ vars.VESTA_UPDATE_CHANNEL }}
+      UPDATE_TRUST_JSON: ${{ vars.VESTA_UPDATE_TRUST_JSON }}
+      WINDOWS_PACKAGE_IDENTITY: ${{ vars.VESTA_WINDOWS_PACKAGE_IDENTITY }}
+      WINDOWS_PUBLISHER_IDENTITY: ${{ vars.VESTA_WINDOWS_PUBLISHER_IDENTITY }}
+      WINDOWS_SIGNER_THUMBPRINT: ${{ vars.VESTA_WINDOWS_SIGNER_THUMBPRINT }}
+      MACOS_PACKAGE_IDENTITY: ${{ vars.VESTA_MACOS_PACKAGE_IDENTITY }}
+      MACOS_TEAM_ID: ${{ vars.VESTA_MACOS_TEAM_ID }}
+      WINDOWS_BASELINE_URL: ${{ vars.VESTA_WINDOWS_BASELINE_MSIX_URL }}
+      MACOS_BASELINE_URL: ${{ vars.VESTA_MACOS_BASELINE_ARCHIVE_URL }}
 
     steps:
       - name: Check out trusted release tooling from main
@@ -70,10 +70,10 @@ jobs:
         shell: bash
         run: |
           {
-            echo "WINDOWS_STAGING=$RUNNER_TEMP/opai-windows-staging"
-            echo "MACOS_STAGING=$RUNNER_TEMP/opai-macos-staging"
-            echo "FEED_STAGING=$RUNNER_TEMP/opai-feed-staging"
-            echo "METADATA_KEYS=$RUNNER_TEMP/opai-metadata-keys"
+            echo "WINDOWS_STAGING=$RUNNER_TEMP/vesta-windows-staging"
+            echo "MACOS_STAGING=$RUNNER_TEMP/vesta-macos-staging"
+            echo "FEED_STAGING=$RUNNER_TEMP/vesta-feed-staging"
+            echo "METADATA_KEYS=$RUNNER_TEMP/vesta-metadata-keys"
           } >> "$GITHUB_ENV"
 
       - name: Resolve same-run Windows staging evidence by immutable artifact ID
@@ -82,11 +82,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          INVENTORY="$RUNNER_TEMP/opai-staging-artifacts.json"
+          INVENTORY="$RUNNER_TEMP/vesta-staging-artifacts.json"
           gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" > "$INVENTORY"
           python scripts/desktop_release_transport.py resolve-artifact \
             --inventory "$INVENTORY" \
-            --name-prefix "OPai-${RELEASE_TAG}-windows-latest-production-staging-${GITHUB_RUN_ID}-" \
+            --name-prefix "Vesta-${RELEASE_TAG}-windows-latest-production-staging-${GITHUB_RUN_ID}-" \
             --current-attempt "$GITHUB_RUN_ATTEMPT" \
             --github-output "$GITHUB_OUTPUT"
 
@@ -96,11 +96,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          INVENTORY="$RUNNER_TEMP/opai-staging-artifacts.json"
+          INVENTORY="$RUNNER_TEMP/vesta-staging-artifacts.json"
           gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" > "$INVENTORY"
           python scripts/desktop_release_transport.py resolve-artifact \
             --inventory "$INVENTORY" \
-            --name-prefix "OPai-${RELEASE_TAG}-macos-latest-production-staging-${GITHUB_RUN_ID}-" \
+            --name-prefix "Vesta-${RELEASE_TAG}-macos-latest-production-staging-${GITHUB_RUN_ID}-" \
             --current-attempt "$GITHUB_RUN_ATTEMPT" \
             --github-output "$GITHUB_OUTPUT"
 
@@ -125,8 +125,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          WINDOWS_MSIX="$WINDOWS_STAGING/OPai-${RELEASE_TAG}-windows-x64.msix"
-          MACOS_ARCHIVE="$MACOS_STAGING/OPai-${RELEASE_TAG}-macos.zip"
+          WINDOWS_MSIX="$WINDOWS_STAGING/Vesta-${RELEASE_TAG}-windows-x64.msix"
+          MACOS_ARCHIVE="$MACOS_STAGING/Vesta-${RELEASE_TAG}-macos.zip"
           test -f "$WINDOWS_MSIX"
           test -f "$MACOS_ARCHIVE"
           gh attestation verify "$WINDOWS_MSIX" --repo "$GITHUB_REPOSITORY"
@@ -163,13 +163,13 @@ jobs:
       - name: Fetch the authenticated live baseline manifest
         shell: bash
         run: |
-          python - "$RUNNER_TEMP/opai-baseline-manifest.json" <<'PY'
+          python - "$RUNNER_TEMP/vesta-baseline-manifest.json" <<'PY'
           import json
           import os
           import sys
           from pathlib import Path
 
-          from opai.update.network import fetch_manifest, parse_https_origins
+          from vesta.update.network import fetch_manifest, parse_https_origins
 
           trust = json.loads(os.environ["UPDATE_TRUST_JSON"])
           feed_url = str(trust.get("feed_url") or "")
@@ -191,7 +191,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p "$FEED_STAGING"
-          python - "$RUNNER_TEMP/opai-update-descriptor.json" <<'PY'
+          python - "$RUNNER_TEMP/vesta-update-descriptor.json" <<'PY'
           import json
           import os
           import sys
@@ -201,15 +201,15 @@ jobs:
 
           from packaging.version import Version
 
-          from opai.update.manifest import verify_manifest
-          from opai.update.models import InstallType, InstalledBuild, UpdateCandidate
+          from vesta.update.manifest import verify_manifest
+          from vesta.update.models import InstallType, InstalledBuild, UpdateCandidate
 
           trust = json.loads(os.environ["UPDATE_TRUST_JSON"])
           feed_url = str(trust.get("feed_url") or "")
           channel = os.environ["UPDATE_CHANNEL"]
           if not feed_url.endswith("/manifest.json"):
               raise SystemExit("protected update feed URL must end in /manifest.json")
-          if channel not in {"stable", "beta", "alpha"} or f"/opai-update-{channel}/" not in feed_url:
+          if channel not in {"stable", "beta", "alpha"} or f"/vesta-update-{channel}/" not in feed_url:
               raise SystemExit("protected update channel and feed URL do not agree")
           repository = os.environ["GITHUB_REPOSITORY"]
           tag = os.environ["RELEASE_TAG"]
@@ -366,7 +366,7 @@ jobs:
               json.dumps(descriptor, sort_keys=True) + "\n", encoding="utf-8"
           )
           PY
-          printf 'UPDATE_DESCRIPTOR=%s\n' "$RUNNER_TEMP/opai-update-descriptor.json" >> "$GITHUB_ENV"
+          printf 'UPDATE_DESCRIPTOR=%s\n' "$RUNNER_TEMP/vesta-update-descriptor.json" >> "$GITHUB_ENV"
 
       - name: Generate signed versioned native feeds and candidate manifest
         shell: bash
@@ -417,7 +417,7 @@ jobs:
             --title "Vesta $PACKAGE_VERSION" \
             --notes "Signed candidate pending native update qualification." \
             "$WINDOWS_MSIX" "$MACOS_ARCHIVE" \
-            "$FEED_STAGING/OPai-${RELEASE_TAG}.appinstaller" \
+            "$FEED_STAGING/Vesta-${RELEASE_TAG}.appinstaller" \
             "$FEED_STAGING/appcast-${RELEASE_TAG}.xml" \
             "$FEED_STAGING/qualified-manifest.json" \
             "$FEED_STAGING/release-inventory.json"
@@ -428,7 +428,7 @@ jobs:
       - name: Upload exact generated feed for publication
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: OPai-${{ inputs.release_tag }}-signed-update-feed-${{ github.run_id }}-${{ github.run_attempt }}
+          name: Vesta-${{ inputs.release_tag }}-signed-update-feed-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ env.FEED_STAGING }}
           if-no-files-found: error
           retention-days: 30
@@ -442,7 +442,7 @@ jobs:
     name: Real packaged update qualification (${{ matrix.platform }})
     needs: stage
     environment:
-      name: opai-production-updates
+      name: vesta-production-updates
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     permissions:
@@ -456,17 +456,17 @@ jobs:
           - platform: windows
             os: windows-latest
             staging_os: windows-latest
-            baseline_url: ${{ vars.OPAI_WINDOWS_BASELINE_MSIX_URL }}
+            baseline_url: ${{ vars.VESTA_WINDOWS_BASELINE_MSIX_URL }}
             baseline_feed_url: ""
-            package_identity: ${{ vars.OPAI_WINDOWS_PACKAGE_IDENTITY }}
-            publisher_identity: ${{ vars.OPAI_WINDOWS_PUBLISHER_IDENTITY }}
+            package_identity: ${{ vars.VESTA_WINDOWS_PACKAGE_IDENTITY }}
+            publisher_identity: ${{ vars.VESTA_WINDOWS_PUBLISHER_IDENTITY }}
           - platform: macos
             os: macos-latest
             staging_os: macos-latest
-            baseline_url: ${{ vars.OPAI_MACOS_BASELINE_ARCHIVE_URL }}
-            baseline_feed_url: ${{ vars.OPAI_MACOS_BASELINE_APPCAST_URL }}
-            package_identity: ${{ vars.OPAI_MACOS_PACKAGE_IDENTITY }}
-            publisher_identity: ${{ vars.OPAI_MACOS_TEAM_ID }}
+            baseline_url: ${{ vars.VESTA_MACOS_BASELINE_ARCHIVE_URL }}
+            baseline_feed_url: ${{ vars.VESTA_MACOS_BASELINE_APPCAST_URL }}
+            package_identity: ${{ vars.VESTA_MACOS_PACKAGE_IDENTITY }}
+            publisher_identity: ${{ vars.VESTA_MACOS_TEAM_ID }}
     env:
       RELEASE_TAG: ${{ inputs.release_tag }}
       PACKAGE_VERSION: ${{ inputs.package_version }}
@@ -490,11 +490,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          INVENTORY="$RUNNER_TEMP/opai-candidate-artifacts.json"
+          INVENTORY="$RUNNER_TEMP/vesta-candidate-artifacts.json"
           gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" > "$INVENTORY"
           python scripts/desktop_release_transport.py resolve-artifact \
             --inventory "$INVENTORY" \
-            --name-prefix "OPai-${RELEASE_TAG}-${{ matrix.staging_os }}-production-staging-${GITHUB_RUN_ID}-" \
+            --name-prefix "Vesta-${RELEASE_TAG}-${{ matrix.staging_os }}-production-staging-${GITHUB_RUN_ID}-" \
             --current-attempt "$GITHUB_RUN_ATTEMPT" \
             --github-output "$GITHUB_OUTPUT"
 
@@ -504,7 +504,7 @@ jobs:
           artifact-ids: ${{ steps.candidate_artifact.outputs.artifact_id }}
           github-token: ${{ github.token }}
           run-id: ${{ github.run_id }}
-          path: ${{ runner.temp }}/opai-candidate
+          path: ${{ runner.temp }}/vesta-candidate
 
       - name: Resolve and verify native qualification inputs
         shell: bash
@@ -516,11 +516,11 @@ jobs:
           case "$QUALIFICATION_FEED_URL" in https://*) ;; *) exit 2 ;; esac
           case "$BASELINE_MANIFEST_URL" in https://*) ;; *) exit 2 ;; esac
           if [ "${{ matrix.platform }}" = "windows" ]; then
-            CANDIDATE="$RUNNER_TEMP/opai-candidate/OPai-${RELEASE_TAG}-windows-x64.msix"
-            BASELINE="$RUNNER_TEMP/opai-baseline.msix"
+            CANDIDATE="$RUNNER_TEMP/vesta-candidate/Vesta-${RELEASE_TAG}-windows-x64.msix"
+            BASELINE="$RUNNER_TEMP/vesta-baseline.msix"
           else
-            CANDIDATE="$RUNNER_TEMP/opai-candidate/OPai-${RELEASE_TAG}-macos.zip"
-            BASELINE="$RUNNER_TEMP/opai-baseline-macos.zip"
+            CANDIDATE="$RUNNER_TEMP/vesta-candidate/Vesta-${RELEASE_TAG}-macos.zip"
+            BASELINE="$RUNNER_TEMP/vesta-baseline-macos.zip"
             case "$BASELINE_FEED_URL" in https://*) ;; *) exit 2 ;; esac
           fi
           test -f "$CANDIDATE"
@@ -538,8 +538,8 @@ jobs:
         shell: bash
         run: |
           sudo mkdir -p "/Library/Managed Preferences"
-          sudo touch "/Library/Managed Preferences/com.opai.desktop.update.json"
-          sudo chown "$USER" "/Library/Managed Preferences/com.opai.desktop.update.json"
+          sudo touch "/Library/Managed Preferences/com.vesta.desktop.update.json"
+          sudo chown "$USER" "/Library/Managed Preferences/com.vesta.desktop.update.json"
 
       - name: Execute 16+ fail-closed scenarios on the native host
         shell: bash
@@ -557,7 +557,7 @@ jobs:
             --report "$QUALIFICATION_REPORT")
           if [ "${{ matrix.platform }}" = "macos" ]; then
             command+=(--baseline-feed-url "$BASELINE_FEED_URL" \
-              --application "$RUNNER_TEMP/OPai.app")
+              --application "$RUNNER_TEMP/Vesta.app")
           fi
           "${command[@]}"
           python - "$QUALIFICATION_REPORT" <<'PY'
@@ -586,7 +586,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: OPai-${{ inputs.release_tag }}-native-qualification-${{ matrix.platform }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: Vesta-${{ inputs.release_tag }}-native-qualification-${{ matrix.platform }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ env.QUALIFICATION_REPORT }}
           if-no-files-found: error
           retention-days: 30
@@ -595,7 +595,7 @@ jobs:
     name: Publish release and advance live feed last
     needs: [stage, native]
     environment:
-      name: opai-production-updates
+      name: vesta-production-updates
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -606,7 +606,7 @@ jobs:
       RELEASE_TAG: ${{ inputs.release_tag }}
       PACKAGE_VERSION: ${{ inputs.package_version }}
       EXPECTED_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
-      UPDATE_CHANNEL: ${{ vars.OPAI_UPDATE_CHANNEL }}
+      UPDATE_CHANNEL: ${{ vars.VESTA_UPDATE_CHANNEL }}
 
     steps:
       - name: Check out trusted publication tooling from main
@@ -622,11 +622,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          INVENTORY="$RUNNER_TEMP/opai-publication-artifacts.json"
+          INVENTORY="$RUNNER_TEMP/vesta-publication-artifacts.json"
           gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" > "$INVENTORY"
           python scripts/desktop_release_transport.py resolve-artifact \
             --inventory "$INVENTORY" \
-            --name-prefix "OPai-${RELEASE_TAG}-signed-update-feed-${GITHUB_RUN_ID}-" \
+            --name-prefix "Vesta-${RELEASE_TAG}-signed-update-feed-${GITHUB_RUN_ID}-" \
             --current-attempt "$GITHUB_RUN_ATTEMPT" \
             --github-output "$GITHUB_OUTPUT"
 
@@ -636,10 +636,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          INVENTORY="$RUNNER_TEMP/opai-publication-artifacts.json"
+          INVENTORY="$RUNNER_TEMP/vesta-publication-artifacts.json"
           python scripts/desktop_release_transport.py resolve-artifact \
             --inventory "$INVENTORY" \
-            --name-prefix "OPai-${RELEASE_TAG}-native-qualification-windows-${GITHUB_RUN_ID}-" \
+            --name-prefix "Vesta-${RELEASE_TAG}-native-qualification-windows-${GITHUB_RUN_ID}-" \
             --current-attempt "$GITHUB_RUN_ATTEMPT" \
             --github-output "$GITHUB_OUTPUT"
 
@@ -649,10 +649,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          INVENTORY="$RUNNER_TEMP/opai-publication-artifacts.json"
+          INVENTORY="$RUNNER_TEMP/vesta-publication-artifacts.json"
           python scripts/desktop_release_transport.py resolve-artifact \
             --inventory "$INVENTORY" \
-            --name-prefix "OPai-${RELEASE_TAG}-native-qualification-macos-${GITHUB_RUN_ID}-" \
+            --name-prefix "Vesta-${RELEASE_TAG}-native-qualification-macos-${GITHUB_RUN_ID}-" \
             --current-attempt "$GITHUB_RUN_ATTEMPT" \
             --github-output "$GITHUB_OUTPUT"
 
@@ -662,7 +662,7 @@ jobs:
           artifact-ids: ${{ steps.feed_artifact.outputs.artifact_id }}
           github-token: ${{ github.token }}
           run-id: ${{ github.run_id }}
-          path: ${{ runner.temp }}/opai-feed
+          path: ${{ runner.temp }}/vesta-feed
 
       - name: Download Windows native qualification evidence
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -670,7 +670,7 @@ jobs:
           artifact-ids: ${{ steps.windows_native.outputs.artifact_id }}
           github-token: ${{ github.token }}
           run-id: ${{ github.run_id }}
-          path: ${{ runner.temp }}/opai-qualification
+          path: ${{ runner.temp }}/vesta-qualification
 
       - name: Download macOS native qualification evidence
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -678,15 +678,15 @@ jobs:
           artifact-ids: ${{ steps.macos_native.outputs.artifact_id }}
           github-token: ${{ github.token }}
           run-id: ${{ github.run_id }}
-          path: ${{ runner.temp }}/opai-qualification
+          path: ${{ runner.temp }}/vesta-qualification
 
       - name: Revalidate staged manifest and native evidence
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          FEED="$RUNNER_TEMP/opai-feed"
-          REMOTE="$RUNNER_TEMP/opai-remote-feed"
+          FEED="$RUNNER_TEMP/vesta-feed"
+          REMOTE="$RUNNER_TEMP/vesta-remote-feed"
           mkdir -p "$REMOTE"
           test -f "$FEED/manifest.json"
           test -f "$FEED/qualified-manifest.json"
@@ -695,7 +695,7 @@ jobs:
             --pattern qualified-manifest.json --dir "$REMOTE"
           cmp "$FEED/qualified-manifest.json" "$REMOTE/qualified-manifest.json"
           for platform in windows macos; do
-            REPORT="$RUNNER_TEMP/opai-qualification/native-qualification-${platform}.json"
+            REPORT="$RUNNER_TEMP/vesta-qualification/native-qualification-${platform}.json"
             python - "$REPORT" "$platform" <<'PY'
           import json
           import os
@@ -722,8 +722,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload "$RELEASE_TAG" \
-            "$RUNNER_TEMP/opai-qualification/native-qualification-windows.json" \
-            "$RUNNER_TEMP/opai-qualification/native-qualification-macos.json"
+            "$RUNNER_TEMP/vesta-qualification/native-qualification-windows.json" \
+            "$RUNNER_TEMP/vesta-qualification/native-qualification-macos.json"
           if [ "$UPDATE_CHANNEL" = "stable" ]; then
             gh release edit "$RELEASE_TAG" --prerelease=false --latest
           else
@@ -736,7 +736,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           case "$UPDATE_CHANNEL" in stable|beta|alpha) ;; *) exit 2 ;; esac
-          FEED_TAG="opai-update-$UPDATE_CHANNEL"
+          FEED_TAG="vesta-update-$UPDATE_CHANNEL"
           if ! gh release view "$FEED_TAG" >/dev/null 2>&1; then
             gh release create "$FEED_TAG" --target "$GITHUB_SHA" \
               --title "Vesta $UPDATE_CHANNEL update feed" \

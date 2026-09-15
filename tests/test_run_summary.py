@@ -8,8 +8,8 @@ from unittest import mock
 
 from tests._helpers import FakeLocalRunner, make_repo
 
-from opaihub.gui_pipeline import handle_gui_message
-from opaihub.run_summary import build_run_summary
+from vestahub.gui_pipeline import handle_gui_message
+from vestahub.run_summary import build_run_summary
 
 
 def _completed_record() -> dict:
@@ -96,7 +96,7 @@ def test_secrets_are_redacted_before_the_summary_can_leave() -> None:
     )
     text = build_run_summary(record)
     assert "sk-abcdef0123456789" not in text
-    # #622: opaihub.command_runner.redact (the canonical redactor, since this
+    # #622: vestahub.command_runner.redact (the canonical redactor, since this
     # module was folded into it) marks a bare prefix-only match like this one
     # "[REDACTED_SECRET]", not "[REDACTED]" — that distinction is about
     # whether an assignment's keyword/value was separable, not whether
@@ -145,8 +145,8 @@ def test_pipeline_attaches_a_verdict_first_run_summary() -> None:
             return {"status": "answered_locally", "answer": "The router picks a tier."}
 
         with (
-            mock.patch("opaihub.local_runner.runner_for_model", return_value=selected),
-            mock.patch("opaihub.ask.run_ask", side_effect=run_ask),
+            mock.patch("vestahub.local_runner.runner_for_model", return_value=selected),
+            mock.patch("vestahub.ask.run_ask", side_effect=run_ask),
         ):
             res = handle_gui_message(
                 root,

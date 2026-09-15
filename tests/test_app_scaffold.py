@@ -10,8 +10,8 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 
-from opaihub.app_scaffold import infer_kind, kinds, scaffold_app, slugify
-from opaihub.app_verify import verify_app
+from vestahub.app_scaffold import infer_kind, kinds, scaffold_app, slugify
+from vestahub.app_verify import verify_app
 
 
 class SlugifyTests(unittest.TestCase):
@@ -174,8 +174,8 @@ class ScaffoldSafetyTests(unittest.TestCase):
 
 
 class CliNewCommandTests(unittest.TestCase):
-    def test_opai_new_scaffolds_and_prints_manifest(self):
-        from opai.cli import main
+    def test_vesta_new_scaffolds_and_prints_manifest(self):
+        from vesta.cli import main
 
         with tempfile.TemporaryDirectory() as tmp:
             buf = io.StringIO()
@@ -188,8 +188,8 @@ class CliNewCommandTests(unittest.TestCase):
             self.assertTrue((Path(payload["root"]) / "index.html").exists())
             self.assertGreater(payload["boilerplate_tokens_avoided"], 0)
 
-    def test_opai_new_reports_a_clean_error_on_clobber(self):
-        from opai.cli import main
+    def test_vesta_new_reports_a_clean_error_on_clobber(self):
+        from vesta.cli import main
 
         with tempfile.TemporaryDirectory() as tmp:
             existing = Path(tmp) / "taken"

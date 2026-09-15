@@ -44,11 +44,11 @@ import tempfile
 import textwrap
 import unittest
 
-from opaihub import journal_runtime
+from vestahub import journal_runtime
 from pathlib import Path
 
-from opaihub import journal_store
-from opaihub.journal_store import (
+from vestahub import journal_store
+from vestahub.journal_store import (
     INTEGRITY_COMPLETE,
     StaleWriterError,
     acquire_lease,
@@ -92,7 +92,7 @@ def _run_child(root: Path, body: str) -> subprocess.CompletedProcess:
         import os, sys
         sys.path.insert(0, {repo!r})
         from pathlib import Path
-        from opaihub.journal_store import (
+        from vestahub.journal_store import (
             acquire_lease, append_event, open_store, record_operation,
         )
         root = Path({root!r})

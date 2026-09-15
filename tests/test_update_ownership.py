@@ -29,8 +29,8 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from opai.update.models import InstallType  # noqa: E402
-from opai.update.ownership import (  # noqa: E402
+from vesta.update.models import InstallType  # noqa: E402
+from vesta.update.ownership import (  # noqa: E402
     describe_ownership,
     running_identity,
     safe_launcher_identity,
@@ -42,8 +42,8 @@ class RunningVersusDiskIdentityTests(unittest.TestCase):
         # The defect, kept as the reason the two are reported separately.
         import tempfile
 
-        from opai.update.factory import load_installed_build
-        import opai
+        from vesta.update.factory import load_installed_build
+        import vesta
 
         path = Path(tempfile.mkdtemp()) / "release-identity.json"
         path.write_text(
@@ -63,18 +63,18 @@ class RunningVersusDiskIdentityTests(unittest.TestCase):
         built = load_installed_build(identity_paths=[path])
 
         self.assertEqual(built.version, "0.9.9")
-        self.assertNotEqual(built.version, opai.__version__)
+        self.assertNotEqual(built.version, vesta.__version__)
 
     def test_running_identity_reports_what_this_process_loaded(self) -> None:
-        import opai
+        import vesta
 
-        self.assertEqual(running_identity()["version"], opai.__version__)
+        self.assertEqual(running_identity()["version"], vesta.__version__)
 
 
 class OwnershipDetectionTests(unittest.TestCase):
     def test_a_source_checkout_owns_its_own_updates(self) -> None:
         ownership = describe_ownership(InstallType.SOURCE_CHECKOUT)
-        self.assertEqual(ownership.owner, "opai")
+        self.assertEqual(ownership.owner, "vesta")
         self.assertEqual(ownership.mechanism, "git")
         self.assertTrue(ownership.self_updatable)
 
@@ -91,8 +91,8 @@ class OwnershipDetectionTests(unittest.TestCase):
         # Detected from the interpreter's own path, because pipx installs
         # through pip and so writes "pip" into INSTALLER.
         with mock.patch(
-            "opai.update.ownership._interpreter_path",
-            return_value="/home/u/.local/pipx/venvs/opai/bin/python",
+            "vesta.update.ownership._interpreter_path",
+            return_value="/home/u/.local/pipx/venvs/vesta/bin/python",
         ):
             ownership = describe_ownership(InstallType.PORTABLE)
 
@@ -102,7 +102,7 @@ class OwnershipDetectionTests(unittest.TestCase):
 
     def test_a_homebrew_installation_names_brew(self) -> None:
         with mock.patch(
-            "opai.update.ownership._interpreter_path",
+            "vesta.update.ownership._interpreter_path",
             return_value="/opt/homebrew/opt/python/bin/python3",
         ):
             ownership = describe_ownership(InstallType.PORTABLE)
@@ -113,11 +113,11 @@ class OwnershipDetectionTests(unittest.TestCase):
     def test_a_pip_installation_names_pip(self) -> None:
         with (
             mock.patch(
-                "opai.update.ownership._interpreter_path",
+                "vesta.update.ownership._interpreter_path",
                 return_value="/usr/bin/python3",
             ),
             mock.patch(
-                "opai.update.ownership._distribution_installer", return_value="pip"
+                "vesta.update.ownership._distribution_installer", return_value="pip"
             ),
         ):
             ownership = describe_ownership(InstallType.PORTABLE)
@@ -129,11 +129,11 @@ class OwnershipDetectionTests(unittest.TestCase):
     def test_an_installation_nobody_claims_says_so_rather_than_guessing(self) -> None:
         with (
             mock.patch(
-                "opai.update.ownership._interpreter_path",
+                "vesta.update.ownership._interpreter_path",
                 return_value="/usr/bin/python3",
             ),
             mock.patch(
-                "opai.update.ownership._distribution_installer", return_value=""
+                "vesta.update.ownership._distribution_installer", return_value=""
             ),
         ):
             ownership = describe_ownership(InstallType.PORTABLE)
@@ -141,7 +141,7 @@ class OwnershipDetectionTests(unittest.TestCase):
         self.assertEqual(ownership.owner, "unknown")
         self.assertFalse(ownership.self_updatable)
 
-    def test_only_opai_owned_installations_are_self_updatable(self) -> None:
+    def test_only_vesta_owned_installations_are_self_updatable(self) -> None:
         # The invariant that stops the updater acting on an installation some
         # other tool is responsible for.
         for install_type in (InstallType.PORTABLE, InstallType.WINDOWS_MSIX):

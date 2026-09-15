@@ -23,10 +23,10 @@ import unittest
 from dataclasses import dataclass, field
 from typing import Any
 
-from opai.gui_recents import thread_status_for_result
-from opaihub.background_runs import _terminal_from_payload
-from opaihub.generated_lifecycle import STATE_SPECS, TERMINAL_STATE_IDS
-from opaihub.run_result import RunResult
+from vesta.gui_recents import thread_status_for_result
+from vestahub.background_runs import _terminal_from_payload
+from vestahub.generated_lifecycle import STATE_SPECS, TERMINAL_STATE_IDS
+from vestahub.run_result import RunResult
 
 
 @dataclass(frozen=True)

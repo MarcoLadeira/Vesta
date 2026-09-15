@@ -26,7 +26,7 @@ from __future__ import annotations
 import copy
 import unittest
 
-from opaihub.recovery_actions import (
+from vestahub.recovery_actions import (
     ASK,
     CONTINUE_FROM_CHECKPOINT,
     RECOVERY_SCHEMA_VERSION,

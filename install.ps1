@@ -8,24 +8,24 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$RepoUrl = if ($env:OPAI_REPO_URL) { $env:OPAI_REPO_URL } else { "https://github.com/MarcoLadeira/OPai.git" }
-$Branch = if ($env:OPAI_BRANCH) { $env:OPAI_BRANCH } else { "main" }
-$InstallTools = $WithTools -or $env:OPAI_WITH_TOOLS -eq "1"
-$SkipSuperpowers = $NoSuperpowers -or $env:OPAI_NO_SUPERPOWERS -eq "1"
+$RepoUrl = if ($env:VESTA_REPO_URL) { $env:VESTA_REPO_URL } else { "https://github.com/MarcoLadeira/OPai.git" }
+$Branch = if ($env:VESTA_BRANCH) { $env:VESTA_BRANCH } else { "main" }
+$InstallTools = $WithTools -or $env:VESTA_WITH_TOOLS -eq "1"
+$SkipSuperpowers = $NoSuperpowers -or $env:VESTA_NO_SUPERPOWERS -eq "1"
 
 if (-not $ProjectRoot) {
-    $ProjectRoot = if ($env:OPAI_PROJECT_ROOT) {
-        $env:OPAI_PROJECT_ROOT
+    $ProjectRoot = if ($env:VESTA_PROJECT_ROOT) {
+        $env:VESTA_PROJECT_ROOT
     } else {
         (Get-Location).Path
     }
 }
 
 if (-not $InstallRoot) {
-    $InstallRoot = if ($env:OPAI_INSTALL_ROOT) {
-        $env:OPAI_INSTALL_ROOT
+    $InstallRoot = if ($env:VESTA_INSTALL_ROOT) {
+        $env:VESTA_INSTALL_ROOT
     } else {
-        Join-Path $env:USERPROFILE ".opai\source"
+        Join-Path $env:USERPROFILE ".vesta\source"
     }
 }
 
@@ -87,8 +87,8 @@ $Root = (Resolve-Path $Root).Path
 $ProjectRoot = (Resolve-Path $ProjectRoot).Path
 $env:PYTHONPATH = "$Root;$env:PYTHONPATH"
 
-$Python = if ($env:OPAI_PYTHON) {
-    $env:OPAI_PYTHON
+$Python = if ($env:VESTA_PYTHON) {
+    $env:VESTA_PYTHON
 } else {
     (Get-Command python -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
 }
@@ -111,12 +111,12 @@ if (-not $NoShellAliases) {
     $InstallArgs += "--shell-aliases"
 }
 
-& $Python -m opai @InstallArgs
+& $Python -m vesta @InstallArgs
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-$InstalledVersion = (& $Python -m opai version 2>$null)
+$InstalledVersion = (& $Python -m vesta version 2>$null)
 if (-not $InstalledVersion) { $InstalledVersion = "Vesta installed" }
 Write-Host ""
 Write-Host "$InstalledVersion installed permanently."

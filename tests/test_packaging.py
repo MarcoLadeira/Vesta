@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub.loader import hub_root, packaged_hub_root, registry_items
+from vestahub.loader import hub_root, packaged_hub_root, registry_items
 
 
 class PackagedHubTests(unittest.TestCase):
@@ -26,32 +26,32 @@ class PackagedHubTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tools = registry_items("tools", Path(tmp))
 
-        self.assertIn("opai-cli", {tool["id"] for tool in tools})
+        self.assertIn("vesta-cli", {tool["id"] for tool in tools})
 
     def test_windows_installer_supports_one_command_remote_bootstrap(self):
         text = Path("install.ps1").read_text(encoding="utf-8")
 
-        self.assertIn("OPAI_REPO_URL", text)
-        self.assertIn(".opai", text)
+        self.assertIn("VESTA_REPO_URL", text)
+        self.assertIn(".vesta", text)
         self.assertIn("source", text)
         self.assertIn("git clone", text)
         self.assertIn("--shell-aliases", text)
         self.assertIn("NoShellAliases", text)
         self.assertIn("NoSuperpowers", text)
-        self.assertIn("OPAI_PROJECT_ROOT", text)
+        self.assertIn("VESTA_PROJECT_ROOT", text)
         self.assertIn('"install", "--project", $ProjectRoot', text)
 
     def test_posix_installer_supports_one_command_remote_bootstrap(self):
         text = Path("install.sh").read_text(encoding="utf-8")
 
-        self.assertIn("OPAI_REPO_URL", text)
-        self.assertIn(".opai/source", text)
-        self.assertIn("OPAI_PROJECT_ROOT", text)
+        self.assertIn("VESTA_REPO_URL", text)
+        self.assertIn(".vesta/source", text)
+        self.assertIn("VESTA_PROJECT_ROOT", text)
         self.assertIn("git clone", text)
         self.assertIn("--shell-aliases", text)
         self.assertIn("--no-shell-aliases", text)
         self.assertIn("--no-superpowers", text)
-        self.assertIn('-m opai install --project "$OPAI_PROJECT_ROOT"', text)
+        self.assertIn('-m vesta install --project "$VESTA_PROJECT_ROOT"', text)
 
 
 if __name__ == "__main__":

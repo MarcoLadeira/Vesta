@@ -24,10 +24,10 @@ from unittest import mock
 
 from _helpers import FakeAccountRunner, make_repo
 
-from opai import cli
-from opai.gui_recents import begin_thread_turn, finish_thread_turn
-from opaihub import journal_conversations, journal_runtime, journal_store
-from opaihub.gui_pipeline import handle_gui_message
+from vesta import cli
+from vesta.gui_recents import begin_thread_turn, finish_thread_turn
+from vestahub import journal_conversations, journal_runtime, journal_store
+from vestahub.gui_pipeline import handle_gui_message
 
 NOW = "2026-09-10T10:00:00+00:00"
 LATER = "2026-09-10T10:01:00+00:00"
@@ -62,7 +62,7 @@ class _Root(unittest.TestCase):
     def save_chat(self, *turns: tuple[str, str]) -> None:
         """Save one conversation whose assistant turns are (status, run_id)."""
 
-        directory = self.root / ".opaihub" / "gui" / "conversations"
+        directory = self.root / ".vestahub" / "gui" / "conversations"
         directory.mkdir(parents=True, exist_ok=True)
         messages = []
         for status, run_id in turns:
@@ -397,7 +397,7 @@ class DoctorDoesNotMigrateTests(_Root):
 
         self.assertFalse(health["openable"])
         self.assertIn("newer", health["open_error"])
-        self.assertTrue(journal_store.written_by_a_newer_opai(self.root))
+        self.assertTrue(journal_store.written_by_a_newer_vesta(self.root))
 
 
 class DoctorAsAWholeDoesNotMigrateTests(_Root):

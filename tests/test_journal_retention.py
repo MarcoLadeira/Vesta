@@ -31,8 +31,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
-from opaihub import journal_retention
-from opaihub.journal_retention import (
+from vestahub import journal_retention
+from vestahub.journal_retention import (
     DEFAULT_FLOOR_PER_RUN,
     PRESENTATION_EVENTS,
     compact,
@@ -40,14 +40,14 @@ from opaihub.journal_retention import (
     plan,
     retention_health,
 )
-from opaihub.journal_runtime import (
+from vestahub.journal_runtime import (
     EVENT_ADMITTED,
     EVENT_FINISHED,
     EVENT_TRANSITIONED,
     record_admission,
     record_terminal,
 )
-from opaihub.journal_store import (
+from vestahub.journal_store import (
     append_event,
     canonical_bytes,
     journal_path,
@@ -176,7 +176,7 @@ class NothingAuditCriticalIsEverRemovedTests(_RetentionFixture):
     def test_cost_events_survive_compaction(self):
         """Spend is the one record a cost tool cannot afford to lose."""
 
-        from opaihub.journal_runtime import record_run_cost
+        from vestahub.journal_runtime import record_run_cost
 
         fence = record_admission(
             self.root, task_id="t", run_id="run-a", task="x", now=NOW_ISO

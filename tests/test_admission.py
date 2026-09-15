@@ -24,14 +24,14 @@ import time
 import unittest
 from pathlib import Path
 
-from opaihub.admission import (
+from vestahub.admission import (
     ACCEPTED,
     DUPLICATE,
     Admission,
     admission_key,
     admit,
 )
-from opaihub.session_registry import DONE, SessionRegistry
+from vestahub.session_registry import DONE, SessionRegistry
 
 
 class AdmissionKeyTests(unittest.TestCase):

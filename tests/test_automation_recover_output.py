@@ -17,8 +17,8 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
-from opaihub import cli, journal_runtime
-from opaihub.background_runs import BackgroundRunner, enqueue_automation
+from vestahub import cli, journal_runtime
+from vestahub.background_runs import BackgroundRunner, enqueue_automation
 
 NOW = "2026-09-10T10:00:00+00:00"
 

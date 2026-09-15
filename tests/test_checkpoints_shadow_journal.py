@@ -1,6 +1,6 @@
 """#613 Stage 2: run checkpoints mirror into the shadow journal.
 
-``opaihub/checkpoints.py`` is Stage 1's ``operations`` entry -- "operations:
+``vestahub/checkpoints.py`` is Stage 1's ``operations`` entry -- "operations:
 run checkpoints" -- and the first non-lease table migrated, which is what
 makes it worth its own suite: it demonstrates the shared helper generalises
 past the shape it was extracted from.
@@ -24,7 +24,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub.checkpoints import (
+from vestahub.checkpoints import (
     checkpoint_contradiction_report,
     create_run_checkpoint,
     finalize_run_checkpoint,
@@ -134,7 +134,7 @@ class CheckpointShadowTests(unittest.TestCase):
 
     def test_an_out_of_band_write_is_reported(self):
         created = self._create()
-        path = self.root / ".opaihub" / "agent" / "checkpoints" / "cp-1.json"
+        path = self.root / ".vestahub" / "agent" / "checkpoints" / "cp-1.json"
         tampered = {**created.to_dict(), "completion_state": "failed", "outcome": "x"}
         path.write_text(json.dumps(tampered), encoding="utf-8")
 

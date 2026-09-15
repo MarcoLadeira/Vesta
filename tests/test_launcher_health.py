@@ -25,7 +25,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import mock
 
-from opaihub import launcher_health, proc
+from vestahub import launcher_health, proc
 
 
 # The exact substitution pip's vendored distlib applies to build a gui_scripts
@@ -36,7 +36,7 @@ def _distlib_windowed(executable: str) -> str:
     return os.path.join(directory, name.replace("python", "pythonw"))
 
 
-# The real OPai-Desktop.exe carries a literal "#!" inside its launcher stub,
+# The real Vesta-Desktop.exe carries a literal "#!" inside its launcher stub,
 # 37KB before the shebang that matters -- a whole-file search finds that one
 # and reports an interpreter nobody will ever run. The decoys below are that
 # trap, planted at both distances a reader can get wrong.
@@ -135,7 +135,7 @@ class ReadInterpreterTests(unittest.TestCase):
 
     def test_a_windows_launcher_reports_its_interpreter(self) -> None:
         with TemporaryDirectory() as raw:
-            path = Path(raw) / "OPai-Desktop.exe"
+            path = Path(raw) / "Vesta-Desktop.exe"
             path.write_bytes(_windows_launcher(r"C:\Python313\pythonw.exe"))
 
             self.assertEqual(
@@ -147,7 +147,7 @@ class ReadInterpreterTests(unittest.TestCase):
         """The trap that shipped: the real .exe has a "#!" in its stub too."""
 
         with TemporaryDirectory() as raw:
-            path = Path(raw) / "OPai-Desktop.exe"
+            path = Path(raw) / "Vesta-Desktop.exe"
             blob = _windows_launcher(r"C:\Python313\pythonww.exe")
             path.write_bytes(blob)
 
@@ -165,7 +165,7 @@ class ReadInterpreterTests(unittest.TestCase):
         """Reading forward from the window start picks up the wrong one."""
 
         with TemporaryDirectory() as raw:
-            path = Path(raw) / "OPai-Desktop.exe"
+            path = Path(raw) / "Vesta-Desktop.exe"
             path.write_bytes(_windows_launcher(r"C:\Python313\python.exe"))
 
             found = launcher_health.read_interpreter(path)
@@ -176,7 +176,7 @@ class ReadInterpreterTests(unittest.TestCase):
 
     def test_a_quoted_path_loses_its_quotes(self) -> None:
         with TemporaryDirectory() as raw:
-            path = Path(raw) / "opai.exe"
+            path = Path(raw) / "vesta.exe"
             path.write_bytes(_windows_launcher(r'"C:\Program Files\Py\python.exe"'))
 
             self.assertEqual(
@@ -186,14 +186,14 @@ class ReadInterpreterTests(unittest.TestCase):
 
     def test_a_posix_script_reports_its_shebang(self) -> None:
         with TemporaryDirectory() as raw:
-            path = Path(raw) / "opai"
+            path = Path(raw) / "vesta"
             path.write_bytes(b"#!/usr/bin/python3\nprint(1)\n")
 
             self.assertEqual(launcher_health.read_interpreter(path), "/usr/bin/python3")
 
     def test_bytes_with_no_interpreter_read_as_nothing(self) -> None:
         with TemporaryDirectory() as raw:
-            path = Path(raw) / "opai.exe"
+            path = Path(raw) / "vesta.exe"
             path.write_bytes(b"\x00" * 500)
 
             self.assertEqual(launcher_health.read_interpreter(path), "")
@@ -201,7 +201,7 @@ class ReadInterpreterTests(unittest.TestCase):
 
 def _read_posix(blob: bytes) -> str:
     with TemporaryDirectory() as raw:
-        path = Path(raw) / "opai"
+        path = Path(raw) / "vesta"
         path.write_bytes(blob)
         return launcher_health.read_interpreter(path)
 
@@ -236,7 +236,7 @@ class AShebangIsACommandLineTests(unittest.TestCase):
             b"#!/bin/sh\n"
             b'\'\'\'exec\' "/opt/very long/venv/bin/python" "$0" "$@"\n'
             b"' '''\n"
-            b"from opai.cli import main\n"
+            b"from vesta.cli import main\n"
         )
 
         self.assertEqual(_read_posix(blob), "/opt/very long/venv/bin/python")
@@ -257,14 +257,14 @@ class InspectLauncherTests(unittest.TestCase):
         with TemporaryDirectory() as raw:
             root = Path(raw)
             gone = str(root / "pythonww.exe")
-            self._install(root, "OPai-Desktop", gone)
+            self._install(root, "Vesta-Desktop", gone)
 
             reports = launcher_health.inspect_launchers(
                 directories=[root],
             )
             found = {report.name: report for report in reports}
-            self.assertIn("OPai-Desktop", found, "entry points not discovered")
-            desktop = found["OPai-Desktop"]
+            self.assertIn("Vesta-Desktop", found, "entry points not discovered")
+            desktop = found["Vesta-Desktop"]
 
             self.assertEqual(desktop.status, launcher_health.MISSING_INTERPRETER)
             self.assertFalse(desktop.healthy)
@@ -276,10 +276,10 @@ class InspectLauncherTests(unittest.TestCase):
             root = Path(raw)
             real = root / "python.exe"
             real.write_bytes(b"")
-            self._install(root, "OPai-Desktop", str(real))
+            self._install(root, "Vesta-Desktop", str(real))
 
             reports = launcher_health.inspect_launchers(directories=[root])
-            desktop = {r.name: r for r in reports}["OPai-Desktop"]
+            desktop = {r.name: r for r in reports}["Vesta-Desktop"]
 
             self.assertEqual(desktop.status, launcher_health.OK)
             self.assertTrue(desktop.healthy)
@@ -300,15 +300,15 @@ class InspectLauncherTests(unittest.TestCase):
         with TemporaryDirectory() as raw:
             root = Path(raw)
             suffix = ".exe" if os.name == "nt" else ""
-            (root / ("OPai-Desktop" + suffix)).write_bytes(b"\x00" * 500)
+            (root / ("Vesta-Desktop" + suffix)).write_bytes(b"\x00" * 500)
 
             reports = launcher_health.inspect_launchers(directories=[root])
-            desktop = {r.name: r for r in reports}["OPai-Desktop"]
+            desktop = {r.name: r for r in reports}["Vesta-Desktop"]
             self.assertEqual(desktop.status, launcher_health.UNREADABLE)
 
             summary = launcher_health.summary(reports)
             self.assertFalse(summary["healthy"])
-            self.assertIn("OPai-Desktop", summary["unreadable"])
+            self.assertIn("Vesta-Desktop", summary["unreadable"])
 
     def test_summary_of_an_uncheckable_install_is_not_available(self) -> None:
         summary = launcher_health.summary([])
@@ -321,16 +321,16 @@ class DoctorVerdictTests(unittest.TestCase):
     """A dead icon has to reach doctor's top line."""
 
     def test_a_broken_launcher_needs_attention(self) -> None:
-        from opai import cli
+        from vesta import cli
 
         self.assertTrue(
             cli._launchers_need_attention(
-                {"available": True, "broken": ["OPai-Desktop"]}
+                {"available": True, "broken": ["Vesta-Desktop"]}
             )
         )
 
     def test_a_healthy_install_does_not(self) -> None:
-        from opai import cli
+        from vesta import cli
 
         self.assertFalse(
             cli._launchers_need_attention({"available": True, "broken": []})
@@ -339,7 +339,7 @@ class DoctorVerdictTests(unittest.TestCase):
     def test_an_uncheckable_install_is_not_called_broken(self) -> None:
         """Reported as unavailable, not turned into a red verdict."""
 
-        from opai import cli
+        from vesta import cli
 
         self.assertFalse(
             cli._launchers_need_attention(
@@ -348,7 +348,7 @@ class DoctorVerdictTests(unittest.TestCase):
         )
 
     def test_doctor_reports_what_the_launchers_will_run(self) -> None:
-        from opai import cli
+        from vesta import cli
 
         payload = cli._launcher_doctor()
 

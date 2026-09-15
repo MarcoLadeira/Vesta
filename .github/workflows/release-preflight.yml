@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: opai-release-preflight-${{ github.ref }}
+  group: vesta-release-preflight-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -46,7 +46,7 @@ jobs:
 
       - name: Run strict exact-SHA release preflight
         run: >-
-          python -m opai release preflight
+          python -m vesta release preflight
           --qualification-required
           --source-only
           --candidate-sha "${{ github.sha }}"
@@ -56,7 +56,7 @@ jobs:
 
       - name: Prove dry-run isolation
         if: always()
-        run: python -m opai release dry-run-proof > dry-run-proof.json
+        run: python -m vesta release dry-run-proof > dry-run-proof.json
 
       - name: Upload immutable source-preflight evidence
         if: always()

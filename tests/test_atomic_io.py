@@ -32,7 +32,7 @@ while not (barrier / "go").exists():
         raise TimeoutError("timed out waiting for multiprocess test barrier")
     time.sleep(0.01)
 
-from opaihub.atomic_io import atomic_write_text, interprocess_transaction
+from vestahub.atomic_io import atomic_write_text, interprocess_transaction
 
 with interprocess_transaction(target):
     state = json.loads(target.read_text(encoding="utf-8")) if target.exists() else {"writes": 0}
@@ -47,7 +47,7 @@ import sys
 import time
 from pathlib import Path
 
-from opaihub.atomic_io import interprocess_transaction
+from vestahub.atomic_io import interprocess_transaction
 
 target = Path(sys.argv[1])
 ready = Path(sys.argv[2])
@@ -117,7 +117,7 @@ def test_eight_processes_serialize_transactions(tmp_path: Path) -> None:
 
 
 def test_lock_contention_raises_typed_timeout(tmp_path: Path) -> None:
-    from opaihub.atomic_io import InterprocessLockTimeout, interprocess_transaction
+    from vestahub.atomic_io import InterprocessLockTimeout, interprocess_transaction
 
     target = tmp_path / "state.json"
     ready = tmp_path / "holder.ready"
@@ -145,7 +145,7 @@ def test_process_identity_change_resets_reentrant_lock_state(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from opaihub import atomic_io
+    from vestahub import atomic_io
 
     target = tmp_path / "state.json"
     process_id = [10_001]
@@ -170,7 +170,7 @@ def test_process_identity_change_resets_reentrant_lock_state(
 
 @pytest.mark.skipif(not hasattr(os, "fork"), reason="requires POSIX os.fork")
 def test_forked_child_cannot_bypass_parent_file_lock(tmp_path: Path) -> None:
-    from opaihub.atomic_io import InterprocessLockTimeout, interprocess_transaction
+    from vestahub.atomic_io import InterprocessLockTimeout, interprocess_transaction
 
     target = tmp_path / "state.json"
     read_fd, write_fd = os.pipe()
@@ -203,7 +203,7 @@ def test_atomic_write_text_uses_unique_sibling_temps_and_cleans_them(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from opaihub import atomic_io
+    from vestahub import atomic_io
 
     target = tmp_path / "state.txt"
     target.write_text("old", encoding="utf-8")
@@ -234,7 +234,7 @@ def test_atomic_write_text_applies_mode_before_replace(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from opaihub import atomic_io
+    from vestahub import atomic_io
 
     target = tmp_path / "state.txt"
     events: list[tuple[str, Path, int | None]] = []
@@ -267,7 +267,7 @@ def test_atomic_write_text_without_mode_does_not_chmod(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from opaihub import atomic_io
+    from vestahub import atomic_io
 
     calls: list[Path] = []
     monkeypatch.setattr(
@@ -283,7 +283,7 @@ def test_atomic_write_text_syncs_parent_directory_after_replace(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from opaihub import atomic_io
+    from vestahub import atomic_io
 
     target = tmp_path / "state.txt"
     events: list[tuple[str, Path]] = []
@@ -310,7 +310,7 @@ def test_sync_parent_directory_opens_fsyncs_and_closes_descriptor(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from opaihub import atomic_io
+    from vestahub import atomic_io
 
     directory_flags = 0x4000
     opened: list[tuple[Path, int]] = []
@@ -342,7 +342,7 @@ def test_sync_parent_directory_is_noop_when_platform_does_not_support_it(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from opaihub import atomic_io
+    from vestahub import atomic_io
 
     monkeypatch.setattr(atomic_io, "_DIRECTORY_OPEN_FLAGS", None, raising=False)
 
@@ -360,7 +360,7 @@ def test_failed_replace_preserves_previous_bytes_and_cleans_temp(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from opaihub import atomic_io
+    from vestahub import atomic_io
 
     target = tmp_path / "state.json"
     previous = b'{"writes": 1}'
@@ -386,7 +386,7 @@ def test_failed_replace_preserves_previous_bytes_and_cleans_temp(
 
 
 def test_atomic_writes_never_expose_partial_json_to_readers(tmp_path: Path) -> None:
-    from opaihub.atomic_io import atomic_write_text
+    from vestahub.atomic_io import atomic_write_text
 
     target = tmp_path / "state.json"
     atomic_write_text(target, json.dumps({"write": -1, "payload": "seed"}))

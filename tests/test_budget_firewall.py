@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub.budget import (
+from vestahub.budget import (
     _backup_path,
     budget_gate,
     budget_path,
@@ -16,7 +16,7 @@ from opaihub.budget import (
     load_budget,
     set_budget,
 )
-from opaihub.ledger import (
+from vestahub.ledger import (
     ledger_path,
     record_model_call,
     record_route_decision,

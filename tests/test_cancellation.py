@@ -14,10 +14,10 @@ from unittest import mock
 
 from _helpers import FakeStreamingRunner, make_repo
 
-from opaihub import accounts
-from opaihub.accounts import AccountRunner
-from opaihub.deadlines import TASK_DEADLINE, DeadlineBudget
-from opaihub.gui_pipeline import handle_gui_message
+from vestahub import accounts
+from vestahub.accounts import AccountRunner
+from vestahub.deadlines import TASK_DEADLINE, DeadlineBudget
+from vestahub.gui_pipeline import handle_gui_message
 
 
 class _Pipe:
