@@ -228,6 +228,9 @@ PROJECTION_OR_EXPORT = {
 #: Caches, preferences, scaffolding, benchmarks, docs. Explicit #613 non-goal.
 NOT_RUNTIME_STATE = {
     "vesta/app_state.py",
+    # The app-wide colour theme (~/.vesta/gui_theme.json): a preference, not
+    # execution truth, and nothing replays it.
+    "vesta/gui_theme.py",
     # Host-wide worker slots are OS advisory locks. The lock files carry no
     # state: the OS releases a slot when its holder dies, and nothing is ever
     # replayed from them.
