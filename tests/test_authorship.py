@@ -1,8 +1,8 @@
-"""OPai credits itself on commits it writes.
+"""Vesta credits itself on commits it writes.
 
 GitHub reads ``Co-Authored-By`` trailers and attributes the commit to that
 identity — it is why an assistant appears in a repository's contributor list and
-on its pull requests. OPai wrote commits with no trailer, so work it did was
+on its pull requests. Vesta wrote commits with no trailer, so work it did was
 indistinguishable from work the user typed by hand.
 
 Every assertion about the trailer being *valid* is made against ``git
@@ -74,7 +74,7 @@ class TrailerHygieneTests(unittest.TestCase):
     def test_a_differently_capitalised_trailer_still_counts_as_present(self) -> None:
         # Git and GitHub treat these as the same trailer; a naive string
         # comparison does not, and would duplicate the credit.
-        existing = f"fix: thing\n\nco-authored-by: OPai <{OPAI_EMAIL}>"
+        existing = f"fix: thing\n\nco-authored-by: Vesta <{OPAI_EMAIL}>"
         self.assertTrue(has_opai_trailer(existing))
         self.assertEqual(with_coauthor(existing).count(OPAI_EMAIL), 1)
 
@@ -93,7 +93,7 @@ class TrailerHygieneTests(unittest.TestCase):
 
 
 class RealCommitTests(unittest.TestCase):
-    """End-to-end: a commit OPai makes is attributed by git."""
+    """End-to-end: a commit Vesta makes is attributed by git."""
 
     def test_a_commit_made_through_the_tool_carries_the_trailer(self) -> None:
         import tempfile

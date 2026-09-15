@@ -1,7 +1,7 @@
-"""OPai desktop app — web-rendered UI (Chromium via QtWebEngine).
+"""Vesta desktop app — web-rendered UI (Chromium via QtWebEngine).
 
 The window is a single ``QWebEngineView`` rendering a hand-built HTML/CSS/JS
-front-end (``opai/assets/web/``). All of OPai's logic stays in Python and is
+front-end (``opai/assets/web/``). All of Vesta's logic stays in Python and is
 exposed to the page over a thin ``QWebChannel`` bridge — the front-end never
 computes anything sensitive, it just renders JSON the bridge hands it.
 
@@ -81,6 +81,7 @@ WEB_DIR = Path(__file__).resolve().parent / "assets" / "web"
 _BRIDGE_PREFERENCE_KEYS = frozenset(
     {
         "default_model",
+        "multi_agent_enabled",
         "default_mode",
         "default_task_mode",
         "default_output_format",
@@ -184,7 +185,7 @@ def _runtime_index_url(web_dir: Path, theme: str = DEFAULT_THEME) -> "Any":
     if not index.is_file():
         raise FileNotFoundError(
             f"packaged web asset missing: {index} "
-            "(reinstall OPai or rebuild the web bundle)"
+            "(reinstall Vesta or rebuild the web bundle)"
         )
     try:
         ver = str(int(time.time() * 1000))
@@ -469,11 +470,20 @@ def _status(root: Path, model_label: str, mode_label: str) -> dict[str, Any]:
         spent = ins["budget"]["spent_today"]
         saved = o["savings"]["estimated_savings_usd"]
         on = bool(o.get("on"))
+        complete = bool(ins["budget"].get("spend_complete", True))
     except Exception:  # noqa: BLE001
-        spent, saved, on = 0.0, 0.0, False
+        # #818: `None`, not `0.0`. This handler catches every way the ledger
+        # can fail to answer, and answering "$0.00 today" to "I could not
+        # read the ledger" is the exact substitution the epic forbids.
+        # `on` stays False because that one really is a different fact:
+        # nothing is running if we cannot see that anything is.
+        spent, saved, on = None, None, False
+        complete = True
     return {
         "on": on,
-        "line": header_status(model_label, mode_label, spent, saved=saved),
+        "line": header_status(
+            model_label, mode_label, spent, saved=saved, spend_complete=complete
+        ),
         "spent": spent,
         "saved": saved,
     }
@@ -503,7 +513,7 @@ def _workspace(root: Path) -> dict[str, Any]:
         "repository_safety": repository_safety,
         "worktree_leases": worktree_leases,
         "file_count": ws.get("file_count", 0),
-        # OPai Build (#276): when the workspace is a scaffolded app, the GUI
+        # Vesta Build (#276): when the workspace is a scaffolded app, the GUI
         # offers Build mode — chat edits it with cheap, verified targeted diffs.
         "build_app": build_manifest is not None,
         "build_app_name": (build_manifest or {}).get("name")
@@ -556,9 +566,26 @@ def _workspace_refresh(root: Path) -> dict[str, Any]:
 
 
 def _github_row_value(readiness: dict[str, Any]) -> str:
-    """A concise, honest push-readiness line for the inspector (#300)."""
+    """A concise, honest push-readiness line for the inspector (#300).
+
+    "Ready to push & open PRs" is a claim about the future, and it used to be
+    made from ``bool(token)`` -- an expired, revoked, wrong-scope or mistyped
+    token produced the identical line, and the user found out after a run had
+    done all the work. It is now only said when a live check actually said so.
+    """
     if readiness.get("ready"):
-        return "Ready to push & open PRs"
+        verification = str(readiness.get("verification") or "unknown")
+        if verification == "valid" and readiness.get("verification_fresh"):
+            return "Ready to push & open PRs"
+        if verification == "valid":
+            # Checked, but not recently: a token can be revoked a second after
+            # it was verified, so an old check is cited as old, not as ready.
+            return "Token connected \u00b7 last verified over a day ago"
+        if verification == "rejected":
+            return "GitHub rejected this token \u2014 reconnect in Settings"
+        if verification == "unreachable":
+            return "Token connected \u00b7 last check couldn't reach GitHub"
+        return "Token connected \u00b7 not verified yet"
     connect_message = "Connect a token in Settings"
     return {
         "no_token": connect_message,
@@ -665,7 +692,7 @@ def _resume_payload(root: Path) -> dict[str, Any]:
     from opaihub.workflow_state import load_workflow_state
 
     # Boot is deliberately read-only. A pending checkpoint can still belong to
-    # another live OPai window or CLI run; without an owner lease, process death
+    # another live Vesta window or CLI run; without an owner lease, process death
     # cannot be inferred safely. Preserve it verbatim and let the user make the
     # explicit resume/start-fresh choice.
     thread = load_thread(root)
@@ -732,7 +759,7 @@ def _resume_payload(root: Path) -> dict[str, Any]:
         # #295 invariant 4: whether the process that owned this run is
         # still alive. Boot stays read-only — this reports what the lease
         # says and mutates nothing, so the resume/start-fresh choice is
-        # still the user's. It just stops OPai having to present a run
+        # still the user's. It just stops Vesta having to present a run
         # abandoned days ago and one a sibling window is actively working
         # on as the same indistinguishable thing.
         "owner": describe_lease(thread.get("lease")),
@@ -773,6 +800,7 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
     """Everything the front-end needs to render the whole shell in one call."""
     from opaihub.gui_preferences import MODES, load_gui_preferences
     from opaihub.workflow_state import load_workflow_state
+    from opaihub.process_tree import objective_runtime_support
 
     from opaihub.autonomy import MODE_LABELS, resolve_startup_mode
 
@@ -782,7 +810,9 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
     # lazily, on the first comparison -- would fingerprint whatever happens to
     # be on disk by then and conclude, permanently and wrongly, that this
     # process is current.
-    try:
+    # suppress() rather than try/except/pass: same intent -- a staleness hint
+    # may never break boot -- and the bare form is what bandit's B110 flags.
+    with contextlib.suppress(Exception):  # noqa: BLE001
         from pathlib import Path as _Path
 
         import opai as _opai
@@ -790,8 +820,6 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
         from opai.update.running_build import prime as _prime_running_build
 
         _prime_running_build(_Path(_opai.__file__).parent / "assets")
-    except Exception:  # noqa: BLE001 - a staleness hint may never break boot
-        pass
     root = root.expanduser().resolve()
     prefs = load_gui_preferences(root)
     # Central autonomy decision (#137): boot into the effective mode, which is
@@ -815,10 +843,10 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
         (m for m in models["models"] if m["id"] == prefs.get("default_model")),
         models["models"][0]
         if models["models"]
-        else {"id": "auto", "label": "OPai · Auto mode", "kind": "auto"},
+        else {"id": "auto", "label": "Vesta · Auto mode", "kind": "auto"},
     )
     sel = {
-        "model_label": sel_model.get("label", "OPai · Auto mode"),
+        "model_label": sel_model.get("label", "Vesta · Auto mode"),
         "model_advanced_label": sel_model.get(
             "advanced_label", sel_model.get("label", "Automatic routing")
         ),
@@ -833,6 +861,7 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
     _STARTUP.mark("boot:workflow")
     payload = {
         "workspace": workspace_payload,
+        "agentsRuntime": objective_runtime_support(),
         "workflow": workflow.to_dict(),
         "resume": _resume_payload(root),
         "models": models["models"],
@@ -846,6 +875,7 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
         "outputFormats": output_formats(),
         "prefs": {
             "model": prefs.get("default_model", "auto"),
+            "multiAgentEnabled": prefs.get("multi_agent_enabled") is True,
             "mode": mode,
             "focus": focus,
             "format": fmt,
@@ -956,9 +986,9 @@ def _clear_failure_payload(root: Path, *, target: str) -> dict[str, Any]:
     payload["error"] = {
         "code": "SESSION_CLEAR_FAILED",
         "title": "Saved work was not cleared",
-        "userMessage": f"OPai could not clear the {target}.",
+        "userMessage": f"Vesta could not clear the {target}.",
         "recoveryActions": [
-            "Close other OPai windows using this workspace and try again.",
+            "Close other Vesta windows using this workspace and try again.",
             "Check that the workspace files are writable.",
         ],
     }
@@ -997,15 +1027,21 @@ def _beat_lease(root: Path, request_id: str) -> None:
         pass
 
 
-def _persist_turn_start(root: Path, request_id: str, text: str, mode: str) -> None:
-    """Best-effort durability must never prevent the actual user request."""
+def _persist_turn_start(root: Path, request_id: str, text: str, mode: str) -> str:
+    """Best-effort durability must never prevent the actual user request.
+
+    Returns the conversation the turn was recorded in, or ``""`` when it could
+    not be recorded -- which is what the journal is then told, rather than a
+    guess read back from the thread file (#818 review finding 10).
+    """
 
     from opai.gui_recents import begin_thread_turn
 
     try:
-        begin_thread_turn(root, request_id=request_id, text=text, mode=mode)
+        started = begin_thread_turn(root, request_id=request_id, text=text, mode=mode)
     except (OSError, TypeError, ValueError):
-        pass
+        return ""
+    return str((started or {}).get("conversation_id") or "")
 
 
 def _safe_result_path(value: Any) -> str:
@@ -1069,7 +1105,10 @@ def _manifest_check_summary(result: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(raw, dict) or not raw:
         return {}
     try:
-        from opaihub.verification_execution import verification_manifest_from_dict
+        from opaihub.verification_execution import (
+            CheckStatus,
+            verification_manifest_from_dict,
+        )
 
         manifest = verification_manifest_from_dict(raw)
     except (KeyError, TypeError, ValueError):
@@ -1086,13 +1125,16 @@ def _manifest_check_summary(result: dict[str, Any]) -> dict[str, Any]:
     if manifest.integrity_errors:
         status = "not_verified"
     elif failed:
+        # Verification *check* outcomes, spelled through their own enum: a
+        # check is not a run, and a bare tuple of these words is exactly what
+        # the lifecycle-authority ratchet reads as a second state vocabulary.
         priority = (
-            "failed",
-            "timeout",
-            "cancelled",
-            "blocked",
-            "unavailable",
-            "artifact_lost",
+            CheckStatus.FAILED.value,
+            CheckStatus.TIMEOUT.value,
+            CheckStatus.CANCELLED.value,
+            CheckStatus.BLOCKED.value,
+            CheckStatus.UNAVAILABLE.value,
+            CheckStatus.ARTIFACT_LOST.value,
             "missing",
         )
         first = next((item for item in priority if item in statuses), "not_verified")
@@ -1371,8 +1413,14 @@ def _persist_turn_result(
     *,
     mode: str,
     build: bool = False,
+    run_id: str = "",
 ) -> None:
-    """Persist the user-visible outcome, excluding provider/tool internals."""
+    """Persist the user-visible outcome, excluding provider/tool internals.
+
+    ``run_id`` is the journal run that produced the turn, when the pipeline
+    reported one; it is saved with the turn so the two records can be compared
+    turn by turn.
+    """
 
     from opai.gui_recents import finish_thread_turn, thread_status_for_result
 
@@ -1452,6 +1500,7 @@ def _persist_turn_result(
             plan=plan,
             changed_files=changed_files,
             presentation=presentation or None,
+            run_id=run_id,
         )
     except (OSError, TypeError, ValueError):
         pass
@@ -1484,7 +1533,7 @@ def scaffold_app_payload(root: Path, payload_json: str) -> dict[str, Any]:
 
 
 def app_receipt_payload(root: Path) -> dict[str, Any]:
-    """The current workspace's OPai Build receipt, or an honest not-an-app."""
+    """The current workspace's Vesta Build receipt, or an honest not-an-app."""
     from opaihub.build_loop import app_receipt
 
     return app_receipt(root)
@@ -1499,6 +1548,13 @@ def dashboard_section_payload(root: Path, section_id: str) -> dict[str, Any]:
     try:
         vm = build_view_model(root)
         section = next((s for s in vm["sections"] if s.get("id") == section_id), None)
+        if section_id == "agents":
+            from opai.agents_bridge import objectives_payload
+
+            section = {
+                **(section or {"id": "agents", "title": "Agents"}),
+                **objectives_payload(root),
+            }
     except Exception as exc:  # noqa: BLE001
         return {"error": safe_detail(exc)}
     return section or {"error": "not found"}
@@ -1517,7 +1573,7 @@ def apply_tool_payload(root: Path, name: str) -> dict[str, Any]:
 def outcomes_payload(root: Path) -> dict[str, Any]:
     """Task-outcome metrics for the cockpit (#288).
 
-    Returns exactly what ``opai outcomes`` prints, so the GUI and CLI are
+    Returns exactly what ``vesta outcomes`` prints, so the GUI and CLI are
     provably in parity: cost per completed task and duplicate-call avoidance,
     reconciled to the authoritative model_call ledger.
     """
@@ -1964,6 +2020,8 @@ def _run_gui(
         connectionDoctorReady = QtCore.Signal(str)
         # Async data delivery (#146): heavy payloads leave the GUI thread.
         dashboardReady = QtCore.Signal(str)
+        objectiveReady = QtCore.Signal(str)
+        objectiveControlReady = QtCore.Signal(str)
         settingsReady = QtCore.Signal(str)
         toolApplied = QtCore.Signal(str)
         statusReady = QtCore.Signal(str)
@@ -2315,7 +2373,7 @@ def _run_gui(
                     outcome = {
                         "ok": False,
                         "reason": "check_failed",
-                        "message": "OPai could not check for updates just now.",
+                        "message": "Vesta could not check for updates just now.",
                     }
                 status = self._update_service.status()
                 if outcome is not None and not outcome.get("ok"):
@@ -2696,11 +2754,182 @@ def _run_gui(
 
         # ---- async slots --------------------------------------------- #
         @QtCore.Slot(str)
+        def controlObjective(self, payload_json: str) -> None:
+            turn_root = self.root
+            control_id = "objective-control-" + uuid.uuid4().hex
+            cancel = threading.Event()
+            self._cancels[control_id] = cancel
+
+            def emit_snapshot(objective):
+                self.objectiveControlReady.emit(
+                    json.dumps(
+                        {
+                            "ok": True,
+                            "objective": objective,
+                            "workspaceRoot": str(turn_root),
+                        },
+                        default=str,
+                    )
+                )
+
+            def job():
+                from opai.agents_bridge import control_objective_payload
+
+                payload = {}
+                try:
+                    payload = json.loads(payload_json)
+                    from opaihub.objective_execution import ObjectiveExecutor
+
+                    if payload.get("action") in {"run", "reconcile", "verify"}:
+                        if payload.get("assignment_id") is not None:
+                            raise ValueError(
+                                "Execution and integration operate on the whole objective"
+                            )
+                        executor = ObjectiveExecutor(turn_root, on_event=emit_snapshot)
+                        execute = (
+                            executor.run
+                            if payload["action"] == "run"
+                            else executor.reconcile
+                        )
+                        objective = execute(payload["objective_id"], cancel)
+                        return {
+                            "ok": True,
+                            "objective": objective,
+                            "workspaceRoot": str(turn_root),
+                        }
+                    result = control_objective_payload(turn_root, payload)
+                    if payload.get("action") in {
+                        "resume",
+                        "budget",
+                        "set_budget",
+                        "sequential",
+                        "reroute",
+                        "prioritize",
+                        "approve",
+                        "retry",
+                        "request_review",
+                        "add_agent",
+                        "agent_message",
+                        "connect_agents",
+                        "start_agent",
+                    } or (
+                        payload.get("action") == "agent_settings"
+                        and isinstance(payload.get("value"), dict)
+                        and "model" in payload["value"]
+                        and any(
+                            a["status"] == "pending"
+                            for a in result["objective"]["assignments"]
+                        )
+                    ):
+                        self.objectiveControlReady.emit(json.dumps(result, default=str))
+                        result["objective"] = ObjectiveExecutor(
+                            turn_root, on_event=emit_snapshot
+                        ).run(payload["objective_id"], cancel=cancel)
+                    return result
+                except Exception as exc:  # noqa: BLE001
+                    from opaihub.agent_team import TeamControlError
+
+                    return {
+                        "ok": False,
+                        "error": {"userMessage": str(exc)}
+                        if isinstance(exc, TeamControlError)
+                        else safe_detail(exc),
+                        "control": {
+                            "action": payload.get("action"),
+                            "revision": payload.get("value", {}).get("revision")
+                            if isinstance(payload.get("value"), dict)
+                            else None,
+                            "objective_id": payload.get("objective_id"),
+                        }
+                        if isinstance(payload, dict)
+                        else None,
+                        "workspaceRoot": str(turn_root),
+                    }
+
+            worker = Worker(job)
+
+            def done(result_json):
+                self._cancels.pop(control_id, None)
+                self.objectiveControlReady.emit(result_json)
+
+            worker.done.connect(done)
+            worker.finished.connect(lambda: self._confirm_teardown(control_id))
+            start_tracked_worker(self._workers, worker)
+
+        def _send_objective(self, payload: dict[str, Any]) -> None:
+            turn_root = self.root
+            request_id = str(payload.get("requestId") or uuid.uuid4().hex)
+            cancel = threading.Event()
+            accepted = threading.Event()
+            self._cancels[request_id] = cancel
+
+            def emit_snapshot(objective):
+                self.objectiveReady.emit(
+                    json.dumps(
+                        {
+                            "requestId": request_id,
+                            "objective": objective,
+                            "workspaceRoot": str(turn_root),
+                        },
+                        default=str,
+                    )
+                )
+
+            def job():
+                from opai.agents_bridge import create_objective_payload
+                from opaihub.objective_execution import ObjectiveExecutor
+
+                objective = create_objective_payload(
+                    turn_root, {**payload, "requestId": request_id}
+                )
+                accepted.set()
+                emit_snapshot(objective)
+                return ObjectiveExecutor(turn_root, on_event=emit_snapshot).run(
+                    objective["objective_id"],
+                    cancel=cancel,
+                )
+
+            def done(result_json):
+                self._cancels.pop(request_id, None)
+                result = json.loads(result_json)
+                if result.get("objective_id"):
+                    emit_snapshot(result)
+                elif accepted.is_set():
+                    self.objectiveControlReady.emit(
+                        json.dumps(
+                            {
+                                "ok": False,
+                                "error": safe_detail(
+                                    RuntimeError(
+                                        result.get("error")
+                                        or "Objective execution was interrupted"
+                                    )
+                                ),
+                                "workspaceRoot": str(turn_root),
+                            }
+                        )
+                    )
+                else:
+                    self.replyReady.emit(
+                        json.dumps({"requestId": request_id, "result": result})
+                    )
+
+            worker = Worker(job)
+            worker.done.connect(done)
+            worker.finished.connect(lambda: self._confirm_teardown(request_id))
+            start_tracked_worker(self._workers, worker)
+
+        @QtCore.Slot(str)
         def send(self, payload_json: str) -> None:
             try:
                 payload = json.loads(payload_json)
             except ValueError:
                 payload = {}
+            if not isinstance(payload, dict):
+                return
+            if payload.get("multiAgentEnabled") is True:
+                self._send_objective(payload)
+                return
             text = str(payload.get("text", "")).strip()
             if not text:
                 return
@@ -2718,7 +2947,9 @@ def _run_gui(
             )
             cancel = threading.Event()
             self._cancels[request_id] = cancel
-            _persist_turn_start(turn_root, request_id, text, str(mode))
+            conversation_id = _persist_turn_start(
+                turn_root, request_id, text, str(mode)
+            )
 
             # Activity batching (#226): worker threads append events to a
             # lock-guarded buffer; a GUI-thread QTimer drains it into ONE
@@ -2760,6 +2991,9 @@ def _run_gui(
                 )
 
             setattr(emit_text, "accepts_block_start", True)
+            # Filled by the pipeline on the worker thread, read by _done after
+            # the worker finishes. Out of band so the reply is untouched.
+            reported_run: dict[str, str] = {}
 
             def job() -> dict[str, Any]:
                 return handle_gui_message(
@@ -2782,6 +3016,12 @@ def _run_gui(
                     allow_command=str(payload.get("allowCommand") or "") or None,
                     allow_edits_once=bool(payload.get("allowEditsOnce", False)),
                     resume_context=resume_context,
+                    # Named rather than defaulted, so a caller that
+                    # forgets records "unknown" instead of quietly
+                    # claiming to be the desktop (#818 AC2).
+                    surface="gui",
+                    conversation_id=conversation_id,
+                    on_journal_run=lambda run: reported_run.update(run_id=run),
                 )
 
             worker = Worker(job)
@@ -2807,6 +3047,7 @@ def _run_gui(
                         result,
                         mode=str(mode),
                         build=False,
+                        run_id=reported_run.get("run_id", ""),
                     ),
                 )
                 self.replyReady.emit(
@@ -2824,7 +3065,7 @@ def _run_gui(
 
         @QtCore.Slot(str)
         def build(self, payload_json: str) -> None:
-            """One OPai Build turn from the GUI (#276): a chat message becomes a
+            """One Vesta Build turn from the GUI (#276): a chat message becomes a
             cheap, verified, targeted edit of the workspace app.
 
             Mirrors ``send`` exactly — same Worker thread, same batched activity
@@ -3083,15 +3324,18 @@ def _run_gui(
             """
 
             from opaihub.attachments import AttachmentError, store_image
+            from opaihub.command_runner import redact
 
             try:
                 stored = store_image(self.root, data, name=name)
             except AttachmentError as exc:
-                return json.dumps({"ok": False, "error": str(exc)})
+                # The message is written for the user; redact() leaves it as
+                # written and still scrubs anything secret-shaped (#622).
+                return json.dumps({"ok": False, "error": redact(str(exc))})
             except Exception:  # noqa: BLE001 - never leak a host path or trace
                 _LOG.debug("Attachment storage failed", exc_info=True)
                 return json.dumps(
-                    {"ok": False, "error": "OPai could not save the image."}
+                    {"ok": False, "error": "Vesta could not save the image."}
                 )
             return json.dumps({"ok": True, **stored.to_dict()})
 
@@ -3143,6 +3387,36 @@ def _run_gui(
             resolved = resolve_openable(self.root, target)
             if resolved is not None:
                 QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(resolved)))
+
+        @QtCore.Slot(str, result=str)
+        def inspectObjectiveArtifact(self, payload_json: str) -> str:
+            from opai.agents_bridge import inspect_objective_artifact
+            from opaihub.worktree_leases import WorktreeLeaseError
+
+            try:
+                return json.dumps(
+                    inspect_objective_artifact(self.root, json.loads(payload_json))
+                )
+            except (OSError, ValueError, KeyError, WorktreeLeaseError) as exc:
+                return json.dumps({"ok": False, "error": safe_detail(exc)})
+
+        @QtCore.Slot(str, result=str)
+        def openObjectiveWorktree(self, payload_json: str) -> str:
+            from opai.agents_bridge import objective_worktree_path
+
+            try:
+                target = objective_worktree_path(self.root, json.loads(payload_json))
+                opened = QtGui.QDesktopServices.openUrl(
+                    QtCore.QUrl.fromLocalFile(str(target))
+                )
+                return json.dumps(
+                    {
+                        "ok": opened,
+                        "error": "" if opened else "The worktree could not be opened.",
+                    }
+                )
+            except (OSError, ValueError, KeyError) as exc:
+                return json.dumps({"ok": False, "error": safe_detail(exc)})
 
         @QtCore.Slot(result=str)
         def recents(self) -> str:
@@ -3203,7 +3477,7 @@ def _run_gui(
             self._resume_context_active = False
             self._session_epoch.invalidate()
             add_recent_workspace(self.root)
-            self.window.setWindowTitle(f"OPai · {self.root.name}")
+            self.window.setWindowTitle(f"Vesta · {self.root.name}")
             self.workspaceChanged.emit(json.dumps(boot_payload(self.root)))
 
         @QtCore.Slot(str)
@@ -3259,7 +3533,7 @@ def _run_gui(
     class Window(QtWidgets.QMainWindow):
         def __init__(self) -> None:
             super().__init__()
-            self.setWindowTitle(f"OPai · {root.name}")
+            self.setWindowTitle(f"Vesta · {root.name}")
             self.setWindowFlag(QtCore.Qt.WindowType.FramelessWindowHint, True)
             self.setMinimumSize(1040, 700)
             self.resize(1340, 880)

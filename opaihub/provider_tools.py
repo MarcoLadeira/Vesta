@@ -36,7 +36,7 @@ WRITE_TOOLS = (
     "git_commit",
 )
 # Outward-facing tools: available only with a connected GitHub account AND the
-# persisted `opai github allow-push on` consent (see github_connector).
+# persisted `vesta github allow-push on` consent (see github_connector).
 GIT_OPS_TOOLS = ("git_push", "open_pr")
 # Read-only GitHub context: available with a connected token but NO push consent
 # (reading PR/CI status or an issue is not an outward mutation).
@@ -51,7 +51,7 @@ MAX_TOOL_CALLS = 12
 MAX_PATCH_CHARS = 120_000
 MAX_WRITE_CHARS = 200_000
 
-# write_file may never touch VCS internals, OPai state, env/secret files, or
+# write_file may never touch VCS internals, Vesta state, env/secret files, or
 # generated trees — matching the MCP path policy (#15).
 _BLOCKED_WRITE_PREFIXES = (
     ".git/",
@@ -231,7 +231,7 @@ class RepositoryToolExecutor:
         _token_connected: bool | None = None
         if allow_git_ops is None:
             # Push/PR need edits enabled, a connected GitHub token, AND the
-            # persisted `opai github allow-push on` consent — all three.
+            # persisted `vesta github allow-push on` consent — all three.
             allow_git_ops = False
             if self.allow_edits:
                 try:
@@ -317,7 +317,7 @@ class RepositoryToolExecutor:
         self._repository_safety_error = ""
 
     def _refresh_repository_handle(self) -> bool:
-        """Record OPai's own completed mutation before another one can run."""
+        """Record Vesta's own completed mutation before another one can run."""
 
         if self._repository_handle is None:
             return False
@@ -374,7 +374,7 @@ class RepositoryToolExecutor:
         The decision has already been made by the time this is called; a
         failure here must never retroactively change or block it. This is
         the first live-run wiring of opaihub.audit's tamper-evident trail --
-        previously it only recorded entries from the manual ``opai guard``
+        previously it only recorded entries from the manual ``vesta guard``
         CLI command, so decisions made during an actual autonomous run left
         no audit trail at all.
         """
@@ -654,7 +654,7 @@ class RepositoryToolExecutor:
                 _schema(
                     "git_push",
                     "Push the current branch to origin (never force). The user "
-                    "approves each push once in the OPai window; if this returns "
+                    "approves each push once in the Vesta window; if this returns "
                     "COMMAND_NEEDS_APPROVAL, stop and report that the push is "
                     "awaiting their approval — never claim it was pushed.",
                     {"branch": {"type": "string"}},
@@ -1174,7 +1174,7 @@ class RepositoryToolExecutor:
                 "An earlier attempt to commit this exact content did not "
                 "confirm. Check `git log` before retrying.",
             )
-        # #contributor: credit OPai on work OPai did. GitHub reads this trailer
+        # #contributor: credit Vesta on work Vesta did. GitHub reads this trailer
         # and attributes the commit, which is how an assistant appears in a
         # repository's contributor list and on its pull requests. The user stays
         # the author -- they asked for the change and are accountable for it.
@@ -1884,7 +1884,7 @@ class RepositoryToolExecutor:
         from .idempotency import operation_key
 
         # #295 gate 4 / #541: a retried, resumed or reconnected turn must not
-        # post the same comment twice — it is outward and not undoable by OPai.
+        # post the same comment twice — it is outward and not undoable by Vesta.
         # Checked before approval so a completed or in-flight retry is answered
         # directly instead of re-prompting to approve a comment that already
         # posted (or might have).
@@ -1970,7 +1970,7 @@ class RepositoryToolExecutor:
         closes that gap; ``_needs_approval`` decides whether it stops first, so
         lower modes still confirm and bypass does not.
 
-        Merging is outward-facing and not undoable by OPai, so it carries the
+        Merging is outward-facing and not undoable by Vesta, so it carries the
         same idempotency claim as the other write tools. It reconciles cleanly:
         asking GitHub whether the PR is merged answers whether a lost attempt
         landed, so a resumed turn never merges twice.
@@ -2077,7 +2077,7 @@ class RepositoryToolExecutor:
         from .idempotency import operation_key
 
         # #616 / #295 gate 4: a review request notifies real people under the
-        # user's account — outward and not undoable by OPai. A retried,
+        # user's account — outward and not undoable by Vesta. A retried,
         # resumed or reconnected turn must not notify them again. The key is
         # the request's identity (repo, PR number, sorted reviewer set), never
         # an attempt counter. Checked before approval so a completed or

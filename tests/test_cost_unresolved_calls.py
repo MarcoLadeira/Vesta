@@ -1,7 +1,7 @@
 """Spend must be reconciled before it is presented as authoritative (#619).
 
 A `model_call_started` with no matching `model_call_finalized` means the
-request left OPai — the provider may well have billed for it — and the outcome
+request left Vesta — the provider may well have billed for it — and the outcome
 never landed: the process died, the machine slept, the write failed. The work
 happened; only its cost is unknown.
 

@@ -24,12 +24,12 @@ class OPaiFinishTests(unittest.TestCase):
                 root, install_tools=False, install_superpowers=False
             )
 
-            self.assertEqual(result["brand"], "OPai")
+            self.assertEqual(result["brand"], "Vesta")
             self.assertEqual(result["version"], "0.2.1a1")
             self.assertEqual(result["release_stage"], "alpha.1")
             self.assertTrue((root / ".opaihub" / "project.json").exists())
             self.assertEqual(result["network_actions"], [])
-            self.assertIn("opai doctor", result["next_steps"])
+            self.assertIn("vesta doctor", result["next_steps"])
 
     def test_discovery_reports_opai_registry_entry(self):
         result = discover_tools(Path.cwd())
@@ -64,7 +64,7 @@ class OPaiFinishTests(unittest.TestCase):
 
             self.assertIn("registry_counts", summary)
             self.assertTrue(html.exists())
-            self.assertIn("OPai", html.read_text(encoding="utf-8"))
+            self.assertIn("Vesta", html.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

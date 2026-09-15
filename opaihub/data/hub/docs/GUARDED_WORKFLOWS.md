@@ -1,6 +1,6 @@
-# Guarded Workflows — OPai's Trust Moat
+# Guarded Workflows — Vesta's Trust Moat
 
-Competitors race toward more autonomous agents. OPai's edge is making autonomy
+Competitors race toward more autonomous agents. Vesta's edge is making autonomy
 **safer, bounded, auditable, and human-controlled** (issue #39). Every guarded
 workflow follows one shared contract and risky actions **fail closed**.
 
@@ -20,8 +20,8 @@ Each guarded workflow must declare:
 Validate that every template satisfies the contract:
 
 ```sh
-opai guard check        # exits non-zero if any template is missing a field
-opai guard list         # list templates + the reference implementation
+vesta guard check        # exits non-zero if any template is missing a field
+vesta guard list         # list templates + the reference implementation
 ```
 
 ## Fail-closed gate
@@ -31,8 +31,8 @@ Risky actions (`git push`, `deploy`, `app store submit`, `npm publish`, …) are
 command policy is consulted so denied commands stay denied:
 
 ```sh
-opai guard action "git push origin main"            # -> deny (fail closed)
-opai guard action "git push origin main" --confirm  # -> confirm (human approved)
+vesta guard action "git push origin main"            # -> deny (fail closed)
+vesta guard action "git push origin main" --confirm  # -> confirm (human approved)
 ```
 
 Path locks are enforced the same way — writing to `.git` or `.env` is refused.
@@ -44,7 +44,7 @@ Every guarded run emits a consistent, hashable evidence packet under
 auditable and comparable:
 
 ```sh
-opai guard evidence release_preflight
+vesta guard evidence release_preflight
 ```
 
 ## Reference implementation: Mobile Readiness

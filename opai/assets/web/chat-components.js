@@ -40,7 +40,7 @@
 
   function assistantHeaderModel(options) {
     var value = options || {};
-    var label = String(value.label || "OPai");
+    var label = String(value.label || "Vesta");
     return {
       label: label,
       initial: label.charAt(0) || "O",

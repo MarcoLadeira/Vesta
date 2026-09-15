@@ -1,4 +1,4 @@
-"""Bounded, expiring local result cache for OPai answers.
+"""Bounded, expiring local result cache for Vesta answers.
 
 Answers are eligible for reuse only when the shared repository fingerprint can
 prove the relevant Git state is complete. Cache entries are local, schema

@@ -44,13 +44,13 @@ def build_savings_card(project_root: Path) -> dict[str, Any]:
 
     value = f"${saved:.2f}"
     shields_url = (
-        f"https://img.shields.io/badge/{quote('OPai saved')}-{quote(value)}-0a7cff"
+        f"https://img.shields.io/badge/{quote('Vesta saved')}-{quote(value)}-0a7cff"
     )
     headline = (
-        f"OPai saved an estimated {value} across {routes} routed tasks "
+        f"Vesta saved an estimated {value} across {routes} routed tasks "
         f"and avoided {avoided} cloud calls on this project."
         if routes
-        else 'No routed tasks recorded yet - run: opai route "<task>" --record'
+        else 'No routed tasks recorded yet - run: vesta route "<task>" --record'
     )
 
     return {
@@ -66,11 +66,11 @@ def build_savings_card(project_root: Path) -> dict[str, Any]:
         },
         "badge": {
             "shields_url": shields_url,
-            "svg": _badge_svg("OPai saved", value),
-            "markdown": f"![OPai saved {value}]({shields_url})",
+            "svg": _badge_svg("Vesta saved", value),
+            "markdown": f"![Vesta saved {value}]({shields_url})",
         },
         "social": (
-            f"I'm using OPai as my AI coding cost firewall — it saved an estimated "
+            f"I'm using Vesta as my AI coding cost firewall — it saved an estimated "
             f"{value} and avoided {avoided} cloud calls on one project, all local "
             f"and private. {SITE_URL}"
         ),
@@ -83,7 +83,7 @@ def render_share_markdown(card: dict[str, Any]) -> str:
     stats = card["stats"]
     return "\n".join(
         [
-            "## My OPai savings",
+            "## My Vesta savings",
             "",
             badge["markdown"],
             "",
@@ -95,6 +95,6 @@ def render_share_markdown(card: dict[str, Any]) -> str:
             "",
             f"_{card['privacy']}_",
             "",
-            f"Try OPai: {SITE_URL}",
+            f"Try Vesta: {SITE_URL}",
         ]
     )

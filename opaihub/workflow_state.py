@@ -106,7 +106,7 @@ def _process_workflow_lock(
 ) -> Iterator[None]:
     """Serialize workflow.json across processes and survive crashes (#313).
 
-    Two OPai windows write workflow state on every turn. Without this, a
+    Two Vesta windows write workflow state on every turn. Without this, a
     Windows ``replace()`` while another process holds the file open raises
     ``PermissionError`` and fails the turn, and a reader can transiently
     observe a missing file as silent empty state. The advisory lock releases
@@ -287,7 +287,7 @@ def save_workflow_state(project_root: Path, state: WorkflowState) -> Path:
 def _replace_with_retry(temporary: Path, target: Path, *, attempts: int = 20) -> None:
     """Atomic replace that tolerates transient Windows sharing denials.
 
-    The advisory lock excludes OPai's own readers/writers, but an antivirus or
+    The advisory lock excludes Vesta's own readers/writers, but an antivirus or
     search indexer can briefly hold the freshly written temp file open, making
     ``os.replace`` raise ``PermissionError``. Retry briefly for that external
     case only; a persistent denial still raises.

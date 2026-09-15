@@ -20,7 +20,7 @@ def test_project_version_is_the_canonical_application_version() -> None:
     assert release.application_version == "0.2.1a1"
     assert release.release_channel == "alpha"
     assert release.release_stage == "alpha.1"
-    assert release.display_name == "OPai 0.2.1 Alpha.1"
+    assert release.display_name == "Vesta 0.2.1 Alpha.1"
     assert release.published_tag == "v0.2.1a1"
 
 

@@ -1,6 +1,6 @@
 """CLI streaming ask — the terminal front-end over the same core as the GUI.
 
-``opai ask --model claude:opus "task"`` runs through
+``vesta ask --model claude:opus "task"`` runs through
 ``opaihub.gui_pipeline.handle_gui_message`` — the exact pipeline the desktop GUI
 uses — with live activity lines, streamed answer text, a real Ctrl+C cancel
 (sets the cancel Event, which kills the provider subprocess), and an honest
@@ -191,16 +191,17 @@ def stream_ask(
 
     # #545: register this turn in the same durable thread store + owner lease
     # the GUI already writes, so a CLI-started task is discoverable from the
-    # GUI (and `opai resume`, from a second terminal) instead of vanishing
+    # GUI (and `vesta resume`, from a second terminal) instead of vanishing
     # the moment this process exits. Best-effort throughout -- a durability
     # write must never break the actual request it is describing.
     request_id = uuid.uuid4().hex[:12]
     try:
         from opai.gui_recents import begin_thread_turn
 
-        begin_thread_turn(root, request_id=request_id, text=task, mode=mode)
+        thread = begin_thread_turn(root, request_id=request_id, text=task, mode=mode)
+        conversation_id = str((thread or {}).get("conversation_id") or "")
     except (OSError, TypeError, ValueError):
-        pass
+        conversation_id = ""
     state = {
         "streaming": False,
         "last_line_open": False,
@@ -260,6 +261,10 @@ def stream_ask(
             print(chunk, end="", flush=True)
             state["last_line_open"] = not chunk.endswith("\n")
 
+    # The journal's id for this turn, reported out of band so the result the
+    # CLI prints is exactly what the turn produced.
+    reported_run: dict[str, str] = {}
+
     def job() -> None:
         try:
             result_box.update(
@@ -272,6 +277,15 @@ def stream_ask(
                     on_event=on_event,
                     on_text=on_text,
                     cancel=cancel,
+                    # This is the terminal, not the desktop. Without it the
+                    # canonical journal recorded every `vesta ask` and
+                    # `vesta route` as a GUI run, because the pipeline they
+                    # share admits with a hardcoded surface (#818 AC2).
+                    surface="cli",
+                    # The CLI records its turns in the workspace thread too,
+                    # so they belong to that conversation (#818 finding 10).
+                    conversation_id=conversation_id,
+                    on_journal_run=lambda run: reported_run.update(run_id=run),
                 )
             )
         except Exception as exc:  # noqa: BLE001 - degrade to a clean error result
@@ -322,6 +336,7 @@ def stream_ask(
             mode=str((result.get("workflow") or {}).get("mode") or mode),
             checkpoint_id=str(result.get("checkpoint_id") or ""),
             changed_files=result.get("changed_files") or (),
+            run_id=reported_run.get("run_id", ""),
         )
     except (OSError, TypeError, ValueError):
         pass
@@ -368,7 +383,7 @@ def stream_ask(
                 # succeeded. Say plainly that this verdict disagrees, so the two
                 # halves of the output cannot be read as opposite conclusions.
                 _line(
-                    "  Note: the response above claims this succeeded. OPai could "
+                    "  Note: the response above claims this succeeded. Vesta could "
                     "not verify that — treat the claim as unconfirmed."
                 )
             if (evidence := _evidence_line(result)) is not None:

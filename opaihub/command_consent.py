@@ -2,13 +2,13 @@
 
 Round 5 QA finding 1: pinning Full Auto promises "Push, deploy, and destructive
 actions still ask for confirmation", but a push ran with no confirmation UI at
-all. The reason was structural. OPai has two execution channels and neither
+all. The reason was structural. Vesta has two execution channels and neither
 could ask:
 
 * Its own tool executor ran ``git_push``/``open_pr`` the moment consent existed
   in Settings, with no per-turn confirmation.
 * A provider CLI (Claude Code) runs git in *its own* shell, gated only by the
-  ``opai hooks claude-pre-tool`` PreToolUse hook. A hook can allow or deny — it
+  ``vesta hooks claude-pre-tool`` PreToolUse hook. A hook can allow or deny — it
   has no interactive channel — so a "confirm" verdict was a dead end. Round 2/3
   fixed the dead end by auto-allowing a consented plain push, which is exactly
   what broke the promise.
@@ -26,7 +26,7 @@ a command:
    calls :func:`begin_turn` with that grant, and the gate consumes it with
    :func:`consume_grant` — once.
 
-Settings consent (``opai github allow-push on`` + a connected token) still
+Settings consent (``vesta github allow-push on`` + a connected token) still
 decides whether pushing is possible *at all*; this decides whether *this* push
 happens now. Both are required, which is what the dialog copy claims.
 """
@@ -38,6 +38,7 @@ import os
 import re
 import tempfile
 import time
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +48,26 @@ CONSENT_TTL_SECONDS = 1800
 
 _GRANT_NAME = "pending-grant.json"
 _REQUEST_NAME = "pending-request.json"
+
+# Which run a grant belongs to, carried into every provider child so the hook
+# subprocess that spends it can prove it is the run the user actually answered
+# for (#818 AC8). Defined here rather than in ``opaihub.proc`` because proc
+# imports this module and not the other way round -- this one stays
+# dependency-free so a provider CLI's hook can import it on every tool call.
+RUN_ENV = "OPAI_RUN_ID"
+
+# The run this turn has armed a grant for. Set by :func:`begin_turn` and read
+# by ``opaihub.proc.provider_child_env`` when it builds a child environment, so
+# the run identity reaches the hook without being threaded through
+# AccountRunner and every provider adapter in between.
+#
+# A ContextVar, not a module global. A global is shared by every turn in the
+# process, so two turns running at once in one GUI overwrote -- and on ending,
+# cleared -- each other's run id; and a cleared id makes the ownership check
+# below fall back to "allow". Same reason, same shape as gui_pipeline's
+# _JOURNAL_RUN. A turn sets and reads it on its own thread, which is where the
+# provider child is launched.
+_CURRENT_RUN: ContextVar[str] = ContextVar("opai_command_consent_run", default="")
 
 # One whole command that is exactly a ``git push``, with no shell chaining,
 # redirection, substitution, or a second command hidden behind an operator.
@@ -98,7 +119,7 @@ _TRAILING_REDIRECT = re.compile(r"\s*2>&1\s*$")
 def operative_push_command(command: str) -> str | None:
     """The `git push ...` a caller actually runs, or ``None`` if it is not one.
 
-    Strips the one shell wrapper OPai's own tooling adds. Returns the bare push
+    Strips the one shell wrapper Vesta's own tooling adds. Returns the bare push
     so callers judge the push itself rather than the wrapper around it.
     """
 
@@ -127,7 +148,7 @@ def is_history_rewriting_push(command: str) -> bool:
     The gate previously inferred this from *consent being on* rather than from
     the command, so with pushing enabled every blocked push was reported as a
     force/delete/mirror. Saying that about `git push origin my-branch` is simply
-    false, and it is the difference between "approve this once" and "OPai will
+    false, and it is the difference between "approve this once" and "Vesta will
     never do this" -- a dead end the user cannot clear.
     """
 
@@ -169,20 +190,30 @@ def _path(name: str) -> Path:
 def _read(name: str) -> dict[str, Any] | None:
     """Load a record, treating unreadable, malformed, and expired ones as absent."""
 
-    target = _path(name)
+    return _read_path(_path(name))
+
+
+def _read_path(target: Path) -> dict[str, Any] | None:
+    """The same, for a record already claimed under a temporary name.
+
+    Split out so :func:`consume_grant` can validate the grant it has already
+    won without a second lookup by name -- by then the name no longer refers
+    to it, which is the point.
+    """
+
     try:
         payload = json.loads(target.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
     if not isinstance(payload, dict):
-        _discard(name)
+        _discard_path(target)
         return None
     try:
         created = float(payload.get("created_at") or 0)
     except (TypeError, ValueError):
         created = 0.0
     if created <= 0 or (time.time() - created) > CONSENT_TTL_SECONDS:
-        _discard(name)
+        _discard_path(target)
         return None
     return payload
 
@@ -207,25 +238,91 @@ def _write(name: str, payload: dict[str, Any], *, exclusive: bool = False) -> bo
 
 
 def _discard(name: str) -> None:
+    _discard_path(_path(name))
+
+
+def _discard_path(target: Path) -> None:
     try:
-        _path(name).unlink()
+        target.unlink()
     except OSError:
         pass
 
 
-def begin_turn(grant: str | None = None) -> None:
+def _normalize_run(value: Any) -> str:
+    return str(value or "").strip()[:200]
+
+
+def resolve_run(explicit: str | None = None) -> str:
+    """Which run the caller is acting for: argument, then env, then this turn.
+
+    The hook that spends a grant is a *different process* from the one that
+    armed it, so it has no module state to read -- it learns its run from
+    ``OPAI_RUN_ID``, exported by ``provider_child_env``. In-process callers
+    fall back to whatever :func:`begin_turn` recorded.
+    """
+
+    if explicit is not None:
+        return _normalize_run(explicit)
+    from_env = _normalize_run(os.environ.get(RUN_ENV, ""))
+    if from_env:
+        return from_env
+    return _CURRENT_RUN.get()
+
+
+def current_run() -> str:
+    """The run this turn armed a grant for, for building a child env."""
+
+    return _CURRENT_RUN.get()
+
+
+def _sweep_orphaned_claims() -> None:
+    """Remove claims a gate took and then died holding.
+
+    A claim is a renamed grant, so a process killed between claiming and
+    discarding leaves one behind. It cannot authorize anything -- nothing ever
+    looks for a grant under that name -- but it is litter in a shared per-user
+    directory, and nothing else would ever remove it.
+
+    Only claims past the grant TTL go. Renaming keeps the grant's mtime, so an
+    old claim holds an expired grant that :func:`consume_grant` would refuse
+    anyway, and a gate in the middle of a claim right now is never disturbed.
+    """
+
+    cutoff = time.time() - CONSENT_TTL_SECONDS
+    try:
+        leftovers = list(consent_dir().glob(f"{_GRANT_NAME}.*.claim"))
+    except OSError:
+        return
+    for leftover in leftovers:
+        try:
+            if leftover.stat().st_mtime < cutoff:
+                leftover.unlink()
+        except OSError:
+            continue
+
+
+def begin_turn(grant: str | None = None, *, run: str | None = None) -> None:
     """Reset the handshake for a new turn, optionally arming one approval.
 
     Called before any provider runs. Clearing first is the important half: a
     refusal recorded by a previous turn must never be re-surfaced, and a grant
     the user issued for an earlier turn must never authorize this one.
+
+    ``run`` binds the grant to the run the user was asked about. Without it the
+    handshake directory is a fixed per-user path shared by every Vesta process
+    on the machine, so a second window -- different repository, different run,
+    a question its user was never asked -- could spend the first window's
+    approval. Measured, not theorised: two processes, one grant, both told yes.
     """
 
     _discard(_REQUEST_NAME)
     _discard(_GRANT_NAME)
+    _sweep_orphaned_claims()
+    armed = _normalize_run(run)
+    _CURRENT_RUN.set(armed)
     command = str(grant or "").strip()[:2_000]
     if command:
-        _write(_GRANT_NAME, {"command": command})
+        _write(_GRANT_NAME, {"command": command, "run": armed})
 
 
 def end_turn() -> None:
@@ -236,6 +333,7 @@ def end_turn() -> None:
     """
 
     _discard(_GRANT_NAME)
+    _CURRENT_RUN.set("")
 
 
 def granted_command() -> str:
@@ -266,16 +364,96 @@ def grant_permits(grant: str, command: str) -> bool:
     return is_plain_push(left) and is_plain_push(right)
 
 
-def consume_grant(command: str) -> bool:
-    """Spend the one-shot grant on ``command``. False leaves it untouched."""
+def grant_belongs_to(grant_run: Any, caller_run: Any) -> bool:
+    """Whether a grant issued for ``grant_run`` may be spent by ``caller_run``.
 
-    payload = _read(_GRANT_NAME)
-    if payload is None:
+    **Refused only on a positive mismatch**: both sides name a run, and the
+    names differ. Everything else is allowed.
+
+    An earlier version used strict equality, so a caller that could not say
+    which run it was got refused. That is the wrong failure for this gate, and
+    the reason is the shape of the call chain rather than a preference.
+
+    The process that spends a grant is the PreToolUse hook, and Vesta does not
+    launch it. Vesta launches the *provider's* CLI, and that CLI launches the
+    hook. Whether ``OPAI_RUN_ID`` survives the middle hop is a third party's
+    decision. Under strict equality, a provider that sanitises the environment
+    it hands its hooks would silently refuse **every** approved push -- the
+    user presses Approve and nothing happens. That is a far worse failure than
+    the one this check exists to prevent. Vesta must never be the reason a
+    person cannot do the thing they just explicitly asked for.
+
+    So the refusal needs evidence, exactly like everything else in this epic.
+    "This grant belongs to run B and I am run A" is evidence. "I do not know
+    which run I am" is not, and answering that with a refusal would be the same
+    confident-guess mistake pointing the other way.
+
+    The leak stays closed where it actually happens: two Vesta windows on one
+    machine either both carry a run id or neither does, so a real cross-window
+    attempt is a positive mismatch. Where identity does not propagate at all,
+    the behaviour degrades to what it was before this check existed -- no worse
+    than the status quo, and never a block.
+    """
+
+    left = _normalize_run(grant_run)
+    right = _normalize_run(caller_run)
+    if not left or not right:
+        return True
+    return left == right
+
+
+def _spendable(payload: dict[str, Any] | None, command: str, caller: str) -> bool:
+    return (
+        payload is not None
+        and grant_belongs_to(payload.get("run"), caller)
+        and grant_permits(str(payload.get("command") or ""), command)
+    )
+
+
+def consume_grant(command: str, *, run: str | None = None) -> bool:
+    """Spend the one-shot grant on ``command``. False leaves it untouched.
+
+    **Exactly once, across processes.** This used to read the file, check it,
+    and then unlink it, with nothing holding those three steps together. Eight
+    gates racing for one grant were all told yes -- measured, not theorised --
+    which makes "Approve once" a promise Vesta could not keep. A model that
+    emits the same gated command several times in a turn is the ordinary way
+    to reach that, not an exotic one.
+
+    The claim is a rename. Whoever renames the grant out of the way owns it;
+    everybody else gets ``FileNotFoundError`` and is told no.
+
+    **A grant this caller cannot spend is never moved.** A grant for another
+    command is still the user's approval for a command the model has not tried
+    yet, and a grant for another run is still that run's; both must survive the
+    attempt. The first version got there by claiming first and putting the
+    grant back afterwards -- and the put-back was a hole. It could land after
+    ``end_turn`` had run, or on top of the next turn's grant, restoring an
+    approval whose turn was over; and a hook that cannot name its run is allowed
+    to spend a grant (see :func:`grant_belongs_to`), so the revived approval was
+    spendable. Reproduced by forcing the interleaving.
+
+    So the check comes first and the claim second, and nothing is ever put back.
+    The file can still change between the two -- a new turn arming a different
+    approval -- so what was claimed is checked again, and if it is not what was
+    looked at, it is dropped rather than restored. That costs the user one more
+    click in a race between two turns; restoring it could cost a push nobody
+    approved.
+    """
+
+    caller = resolve_run(run)
+    grant = _path(_GRANT_NAME)
+    if not _spendable(_read_path(grant), command, caller):
         return False
-    if not grant_permits(str(payload.get("command") or ""), command):
+    claim = _path(f"{_GRANT_NAME}.{os.getpid()}.{time.time_ns():x}.claim")
+    try:
+        os.rename(grant, claim)
+    except OSError:
+        # Another gate claimed it first, or the turn ended. Both are "no".
         return False
-    _discard(_GRANT_NAME)
-    return True
+    claimed = _read_path(claim)
+    _discard_path(claim)
+    return _spendable(claimed, command, caller)
 
 
 def record_pending(command: str, reason: str) -> bool:

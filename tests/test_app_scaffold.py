@@ -1,4 +1,4 @@
-"""App scaffolding — the free-boilerplate foundation of OPai Build (#276).
+"""App scaffolding — the free-boilerplate foundation of Vesta Build (#276).
 Deterministic, no AI, no network: a prompt becomes a runnable app skeleton."""
 
 from __future__ import annotations
@@ -101,7 +101,7 @@ class DataTemplateTests(unittest.TestCase):
 
     def test_the_scaffolded_data_app_passes_verification(self):
         # The strongest guarantee: a fresh data app is structurally sound —
-        # doctype, wired assets, balanced JS/CSS — so `opai build` can verify
+        # doctype, wired assets, balanced JS/CSS — so `vesta build` can verify
         # against a known-good baseline.
         with tempfile.TemporaryDirectory() as tmp:
             result = scaffold_app(Path(tmp), "a grocery list", kind="data")

@@ -77,7 +77,7 @@ export const MODELS = [
   },
   {
     id: "auto",
-    label: "OPai · Auto mode",
+    label: "Vesta · Auto mode",
     advanced_label: "Automatic local-first routing",
     kind: "auto",
     group: "routing",
@@ -124,7 +124,7 @@ export const DASHBOARDS = {
         ],
       },
     ],
-    actions: [{ id: "copy_savings", label: "Copy savings report", command: "opai savings --markdown" }],
+    actions: [{ id: "copy_savings", label: "Copy savings report", command: "vesta savings --markdown" }],
   },
   firewall: {
     title: "Cost Firewall",
@@ -140,7 +140,7 @@ export const DASHBOARDS = {
     ],
     actions: [
       { id: "panic_toggle", label: "Enable panic mode" },
-      { id: "copy_budget", label: "Copy budget status", command: "opai budget status" },
+      { id: "copy_budget", label: "Copy budget status", command: "vesta budget status" },
     ],
   },
   context: {
@@ -156,19 +156,19 @@ export const DASHBOARDS = {
       { title: "node_modules", body: "Generated dependency files", metrics: [{ label: "Estimated tokens", value: "41,000", severity: "warning" }] },
       { title: "dist", body: "Generated build output", metrics: [{ label: "Estimated tokens", value: "5,200", severity: "warning" }] },
     ],
-    actions: [{ id: "copy_context", label: "Copy profile command", command: "opai context profile" }],
+    actions: [{ id: "copy_context", label: "Copy profile command", command: "vesta context profile" }],
   },
   benchmark: {
     title: "Benchmark Proof",
     subtitle: "Local fixture benchmark, not an official external leaderboard.",
-    hero: { headline: "99.4", caption: "OPai effectiveness index", severity: "success" },
+    hero: { headline: "99.4", caption: "Vesta effectiveness index", severity: "success" },
     kpis: [
       { label: "Context reduction", value: "50x", severity: "success" },
       { label: "Paid calls avoided", value: "16", severity: "success" },
       { label: "Risk blocks", value: "6", severity: "warning" },
     ],
-    cards: [{ title: "Approved claim", body: "OPai reduced context by 50x and avoided 16 paid calls on the 16-task local benchmark suite." }],
-    actions: [{ id: "copy_benchmark", label: "Copy benchmark command", command: "opai benchmark run --suite max --mode both" }],
+    cards: [{ title: "Approved claim", body: "Vesta reduced context by 50x and avoided 16 paid calls on the 16-task local benchmark suite." }],
+    actions: [{ id: "copy_benchmark", label: "Copy benchmark command", command: "vesta benchmark run --suite max --mode both" }],
   },
   agents: {
     title: "Agent Readiness",
@@ -193,7 +193,7 @@ export const DASHBOARDS = {
       { title: "What it cost", body: "$0.0420 actual spend; no savings claimed." },
       { title: "Privacy guarantee", body: "Task hash only. No raw prompt or secret." },
     ],
-    actions: [{ id: "copy_proof", label: "Copy proof command", command: "opai proof bundle" }],
+    actions: [{ id: "copy_proof", label: "Copy proof command", command: "vesta proof bundle" }],
   },
   workflows: {
     title: "Guarded Workflows",
@@ -203,7 +203,7 @@ export const DASHBOARDS = {
       { title: "Security audit", status: "READ-ONLY", severity: "success", body: "Checks secrets, dependencies, and permissions." },
       { title: "Release preflight", status: "CONFIRM", severity: "warning", body: "Never pushes, deploys, or publishes automatically." },
     ],
-    actions: [{ id: "copy_workflow", label: "Copy workflow command", command: "opai workflow plan release_preflight" }],
+    actions: [{ id: "copy_workflow", label: "Copy workflow command", command: "vesta workflow plan release_preflight" }],
   },
 };
 
@@ -251,8 +251,8 @@ export const SETTINGS = {
       status: "unavailable",
       window: { type: "rolling", label: "5-hour session window", seconds: 18000, metric: "session" },
       official: { available: false },
-      opaiTracked: { calls: 12, tokens: 48000, tasks: 4, windowLabel: "All time via OPai", lastUsedAt: Date.now() / 1000 - 18 * 24 * 3600 },
-      detail: "Claude subscriptions meter a rolling 5-hour session window; the exact percentage is only visible in Claude directly. OPai's own count below only includes messages sent through OPai's chat — not the claude CLI used directly.",
+      opaiTracked: { calls: 12, tokens: 48000, tasks: 4, windowLabel: "All time via Vesta", lastUsedAt: Date.now() / 1000 - 18 * 24 * 3600 },
+      detail: "Claude subscriptions meter a rolling 5-hour session window; the exact percentage is only visible in Claude directly. Vesta's own count below only includes messages sent through Vesta's chat — not the claude CLI used directly.",
       checkUrl: "https://claude.ai/settings/usage", supportsRefresh: false,
     },
     {

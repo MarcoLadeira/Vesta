@@ -9,7 +9,7 @@ the acceptance criterion they serve is the strictest one in the issue:
     remove budget, authority or verification protection.
 
 So every test here asks the same question in a different costume: when the
-storage layer fails, does OPai end up *knowing less* -- or does it end up
+storage layer fails, does Vesta end up *knowing less* -- or does it end up
 believing something permissive that is not true? The second is the failure
 mode worth testing for, because it is the one that looks like success.
 
@@ -101,9 +101,11 @@ def _interrupted_migration(marker="CREATE TABLE IF NOT EXISTS cost_events"):
 
     real_connect = journal_store._connect
 
-    def failing(path):
+    def failing(path, **kwargs):
+        # `**kwargs` so the stub keeps matching `_connect`'s signature: it grew
+        # a `timeout` when heartbeats needed to give up rather than wait.
         return _FailingConnection(
-            real_connect(path),
+            real_connect(path, **kwargs),
             fail_on=marker,
             error=sqlite3.OperationalError("disk I/O error"),
         )
@@ -432,7 +434,7 @@ class InterruptedMigrationTests(unittest.TestCase):
         report = check_integrity(store)
 
         self.assertEqual(report.state, INTEGRITY_COMPLETE)
-        self.assertEqual(report.schema_version, journal_store.SCHEMA_VERSION)
+        self.assertEqual(report.schema_version, journal_store.compatibility_version())
 
 
 class ProtectionSurvivesFailureTests(_FaultFixture):

@@ -23,7 +23,7 @@ from .state import state_dir
 
 
 class DirtyConflictError(RuntimeError):
-    """Raised when requested work overlaps changes OPai does not own."""
+    """Raised when requested work overlaps changes Vesta does not own."""
 
 
 def _sanitize_remote(value: str) -> str:
@@ -292,7 +292,7 @@ def prepare_isolated_worktree(
     root = repo_root.expanduser().resolve()
     destination = target.expanduser().resolve()
     if not branch.startswith("codex/"):
-        raise ValueError("Isolated OPai branches must use the codex/ prefix")
+        raise ValueError("Isolated Vesta branches must use the codex/ prefix")
     if destination.exists():
         raise FileExistsError(destination)
     assessment = classify_dirty_paths(dirty_paths, intended_paths)

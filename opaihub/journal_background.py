@@ -7,7 +7,7 @@ qualification, reader and retirement machinery correct, tested, and unreachable
 from the running application. Doctor could only answer
 ``needs_legacy_comparison``, because nothing had assembled the other half.
 
-``background_runs`` is that other half. It is the one legacy record in OPai
+``background_runs`` is that other half. It is the one legacy record in Vesta
 that is durable, enumerable, and keyed by run id: one JSON document per run
 under ``.../agent/background/runs/``, rewritten in place on every transition.
 That makes it exactly the population the journal now mirrors, and the two can
@@ -38,7 +38,7 @@ def _terminal_verdict(run: Any) -> str:
     try:
         state = RunState(str(getattr(run, "run_state", "") or ""))
     except ValueError:
-        # A record written by a newer OPai, or a corrupted one. Reporting no
+        # A record written by a newer Vesta, or a corrupted one. Reporting no
         # verdict is honest: we cannot say this run finished, and claiming it
         # did would fabricate the very disagreement qualification looks for.
         return ""
@@ -86,7 +86,7 @@ def _read_run_document(path: Path) -> dict[str, Any] | None:
     ``background_runs.load_run`` locks each file it reads, which is right for a
     caller about to act on that run and wrong for a census: assembling a corpus
     of 300 runs took 300 lock acquisitions and about four seconds, inside
-    ``opai doctor``. The comparison itself took forty milliseconds.
+    ``vesta doctor``. The comparison itself took forty milliseconds.
 
     Reading unlocked is safe *here* specifically because run documents are
     written with ``atomic_write_text``. A concurrent write is a rename, so a

@@ -106,7 +106,7 @@ class ProviderErrorContractTests(unittest.TestCase):
         )
 
     def test_provider_details_are_advanced_only(self):
-        # Simple label now uses provider-prefixed model name (not OPai generic)
+        # Simple label now uses provider-prefixed model name (not Vesta generic)
         self.assertEqual(provider_display_name("claude", "haiku"), "Claude · Haiku 4.5")
         # Advanced label is unchanged — full diagnostic string for inspector/tooltip
         self.assertEqual(
@@ -145,9 +145,9 @@ class ProviderErrorContractTests(unittest.TestCase):
         )
 
     def test_auto_and_local_labels_unchanged(self):
-        self.assertEqual(provider_display_name("auto"), "OPai · Auto mode")
-        self.assertEqual(provider_display_name(""), "OPai · Auto mode")
-        self.assertEqual(provider_display_name("local"), "OPai · Local mode")
+        self.assertEqual(provider_display_name("auto"), "Vesta · Auto mode")
+        self.assertEqual(provider_display_name(""), "Vesta · Auto mode")
+        self.assertEqual(provider_display_name("local"), "Vesta · Local mode")
 
 
 class OutdatedProviderCliTests(unittest.TestCase):
@@ -155,7 +155,7 @@ class OutdatedProviderCliTests(unittest.TestCase):
 
     Round 2 (2026-07-24) found Codex unusable as a fallback because its real
     diagnostic — "The 'gpt-5.6-terra' model requires a newer version of Codex"
-    — classified as UNKNOWN and surfaced as "OPai could not complete this
+    — classified as UNKNOWN and surfaced as "Vesta could not complete this
     request", hiding the actual remedy.
     """
 
@@ -191,7 +191,7 @@ class TransientTransportClassificationTests(unittest.TestCase):
 
     These are what a user experiences as "sometimes my messages just don't
     work": a socket timeout or an overloaded endpoint used to fall through to
-    the generic "OPai could not complete this request" dead end instead of
+    the generic "Vesta could not complete this request" dead end instead of
     being absorbed by one retry.
     """
 

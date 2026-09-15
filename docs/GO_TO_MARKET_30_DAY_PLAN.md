@@ -3,11 +3,11 @@
 Last updated: 2026-06-20
 
 > **Archived on 2026-07-12.** This plan assumes a controlled paid/private
-> launch and is no longer current. OPai's alpha is fully free; use the current
+> launch and is no longer current. Vesta's alpha is fully free; use the current
 > launch checklist and product identity instead. Retain this file only as a
 > record of hypotheses to revisit after real free-alpha usage.
 
-Goal: get OPai online, get real users, start revenue conversations, and learn
+Goal: get Vesta online, get real users, start revenue conversations, and learn
 whether the cost-firewall positioning converts.
 
 ## Public Offer
@@ -26,26 +26,26 @@ $29-39/user/month.
 Use the same proof loop everywhere:
 
 ```sh
-opai doctor
-opai benchmark run --suite max --mode both
-opai benchmark gate --min-effectiveness-index 95 --require-risk-blocks
-opai savings --markdown
+vesta doctor
+vesta benchmark run --suite max --mode both
+vesta benchmark gate --min-effectiveness-index 95 --require-risk-blocks
+vesta savings --markdown
 ```
 
 Public wording:
 
 ```text
-OPai is the AI coding cost firewall. It proves local max benchmark results in
+Vesta is the AI coding cost firewall. It proves local max benchmark results in
 your repo without silent CLI telemetry.
 ```
 
 Do not claim official SWE-bench, Terminal-Bench, or Aider leaderboard results
-until OPai has actually submitted there.
+until Vesta has actually submitted there.
 
 ## Days 1-3: Launch Readiness
 
 - Verify `site/` locally and replace the Cloudflare Web Analytics placeholder.
-- Decide whether OPai source remains public. If IP protection matters, make the
+- Decide whether Vesta source remains public. If IP protection matters, make the
   product repo/private package distribution private before public launch.
 - Create Lemon Squeezy checkout links for Founding Pro and Team Pilot, or use
   Gumroad if account setup is faster.
@@ -75,7 +75,7 @@ python -m opai benchmark gate --min-effectiveness-index 95 --require-risk-blocks
 - Update repo description:
 
 ```text
-OPai is the AI coding cost firewall: local-first routing, benchmarks, savings,
+Vesta is the AI coding cost firewall: local-first routing, benchmarks, savings,
 and governance for Claude, Codex, Copilot, Gemini, Cursor, and Cline.
 ```
 
@@ -97,12 +97,12 @@ and governance for Claude, Codex, Copilot, Gemini, Cursor, and Cline.
 - For each pilot, run:
 
 ```sh
-opai doctor
-opai benchmark run --suite max --mode both
-opai benchmark gate --min-effectiveness-index 95 --require-risk-blocks
-opai savings --markdown
-opai policy check
-opai team report
+vesta doctor
+vesta benchmark run --suite max --mode both
+vesta benchmark gate --min-effectiveness-index 95 --require-risk-blocks
+vesta savings --markdown
+vesta policy check
+vesta team report
 ```
 
 Only ship blockers that affect install, benchmark trust, payment conversion, or

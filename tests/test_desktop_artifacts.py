@@ -549,13 +549,116 @@ class DesktopArtifactContractTests(unittest.TestCase):
 
         self.assertEqual(gui_command[:2], [str(build_python), str(deploy_script)])
         self.assertIn("--nuitka-version=4.0", gui_command)
+        self.assertIn("--mode=standalone", gui_command)
+        self.assertIn("--verbose", gui_command)
         self.assertEqual(cli_command[:3], [str(build_python), "-m", "nuitka"])
         self.assertIn("--standalone", cli_command)
         self.assertNotIn("--assume-yes-for-downloads", cli_command)
         self.assertIn("[app]", gui_config)
         self.assertIn("packages = Nuitka==4.0", gui_config)
         self.assertIn("WebEngineWidgets", gui_config)
+        self.assertIn("--output-filename=OPai", gui_config)
         self.assertIn(f"project_dir = {root.as_posix()}", staged_gui_config)
+
+    def test_build_runner_closes_stdin_and_preserves_diagnostics(self):
+        import subprocess
+        import sys
+        from scripts import build_desktop_artifacts as builder
+
+        with (
+            patch.object(builder.subprocess, "Popen") as run,
+            patch.object(builder, "adopt"),
+            patch.object(builder, "terminate_tree") as terminate,
+        ):
+            run.return_value.wait.return_value = 0
+            builder._run(["compiler"], cwd=Path.cwd())
+            terminate.assert_called_once_with(run.return_value)
+        self.assertEqual(run.call_args.kwargs["stdin"], subprocess.DEVNULL)
+        self.assertIs(run.call_args.kwargs["stdout"], sys.stdout)
+        self.assertIs(run.call_args.kwargs["stderr"], sys.stderr)
+
+    def test_component_output_resolves_nuitka_entrypoint_directory(self):
+        from scripts import build_desktop_artifacts as builder
+
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            output = directory / "desktop_cli_entry.dist"
+            output.mkdir()
+            (output / "opai.exe").write_bytes(b"native")
+            self.assertEqual(
+                builder._component_output(
+                    directory, "opai", entrypoint=Path("desktop_cli_entry.py")
+                ),
+                output,
+            )
+
+    def test_component_output_rejects_incomplete_standalone_directory(self):
+        from scripts import build_desktop_artifacts as builder
+
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            (directory / "OPai.dist").mkdir()
+            with self.assertRaises(ArtifactReleaseError):
+                builder._component_output(directory, "OPai")
+
+    def test_nuitka_reexecution_uses_native_entry_instead_of_python_placeholder(self):
+        from opai import bootstrap
+        from opaihub.objective_guardian import guardian_command
+        from opaihub.objective_execution import worker_command
+
+        executable = str(Path("native/OPai.exe").resolve())
+        with (
+            patch.dict(bootstrap.__dict__, {"__compiled__": object()}),
+            patch.object(bootstrap.sys, "argv", [executable]),
+            patch.object(bootstrap.sys, "executable", "missing/python.exe"),
+        ):
+            self.assertEqual(bootstrap._runtime_executable(), executable)
+            self.assertEqual(
+                guardian_command(Path("request"), Path("response"))[0], executable
+            )
+            self.assertEqual(
+                worker_command(Path("request"), Path("response"))[0], executable
+            )
+
+    def test_source_reexecution_preserves_the_python_interpreter(self):
+        from opai import bootstrap
+
+        with (
+            patch.object(bootstrap.sys, "argv", ["untrusted-project/script.py"]),
+            patch.object(bootstrap.sys, "executable", "trusted/python.exe"),
+        ):
+            self.assertEqual(bootstrap._runtime_executable(), "trusted/python.exe")
+
+    def test_native_compiler_arguments_apply_to_both_components(self):
+        from scripts import build_desktop_artifacts as builder
+        from opaihub import desktop_artifacts
+
+        root = Path(__file__).resolve().parents[1]
+        specs = desktop_artifacts.deployment_specs(root, root / "dist" / "desktop")
+        configured = builder._with_native_args(
+            specs, ("--zig", "--assume-yes-for-downloads")
+        )
+        for component in (configured.gui, configured.cli):
+            self.assertIn("--zig", component.extra_args)
+            self.assertIn("--assume-yes-for-downloads", component.extra_args)
+
+    def test_deploy_spec_accepts_a_preconverted_native_icon(self):
+        from opaihub import desktop_artifacts
+
+        root = Path(__file__).resolve().parents[1]
+        specs = desktop_artifacts.deployment_specs(root, root / "dist" / "desktop")
+        with tempfile.TemporaryDirectory() as tmp:
+            icon = Path(tmp) / "OPai.ico"
+            icon.write_bytes(b"native-icon")
+            config = desktop_artifacts.render_pyside_deploy_spec(
+                specs.gui,
+                build_python=Path("python"),
+                icon=icon,
+            )
+        self.assertIn(f"icon = {icon.as_posix()}", config)
+
+    def test_smoke_contract_uses_isolated_artifact_environment(self):
+        from opaihub import desktop_artifacts
 
         with tempfile.TemporaryDirectory() as tmp:
             bundle = Path(tmp) / "OPai-v0.2.1a1-windows-unsigned-prealpha"

@@ -44,11 +44,11 @@ class CockpitTests(unittest.TestCase):
             text = render_cockpit(payload)
 
         self.assertEqual(payload["status"], "on")
-        self.assertIn("OPai ON", text)
+        self.assertIn("Vesta ON", text)
         self.assertIn("Clients: 6/6 active", text)
         self.assertIn("Savings:", text)
         self.assertIn("Budget:", text)
-        self.assertIn("Run `opai route", text)
+        self.assertIn("Run `vesta route", text)
 
     def test_status_human_aliases_cockpit(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -60,7 +60,7 @@ class CockpitTests(unittest.TestCase):
                 code = main(["status", "--project", str(root), "--human"])
 
         self.assertEqual(code, 0)
-        self.assertIn("OPai ON", out.getvalue())
+        self.assertIn("Vesta ON", out.getvalue())
 
     def test_cockpit_command_supports_json(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -83,7 +83,7 @@ class CockpitTests(unittest.TestCase):
 
             line = render_statusline(project_root=root, width=120, color=False)
 
-        self.assertIn("OPai ON", line)
+        self.assertIn("Vesta ON", line)
         self.assertIn("6/6 clients", line)
         self.assertIn("$0.00 saved", line)
         self.assertIn("budget ok", line)
@@ -123,8 +123,8 @@ class VisibilityTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "installed")
         self.assertEqual(payload["status"], "on")
-        self.assertIn("OPai is active", markdown)
-        self.assertIn("opai cockpit", markdown)
+        self.assertIn("Vesta is active", markdown)
+        self.assertIn("vesta cockpit", markdown)
         self.assertNotIn("sk-", markdown)
         self.assertNotIn("raw_prompt", markdown.lower())
 

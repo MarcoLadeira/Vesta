@@ -18,7 +18,7 @@ test("benchmark approved claim remains exact and locally scoped", async ({ page 
   await openApp(page);
   await openNav(page, "Benchmark");
   await expect(page.locator("#dashPage")).toContainText(
-    "OPai reduced context by 50x and avoided 16 paid calls on the 16-task local benchmark suite.",
+    "Vesta reduced context by 50x and avoided 16 paid calls on the 16-task local benchmark suite.",
   );
 });
 
@@ -34,7 +34,7 @@ test("benchmark command can be copied without starting a run", async ({ page }) 
   await openApp(page);
   await openNav(page, "Benchmark");
   await page.getByRole("button", { name: "Copy benchmark command" }).click();
-  await expect(page.locator("#toast")).toContainText("opai benchmark run --suite max --mode both");
+  await expect(page.locator("#toast")).toContainText("vesta benchmark run --suite max --mode both");
   expect(await page.evaluate(() => window.__mock.sendCount)).toBe(0);
 });
 

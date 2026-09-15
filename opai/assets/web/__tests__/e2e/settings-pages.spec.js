@@ -13,7 +13,7 @@ const seen = { useInnerText: true };
 
 test("the rail groups related destinations like the desktop settings reference", async ({ page }) => {
   await expect(page.locator(".settings-rail-group")).toHaveText([
-    "OPai",
+    "Vesta",
     "AI",
     "Development",
     "Trust",

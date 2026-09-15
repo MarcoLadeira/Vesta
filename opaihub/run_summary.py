@@ -55,7 +55,7 @@ def build_run_summary(record: Mapping[str, Any] | None) -> str:
     verdict = _mapping(record.get("completion_verdict"))
     receipt = _mapping(record.get("receipt"))
 
-    lines: list[str] = ["# OPai run receipt", ""]
+    lines: list[str] = ["# Vesta run receipt", ""]
 
     # 1) Verdict + typed reason — first, always. This is the answer to "did it
     #    work?" and no other line may precede it.
@@ -142,5 +142,5 @@ def build_run_summary(record: Mapping[str, Any] | None) -> str:
     if cost_lines:
         lines += ["", "## Cost", *cost_lines]
 
-    lines += ["", "See the full ledger with: opai savings"]
+    lines += ["", "See the full ledger with: vesta savings"]
     return "\n".join(lines).strip() + "\n"

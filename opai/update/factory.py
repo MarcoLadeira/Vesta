@@ -1,4 +1,4 @@
-"""Production composition root for the one OPai update service."""
+"""Production composition root for the one Vesta update service."""
 
 from __future__ import annotations
 
@@ -172,7 +172,7 @@ def _adapter_for(installed: InstalledBuild, trust: Mapping[str, object]):
         return DeveloperGitUpdateAdapter(Path(__file__).resolve().parents[2])
     return UnsupportedUpdateAdapter(
         "manual-update-required",
-        "This installation cannot be replaced transactionally; download a verified package from the OPai release page.",
+        "This installation cannot be replaced transactionally; download a verified package from the Vesta release page.",
     )
 
 

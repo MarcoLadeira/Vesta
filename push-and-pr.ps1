@@ -1,4 +1,4 @@
-# OPai - Push feature branch and create PR
+# Vesta - Push feature branch and create PR
 # Optional publishing helper for this feature branch.
 #
 # 1. Push the feature branch
@@ -13,15 +13,15 @@ gh pr create `
   --body @"
 ## Summary
 
-Adds verified free-tier AI models to the OPai model picker and fixes the grouped picker UI.
+Adds verified free-tier AI models to the Vesta model picker and fixes the grouped picker UI.
 
 ### Problem
-The model picker showed repeated ``OPai · Balanced/Fast/Powerful mode`` labels for all models regardless of provider, making it impossible to distinguish Claude vs Codex vs Copilot models.
+The model picker showed repeated ``Vesta · Balanced/Fast/Powerful mode`` labels for all models regardless of provider, making it impossible to distinguish Claude vs Codex vs Copilot models.
 
 ### Changes
 
 #### 🆓 Free API model registry (``opaihub/free_models.py``)
-Free-tier-eligible models now appear in the picker — grayed when no API key is set, enabled when the key is found in the environment. OPai still confirms before sending data because provider quotas or billing may apply.
+Free-tier-eligible models now appear in the picker — grayed when no API key is set, enabled when the key is found in the environment. Vesta still confirms before sending data because provider quotas or billing may apply.
 
 | Label | Env Var | Endpoint |
 |---|---|---|
@@ -33,11 +33,11 @@ Free-tier-eligible models now appear in the picker — grayed when no API key is
 OpenAI-compatible HTTP runner for free-tier API endpoints. Keys are read from the environment. Calls always require explicit confirmation because public endpoints receive project context and account billing may apply.
 
 #### 🏷️ Descriptive model labels (``opai/provider_contract.py``)
-``provider_display_name()`` now returns "Claude · Sonnet 4.6" / "Codex · GPT-5.5" / "Copilot · Claude Sonnet" instead of the generic "OPai · Balanced mode" for all models.
+``provider_display_name()`` now returns "Claude · Sonnet 4.6" / "Codex · GPT-5.5" / "Copilot · Claude Sonnet" instead of the generic "Vesta · Balanced mode" for all models.
 
 #### 📂 Grouped model picker (``opai/assets/web/app.js``)
 ``<select id="modelSel">`` now uses ``<optgroup>`` sections in this order:
-Claude | Codex | Copilot | **Free models** | OPai routing | Local models
+Claude | Codex | Copilot | **Free models** | Vesta routing | Local models
 
 #### 🧪 Tests
 - ``tests/test_free_models.py`` — 20 unit tests (specs, list, FreeAPIRunner, ask dispatch)

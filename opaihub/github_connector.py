@@ -1,14 +1,14 @@
 """GitHub account connector: PAT auth, status, and pull-request creation.
 
-Lets a user authorize OPai with a GitHub personal access token once, then have
+Lets a user authorize Vesta with a GitHub personal access token once, then have
 coding runs commit, push, and open pull requests as part of the normal
-implement flow. Three rules keep it inside OPai's safety contract:
+implement flow. Three rules keep it inside Vesta's safety contract:
 
 - **The token never touches project files or logs.** It lives in the system
   keychain (via :mod:`opaihub.credentials`) or the ``GITHUB_TOKEN``/``GH_TOKEN``
   environment, and every error path is redacted.
 - **Outward actions are opt-in.** ``git push`` and PR creation stay disabled
-  until the user runs ``opai github allow-push on`` (persisted consent,
+  until the user runs ``vesta github allow-push on`` (persisted consent,
   revocable), even after a token is connected.
 - **Network calls are explicit and injectable.** Only ``api.github.com`` is
   contacted, only when the user connects or a run pushes/opens a PR; tests
@@ -17,6 +17,7 @@ implement flow. Three rules keep it inside OPai's safety contract:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -59,7 +60,7 @@ def _default_http(
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
     headers = {
         "Accept": "application/vnd.github+json",
-        "User-Agent": "OPai",
+        "User-Agent": "Vesta",
         "X-GitHub-Api-Version": "2022-11-28",
     }
     if token:
@@ -83,6 +84,117 @@ def _default_http(
         return int(exc.code), body
 
 
+#: What is actually known about whether the stored token works.
+#:
+#: `push_readiness` used to answer "ready" from `bool(token)` alone, and the
+#: inspector rendered that as "Ready to push & open PRs" -- a claim about the
+#: future with nothing behind it. An expired, revoked, wrong-scope or mistyped
+#: token is the same string to a presence check, and the user finds out after
+#: a run has done all the work.
+#:
+#: These are what a *check* found, not what a check would find. "unknown" is
+#: the honest default and is never upgraded by assumption.
+VERIFICATION_UNKNOWN = "unknown"
+VERIFICATION_VALID = "valid"
+VERIFICATION_REJECTED = "rejected"
+VERIFICATION_UNREACHABLE = "unreachable"
+
+#: How long a live check stays worth citing. A token can be revoked a second
+#: after it was verified, so this is not a guarantee -- it is the difference
+#: between "checked, recently" and "checked, once, a month ago", which is a
+#: distinction the person deciding whether to trust the row can use.
+VERIFICATION_FRESH_SECONDS = 24 * 60 * 60
+
+
+def _verification_status_from(result: "Mapping[str, Any]") -> str:
+    auth = str(result.get("authStatus") or "")
+    if auth == "connected":
+        return VERIFICATION_VALID
+    if auth in ("invalid", "forbidden"):
+        return VERIFICATION_REJECTED
+    if auth == "provider_unavailable":
+        return VERIFICATION_UNREACHABLE
+    return VERIFICATION_UNKNOWN
+
+
+def _fingerprint(token: str) -> str:
+    """A short one-way name for a token, so a check can say which it checked.
+
+    Twelve hex characters of SHA-256: enough to tell one of a person's tokens
+    from the next, and nothing that can be turned back into the token -- a PAT
+    is a long random string, so there is no dictionary to try. The token itself
+    is only ever in the keychain or the environment.
+    """
+
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()[:12] if token else ""
+
+
+def record_verification(result: "Mapping[str, Any]", *, token: str = "") -> None:
+    """Persist what a live check found, so a later claim can cite it.
+
+    The verdict, the login, the time, and *which token* was checked -- never
+    the token. The config's shadow journal refuses any key that looks
+    credential-bearing, and these deliberately do not.
+
+    Which token matters (#818 review finding 9). A verdict with nothing tying
+    it to a token outlived the token: a stale "rejected" survived reconnecting
+    with a good one, and a "valid" would have survived swapping in a bad one.
+    """
+
+    status = _verification_status_from(result)
+    login = str(result.get("login") or "")
+    fingerprint = _fingerprint(str(token or ""))
+
+    def mutate(config: dict[str, Any]) -> None:
+        config["verification_status"] = status
+        config["verified_at"] = int(time.time())
+        config["verified_fingerprint"] = fingerprint
+        if login:
+            config["verification_login"] = login
+
+    try:
+        _update_config(mutate)
+    except Exception:  # noqa: BLE001 - a diagnostic must not break a check
+        return
+
+
+def last_verification(token: str | None = None) -> dict[str, Any]:
+    """What the last live check found *about the token stored now*.
+
+    A check of a different token -- or one recorded before checks named their
+    token -- says nothing about this one, so it reads as unknown. ``token`` is
+    the current token when the caller already has it; otherwise it is looked
+    up.
+    """
+
+    if token is None:
+        token, _source = stored_github_token()
+    config = _load_config()
+    recorded = str(config.get("verified_fingerprint") or "")
+    about_this_token = bool(token) and recorded == _fingerprint(str(token))
+    status = str(config.get("verification_status") or VERIFICATION_UNKNOWN)
+    try:
+        checked_at = int(config.get("verified_at") or 0)
+    except (TypeError, ValueError):
+        checked_at = 0
+    if status not in (
+        VERIFICATION_VALID,
+        VERIFICATION_REJECTED,
+        VERIFICATION_UNREACHABLE,
+    ):
+        status = VERIFICATION_UNKNOWN
+    if not about_this_token:
+        checked_at = 0
+    age = int(time.time()) - checked_at if checked_at else None
+    return {
+        "status": status if checked_at else VERIFICATION_UNKNOWN,
+        "checked_at": checked_at,
+        "age_seconds": age,
+        "fresh": bool(age is not None and age <= VERIFICATION_FRESH_SECONDS),
+        "login": str(config.get("verification_login") or "") if checked_at else "",
+    }
+
+
 def _load_config() -> dict[str, Any]:
     try:
         return dict(json.loads(_config_path().read_text(encoding="utf-8")))
@@ -95,7 +207,7 @@ def _load_config() -> dict[str, Any]:
 #: consent flags in ``github.json`` -- see :func:`connect_github`. This guard
 #: exists so that stays true. A journal is an append-only file that nothing
 #: prunes; a secret written into one survives disconnects, token rotations and
-#: `opai github disconnect` alike. If a later change ever starts persisting a
+#: `vesta github disconnect` alike. If a later change ever starts persisting a
 #: credential in the config, the mirror must refuse the record rather than
 #: quietly duplicate the secret into a second file with its own permissions.
 _CREDENTIAL_KEY_MARKERS = ("token", "secret", "password", "credential", "key")
@@ -222,13 +334,18 @@ def connect_github(token: str, *, http: HttpFn = _default_http) -> dict[str, Any
         config.setdefault("allow_public_read", False)
 
     config = _update_config(_apply)
+    # Connecting *is* a live check -- GitHub just answered /user for this
+    # token -- so it is recorded as one. Before, a fresh connect read "not
+    # verified yet", and an old "rejected" stayed on the row after the user
+    # replaced the bad token with a good one.
+    record_verification({"authStatus": "connected", "login": login}, token=cleaned)
     return {
         "connected": True,
         "login": login,
         "stored": stored,
         "allow_push": bool(config["allow_push"]),
         "next_step": (
-            "Pushes and PRs stay off until you run: opai github allow-push on"
+            "Pushes and PRs stay off until you run: vesta github allow-push on"
         ),
     }
 
@@ -246,6 +363,14 @@ def disconnect_github() -> dict[str, Any]:
         config.pop("login", None)
         config["allow_push"] = False
         config["allow_public_read"] = False
+        # A verdict about a token that is gone describes nothing.
+        for stale in (
+            "verification_status",
+            "verified_at",
+            "verified_fingerprint",
+            "verification_login",
+        ):
+            config.pop(stale, None)
 
     _update_config(_apply)
     env_token = any(os.environ.get(name) for name in _TOKEN_ENV_VARS)
@@ -322,18 +447,27 @@ def github_readiness() -> dict[str, Any]:
     elif not connected and not allow:
         reason = "no_token_and_consent_off"
         next_step = (
-            "Connect a token (opai github connect --token <PAT>, or set "
-            "GITHUB_TOKEN), then run: opai github allow-push on"
+            "Connect a token (vesta github connect --token <PAT>, or set "
+            "GITHUB_TOKEN), then run: vesta github allow-push on"
         )
     elif not connected:
         reason = "no_token"
         next_step = (
             "Consent is on, but no GitHub token is connected. Connect one: "
-            "opai github connect --token <PAT> (or set GITHUB_TOKEN)."
+            "vesta github connect --token <PAT> (or set GITHUB_TOKEN)."
         )
     else:
         reason = "consent_off"
-        next_step = "A token is connected. Enable pushes/PRs: opai github allow-push on"
+        next_step = (
+            "A token is connected. Enable pushes/PRs: vesta github allow-push on"
+        )
+    # What a *check* found, carried alongside what is merely present. `ready`
+    # deliberately still means "a token is stored and pushes are allowed":
+    # refusing to run because nobody has verified a token that works would
+    # break the flow this gate exists to enable. What changes is that callers
+    # can no longer render "ready" as "verified" without saying which they
+    # mean.
+    verification = last_verification(token)
     return {
         "connected": connected,
         "token_source": source,
@@ -341,6 +475,9 @@ def github_readiness() -> dict[str, Any]:
         "ready": ready,
         "reason": reason,
         "next_step": next_step,
+        "verification": verification["status"],
+        "verified_at": verification["checked_at"],
+        "verification_fresh": verification["fresh"],
     }
 
 
@@ -364,6 +501,22 @@ def github_status() -> dict[str, Any]:
 
 
 def verify_github_connection(*, http: HttpFn = _default_http) -> dict[str, Any]:
+    """Live-check the stored token, and remember what it found.
+
+    A wrapper rather than a call at each return: the implementation has five
+    exits, and hooking them one by one means a later sixth is silently not
+    recorded -- which is how the check came to answer a single dialog and be
+    forgotten everywhere else. One exit by construction, the same reasoning
+    `gui_pipeline.handle_gui_message` uses for its terminal event.
+    """
+
+    token, _source = stored_github_token()
+    result = _verify_github_connection(http=http)
+    record_verification(result, token=token)
+    return result
+
+
+def _verify_github_connection(*, http: HttpFn = _default_http) -> dict[str, Any]:
     """Live-check the stored GitHub token for the Connection Doctor (Bug 5).
 
     GitHub is not an AI-provider adapter, so the generic ``testProvider`` probe
@@ -498,7 +651,7 @@ def create_pull_request(
             token,
             {
                 "title": clean_title,
-                # #contributor: say plainly that OPai opened this. A reviewer
+                # #contributor: say plainly that Vesta opened this. A reviewer
                 # should not have to read `git log` to learn whether a human or an
                 # assistant wrote what they are reviewing.
                 "body": redact(with_pr_attribution(str(body or "")))[:20_000],
@@ -657,7 +810,7 @@ def _read_context(
     if not token:
         return None, {
             "ok": False,
-            "error": "No GitHub token. Connect with: opai github connect",
+            "error": "No GitHub token. Connect with: vesta github connect",
         }
     slug = repo_slug(project_root)
     if not slug:

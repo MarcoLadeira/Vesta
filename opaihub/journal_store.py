@@ -45,20 +45,44 @@ from __future__ import annotations
 import getpass
 import json
 import os
+import re
 import sqlite3
+from contextvars import ContextVar
 import subprocess  # nosec B404 - fixed argv ACL calls only
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterator, Mapping, Sequence
 
+from .call_reconciliation import positive_pid
 from .command_runner import redact
 from .state import state_dir
 
-#: Bumped whenever :data:`_MIGRATIONS` grows. A database reporting a higher
-#: version than this was written by a newer OPai and is *incompatible* -- a
-#: state the caller must be able to tell apart from corruption.
-SCHEMA_VERSION = 1
+#: The newest migration this build knows; bumped whenever :data:`_MIGRATIONS`
+#: grows. A database recording a higher version than this was written by a
+#: newer Vesta and is *incompatible* -- a state the caller must be able to tell
+#: apart from corruption.
+SCHEMA_VERSION = 3
+
+#: Migrations an older Vesta can safely ignore, so they do not raise the version
+#: a journal is stamped with.
+#:
+#: Every Vesta build refuses a journal stamped above the newest migration it
+#: knows. That is right for a change an older build would write wrongly
+#: around, and needlessly destructive for one it would never notice: migration
+#: 2 only adds two nullable columns, yet stamping it made every journal this
+#: build touched "written by a newer Vesta" to `main` and to every branch cut
+#: from it -- journaling silently stopped there and doctor flagged the project.
+#: Worse, a branch that defined its *own* migration 2 (#842) trusted the stamp
+#: and skipped its tables for ever.
+#:
+#: A migration listed here must be one an older build cannot trip over: new
+#: tables, non-unique indexes, nullable columns. The ratchet in
+#: ``tests/test_journal_migrations_are_verifiable.py`` refuses a unique index
+#: here, because an older build's writes could violate it. Anything not listed
+#: is assumed to matter to older builds -- the safe default for a migration
+#: nobody thought about.
+_OLDER_BUILDS_CAN_IGNORE: frozenset[int] = frozenset({2, 3})
 
 #: Typed integrity outcomes (functional requirement 7).
 INTEGRITY_COMPLETE = "complete"
@@ -74,6 +98,29 @@ _OPERATION_STATES = (
     "reconciled",
     "uncertain",
 )
+
+#: How far along an operation each state is. An operation may move forward
+#: through these and never back.
+#:
+#: The `runs` table has forbidden terminal regression since #613 -- re-admitting
+#: a settled run raises rather than clearing its verdict. `operations` had no
+#: such guard: `record_operation` set `state` unconditionally, so any caller
+#: writing an earlier state over a later one would quietly un-reconcile a
+#: settled external effect. Nothing does today, because the two layers that
+#: write operations happen to use disjoint key schemes -- which is luck, not
+#: design, and it is exactly the luck that runs out when those keys are
+#: unified (#818 asks for one operation identity per external effect).
+#:
+#: ``uncertain`` is deliberately absent: it is an escalation, not a position on
+#: the ladder. An outcome that becomes unknowable after it was reconciled is a
+#: real thing to be able to record, and refusing it would be the opposite of
+#: honest.
+_OPERATION_PROGRESS = {
+    "intended": 0,
+    "executing": 1,
+    "observed": 2,
+    "reconciled": 3,
+}
 _COST_KINDS = ("actual", "derived", "estimated", "unavailable")
 
 
@@ -82,11 +129,53 @@ class JournalStoreError(RuntimeError):
 
 
 class IncompatibleSchemaError(JournalStoreError):
-    """The database was written by a newer OPai than this one."""
+    """The database was written by a newer Vesta than this one."""
 
 
 class StaleWriterError(JournalStoreError):
     """A fenced-out process attempted a write after lease takeover."""
+
+
+class MigrationPendingError(JournalStoreError):
+    """The journal needs a migration, and the caller asked not to apply one."""
+
+
+#: Set by :func:`reading_only`. A context variable rather than a parameter,
+#: because the callers that must not migrate -- doctor's reports -- reach
+#: ``open_store`` through half a dozen modules, and threading a flag through
+#: every one of them is how one gets missed.
+_READING_ONLY: ContextVar[bool] = ContextVar("journal_reading_only", default=False)
+
+
+@contextmanager
+def reading_only() -> Iterator[None]:
+    """Open journals without creating or migrating them, inside this block.
+
+    #818 review finding 16: running doctor silently migrated the journal. The
+    first fix made ``store_health`` ask without migrating, and the finding
+    stayed true -- the migration report doctor prints next opened the store
+    the ordinary way, and a pending journal came out of ``vesta doctor``
+    upgraded. Inside this block ``open_store`` refuses instead: a journal that
+    needs a migration raises :class:`MigrationPendingError`, which reports
+    describe as "migration pending", and one that does not exist is not
+    created.
+    """
+
+    token = _READING_ONLY.set(True)
+    try:
+        yield
+    finally:
+        _READING_ONLY.reset(token)
+
+
+def describe_open_failure(exc: BaseException) -> str:
+    """The word a report should use for a journal that would not open."""
+
+    if isinstance(exc, MigrationPendingError):
+        return "migration pending"
+    if isinstance(exc, IncompatibleSchemaError):
+        return "incompatible"
+    return type(exc).__name__
 
 
 @dataclass(frozen=True)
@@ -283,13 +372,77 @@ _MIGRATION_1 = (
     """,
 )
 
-_MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = ((1, _MIGRATION_1),)
+# v2 gives a lease an owner that names a *process*, not a category (#818).
+#
+# ``owner`` has always held the surface -- "gui", "cli" -- which is a useful
+# label and a useless identity: every Vesta process on the machine writes the
+# same one. ``unterminated_runs`` documented that a caller could look at
+# whether the owning process still exists, and then handed it the string
+# "gui". These two columns are what that sentence needs to be true.
+#
+# Added rather than repurposed. ``owner`` keeps its meaning, so every existing
+# reader keeps working and no migration has to guess what an old value meant.
+#
+# Nullable on purpose: rows written before this migration have no process
+# behind them to name, and inventing one would manufacture exactly the
+# confident-but-baseless answer this journal exists to prevent. A NULL here
+# reads as "unknown", which is the truth about a pre-migration row.
+_MIGRATION_2: tuple[str, ...] = (
+    "ALTER TABLE leases ADD COLUMN owner_pid INTEGER",
+    "ALTER TABLE leases ADD COLUMN owner_boot TEXT",
+)
+
+_MIGRATION_3 = (
+    """CREATE TABLE IF NOT EXISTS agent_objectives (
+        objective_id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL REFERENCES tasks(task_id),
+        run_id TEXT NOT NULL UNIQUE REFERENCES runs(run_id),
+        status TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS objective_assignments (
+        assignment_id TEXT PRIMARY KEY,
+        objective_id TEXT NOT NULL REFERENCES agent_objectives(objective_id),
+        task_id TEXT NOT NULL REFERENCES tasks(task_id),
+        run_id TEXT NOT NULL UNIQUE REFERENCES runs(run_id),
+        status TEXT NOT NULL,
+        owner TEXT NOT NULL DEFAULT '',
+        fence INTEGER NOT NULL DEFAULT 0,
+        expires_at TEXT,
+        position INTEGER NOT NULL,
+        payload TEXT NOT NULL
+    )""",
+    "CREATE INDEX IF NOT EXISTS assignments_by_objective ON objective_assignments(objective_id, position)",
+    """CREATE TABLE IF NOT EXISTS objective_cost_events (
+        operation_key TEXT PRIMARY KEY REFERENCES operations(operation_key),
+        objective_id TEXT NOT NULL REFERENCES agent_objectives(objective_id),
+        assignment_id TEXT REFERENCES objective_assignments(assignment_id),
+        amount_usd TEXT,
+        measurement_kind TEXT NOT NULL,
+        recorded_at TEXT NOT NULL
+    )""",
+)
+
+_MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
+    (1, _MIGRATION_1),
+    (2, _MIGRATION_2),
+    (3, _MIGRATION_3),
+)
 
 
-def _connect(path: Path) -> sqlite3.Connection:
+#: How long a statement waits for another writer before giving up. Long
+#: enough for an ordinary commit anywhere in Vesta to finish.
+BUSY_TIMEOUT_SECONDS = 10.0
+
+
+def _connect(
+    path: Path, *, timeout: float = BUSY_TIMEOUT_SECONDS
+) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     fresh = not path.exists()
-    connection = sqlite3.connect(path, timeout=10.0, isolation_level=None)
+    connection = sqlite3.connect(path, timeout=timeout, isolation_level=None)
     try:
         # WAL is the reason this is SQLite: readers do not block the writer.
         # It is set before anything else so a partially-initialised database is
@@ -427,8 +580,19 @@ def _transaction(connection: sqlite3.Connection) -> Iterator[sqlite3.Connection]
     DEFERRED would let two writers both begin, then fail one at its first
     write with SQLITE_BUSY after it has already done work. IMMEDIATE makes the
     contention visible at the start instead.
+
+    **Re-entrant.** Inside a transaction already open on this connection, the
+    block joins it and commits or rolls back with it. That is what lets one
+    lifecycle moment be one transaction: a run's terminal verdict, its event
+    and the release of its lease used to commit as three, so a crash between
+    them left the `runs` table and the event log telling different stories --
+    the exact contradiction ``journal_projections.run_table_parity`` exists to
+    catch. Nested use raised before, so nothing relied on it being refused.
     """
 
+    if connection.in_transaction:
+        yield connection
+        return
     connection.execute("BEGIN IMMEDIATE")
     try:
         yield connection
@@ -453,44 +617,284 @@ def _stored_version(connection: sqlite3.Connection) -> int:
         return 0
 
 
-def migrate(connection: sqlite3.Connection) -> int:
-    """Apply pending migrations transactionally; return the resulting version.
+def compatibility_version() -> int:
+    """The version a journal is stamped with: what an older build must know.
 
-    Resumable by construction: each migration commits its own transaction and
-    records the new version in the same transaction, so an interruption leaves
-    the database at a version that was fully applied, never half of one.
+    The newest migration an older build could *not* ignore. A build that knows
+    it can use the journal; one that does not is refused, which is the only
+    thing the stamp is for -- whether each migration is actually in place is
+    checked against the catalogue on every open.
+    """
+
+    return max(
+        (
+            version
+            for version, _statements in _MIGRATIONS
+            if version not in _OLDER_BUILDS_CAN_IGNORE
+        ),
+        default=0,
+    )
+
+
+def _restore_compatibility_stamp(connection: sqlite3.Connection, floor: int) -> None:
+    """Lower a stamp that claims more than older builds need to know.
+
+    The one deliberate exception to :func:`_record_schema_version` never going
+    backwards. Journals this branch touched before stamps meant compatibility
+    were stamped 2 for a migration older builds can ignore, locking every one
+    of those builds out. The race that made a backwards stamp dangerous cannot
+    recur: migrations are verified against the catalogue, so a lowered stamp
+    can never cause a statement to run twice.
+    """
+
+    connection.execute(
+        "UPDATE schema_meta SET value = ? WHERE key = 'schema_version'",
+        (str(floor),),
+    )
+
+
+def _record_schema_version(connection: sqlite3.Connection, version: int) -> None:
+    """Record the schema version, and never let it go backwards.
+
+    MAX rather than assignment: the version is monotonic, and a write that
+    lowers it is always a mistake rather than an intent. This is the second of
+    two guards against the migration race -- with the first (re-reading under
+    the write lock) in place nothing should reach here with a stale value at
+    all, which is exactly why it is worth keeping: the failure it prevents is
+    a journal nobody can open, permanently.
+
+    CAST because the column is TEXT, where "10" sorts below "2".
+
+    Named rather than inlined so a test can exercise *this* statement instead
+    of writing its own copy -- a test that reimplements the SQL proves SQLite
+    works, not that Vesta uses it.
+    """
+
+    connection.execute(
+        "INSERT INTO schema_meta(key, value) VALUES ('schema_version', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = CAST(MAX("
+        "CAST(schema_meta.value AS INTEGER), "
+        "CAST(excluded.value AS INTEGER)) AS TEXT)",
+        (str(version),),
+    )
+
+
+#: The three shapes a migration statement may take. Each can be *checked* --
+#: does what it creates exist? -- and *re-applied* without harm, which is what
+#: lets :func:`migrate` trust the database rather than a version number.
+#: ``tests/test_journal_migrations_are_verifiable.py`` refuses any other shape,
+#: so a future migration cannot quietly opt out.
+_CREATES_OBJECT = re.compile(
+    r"^\s*CREATE\s+(?:UNIQUE\s+)?(TABLE|INDEX)\s+IF\s+NOT\s+EXISTS\s+(\w+)",
+    re.IGNORECASE,
+)
+_ADDS_COLUMN = re.compile(
+    r"^\s*ALTER\s+TABLE\s+(\w+)\s+ADD\s+COLUMN\s+(\w+)", re.IGNORECASE
+)
+
+
+class _SchemaFacts:
+    """What one database actually contains, read once per migrate call."""
+
+    def __init__(self, connection: sqlite3.Connection) -> None:
+        self._connection = connection
+        self._objects: set[tuple[str, str]] | None = None
+        self._columns: dict[str, set[str]] = {}
+
+    def refresh(self) -> None:
+        self._objects = None
+        self._columns.clear()
+
+    def has_object(self, kind: str, name: str) -> bool:
+        if self._objects is None:
+            self._objects = {
+                (str(row[0]).lower(), str(row[1]).lower())
+                for row in self._connection.execute(
+                    "SELECT type, name FROM sqlite_master"
+                )
+            }
+        return (kind.lower(), name.lower()) in self._objects
+
+    def has_column(self, table: str, column: str) -> bool:
+        key = table.lower()
+        if key not in self._columns:
+            self._columns[key] = {
+                str(row[1]).lower()
+                for row in self._connection.execute(
+                    # A table name cannot be a bound parameter in a PRAGMA; it
+                    # comes from this module's own migration text, matched by
+                    # `\w+`, never from input.
+                    f"PRAGMA table_info({key})"
+                )
+            }
+        return column.lower() in self._columns[key]
+
+
+def migration_statement_is_verifiable(statement: str) -> bool:
+    """Whether :func:`migrate` can check and safely re-apply ``statement``."""
+
+    return bool(_CREATES_OBJECT.match(statement) or _ADDS_COLUMN.match(statement))
+
+
+def _outstanding(facts: _SchemaFacts, statements: Sequence[str]) -> list[str]:
+    """The statements whose effects this database does not contain."""
+
+    missing: list[str] = []
+    for statement in statements:
+        created = _CREATES_OBJECT.match(statement)
+        if created is not None:
+            if not facts.has_object(created.group(1), created.group(2)):
+                missing.append(statement)
+            continue
+        added = _ADDS_COLUMN.match(statement)
+        if added is not None:
+            if not facts.has_column(added.group(1), added.group(2)):
+                missing.append(statement)
+            continue
+        # Unverifiable. The ratchet test forbids this shape; if one slips in,
+        # it is treated as outstanding so it is at least never skipped.
+        missing.append(statement)
+    return missing
+
+
+def migrate(connection: sqlite3.Connection) -> int:
+    """Apply pending migrations transactionally; return the newest now in place.
+
+    **Stamped with compatibility, not with the newest migration.** The recorded
+    version is :func:`compatibility_version` -- what an older build must know
+    to use this journal -- so a migration older builds can ignore no longer
+    locks them out of it. See :data:`_OLDER_BUILDS_CAN_IGNORE`. A migration that
+    does raise the stamp records it in the same transaction as its statements,
+    so no older build ever sees such a change without the stamp that refuses
+    it.
+
+    **Checked against the database, not trusted from a number.** Two open PRs
+    each defined migration 2 with different contents -- lease owner columns
+    here, agent-objective tables in #842. Applied by number alone, whichever
+    build touched a journal first stamped it v2 and the other build skipped
+    its own v2 for ever: its tables or columns simply never existed, and every
+    write that needed them failed. Now every migration is verified to be in
+    place whatever the recorded version says, and anything missing is
+    applied. Every statement is idempotent by construction, so applying one a
+    journal already has is harmless; on a journal that is already complete
+    this costs one catalogue read and no writes.
+
+    Resumable by construction: each migration commits its own transaction, and
+    the next open verifies everything again, so an interruption never leaves
+    half of one believed to be whole.
+
+    **Safe against a second process doing the same thing.** The version is
+    re-read inside each write transaction, not just once at the top, because
+    the gap between deciding and locking is wide enough to lose a whole
+    migration in -- and the failure that produced was permanent rather than
+    transient.
+
+    What happened without it: two processes creating a journal together both
+    read version 0. One migrated fully to 2 and committed. The other, still
+    believing 0, re-ran migration 1 -- every statement `CREATE TABLE IF NOT
+    EXISTS`, so silently fine -- and wrote version **1 over the 2**. Migration
+    2 is `ALTER TABLE leases ADD COLUMN`, which SQLite cannot express
+    idempotently, so it then failed with `duplicate column name` and kept
+    failing: the recorded version claimed it had never been applied while the
+    columns were already there. Every subsequent `open_store` raised, forever,
+    on a journal that was structurally fine.
+
+    Measured before the fix: 2 of 25 rounds of six concurrent processes, and
+    1 of 20 with two real `vesta ask` turns on a fresh project. Only fresh
+    creation races -- upgrading an existing journal was never affected --
+    which is exactly the new-install and new-workspace case.
+
+    Two guards, either of which would be sufficient, because the cost of
+    being wrong here is a journal nobody can open:
+
+    1. the version is re-read under the write lock, so a migration another
+       process has already applied is skipped rather than repeated;
+    2. the recorded version can only ever move forward, so a stale writer
+       cannot drag it backwards even if it did somehow re-run -- with one
+       deliberate exception, :func:`_restore_compatibility_stamp`, which is
+       safe only because nothing here trusts the stamp to decide what to run.
     """
 
     current = _stored_version(connection)
     if current > SCHEMA_VERSION:
         raise IncompatibleSchemaError(
-            f"journal schema v{current} is newer than this OPai (v{SCHEMA_VERSION})"
+            f"journal schema v{current} is newer than this Vesta (v{SCHEMA_VERSION})"
         )
+    facts = _SchemaFacts(connection)
     for version, statements in _MIGRATIONS:
-        if version <= current:
+        stamps = version not in _OLDER_BUILDS_CAN_IGNORE
+        if not _outstanding(facts, statements) and (not stamps or version <= current):
             continue
         with _transaction(connection):
-            for statement in statements:
+            # Everything is decided again under the lock. Another process may
+            # have applied this migration in the meantime -- re-running a
+            # statement that is not idempotent is what once bricked the journal
+            # -- so the catalogue is re-read here rather than trusted from
+            # before the lock existed.
+            facts.refresh()
+            for statement in _outstanding(facts, statements):
                 connection.execute(statement)
-            connection.execute(
-                "INSERT INTO schema_meta(key, value) VALUES ('schema_version', ?) "
-                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                (str(version),),
-            )
-        current = version
-    return current
+            if stamps:
+                _record_schema_version(connection, version)
+        facts.refresh()
+        if stamps:
+            current = max(current, version)
+
+    floor = compatibility_version()
+    if current > floor:
+        with _transaction(connection):
+            # Every migration above the floor is, by the floor's definition, one
+            # older builds can ignore -- so a stamp between the two claims more
+            # than any build needs. Above SCHEMA_VERSION it was refused already.
+            stamped = _stored_version(connection)
+            if floor < stamped <= SCHEMA_VERSION:
+                _restore_compatibility_stamp(connection, floor)
+    return SCHEMA_VERSION
 
 
-def open_store(project_root: Path) -> sqlite3.Connection:
-    """Open (creating if needed) and migrate this project's journal."""
+def open_store(
+    project_root: Path, *, timeout: float = BUSY_TIMEOUT_SECONDS
+) -> sqlite3.Connection:
+    """Open (creating if needed) and migrate this project's journal.
 
-    connection = _connect(journal_path(project_root))
+    ``timeout`` is how long any statement on the connection may wait for
+    another writer. The default suits a write that must land; a caller that
+    would rather skip than wait -- a heartbeat -- passes something tiny.
+    """
+
+    path = journal_path(project_root)
+    reading = _READING_ONLY.get()
+    if reading and not path.exists():
+        raise JournalStoreError("no journal to read")
+    connection = _connect(path, timeout=timeout)
     try:
-        migrate(connection)
+        if reading:
+            _refuse_to_migrate(connection)
+        else:
+            migrate(connection)
     except BaseException:
         connection.close()
         raise
     return connection
+
+
+def _refuse_to_migrate(connection: sqlite3.Connection) -> None:
+    """Raise where :func:`migrate` would have had to write a schema change.
+
+    A stamp above the compatibility version is left as it is: restoring it is
+    a write, and reading does not need it.
+    """
+
+    current = _stored_version(connection)
+    if current > SCHEMA_VERSION:
+        raise IncompatibleSchemaError(
+            f"journal schema v{current} is newer than this Vesta (v{SCHEMA_VERSION})"
+        )
+    facts = _SchemaFacts(connection)
+    if any(_outstanding(facts, statements) for _version, statements in _MIGRATIONS):
+        raise MigrationPendingError(
+            "this journal needs a migration, applied the next time Vesta uses it"
+        )
 
 
 def check_integrity(connection: sqlite3.Connection) -> IntegrityReport:
@@ -509,7 +913,7 @@ def check_integrity(connection: sqlite3.Connection) -> IntegrityReport:
             state=INTEGRITY_INCOMPATIBLE,
             schema_version=version,
             detail=(
-                f"database schema v{version} was written by a newer OPai; "
+                f"database schema v{version} was written by a newer Vesta; "
                 f"this build understands v{SCHEMA_VERSION}"
             ),
             checks=tuple(checks),
@@ -651,7 +1055,7 @@ def append_event(
                 privacy_class,
             ),
         )
-        return int(cursor.lastrowid)
+        return _inserted_row_id(cursor)
 
 
 #: Longest string kept verbatim in an event payload. Payloads describe what
@@ -781,12 +1185,25 @@ def _assert_fence(
 
 
 def acquire_lease(
-    connection: sqlite3.Connection, *, run_id: str, owner: str, now: str
+    connection: sqlite3.Connection,
+    *,
+    run_id: str,
+    owner: str,
+    now: str,
+    owner_pid: int | None = None,
+    owner_boot: str = "",
 ) -> int:
     """Take (or take over) a run's lease and return the new fencing token.
 
     The token strictly increases on every acquisition, including takeover, so
     a previous holder's token can never be mistaken for the current one.
+
+    ``owner`` is the surface -- a category. ``owner_pid`` and ``owner_boot``
+    name the process behind it, which is what a later caller needs to ask
+    whether the work is still being tended. The store records them; it does
+    not interpret them, and in particular it never decides from them that a
+    run is dead. Both default to absent, because a caller that cannot honestly
+    name its process must be able to say so.
     """
 
     with _transaction(connection):
@@ -796,19 +1213,59 @@ def acquire_lease(
         fence = (int(row["fence"]) + 1) if row is not None else 1
         connection.execute(
             "INSERT INTO leases(run_id, owner, fence, acquired_at, heartbeat_at,"
-            " expires_at, released_at) VALUES (?, ?, ?, ?, ?, NULL, NULL) "
+            " expires_at, released_at, owner_pid, owner_boot)"
+            " VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?) "
             "ON CONFLICT(run_id) DO UPDATE SET"
             " owner = excluded.owner, fence = excluded.fence,"
             " acquired_at = excluded.acquired_at,"
             " heartbeat_at = excluded.heartbeat_at,"
+            " owner_pid = excluded.owner_pid,"
+            " owner_boot = excluded.owner_boot,"
             " expires_at = NULL, released_at = NULL",
-            (run_id, owner, fence, now, now),
+            (
+                run_id,
+                owner,
+                fence,
+                # `acquired_at` and `heartbeat_at` are deliberately the *same*
+                # value, not two reads of the clock. `journal_liveness` decides
+                # whether anyone was ever tending a lease by asking whether the
+                # heartbeat has moved past the acquisition -- because most
+                # surfaces never beat one, and judging them by a clock they
+                # never wound would report every CLI and background run as
+                # having stopped responding.
+                #
+                # Two `now()` calls here would differ by microseconds, which is
+                # enough to make that check say yes for every lease in the
+                # database. Anything that changes this must change
+                # `_stopped_responding` with it; the test in
+                # tests/test_journal_liveness.py fails loudly if it does not.
+                now,
+                now,
+                positive_pid(owner_pid),
+                str(owner_boot or ""),
+            ),
         )
         connection.execute(
             "UPDATE runs SET lease_fence = ?, updated_at = ? WHERE run_id = ?",
             (fence, now, run_id),
         )
         return fence
+
+
+def _inserted_row_id(cursor: sqlite3.Cursor) -> int:
+    """The row id an INSERT just produced.
+
+    ``lastrowid`` is typed ``int | None`` because it is ``None`` before a
+    cursor has inserted anything. After an INSERT it is always set, so this
+    never fires in practice -- but coercing the ``None`` away silently would
+    turn "the insert did not happen" into row 0, which is a worse answer than
+    saying so.
+    """
+
+    row_id = cursor.lastrowid
+    if row_id is None:  # pragma: no cover - an INSERT always reports one
+        raise JournalStoreError("the store did not report a row id for the insert")
+    return int(row_id)
 
 
 def release_lease(
@@ -892,13 +1349,32 @@ def record_operation(
         raise ValueError(f"unknown operation state: {state!r}")
     with _transaction(connection):
         existing = connection.execute(
-            "SELECT state FROM operations WHERE operation_key = ?", (operation_key,)
+            "SELECT state, reconciled_at FROM operations WHERE operation_key = ?",
+            (operation_key,),
         ).fetchone()
+        if existing is not None and _would_regress(
+            str(existing["state"]),
+            state,
+            reconciled_before=existing["reconciled_at"] is not None,
+        ):
+            # Refused rather than ignored. A caller writing an earlier state
+            # over a later one has a real bug -- it believes an effect is still
+            # in flight that this store has already settled -- and swallowing
+            # it would leave the two of them disagreeing silently, which is the
+            # failure mode this journal exists to remove.
+            raise JournalStoreError(
+                f"operation {operation_key!r} is already {existing['state']!r};"
+                f" it cannot go back to {state!r}"
+            )
         if existing is None:
+            # `reconciled_at` on creation too. Only the update below set it, so
+            # an operation first recorded as reconciled never said when -- and
+            # the regression guard reads it as the mark of having got there.
             connection.execute(
                 "INSERT INTO operations(operation_key, kind, target_digest, state,"
                 " run_id, provider_ref, process_ref, external_ref, attempts,"
-                " created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
+                " created_at, updated_at, reconciled_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)",
                 (
                     operation_key,
                     kind,
@@ -910,6 +1386,7 @@ def record_operation(
                     external_ref,
                     now,
                     now,
+                    now if state == "reconciled" else None,
                 ),
             )
             return True
@@ -929,6 +1406,41 @@ def record_operation(
             ),
         )
         return False
+
+
+def _would_regress(
+    current: str, proposed: str, *, reconciled_before: bool = False
+) -> bool:
+    """True when ``proposed`` would walk an operation back down the ladder.
+
+    Moving *to* a state off the ladder -- ``uncertain``, or one a newer Vesta
+    wrote that this build does not know -- is never a regression: refusing a
+    state we cannot rank would turn a forwards-compatibility problem into a
+    hard failure, and an outcome that becomes unknowable is a real thing to be
+    able to record.
+
+    Moving *from* ``uncertain`` is where the first version had a hole (#818
+    review finding 19): ``reconciled -> uncertain -> intended`` passed, because
+    ``uncertain`` has no rank and so nothing looked like going backwards. Two
+    rules close it. An operation that was ever reconciled cannot be walked
+    back below reconciled by any route. And uncertainty is resolved by finding
+    out what happened -- observing or reconciling -- not by moving back to
+    ``intended`` or ``executing``, which would mean re-running an external
+    effect whose outcome nobody knows: the double push the idempotency key
+    exists to prevent.
+    """
+
+    there = _OPERATION_PROGRESS.get(proposed)
+    if there is None:
+        return False
+    if reconciled_before and there < _OPERATION_PROGRESS["reconciled"]:
+        return True
+    if current == "uncertain":
+        return there < _OPERATION_PROGRESS["observed"]
+    here = _OPERATION_PROGRESS.get(current)
+    if here is None:
+        return False
+    return there < here
 
 
 def record_cost(
@@ -984,7 +1496,7 @@ def record_cost(
             raise JournalStoreError(
                 f"operation {operation_key!r} already has a cost event"
             ) from exc
-        return int(cursor.lastrowid)
+        return _inserted_row_id(cursor)
 
 
 # --------------------------------------------------------------------------
@@ -1137,24 +1649,138 @@ def drop_projection(
         return cursor.rowcount > 0
 
 
+def written_by_a_newer_opai(project_root: Path) -> bool:
+    """Whether the journal's schema is ahead of what this build understands.
+
+    Read-only and without migrating, on purpose: :func:`open_store` migrates,
+    and a newer schema is exactly what makes migration refuse -- asking it
+    would be asking the thing that already said no.
+    """
+
+    path = journal_path(project_root)
+    if not path.exists():
+        return False
+    try:
+        connection = sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True)
+    except (sqlite3.DatabaseError, OSError):
+        return False
+    try:
+        connection.row_factory = sqlite3.Row
+        return _stored_version(connection) > SCHEMA_VERSION
+    finally:
+        connection.close()
+
+
+def migration_pending(project_root: Path) -> bool:
+    """Whether opening this journal would have to apply a migration.
+
+    Read through a read-only connection, like :func:`written_by_a_newer_opai`:
+    asking must not be the thing that changes the answer. A journal that is
+    absent, unreadable or newer than this build is not *pending* -- those have
+    their own words.
+    """
+
+    path = journal_path(project_root)
+    if not path.exists():
+        return False
+    try:
+        connection = sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True)
+    except (sqlite3.DatabaseError, OSError):
+        return False
+    try:
+        connection.row_factory = sqlite3.Row
+        if _stored_version(connection) > SCHEMA_VERSION:
+            return False
+        facts = _SchemaFacts(connection)
+        return any(
+            _outstanding(facts, statements) for _version, statements in _MIGRATIONS
+        )
+    except sqlite3.DatabaseError:
+        return False
+    finally:
+        connection.close()
+
+
+def _openable(project_root: Path) -> tuple[bool, str]:
+    """Would Vesta be able to open this journal -- asked without changing it.
+
+    ``check_integrity`` reads a raw connection: it answers "is this database
+    structurally sound", which is not the same question as "will Vesta be able
+    to use it". A journal whose migration cannot complete passes every
+    structural check and still refuses every write. That gap was not
+    theoretical: a migration race left a journal recording schema v1 with v2's
+    columns already present, so ``open_store`` raised ``duplicate column
+    name`` on every attempt while doctor called the project ready.
+
+    The first answer to that called ``open_store`` -- which *migrates*, so
+    running doctor upgraded the journal as a side effect (#818 review finding
+    16). Now the pending migrations are applied inside a transaction that is
+    always rolled back: the same statements, failing exactly as a real open
+    would, and nothing kept.
+    """
+
+    try:
+        connection = _connect(journal_path(project_root))
+    except Exception as exc:  # noqa: BLE001 - health must not become the problem
+        return False, f"{type(exc).__name__}: {redact(str(exc))[:180]}"
+    try:
+        current = _stored_version(connection)
+        if current > SCHEMA_VERSION:
+            return False, (
+                f"IncompatibleSchemaError: journal schema v{current} is newer"
+                f" than this Vesta (v{SCHEMA_VERSION})"
+            )
+        # Everything open_store would apply: migrations not yet recorded, and
+        # recorded ones whose effects are missing (a journal another build
+        # stamped with a different migration of the same number).
+        facts = _SchemaFacts(connection)
+        pending = [
+            statement
+            for _version, statements in _MIGRATIONS
+            for statement in _outstanding(facts, statements)
+        ]
+        if pending:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                for statement in pending:
+                    connection.execute(statement)
+            finally:
+                connection.execute("ROLLBACK")
+        return True, ""
+    except Exception as exc:  # noqa: BLE001
+        return False, f"{type(exc).__name__}: {redact(str(exc))[:180]}"
+    finally:
+        connection.close()
+
+
 def store_health(project_root: Path) -> dict[str, Any]:
-    """Doctor/preflight summary: does the journal exist, and is it trustworthy?"""
+    """Doctor/preflight summary: does the journal exist, and is it usable?
+
+    Two questions, reported separately because they can disagree.
+    ``integrity`` describes the *file*; ``openable`` describes whether Vesta can
+    work with it. A journal can be structurally perfect and still unusable.
+    """
 
     path = journal_path(project_root)
     if not path.exists():
         return {
             "present": False,
             "path": str(path),
+            "openable": True,
+            "open_error": "",
             "integrity": IntegrityReport(
                 state=INTEGRITY_COMPLETE, schema_version=0, detail="no journal yet"
             ).to_dict(),
         }
+    openable, open_error = _openable(project_root)
     try:
         connection = _connect(path)
     except sqlite3.DatabaseError as exc:
         return {
             "present": True,
             "path": str(path),
+            "openable": openable,
+            "open_error": open_error,
             "integrity": IntegrityReport(
                 state=INTEGRITY_CORRUPT, schema_version=0, detail=redact(str(exc))[:200]
             ).to_dict(),
@@ -1168,6 +1794,8 @@ def store_health(project_root: Path) -> dict[str, Any]:
             "journal_mode": str(
                 connection.execute("PRAGMA journal_mode").fetchone()[0]
             ),
+            "openable": openable,
+            "open_error": open_error,
             "integrity": report.to_dict(),
         }
     finally:
@@ -1183,12 +1811,19 @@ __all__: Sequence[str] = (
     "IntegrityReport",
     "ProjectionResult",
     "IncompatibleSchemaError",
+    "MigrationPendingError",
     "JournalStoreError",
     "StaleWriterError",
     "acquire_lease",
     "append_event",
     "canonical_bytes",
     "check_integrity",
+    "compatibility_version",
+    "describe_open_failure",
+    "migration_pending",
+    "migration_statement_is_verifiable",
+    "reading_only",
+    "written_by_a_newer_opai",
     "drop_projection",
     "journal_path",
     "load_projection",

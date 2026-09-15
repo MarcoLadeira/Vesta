@@ -4,7 +4,7 @@ Gate 4: *"Duplicate side effect: 0 after retry, replay, reconnect or failover."*
 Nothing enforced it. `create_pull_request` POSTs straight to GitHub and
 `comment_pr` straight to the issue thread, so a retried, resumed or reconnected
 turn opened a second pull request or posted the same comment twice. Both are
-outward, visible to other people, and not undoable by OPai.
+outward, visible to other people, and not undoable by Vesta.
 
 The design point these tests exist to protect is the **third state**. A simple
 "set of completed keys" is wrong at exactly the moment it matters: the process
@@ -513,7 +513,7 @@ class GithubCommentToolTests(unittest.TestCase):
 
 class MergePrTests(unittest.TestCase):
     """A merge lands on the default branch's history and cannot be undone by
-    OPai -- the most irreversible outward action there is. A retried, resumed
+    Vesta -- the most irreversible outward action there is. A retried, resumed
     or reconnected turn must not dispatch it twice (#616).
     """
 
@@ -588,7 +588,7 @@ class MergePrTests(unittest.TestCase):
 
     def test_an_unconfirmed_attempt_fails_closed_as_uncertain(self) -> None:
         # Simulated crash: the key stays in_flight because the process died
-        # between GitHub accepting the merge and OPai recording it. With the
+        # between GitHub accepting the merge and Vesta recording it. With the
         # remote unobservable, a retry must refuse to guess — never a silent
         # second merge, never a false "merged".
         from opaihub.idempotency import begin, operation_key

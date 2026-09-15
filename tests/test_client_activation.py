@@ -81,7 +81,7 @@ class ClientDetectionTests(unittest.TestCase):
             activate_project(proj, home=home, install_global=False, repair=True)
             text = gemini.read_text(encoding="utf-8")
 
-        self.assertEqual(text.count("OPai managed block: start"), 1)
+        self.assertEqual(text.count("Vesta managed block: start"), 1)
         self.assertIn("latest explicit request controls", text.lower())
         self.assertIn("# User Gemini notes", text)
         self.assertIn("Keep this.", text)
@@ -92,7 +92,7 @@ class ClientDetectionTests(unittest.TestCase):
             status = client_integrations_status(proj, proj / "home")
         for client in status["clients"]:
             self.assertEqual(client["status"], "missing")
-            self.assertEqual(client["repair"], "opai activate --repair")
+            self.assertEqual(client["repair"], "vesta activate --repair")
 
     def test_tampered_client_file_reports_broken(self):
         with (
@@ -102,7 +102,7 @@ class ClientDetectionTests(unittest.TestCase):
             proj, home = Path(ptmp), Path(htmp)
             activate_project(proj, home=home, install_global=True)
             cop = proj / ".github" / "copilot-instructions.md"
-            cop.write_text("user content only, no OPai block", encoding="utf-8")
+            cop.write_text("user content only, no Vesta block", encoding="utf-8")
             status = client_integrations_status(proj, home)
         copilot = next(c for c in status["clients"] if c["id"] == "copilot")
         self.assertEqual(copilot["status"], "broken")
@@ -188,7 +188,7 @@ class UninstallTests(unittest.TestCase):
             uninstall_opai(proj, home=home, dry_run=False)
             remaining = claude.read_text(encoding="utf-8")
         self.assertIn("My personal notes", remaining)
-        self.assertNotIn("OPai managed block", remaining)
+        self.assertNotIn("Vesta managed block", remaining)
 
 
 class UpdateTests(unittest.TestCase):

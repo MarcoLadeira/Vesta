@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>OPai — The AI Coding Cost Firewall</title>
-<meta name="description" content="OPai routes every AI coding task through the cheapest safe path — local tools first, cloud only with your OK. Free public alpha. pip install opai">
-<meta property="og:title" content="OPai — The AI Coding Cost Firewall">
+<title>Vesta — The AI Coding Cost Firewall</title>
+<meta name="description" content="Vesta routes every AI coding task through the cheapest safe path — local tools first, cloud only with your OK. Free public alpha. pip install opai">
+<meta property="og:title" content="Vesta — The AI Coding Cost Firewall">
 <meta property="og:description" content="Route every task through the cheapest safe path. Local-first. Private. Free.">
 <meta property="og:image" content="assets/opai-mascot.png">
 <meta name="twitter:card" content="summary_large_image">
@@ -256,9 +256,9 @@ footer{border-top:1px solid var(--border);padding:56px 0 32px;color:var(--muted)
 
 <header class="nav">
   <div class="wrap nav-in">
-    <a class="brand" href="#top" aria-label="OPai home">
+    <a class="brand" href="#top" aria-label="Vesta home">
       <img src="assets/opai-mascot.png" alt="" width="40" height="40">
-      <span>OPai</span>
+      <span>Vesta</span>
     </a>
     <nav class="nav-links" aria-label="Primary">
       <a href="#install">Install</a>
@@ -273,7 +273,7 @@ footer{border-top:1px solid var(--border);padding:56px 0 32px;color:var(--muted)
 <main id="top">
 
 <!-- ============ 1. hero ============ -->
-<section class="hero" id="install" aria-label="Install OPai">
+<section class="hero" id="install" aria-label="Install Vesta">
   <div class="wrap hero-grid">
     <div class="hero-copy">
       <p class="eyebrow">Free Public Alpha — Local-first AI coding control plane</p>
@@ -298,14 +298,14 @@ footer{border-top:1px solid var(--border);padding:56px 0 32px;color:var(--muted)
     </div>
 
     <div class="hero-term">
-      <div class="term" id="hero-term" role="group" aria-label="Terminal: install OPai">
+      <div class="term" id="hero-term" role="group" aria-label="Terminal: install Vesta">
         <div class="term-bar">
           <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
           <span class="term-title">terminal</span>
-          <button class="copy-btn" data-copy="pip install opai&#10;opai doctor" aria-label="Copy install commands"><span class="cl" aria-live="polite">Copy</span></button>
+          <button class="copy-btn" data-copy="pip install opai&#10;vesta doctor" aria-label="Copy install commands"><span class="cl" aria-live="polite">Copy</span></button>
         </div>
 <pre><code><span class="hline"><span class="p">$</span> <span class="tt">pip install opai</span></span>
-<span class="hline"><span class="p">$</span> <span class="tt">opai doctor</span></span>
+<span class="hline"><span class="p">$</span> <span class="tt">vesta doctor</span></span>
 <span class="hline"><span class="ok">✓</span> clients      claude · codex · copilot · cursor · cline</span>
 <span class="hline"><span class="ok">✓</span> python       3.12.3 <span class="dim">(&gt;=3.10)</span></span>
 <span class="hline"><span class="ok">✓</span> registries   tools · cache · models</span></code></pre>
@@ -331,8 +331,8 @@ footer{border-top:1px solid var(--border);padding:56px 0 32px;color:var(--muted)
 
     <div class="compare">
       <figure style="margin:0">
-        <figcaption>Without OPai</figcaption>
-        <div class="term" role="group" aria-label="Terminal: task cost without OPai">
+        <figcaption>Without Vesta</figcaption>
+        <div class="term" role="group" aria-label="Terminal: task cost without Vesta">
           <div class="term-bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="term-title">before</span></div>
 <pre><code><span class="p">$</span> claude "fix the lint errors"
 <span class="dim">context:</span> full repo dump — <span class="n">48,200 tokens</span>
@@ -342,10 +342,10 @@ footer{border-top:1px solid var(--border);padding:56px 0 32px;color:var(--muted)
         </div>
       </figure>
       <figure style="margin:0" class="after">
-        <figcaption>With OPai</figcaption>
-        <div class="term" role="group" aria-label="Terminal: task cost with OPai">
+        <figcaption>With Vesta</figcaption>
+        <div class="term" role="group" aria-label="Terminal: task cost with Vesta">
           <div class="term-bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="term-title">after</span></div>
-<pre><code><span class="p">$</span> opai route "fix the lint errors"
+<pre><code><span class="p">$</span> vesta route "fix the lint errors"
 <span class="dim">context:</span> slimmed — <span class="n">3,100 tokens</span>
 <span class="dim">route:</span>   <span class="r">local tool + evidence</span>
 <span class="dim">cost:</span>    <span class="ok">$0.00 per task</span></code></pre>
@@ -376,17 +376,17 @@ footer{border-top:1px solid var(--border);padding:56px 0 32px;color:var(--muted)
     </div>
 
     <div class="polaroid p1" data-speed="0.10" data-rot="-5" aria-hidden="true">
-      <div class="mini-term"><span class="p">$</span> opai route "fix lint"
+      <div class="mini-term"><span class="p">$</span> vesta route "fix lint"
 <span class="dim">→</span> <span class="r">local tool: ruff --fix</span>
 <span class="dim">cost:</span> <span class="ok">$0.00</span></div>
     </div>
     <div class="polaroid p2" data-speed="0.17" data-rot="4" aria-hidden="true">
-      <div class="mini-term"><span class="p">$</span> opai slim
+      <div class="mini-term"><span class="p">$</span> vesta slim
 <span class="dim">→</span> context <span class="n">96 MB</span> reported
 <span class="ok">✓</span> ignore files written</div>
     </div>
     <div class="polaroid p3" data-speed="0.24" data-rot="-3" aria-hidden="true">
-      <div class="mini-term"><span class="p">$</span> opai savings
+      <div class="mini-term"><span class="p">$</span> vesta savings
 tasks local: <span class="n">41</span>
 saved: <span class="ok">$6.31</span></div>
     </div>
@@ -394,21 +394,21 @@ saved: <span class="ok">$6.31</span></div>
 </section>
 
 <!-- ============ 4. how it works ============ -->
-<section class="section" id="how" aria-label="How OPai works">
+<section class="section" id="how" aria-label="How Vesta works">
   <div class="wrap">
-    <h2>How OPai works</h2>
+    <h2>How Vesta works</h2>
     <p class="lede">One routing ladder, run on every task:</p>
     <p class="ladder">deterministic tools <b>→</b> compact cache/context <b>→</b> local model <b>→</b> confirmed cheap cloud <b>→</b> strong model only after evidence</p>
 
     <div class="steps">
       <div class="step">
         <span class="step-num" aria-hidden="true">1</span>
-        <h3>OPai gathers evidence</h3>
+        <h3>Vesta gathers evidence</h3>
         <p>It scans your repo, runs your tests, and checks the git diff. No guesswork, no blind model calls — routing starts from facts on disk.</p>
-        <div class="term" role="group" aria-label="Terminal: opai doctor output">
-          <div class="term-bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="term-title">opai doctor</span></div>
-<pre><code><span class="p">$</span> opai doctor
-<span class="dim">OPai 0.2.0 alpha.2 — readiness check</span>
+        <div class="term" role="group" aria-label="Terminal: vesta doctor output">
+          <div class="term-bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="term-title">vesta doctor</span></div>
+<pre><code><span class="p">$</span> vesta doctor
+<span class="dim">Vesta 0.2.0 alpha.2 — readiness check</span>
 <span class="ok">✓</span> clients      claude · codex · copilot · cursor · cline
 <span class="ok">✓</span> python       3.12.3 <span class="dim">(&gt;=3.10)</span>
 <span class="ok">✓</span> registries   tools · cache · models
@@ -420,9 +420,9 @@ saved: <span class="ok">$6.31</span></div>
         <span class="step-num" aria-hidden="true">2</span>
         <h3>Routes intelligently</h3>
         <p>A lint fix goes to a local tool like <code class="ic">ruff</code> or <code class="ic">eslint</code>. A test debug goes to local evidence plus a cheap model. Design and architecture go to a strong model — only with your confirmation.</p>
-        <div class="term" role="group" aria-label="Terminal: opai route output">
-          <div class="term-bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="term-title">opai route</span></div>
-<pre><code><span class="p">$</span> opai route "clean up lint in src/api"
+        <div class="term" role="group" aria-label="Terminal: vesta route output">
+          <div class="term-bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="term-title">vesta route</span></div>
+<pre><code><span class="p">$</span> vesta route "clean up lint in src/api"
 <span class="dim">→</span> evidence   <span class="n">ruff check: 6 violations in 2 files</span>
 <span class="dim">→</span> context    <span class="n">48,200 → 3,100 tokens</span>
 <span class="dim">→</span> decision   <span class="r">local tool: ruff --fix</span>
@@ -433,10 +433,10 @@ saved: <span class="ok">$6.31</span></div>
       <div class="step">
         <span class="step-num" aria-hidden="true">3</span>
         <h3>Proves savings</h3>
-        <p><code class="ic">opai savings</code> shows exactly what you avoided. Every. Single. Time.</p>
-        <div class="term" role="group" aria-label="Terminal: opai savings output">
-          <div class="term-bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="term-title">opai savings</span></div>
-<pre><code><span class="p">$</span> opai savings --markdown
+        <p><code class="ic">vesta savings</code> shows exactly what you avoided. Every. Single. Time.</p>
+        <div class="term" role="group" aria-label="Terminal: vesta savings output">
+          <div class="term-bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="term-title">vesta savings</span></div>
+<pre><code><span class="p">$</span> vesta savings --markdown
 | tasks routed locally | <span class="n"><span data-count="41">41</span></span>      |
 | tokens avoided       | <span class="n"><span data-count="182400" data-comma="1">182,400</span></span> |
 | estimated saved      | <span class="ok">$<span data-count="6.31" data-decimals="2">6.31</span></span>   |
@@ -454,7 +454,7 @@ saved: <span class="ok">$6.31</span></div>
 <section class="section dark" id="playground" aria-label="Interactive router playground">
   <div class="wrap">
     <h2>Route it yourself.</h2>
-    <p class="lede">Pick a task. Watch OPai think.</p>
+    <p class="lede">Pick a task. Watch Vesta think.</p>
 
     <div class="chips" role="group" aria-label="Choose a task">
       <button class="chip" data-sc="lint" data-cost="0" aria-pressed="true"><span class="p">$</span>Fix lint errors</button>
@@ -464,16 +464,16 @@ saved: <span class="ok">$6.31</span></div>
 
     <div class="play-grid">
       <div class="term play-term" role="group" aria-label="Routing scenario terminal">
-        <div class="term-bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="term-title">opai route</span></div>
-<pre><code><span class="scenario" id="sc-lint"><span class="pline"><span class="p">$</span> opai route "fix lint errors"</span>
+        <div class="term-bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="term-title">vesta route</span></div>
+<pre><code><span class="scenario" id="sc-lint"><span class="pline"><span class="p">$</span> vesta route "fix lint errors"</span>
 <span class="pline"><span class="dim">→</span> evidence   <span class="n">ruff check: 6 violations in 2 files</span></span>
 <span class="pline"><span class="dim">→</span> context    <span class="n">48,200 → 3,100 tokens</span></span>
 <span class="pline"><span class="dim">→</span> decision   <span class="r">local tool: ruff --fix</span></span>
-<span class="pline"><span class="dim">→</span> cost       <span class="ok">$0.00</span> <span class="dim">· cloud call: no</span></span></span><span class="scenario" id="sc-test" hidden><span class="pline"><span class="p">$</span> opai route "debug failing test"</span>
+<span class="pline"><span class="dim">→</span> cost       <span class="ok">$0.00</span> <span class="dim">· cloud call: no</span></span></span><span class="scenario" id="sc-test" hidden><span class="pline"><span class="p">$</span> vesta route "debug failing test"</span>
 <span class="pline"><span class="dim">→</span> evidence   <span class="n">pytest: 2 failures</span></span>
 <span class="pline"><span class="dim">→</span> diff       <span class="n">git diff: 14 files changed</span></span>
 <span class="pline"><span class="dim">→</span> decision   <span class="r">local evidence + cheap model</span></span>
-<span class="pline"><span class="dim">→</span> cost       <span class="ok">$0.01</span> <span class="dim">· one confirmed call</span></span></span><span class="scenario" id="sc-arch" hidden><span class="pline"><span class="p">$</span> opai route "design the api schema"</span>
+<span class="pline"><span class="dim">→</span> cost       <span class="ok">$0.01</span> <span class="dim">· one confirmed call</span></span></span><span class="scenario" id="sc-arch" hidden><span class="pline"><span class="p">$</span> vesta route "design the api schema"</span>
 <span class="pline"><span class="dim">→</span> evidence   <span class="n">no tests to run — design task</span></span>
 <span class="pline"><span class="dim">→</span> decision   <span class="r">strong model — needs your confirmation</span></span>
 <span class="pline"><span class="dim">→</span> prompt     <span class="n">Confirm cloud call? [y/N]</span> y</span>
@@ -487,12 +487,12 @@ saved: <span class="ok">$6.31</span></div>
 
         <div class="meter" aria-hidden="true">
           <div class="mrow">
-            <span class="mlabel">Without OPai</span>
+            <span class="mlabel">Without Vesta</span>
             <div class="mbar"><div class="mfill coral" id="bar-without" style="width:25.7%"></div></div>
             <span class="mval bad" id="val-without">$0.0310</span>
           </div>
           <div class="mrow">
-            <span class="mlabel">With OPai</span>
+            <span class="mlabel">With Vesta</span>
             <div class="mbar"><div class="mfill green" id="bar-with" style="width:1.2%"></div></div>
             <span class="mval ok" id="val-with">$0.00</span>
           </div>
@@ -512,9 +512,9 @@ saved: <span class="ok">$6.31</span></div>
     <h2>One task, routed right.</h2>
     <p class="lede">This is the whole loop: evidence in, cheap path out, receipt at the end.</p>
 
-    <div class="term demo-term" id="demo-term" role="group" aria-label="Terminal demo: opai route fixes a failing auth test">
-      <div class="term-bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="term-title">opai route — live</span></div>
-<pre><code><span class="dline"><span class="p">$</span> opai route "fix the failing auth test"</span>
+    <div class="term demo-term" id="demo-term" role="group" aria-label="Terminal demo: vesta route fixes a failing auth test">
+      <div class="term-bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="term-title">vesta route — live</span></div>
+<pre><code><span class="dline"><span class="p">$</span> vesta route "fix the failing auth test"</span>
 <span class="dline"><span class="dim">→</span> Running pytest... <span class="n">2 failures found</span></span>
 <span class="dline"><span class="dim">→</span> Collecting git diff... <span class="n">14 files changed</span></span>
 <span class="dline"><span class="dim">→</span> Slimming context... <span class="n">12,400 → 3,100 tokens</span></span>
@@ -529,16 +529,16 @@ saved: <span class="ok">$6.31</span></div>
 <section class="section" id="features" aria-label="Commands">
   <div class="wrap">
     <h2>Six commands. That's the whole interface.</h2>
-    <p class="lede">Everything OPai does is a command you can read, run, and audit. No dashboard required — though there is one if you want it.</p>
+    <p class="lede">Everything Vesta does is a command you can read, run, and audit. No dashboard required — though there is one if you want it.</p>
 
     <div class="frow">
       <div>
-        <code class="fcmd">opai route</code>
+        <code class="fcmd">vesta route</code>
         <p>Collect local evidence and choose the cheapest useful path.</p>
       </div>
-      <div class="term" role="group" aria-label="Terminal: opai route example">
+      <div class="term" role="group" aria-label="Terminal: vesta route example">
         <div class="term-bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span></div>
-<pre><code><span class="p">$</span> opai route "fix the login bug"
+<pre><code><span class="p">$</span> vesta route "fix the login bug"
 <span class="dim">→</span> pytest + git diff collected
 <span class="dim">→</span> <span class="r">local evidence + ruff</span> · <span class="ok">$0.00</span></code></pre>
       </div>
@@ -546,12 +546,12 @@ saved: <span class="ok">$6.31</span></div>
 
     <div class="frow">
       <div>
-        <code class="fcmd">opai slim</code>
+        <code class="fcmd">vesta slim</code>
         <p>Write AI ignore files and report or clean generated context bloat.</p>
       </div>
-      <div class="term" role="group" aria-label="Terminal: opai slim example">
+      <div class="term" role="group" aria-label="Terminal: vesta slim example">
         <div class="term-bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span></div>
-<pre><code><span class="p">$</span> opai slim
+<pre><code><span class="p">$</span> vesta slim
 <span class="dim">→</span> wrote .aiignore, .cursorignore
 <span class="dim">→</span> context bloat: <span class="n">96 MB</span> reported, <span class="ok">cleaned</span></code></pre>
       </div>
@@ -559,12 +559,12 @@ saved: <span class="ok">$6.31</span></div>
 
     <div class="frow">
       <div>
-        <code class="fcmd">opai doctor</code>
+        <code class="fcmd">vesta doctor</code>
         <p>Branded readiness check: client integrations, stale paths, registries.</p>
       </div>
-      <div class="term" role="group" aria-label="Terminal: opai doctor example">
+      <div class="term" role="group" aria-label="Terminal: vesta doctor example">
         <div class="term-bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span></div>
-<pre><code><span class="p">$</span> opai doctor
+<pre><code><span class="p">$</span> vesta doctor
 <span class="ok">✓</span> 5 client integrations · <span class="ok">✓</span> registries
 <span class="ok">✓</span> stale paths: none</code></pre>
       </div>
@@ -572,12 +572,12 @@ saved: <span class="ok">$6.31</span></div>
 
     <div class="frow">
       <div>
-        <code class="fcmd">opai savings</code>
-        <p>Show the estimated AI spend OPai saved on this project (cost firewall).</p>
+        <code class="fcmd">vesta savings</code>
+        <p>Show the estimated AI spend Vesta saved on this project (cost firewall).</p>
       </div>
-      <div class="term" role="group" aria-label="Terminal: opai savings example">
+      <div class="term" role="group" aria-label="Terminal: vesta savings example">
         <div class="term-bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span></div>
-<pre><code><span class="p">$</span> opai savings
+<pre><code><span class="p">$</span> vesta savings
 tasks routed locally: <span class="n">41</span>
 estimated saved: <span class="ok">$6.31</span></code></pre>
       </div>
@@ -585,12 +585,12 @@ estimated saved: <span class="ok">$6.31</span></code></pre>
 
     <div class="frow">
       <div>
-        <code class="fcmd">opai gui</code>
-        <p>Launch the OPai desktop control center (native window, local-only).</p>
+        <code class="fcmd">vesta gui</code>
+        <p>Launch the Vesta desktop control center (native window, local-only).</p>
       </div>
-      <div class="term" role="group" aria-label="Terminal: opai gui example">
+      <div class="term" role="group" aria-label="Terminal: vesta gui example">
         <div class="term-bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span></div>
-<pre><code><span class="p">$</span> opai gui
+<pre><code><span class="p">$</span> vesta gui
 <span class="dim">→</span> control center: local-only window
 <span class="dim">→</span> routing, budgets, savings in one view</code></pre>
       </div>
@@ -598,12 +598,12 @@ estimated saved: <span class="ok">$6.31</span></code></pre>
 
     <div class="frow">
       <div>
-        <code class="fcmd">opai benchmark</code>
+        <code class="fcmd">vesta benchmark</code>
         <p>Run local effectiveness benchmarks against normal AI usage.</p>
       </div>
-      <div class="term" role="group" aria-label="Terminal: opai benchmark example">
+      <div class="term" role="group" aria-label="Terminal: vesta benchmark example">
         <div class="term-bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span></div>
-<pre><code><span class="p">$</span> opai benchmark
+<pre><code><span class="p">$</span> vesta benchmark
 <span class="dim">→</span> 20 tasks vs normal AI usage
 <span class="dim">→</span> same pass rate, <span class="ok">71% lower spend</span></code></pre>
       </div>
@@ -612,7 +612,7 @@ estimated saved: <span class="ok">$6.31</span></code></pre>
 </section>
 
 <!-- ============ 8. cta ============ -->
-<section class="section cta" id="get" aria-label="Get OPai">
+<section class="section cta" id="get" aria-label="Get Vesta">
   <div class="wrap">
     <h2>Free during alpha. No credit card. No invite. No catch.</h2>
     <p class="lede">Open source under MIT. Everything runs locally and privately — no telemetry, and nothing leaves your machine unless you confirm a cloud call.</p>
@@ -631,7 +631,7 @@ estimated saved: <span class="ok">$6.31</span></code></pre>
     <div class="wordmark" aria-hidden="true"><span class="wl">O</span><span class="wl">P</span><span class="wl">a</span><span class="wl">i</span></div>
     <div class="foot">
 <!-- opai-release-identity: application_version=0.2.1a1; release_stage=alpha.1; published_tag=v0.2.1a1 -->
-      <p>OPai 0.2.1 Alpha.1 — MIT Licensed</p>
+      <p>Vesta 0.2.1 Alpha.1 — MIT Licensed</p>
 <!-- /opai-release-identity -->
       <nav aria-label="Footer">
         <a href="https://github.com/MarcoLadeira/OPai" rel="noopener">GitHub</a>

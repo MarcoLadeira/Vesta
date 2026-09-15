@@ -208,10 +208,10 @@ def render_msix_manifest(
         },
     )
     properties = ElementTree.SubElement(package, f"{{{foundation}}}Properties")
-    ElementTree.SubElement(properties, f"{{{foundation}}}DisplayName").text = "OPai"
+    ElementTree.SubElement(properties, f"{{{foundation}}}DisplayName").text = "Vesta"
     ElementTree.SubElement(
         properties, f"{{{foundation}}}PublisherDisplayName"
-    ).text = "OPai"
+    ).text = "Vesta"
     ElementTree.SubElement(
         properties, f"{{{foundation}}}Logo"
     ).text = "Assets\\StoreLogo.png"
@@ -243,8 +243,8 @@ def render_msix_manifest(
         application,
         f"{{{uap}}}VisualElements",
         {
-            "DisplayName": "OPai",
-            "Description": "OPai desktop",
+            "DisplayName": "Vesta",
+            "Description": "Vesta desktop",
             "BackgroundColor": "transparent",
             "Square150x150Logo": "Assets\\Square150x150Logo.png",
             "Square44x44Logo": "Assets\\Square44x44Logo.png",
@@ -386,7 +386,7 @@ def prepare_macos_sparkle_bundle(
         with plist.open("rb") as stream:
             value = plistlib.load(stream)
     except (OSError, plistlib.InvalidFileException) as exc:
-        raise ReleaseError("OPai app has no valid Info.plist") from exc
+        raise ReleaseError("Vesta app has no valid Info.plist") from exc
     value["CFBundleShortVersionString"] = version
     value["CFBundleVersion"] = msix_version(version)
     value["SUFeedURL"] = feed_url

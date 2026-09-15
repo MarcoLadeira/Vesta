@@ -8,7 +8,7 @@ The tests are weighted the way the risk is. Taking a backup has one interesting
 property -- that it captures what was actually committed, including the WAL --
 and restoring one has several, because restore is the operation that destroys
 the thing it is replacing. So most of what follows is about refusing: a
-mismatched digest, a corrupt file, a database from a newer OPai, and the
+mismatched digest, a corrupt file, a database from a newer Vesta, and the
 security case the issue calls out by name, where a journal copied from another
 machine must not bring its approvals with it.
 
@@ -42,7 +42,12 @@ from opaihub.journal_backup import (
     restore_backup,
 )
 from opaihub.journal_runtime import EVENT_FINISHED, record_admission, record_terminal
-from opaihub.journal_store import SCHEMA_VERSION, journal_path, open_store
+from opaihub.journal_store import (
+    SCHEMA_VERSION,
+    compatibility_version,
+    journal_path,
+    open_store,
+)
 
 NOW = "2026-08-26T12:00:00+00:00"
 
@@ -122,7 +127,7 @@ class TakingABackupTests(_BackupFixture):
         )
         payload = json.loads(manifest.read_text(encoding="utf-8"))
         self.assertEqual(payload["digest"], record.digest)
-        self.assertEqual(payload["schema_version"], SCHEMA_VERSION)
+        self.assertEqual(payload["schema_version"], compatibility_version())
 
     def test_two_backups_in_the_same_second_do_not_collide(self):
         self._runs(1)

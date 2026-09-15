@@ -1,6 +1,6 @@
 """Provider CLI spawns get a sanitized environment (the auth-truth fix).
 
-The reported failure class: OPai launched from a terminal where another AI
+The reported failure class: Vesta launched from a terminal where another AI
 session runs (Claude Code, Codex, an agent harness). The child provider CLI
 inherits that parent's session variables — CLAUDECODE, CLAUDE_CODE_SDK_HAS_
 OAUTH_REFRESH, stale ANTHROPIC_API_KEY/OPENAI_API_KEY overrides — so

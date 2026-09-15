@@ -1,4 +1,4 @@
-"""Per-model usage snapshots built from OPai's privacy-safe local ledger."""
+"""Per-model usage snapshots built from Vesta's privacy-safe local ledger."""
 
 from __future__ import annotations
 
@@ -41,12 +41,12 @@ def _inside_window(event: dict[str, Any], window: str, now: datetime) -> bool:
 
 
 # Ledger `measurement` values that mean a real number came back from the
-# provider, as opposed to one OPai derived itself.
+# provider, as opposed to one Vesta derived itself.
 _MEASURED_PROVENANCE = frozenset({"provider", "actual"})
 
 
 def _tracked_confidence(window_events: list[dict[str, Any]]) -> str:
-    """How trustworthy the OPai-tracked total is, from the events themselves.
+    """How trustworthy the Vesta-tracked total is, from the events themselves.
 
     Returns ``no-data`` when nothing was recorded, ``measured`` when every
     in-window call reported real provider usage, ``estimated`` when none did,
@@ -145,7 +145,7 @@ def build_usage_snapshots(
             window = str(soft.get("window") or "month")
             source = "opai"
             # #381: report how these numbers were actually produced. Claiming
-            # "measured" for tokens OPai merely estimated is the exact
+            # "measured" for tokens Vesta merely estimated is the exact
             # dishonesty the cost ledger exists to prevent — the provenance is
             # already on every event, so read it instead of assuming.
             confidence = _tracked_confidence(window_events)

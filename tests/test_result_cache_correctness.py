@@ -31,7 +31,7 @@ def make_git_repo(root: Path, files: dict[str, str]) -> Path:
             "-c",
             "user.email=cache-tests@example.invalid",
             "-c",
-            "user.name=OPai Cache Tests",
+            "user.name=Vesta Cache Tests",
             "commit",
             "-qm",
             "initial",

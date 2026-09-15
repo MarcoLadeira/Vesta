@@ -1,7 +1,7 @@
 """Spawn guards for provider CLI runs (F23 enforcement + F12 recursion).
 
 Covers:
-- ``opai hooks claude-pre-tool``: safe shell commands approve; gh mutations,
+- ``vesta hooks claude-pre-tool``: safe shell commands approve; gh mutations,
   git push, rm -rf & friends block with a "needs explicit user confirmation /
   do not retry" message; uninspectable payloads fail closed; the hook keeps
   working inside an agent session (the recursion guard must never block it).
@@ -12,7 +12,7 @@ Covers:
 - Recursion guard: OPAI_AGENT_SESSION is injected into every provider child
   env; inside such a session, route/ask/build/proxy refuse non-zero while
   hooks/version still work.
-- Instruction texts no longer leak the agent-actionable `opai route` recipe.
+- Instruction texts no longer leak the agent-actionable `vesta route` recipe.
 """
 
 from __future__ import annotations
@@ -161,7 +161,7 @@ class ClaudePreToolHookDecisionTests(unittest.TestCase):
                     reason = _reason_of(result)
                     # Bug 2: the block must not promise a per-command approval
                     # dialog that does not exist — it says to run it yourself.
-                    self.assertNotIn("confirmation in the OPai UI", reason)
+                    self.assertNotIn("confirmation in the Vesta UI", reason)
                     self.assertIn("run it yourself", reason)
                     self.assertIn("Do not retry", reason)
                     # Legacy fields mirror the deny for older CLIs.
@@ -170,7 +170,7 @@ class ClaudePreToolHookDecisionTests(unittest.TestCase):
 
     def test_git_push_block_points_to_the_real_enablement_path(self):
         # Bug 2: a denied git push must point at the one real control (enable
-        # pushes in Settings, then OPai's own GitHub tool), not a non-existent
+        # pushes in Settings, then Vesta's own GitHub tool), not a non-existent
         # per-command confirmation dialog.
         with _hermetic_hub(), _push_consent(False):
             for command in ("git push origin main", "cd /repo && git push origin main"):
@@ -180,7 +180,7 @@ class ClaudePreToolHookDecisionTests(unittest.TestCase):
                     reason = _reason_of(result)
                     self.assertIn("Enable pushes & PRs", reason)
                     self.assertIn("Providers & Connections", reason)
-                    self.assertNotIn("confirmation in the OPai UI", reason)
+                    self.assertNotIn("confirmation in the Vesta UI", reason)
                     self.assertIn("Do not retry", reason)
 
     def test_a_force_push_is_never_sent_to_the_enablement_path(self):
@@ -322,7 +322,7 @@ class ClaudePreToolHookDecisionTests(unittest.TestCase):
             )
 
     def test_the_real_chained_command_shape_reaches_the_approval_card(self):
-        """Reported: OPai still could not open a PR after all of the above.
+        """Reported: Vesta still could not open a PR after all of the above.
 
         Providers issue every command as ``cd "<repo>" && <command>``, and the
         allowlist was anchored at the start of the string -- so the chained form
@@ -1086,7 +1086,7 @@ class RecursionGuardCliTests(unittest.TestCase):
         self.assertEqual(code, 2)
         route_task.assert_not_called()
         self.assertIn(self.REFUSAL, err)
-        self.assertIn("OPai", err)
+        self.assertIn("Vesta", err)
 
     def test_ask_refuses_inside_agent_session(self):
         code, _out, err = _run_cli(
@@ -1154,7 +1154,7 @@ class InstructionTextTests(unittest.TestCase):
         }
         for name, text in texts.items():
             with self.subTest(text=name):
-                for recipe in ("opai route", "opai slim", "opai cockpit"):
+                for recipe in ("vesta route", "vesta slim", "vesta cockpit"):
                     self.assertNotIn(recipe, text)
                 # ...replaced by an explicit non-invocation note.
                 self.assertIn("recursive self-invocation", text)
@@ -1169,7 +1169,7 @@ class InstructionTextTests(unittest.TestCase):
         root = Path("C:/repo")
         self.assertIn(STATUS_TEXT, instruction_text(root))
         self.assertIn(STATUS_TEXT, project_instruction_text(root))
-        self.assertIn("# OPai Active", project_instruction_text(root))
+        self.assertIn("# Vesta Active", project_instruction_text(root))
         self.assertIn("No generated dirs", project_instruction_text(root))
         # The human workflow grant language must survive the rewrite.
         self.assertIn("latest explicit request", project_instruction_text(root).lower())

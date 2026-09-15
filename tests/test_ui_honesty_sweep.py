@@ -159,7 +159,7 @@ class DesignDocMatchesShippedUiTests(unittest.TestCase):
         self.assertIn("styles.css", doc)
         self.assertIn("--accent", doc)
         # The legacy claim that the shipped GUI *is* QSS-not-CSS must be gone.
-        self.assertNotIn("The OPai GUI is **PySide6 + QSS**, not CSS.", doc)
+        self.assertNotIn("The Vesta GUI is **PySide6 + QSS**, not CSS.", doc)
 
 
 if __name__ == "__main__":

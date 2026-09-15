@@ -1,9 +1,9 @@
-"""OPai-tracked usage must report how its numbers were produced (#381).
+"""Vesta-tracked usage must report how its numbers were produced (#381).
 
 The Settings → Model Usage row renders `confidence` verbatim next to the token
 total. Until 2026-08-04 that field was hardcoded to ``"measured"`` whenever any
 matching ledger event existed — including windows built entirely from tokens
-OPai had *estimated* itself, because the provider returned no usage data.
+Vesta had *estimated* itself, because the provider returned no usage data.
 
 That is the precise failure #381 exists to prevent ("make the cost/savings
 ledger truthful and consistent across every surface") and it violates the
@@ -49,7 +49,7 @@ def _confidence(root: Path) -> str:
 
 class TrackedUsageConfidenceTests(unittest.TestCase):
     def test_estimated_tokens_are_never_reported_as_measured(self) -> None:
-        # The original defect: OPai guessed the token count, the dashboard
+        # The original defect: Vesta guessed the token count, the dashboard
         # called it "measured".
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

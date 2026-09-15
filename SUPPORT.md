@@ -1,6 +1,6 @@
 # Support
 
-OPai is `0.1.1` pre-alpha.
+Vesta is `0.1.1` pre-alpha.
 
 Use GitHub Issues for reproducible bugs and safety problems.
 
@@ -16,7 +16,7 @@ Before opening a new report, run:
 
 ```sh
 op status
-opai doctor
-opai skills doctor
-opai models recommend "your task"
+vesta doctor
+vesta skills doctor
+vesta models recommend "your task"
 ```

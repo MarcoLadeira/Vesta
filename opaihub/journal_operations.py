@@ -78,27 +78,37 @@ def record_claim(
 ) -> bool:
     """Mirror an idempotency claim as an operation about to take effect.
 
-    Returns whether the journal row was created. A duplicate claim is a no-op
-    rather than an error: the operation key *is* the identity, so claiming it
-    twice describes one operation, which is exactly the guarantee being
-    mirrored.
+    Returns whether the journal row was **created by this call**. A duplicate
+    claim is a no-op rather than an error -- the operation key *is* the
+    identity, so claiming it twice describes one operation, which is exactly
+    the guarantee being mirrored -- but it answers ``False``, because it
+    created nothing.
+
+    That distinction is the whole point and it used to be lost here: this
+    returned ``True`` unconditionally, discarding what ``record_operation``
+    reported. Harmless only for as long as the legacy idempotency file stays
+    authoritative, because the decision "did I claim this, so should I perform
+    the effect?" is still made from that file. The moment the journal becomes
+    the authority -- which is what this epic is for -- a retry after a timeout
+    would be told it made a fresh claim and would open a second pull request.
     """
 
     with _store(project_root) as store:
         if store is None:
             return False
         try:
-            journal_store.record_operation(
-                store,
-                operation_key=str(key),
-                kind=_kind_of(key),
-                target_digest=_digest_of(key),
-                state=STATE_CLAIMED,
-                now=now,
-                run_id=run_id,
-                process_ref=process_ref,
+            return bool(
+                journal_store.record_operation(
+                    store,
+                    operation_key=str(key),
+                    kind=_kind_of(key),
+                    target_digest=_digest_of(key),
+                    state=STATE_CLAIMED,
+                    now=now,
+                    run_id=run_id,
+                    process_ref=process_ref,
+                )
             )
-            return True
         except (sqlite3.DatabaseError, JournalStoreError, TypeError, ValueError):
             return False
 

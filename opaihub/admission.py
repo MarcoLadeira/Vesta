@@ -16,7 +16,7 @@ provider calls, two charges, two sets of edits racing over the same files.
 
 The key is derived from what makes two submissions the same *intent*: the
 repository, the exact task text, the model and the mode. Anything that would
-change what OPai does changes the key.
+change what Vesta does changes the key.
 
 ## Why an active-run window, not a permanent ledger
 
@@ -125,7 +125,7 @@ def admission_key(
 ) -> str:
     """Derive the stable admission key for one submission.
 
-    Every input that changes *what OPai would do* is in the key. Nothing that
+    Every input that changes *what Vesta would do* is in the key. Nothing that
     varies per attempt (timestamps, random ids, event ids) is, or a retry would
     key differently from the submission it repeats and the dedup would never
     fire — which is exactly the bug this exists to fix.

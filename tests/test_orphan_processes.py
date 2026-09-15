@@ -232,10 +232,10 @@ while True:
 
 
 class AppExitTests(unittest.TestCase):
-    """OPai being killed outright must not strand the tree it spawned.
+    """Vesta being killed outright must not strand the tree it spawned.
 
     Cancel and timeout run *our* cleanup code. App exit may not: a force-kill,
-    an OOM kill or a crash gives OPai no chance to terminate anything. The
+    an OOM kill or a crash gives Vesta no chance to terminate anything. The
     Windows job object covers that with ``KILL_ON_JOB_CLOSE`` — when the last
     handle closes, which the OS does on process exit, the job dies with it.
     """
@@ -291,7 +291,7 @@ class AppExitTests(unittest.TestCase):
                     if cbeat.stat().st_size == first:
                         break
                 else:
-                    self.fail("the grandchild outlived OPai — that is an orphan")
+                    self.fail("the grandchild outlived Vesta — that is an orphan")
             finally:
                 for path in (cpid,):
                     try:

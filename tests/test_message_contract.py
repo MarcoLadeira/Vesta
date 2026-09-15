@@ -1,6 +1,6 @@
 """Message-flow status contract.
 
-Every result OPai's chat can produce must be a clear, human, non-crashing
+Every result Vesta's chat can produce must be a clear, human, non-crashing
 message - never a canned template, a raw dict, a subprocess command, or a stack
 trace. These tests drive the real pipeline (``handle_gui_message`` ->
 ``app_state.ask`` -> ``_ask_account`` / ``run_ask``) with fakes, so no real

@@ -36,6 +36,7 @@ async function choose(page, id) {
 }
 
 async function capture(page, name) {
+  await expect(page.locator("#view-settings")).not.toContainText(/\bOPai\b/);
   await expect(page.locator("#view-settings")).toHaveScreenshot(name, {
     animations: "disabled",
     caret: "hide",
@@ -132,7 +133,7 @@ test("Settings high-information state gallery", async ({ page }) => {
           discovery: {
             summary: {
               title: "Update available",
-              message: "OPai 0.3.0-test is available for this deterministic review build.",
+              message: "Vesta 0.3.0-test is available for this deterministic review build.",
             },
           },
         },

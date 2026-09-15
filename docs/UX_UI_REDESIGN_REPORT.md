@@ -1,15 +1,15 @@
-# OPai Desktop — Premium Workspace Redesign
+# Vesta Desktop — Premium Workspace Redesign
 
 > **Follow-up: the surface now renders in Chromium, not Qt.** After this Qt/QSS
 > redesign, the rendering quality still read "crusty/outdated" next to
-> Cursor/Claude (Qt's text engine + weak CSS were the ceiling). `opai gui` now
+> Cursor/Claude (Qt's text engine + weak CSS were the ceiling). `vesta gui` now
 > renders the same information architecture as a hand-built HTML/CSS/JS UI inside
 > a `QWebEngineView` (real Inter font smoothing, depth, transitions) at zero new
 > dependency. See **`WEB_UI.md`**. The IA, controls, and data layer below are
 > unchanged — only the rendering moved from QSS to Chromium. The Qt window
-> remains as `opai gui --classic`.
+> remains as `vesta gui --classic`.
 
-_Stack reality: `opai gui` is a **PySide6 desktop app** (`opai/gui_desktop.py`),
+_Stack reality: `vesta gui` is a **PySide6 desktop app** (`opai/gui_desktop.py`),
 not a web app. There is no React/Tailwind/Next/Playwright layer. This report
 maps the product brief's intent onto the real Qt stack — "pages" are Qt views in
 a `QStackedWidget`, "E2E" is a headless offscreen render of each view, "design
@@ -29,7 +29,7 @@ tokens" are Python colour constants + QSS._
 
 ## Why it isn't a fake skin
 
-The biggest unlock was that OPai already computes far more than the chat ever
+The biggest unlock was that Vesta already computes far more than the chat ever
 showed. `gui_view_model.build_view_model()` produces 8 full dashboard sections;
 `app_state.inspector_state()` exposes real budget/workspace telemetry;
 `cost_firewall()` knows the gates. The redesign **surfaces existing real data**

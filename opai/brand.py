@@ -1,7 +1,7 @@
-"""OPai brand — the one canonical source of product identity and voice.
+"""Vesta brand — the one canonical source of product identity and voice.
 
 Every surface (web GUI via the boot payload, Qt fallback, CLI, docs) reads its
-product copy from here so OPai speaks with one voice everywhere. Change copy in
+product copy from here so Vesta speaks with one voice everywhere. Change copy in
 this file, and both the app and the terminal change together.
 
 Positioning: **the cost-aware AI coding cockpit** — one command center over
@@ -15,16 +15,16 @@ from __future__ import annotations
 import importlib.resources as _resources
 from pathlib import Path as _Path
 
-NAME = "OPai"
+NAME = "Vesta"
 CATEGORY = "cost-aware AI coding cockpit"
 TAGLINE = "Every step visible. Every dollar accounted."
 POSITIONING = (
-    "OPai is the cost-aware AI coding cockpit: one command center over Claude, "
+    "Vesta is the cost-aware AI coding cockpit: one command center over Claude, "
     "Codex, Copilot, and local models — every step visible, every dollar "
     "accounted."
 )
 PROMISE = (
-    "OPai plans, routes to the cheapest capable model, shows every step while "
+    "Vesta plans, routes to the cheapest capable model, shows every step while "
     "it works, and hands you an honest receipt."
 )
 
@@ -53,7 +53,7 @@ EMPTY_TITLE = "Better. Faster. Cheaper."
 # connected, so nothing will run -- is still shown, by the front end, only
 # when it is true.
 
-COMPOSER_PLACEHOLDER = "Tell OPai what to build, fix, or explain…"
+COMPOSER_PLACEHOLDER = "Tell Vesta what to build, fix, or explain…"
 
 # Voice rules the copy in this file (and new copy elsewhere) must follow.
 VOICE = {
@@ -63,7 +63,7 @@ VOICE = {
     "error_rule": "Say what happened and what to do next. Never a bare 'something went wrong'.",
 }
 
-# Provider display names — OPai-first language, no raw internal ids in copy.
+# Provider display names — Vesta-first language, no raw internal ids in copy.
 _PROVIDER_NAMES = {
     "claude": "Claude",
     "codex": "Codex",
@@ -91,7 +91,7 @@ def cli_mirror(model: str | None, mode: str | None, task: str = "") -> str:
     terminal twin. The mirror shows it, ready to copy.
     """
     shorthand = _shorthand(model)
-    parts = ["opai", "ask"]
+    parts = ["vesta", "ask"]
     if shorthand and shorthand != "auto":
         parts += ["--model", shorthand]
     elif shorthand == "auto":
@@ -130,7 +130,7 @@ def app_icon_path():
     """Absolute path to the packaged square app icon, or ``None`` if absent.
 
     Resolved through ``importlib.resources`` so it works from an installed wheel
-    or a closed-source artifact, not just a source checkout (#148). OPai ships as
+    or a closed-source artifact, not just a source checkout (#148). Vesta ships as
     a normal (unzipped) wheel, so the resource is a real filesystem path that
     stays valid after this returns. Never raises: a missing icon simply degrades
     to the default window icon.

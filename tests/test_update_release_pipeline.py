@@ -128,7 +128,7 @@ def test_native_runtime_configuration_uses_validated_candidate_assets(
             "--package-identity",
             "OPai.Desktop",
             "--publisher-identity",
-            "CN=OPai",
+            "CN=Vesta",
         ]
     )
 
@@ -179,7 +179,7 @@ def test_native_qualification_rejects_an_artifact_for_another_build(tmp_path: Pa
         architecture="x86_64",
         install_type=InstallType.WINDOWS_MSIX,
         package_identity="OPai.Desktop",
-        publisher_identity="CN=OPai",
+        publisher_identity="CN=Vesta",
         assets=asset_manifest(ROOT / "opai" / "assets"),
     )
     package = tmp_path / "candidate.msix"
@@ -188,7 +188,7 @@ def test_native_qualification_rejects_an_artifact_for_another_build(tmp_path: Pa
     host = SimpleNamespace(
         platform="windows",
         package_identity="OPai.Desktop",
-        publisher_identity="CN=OPai",
+        publisher_identity="CN=Vesta",
     )
 
     qualified = qualify_native_update._qualified_candidate_identity(

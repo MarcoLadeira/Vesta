@@ -18,17 +18,17 @@ Rules:
 - Ask before paid models.
 - Ask before destructive commands.
 - Do not send secrets to cloud models.
-- `opai install` does not install optional tools unless `--with-tools` is passed.
-- Optional local tools install into an external OPai tool cache instead of a
+- `vesta install` does not install optional tools unless `--with-tools` is passed.
+- Optional local tools install into an external Vesta tool cache instead of a
   per-project `.opcoding-tools` directory.
-- `opai activate` writes AI-client ignore files such as `.claudeignore` and
+- `vesta activate` writes AI-client ignore files such as `.claudeignore` and
   `.opaiignore` so generated caches stay out of model context.
-- `opai slim` reports generated cache weight; `opai slim --clean` removes
-  generated project bloat while preserving OPai project state.
-- `opai route` is compact by default and omits full evidence output; use
-  `opai route --verbose "<task>"` only when a human or agent needs raw evidence.
-- AI CLI launch wrappers print only the `Using OPai` status line by default.
-  Set `OPAI_WELCOME=1` or pass `opai launch <tool> --welcome` for graphics.
-- `opai hub analytics status` is local-only and reports `estimated_spend_usd` without telemetry.
+- `vesta slim` reports generated cache weight; `vesta slim --clean` removes
+  generated project bloat while preserving Vesta project state.
+- `vesta route` is compact by default and omits full evidence output; use
+  `vesta route --verbose "<task>"` only when a human or agent needs raw evidence.
+- AI CLI launch wrappers print only the `Using Vesta` status line by default.
+  Set `OPAI_WELCOME=1` or pass `vesta launch <tool> --welcome` for graphics.
+- `vesta hub analytics status` is local-only and reports `estimated_spend_usd` without telemetry.
 
 Budgets live in `hub/cost/budget.yaml`; model routing lives in `hub/models/routing.yaml`.

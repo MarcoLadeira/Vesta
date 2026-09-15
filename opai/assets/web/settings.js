@@ -1,5 +1,5 @@
 /*
- * OPai settings surface (#217) — extracted from app.js in #236.
+ * Vesta settings surface (#217) — extracted from app.js in #236.
  *
  * A section registry drives both the left navigation rail and the rendered
  * pages, so adding a settings page is a registry entry here, not an edit to
@@ -124,7 +124,7 @@
     );
   }
 
-  // ---- Settings redesign (OPai Settings design doc) ----------------------- //
+  // ---- Settings redesign (Vesta Settings design doc) ----------------------- //
   // Every page opens with its own title, a one-sentence purpose, and scope
   // chips that state where the setting lives. Chips are facts, not marketing:
   // blue = app-wide, accent = this project, muted = stored locally only.
@@ -386,7 +386,7 @@
       var ghReady = !!gh.ready_for_push;
       h += '<div class="set-head">GitHub · pushes &amp; pull requests</div>';
       h +=
-        '<div class="set-note">Controls whether OPai may run <b>git push</b> and open pull requests for you. This is the only place pushes &amp; PRs are enabled — there is no other push or git setting.</div>';
+        '<div class="set-note">Controls whether Vesta may run <b>git push</b> and open pull requests for you. This is the only place pushes &amp; PRs are enabled — there is no other push or git setting.</div>';
       h += '<div class="provider-key-card github-card" data-github-card>';
       h +=
         '<div class="provider-key-head"><span>GitHub' +
@@ -414,7 +414,7 @@
           (gh.allow_push ? "Disable pushes &amp; PRs" : "Enable pushes &amp; PRs") +
           '</button><button class="btn ghost" data-github-disconnect>Disconnect</button></div>';
         h += ghReady
-          ? '<div class="set-note">Pushes &amp; PRs are <b>already enabled</b> — this is the "Enable pushes &amp; PRs" setting, now on. OPai can push branches and open pull requests. Use the button above to turn it back off.</div>'
+          ? '<div class="set-note">Pushes &amp; PRs are <b>already enabled</b> — this is the "Enable pushes &amp; PRs" setting, now on. Vesta can push branches and open pull requests. Use the button above to turn it back off.</div>'
           : '<div class="set-note" data-github-hint>' +
             esc(gh.hint || "Pushes & PRs are off. Click Enable pushes & PRs above.") +
             "</div>";
@@ -469,10 +469,10 @@
         "</div></div>";
     });
     h += '<div class="set-note">Keys are stored only in the operating-system credential store. Environment variables override keychain values.</div>';
-    h += '<div class="set-head">What OPai can access</div>';
+    h += '<div class="set-head">What Vesta can access</div>';
     h +=
-      '<div class="callout-card"><div class="callout-body">OPai sends only the files and context you attach to a task, to the provider you route to. ' +
-      "Credentials live in your OS keychain or the provider's own CLI — OPai reads a connection <b>status</b>, never the secret itself. " +
+      '<div class="callout-card"><div class="callout-body">Vesta sends only the files and context you attach to a task, to the provider you route to. ' +
+      "Credentials live in your OS keychain or the provider's own CLI — Vesta reads a connection <b>status</b>, never the secret itself. " +
       "Connection tests and health checks stay on this device.</div></div>";
     return h;
   }
@@ -615,7 +615,7 @@
     h +=
       '<div class="actions"><button class="btn" id="balanceRefresh">Refresh live balances</button></div>';
     h +=
-      '<div class="set-note">Balances are stored only on this machine. OPai never sends them anywhere.</div>';
+      '<div class="set-note">Balances are stored only on this machine. Vesta never sends them anywhere.</div>';
     return h;
   }
 
@@ -652,7 +652,7 @@
         pct +
         '%"></span></div>' +
         '<div class="usage-meta">' +
-        esc(usage.source === "provider" ? "Provider reported" : "OPai tracked") +
+        esc(usage.source === "provider" ? "Provider reported" : "Vesta tracked") +
         " · " +
         esc(usage.window || "month") +
         " · " +
@@ -738,7 +738,7 @@
         return m.id === "auto";
       })
     ) {
-      modelOptions.unshift({ id: "auto", label: "OPai · Auto mode" });
+      modelOptions.unshift({ id: "auto", label: "Vesta · Auto mode" });
     }
     // Every mode is selectable here, Full Auto included. It used to be absent
     // (and shown disabled if it was already your default) because a bare
@@ -761,7 +761,7 @@
       : heroHtml(
           esc,
           "Models & Routing",
-          "Choose the models OPai can use and understand its routing order.",
+          "Choose the models Vesta can use and understand its routing order.",
           ["project"]
         );
     if (part !== "routing") {
@@ -771,7 +771,7 @@
         "default_mode",
         modeOptions,
         MODE_LABELS[prefs.default_mode] ? prefs.default_mode : "safe-auto",
-        "The approval mode OPai starts with for each new task."
+        "The approval mode Vesta starts with for each new task."
       );
       h += selectRow("Task focus", "default_task_mode", focusOptions, ctx.state.focus);
       h += selectRow("Output format", "default_output_format", formatOptions, ctx.state.format);
@@ -811,7 +811,7 @@
       var provider = String(m.provider || "").toLowerCase();
       if (m.kind === "account" && provider && providerNames.indexOf(provider) < 0) providerNames.push(provider);
     });
-    h += '<div class="set-row"><span class="default-label"><span class="k">Add a custom model</span><span class="hint">Use a provider already available to this OPai install.</span></span></div>';
+    h += '<div class="set-row"><span class="default-label"><span class="k">Add a custom model</span><span class="hint">Use a provider already available to this Vesta install.</span></span></div>';
     h += '<div class="set-row model-custom-form"><select data-custom-provider aria-label="Custom model provider">' + providerNames.map(function (provider) { return '<option value="' + esc(provider) + '">' + esc(provider) + "</option>"; }).join("") + '</select><input data-custom-model aria-label="Custom model ID" placeholder="Model ID"><input data-custom-label aria-label="Custom model label" placeholder="Label"><select data-custom-capability aria-label="Custom model capability"><option value="balanced">Balanced</option><option value="fast">Fast</option><option value="best">Best</option></select><button type="button" class="btn" data-add-custom-model>Add model</button></div>';
     Object.keys(modelOverrides.providers || {}).sort().forEach(function (provider) {
       ((modelOverrides.providers[provider] || {}).models || []).forEach(function (entry) {
@@ -826,7 +826,7 @@
     }
     h += '<div class="cb">• Every task tries free tiers first: deterministic tools, the local cache, then a local model.</div>';
     h += '<div class="cb">• Cloud models are considered only when those tiers cannot do the job; the cloud gate can require a confirmation for every paid call.</div>';
-    h += '<div class="cb">• Run <span class="mono">opai why</span> on a task to see exactly why a route was chosen; every decision is in the local ledger.</div>';
+    h += '<div class="cb">• Run <span class="mono">vesta why</span> on a task to see exactly why a route was chosen; every decision is in the local ledger.</div>';
     return h;
   }
 
@@ -858,13 +858,13 @@
       h += statTile(esc, {
         label: "Spent today",
         value: money(firewall.spent_today || 0),
-        sub: "Estimated from OPai's local ledger",
+        sub: "Estimated from Vesta's local ledger",
         mono: true,
       });
       h += statTile(esc, {
         label: "Spent this month",
         value: money(firewall.spent_month || 0),
-        sub: "Estimated from OPai's local ledger",
+        sub: "Estimated from Vesta's local ledger",
         mono: true,
       });
       h += "</div>";
@@ -889,7 +889,7 @@
         (firewall.panic ? "Allow cloud routes" : "Use local only") +
         "</button></div>";
       h += row(esc, "Paid cloud requests", firewall.cloud_gate ? "Ask every time" : "Allowed");
-      h += '<div class="set-note">This reflects the current cloud-gate policy; change it from the active task when OPai requests authority.</div>';
+      h += '<div class="set-note">This reflects the current cloud-gate policy; change it from the active task when Vesta requests authority.</div>';
     }
     return h;
   }
@@ -944,7 +944,7 @@
   // the three real data shapes it has (a bounded percentage, a remaining
   // credit amount, or nothing official at all): the same head row, one
   // headline stat at the same size/weight/position, one subtext line, an
-  // optional bar, an optional OPai-tracked caption, and the same footer.
+  // optional bar, an optional Vesta-tracked caption, and the same footer.
   // Only the *content* of each slot changes — never the layout — so a
   // provider without official data never looks like a different product.
   function usageCardHtml(esc, u) {
@@ -982,11 +982,11 @@
       subtext = ago ? "Checked " + ago : "";
       showTrackedRow = true;
     } else if (tracked && (tracked.calls || tracked.tasks)) {
-      // No official figure exists yet. OPai's own local tally becomes the
+      // No official figure exists yet. Vesta's own local tally becomes the
       // headline — same size/weight as a real number — so the card reads as
       // informative rather than broken. Still unmistakably not official.
       // A freshness readout matters here: "12 calls" alone could be from
-      // weeks ago (OPai only sees traffic it personally routed — activity
+      // weeks ago (Vesta only sees traffic it personally routed — activity
       // through the bare CLI never touches this count at all).
       headline = fmtCount(tracked.calls) + " call" + (tracked.calls === 1 ? "" : "s") + " tracked";
       headlineTone = "tracked";
@@ -1048,11 +1048,11 @@
         '%"></span></div>';
     }
 
-    // OPai-tracked caption — always the same small row, whenever it isn't
+    // Vesta-tracked caption — always the same small row, whenever it isn't
     // already the headline above, so it's never presented as official.
     if (showTrackedRow && tracked && (tracked.calls || tracked.tasks)) {
       h +=
-        '<div class="usage2-tracked"><span class="usage2-tracked-tag">OPai tracked</span>' +
+        '<div class="usage2-tracked"><span class="usage2-tracked-tag">Vesta tracked</span>' +
         esc(
           fmtCount(tracked.calls) +
             " call" +
@@ -1101,7 +1101,7 @@
       return h;
     }
     h +=
-      '<div class="set-note">Official usage is read from the provider (your calls’ rate-limit headers, or a safe metadata check). OPai-tracked counts are OPai’s own local tally, shown separately and never presented as the provider’s figure.</div>';
+      '<div class="set-note">Official usage is read from the provider (your calls’ rate-limit headers, or a safe metadata check). Vesta-tracked counts are Vesta’s own local tally, shown separately and never presented as the provider’s figure.</div>';
     h += '<div class="usage2-grid" id="modelUsageGrid">';
     usage.forEach(function (u) {
       h += usageCardHtml(esc, u);
@@ -1125,7 +1125,7 @@
       : heroHtml(
           esc,
           "Safety & Privacy",
-          "See what OPai may do, when it asks, and where information may go.",
+          "See what Vesta may do, when it asks, and where information may go.",
           ["project", "local"]
         );
     h +=
@@ -1158,7 +1158,7 @@
     }
     h += '<div class="set-head">Tool permissions · ' + esc(activeMode) + "</div>";
     h +=
-      '<div class="set-note">What OPai may do this turn under your current run mode. Allow = does it without asking; Ask = pauses for your OK; Blocked = refused.</div>';
+      '<div class="set-note">What Vesta may do this turn under your current run mode. Allow = does it without asking; Ask = pauses for your OK; Blocked = refused.</div>';
     (d.permissions || []).forEach(function (p) {
       h +=
         '<div class="perm"><span class="k">' +
@@ -1279,7 +1279,7 @@
       : heroHtml(
           esc,
           "Safety & Privacy",
-          "See what OPai may do, when it asks, and where information may go.",
+          "See what Vesta may do, when it asks, and where information may go.",
           ["project", "local"]
         );
     h +=
@@ -1379,7 +1379,7 @@
     var h = heroHtml(
       esc,
       "Appearance",
-      "Choose how OPai looks and presents work.",
+      "Choose how Vesta looks and presents work.",
       ["app", "instant"]
     );
     h += '<div class="set-head">Appearance</div>';
@@ -1387,7 +1387,7 @@
     // the window is actually wearing, so the picker never contradicts it.
     var appliedTheme = global.OPaiTheme ? global.OPaiTheme.current().preference : null;
     h +=
-      '<div class="appearance-row appearance-row-theme"><div class="appearance-label"><span class="k">Theme</span><span class="hint">Light is soft daylight. Viber Coder is OPai\'s original night sky. Dark is midnight: all black and grey, no colour. Vesta is warm cream with the logo\'s dusty rose and sky blue. System follows your OS: Light by day, Viber Coder by night.</span></div>' +
+      '<div class="appearance-row appearance-row-theme"><div class="appearance-label"><span class="k">Theme</span><span class="hint">Light is soft daylight. Viber Coder is Vesta\'s original night sky. Dark is midnight: all black and grey, no colour. Vesta is warm cream with the logo\'s dusty rose and sky blue. System follows your OS: Light by day, Viber Coder by night.</span></div>' +
       themeChoices(esc, pref("theme", "theme") || appliedTheme) +
       "</div>";
     h +=
@@ -1497,7 +1497,7 @@
       needs_attention: "Update needs attention", rolled_back: "Update rolled back", completed: "Update completed",
       unavailable: "Update status unavailable",
     };
-    var description = operation.safe_diagnostic || (candidate.version ? "Target OPai " + candidate.version + "." : "");
+    var description = operation.safe_diagnostic || (candidate.version ? "Target Vesta " + candidate.version + "." : "");
     var discovery = u.discovery || {};
     var summary = discovery.summary || {};
     var devCheckout = (u.installed || {}).install_type === "source_checkout";
@@ -1513,7 +1513,7 @@
       "</span></div>" +
       // One plain sentence, from the backend. No timings, no cache provenance,
       // no shell commands: those are diagnostics and live in
-      // `opai update doctor`.
+      // `vesta update doctor`.
       '<div class="update-desc">' + esc(summary.message || description) + "</div>" +
       '<div class="actions"><button class="btn ghost" id="settingsCheckUpdate">Check now</button>' +
       (state === "unsupported_install" && applyAllowed
@@ -1539,7 +1539,7 @@
     // "downloads" to someone running from git would hide what it actually
     // does to their working tree.
     var downloadHint = (update.installed || {}).install_type === "source_checkout"
-      ? "Discovery stays on. When enabled, OPai fast-forwards this checkout to origin/main by itself — only with a clean working tree, only as a fast-forward, and never while work is running."
+      ? "Discovery stays on. When enabled, Vesta fast-forwards this checkout to origin/main by itself — only with a clean working tree, only as a fast-forward, and never while work is running."
       : "Discovery stays on. When enabled, signed packaged updates download and verify in the background.";
     var option = function (value, label, active, disabled) {
       return (
@@ -1645,7 +1645,7 @@
       heroHtml(
         ctx.esc,
         "General",
-        "Set the defaults OPai uses when you begin new work.",
+        "Set the defaults Vesta uses when you begin new work.",
         ["project", "instant"]
       ) +
       settingsSubsection(
@@ -1670,7 +1670,7 @@
       heroHtml(
         ctx.esc,
         "Models & Routing",
-        "Choose available intelligence and understand how OPai selects a route.",
+        "Choose available intelligence and understand how Vesta selects a route.",
         ["project", "local"]
       ) +
       settingsSubsection(ctx.esc, "routing", "Routing preference", profile) +
@@ -1737,7 +1737,7 @@
       heroHtml(
         ctx.esc,
         "Safety & Privacy",
-        "See what OPai may do, when it asks, and where information may go.",
+        "See what Vesta may do, when it asks, and where information may go.",
         ["project", "local"]
       ) +
       settingsSubsection(
@@ -1884,14 +1884,14 @@
       heroHtml(
         esc,
         "Workspace",
-        "Configure your development environment and how OPai works with your code."
+        "Configure your development environment and how Vesta works with your code."
       ) +
       tabHtml +
       settingsSubsection(
         esc,
         "projects",
         "Projects",
-        '<div class="set-head">Projects</div><div class="set-note">Set up how OPai opens and identifies your projects.</div>' +
+        '<div class="set-head">Projects</div><div class="set-note">Set up how Vesta opens and identifies your projects.</div>' +
           workspaceRow(
             "Current project",
             projectName,
@@ -1904,11 +1904,11 @@
         esc,
         "terminal",
         "Terminal",
-        '<div class="set-head">Terminal</div><div class="set-note">Choose how OPai approaches command-line work.</div>' +
+        '<div class="set-head">Terminal</div><div class="set-note">Choose how Vesta approaches command-line work.</div>' +
           workspaceRow("Default shell", "Inherited from this device", "System default", "") +
           workspaceRow(
             "Command approval mode",
-            "Controls when OPai pauses before running commands.",
+            "Controls when Vesta pauses before running commands.",
             modeLabel || "Auto",
             '<button class="btn ghost" type="button" data-settings-target="safety">Review rules</button>'
           )
@@ -1942,7 +1942,7 @@
         esc,
         "environment",
         "Environment",
-        '<div class="set-head">Environment</div><div class="set-note">A concise view of the local project context OPai can use.</div>' +
+        '<div class="set-head">Environment</div><div class="set-note">A concise view of the local project context Vesta can use.</div>' +
           workspaceRow("Indexed files", "Available project context", fileCount ? String(fileCount) : "Not indexed", "") +
           workspaceRow("AI connections", "Available provider accounts", String(connectedCount), "")
       )
@@ -2112,7 +2112,7 @@
   var sections = [
     {
       id: "general",
-      group: "OPai",
+      group: "Vesta",
       title: "General",
       summary: "Defaults for new tasks",
       keywords: "general defaults task mode focus output format overview",
@@ -2121,7 +2121,7 @@
     },
     {
       id: "appearance",
-      group: "OPai",
+      group: "Vesta",
       title: "Appearance",
       summary: "Layout, density, and motion",
       keywords: "theme density response compact balanced detailed motion animation reduced dark",
@@ -2213,7 +2213,7 @@
     var sidebarHeader =
       '<div class="settings-sidebar-head"><div class="settings-sidebar-brand"><button class="settings-back" id="settingsBack" type="button" aria-label="Back to Chat" title="Back to Chat"><span aria-hidden="true">' +
       ICONS.back +
-      '</span></button><div class="settings-sidebar-brand-copy"><div class="settings-sidebar-title">OPai</div>' +
+      '</span></button><div class="settings-sidebar-brand-copy"><div class="settings-sidebar-title">Vesta</div>' +
       '<div class="settings-sidebar-tagline">Code faster together.</div><span class="settings-a11y-label">Settings</span></div>' +
       '</div><div class="settings-toolbar"><div class="settings-search-field">' +
       '<input id="settingsSearch" type="search" placeholder="Search settings…" aria-label="Search settings" autocomplete="off" spellcheck="false" aria-controls="settingsSearchResults">' +
@@ -2236,7 +2236,7 @@
         );
       })
       .join("");
-    var groupOrder = ["OPai", "AI", "Development", "Trust", "System"];
+    var groupOrder = ["Vesta", "AI", "Development", "Trust", "System"];
     var rail =
       '<nav class="settings-rail" aria-label="Settings pages">' +
       groupOrder
@@ -2580,7 +2580,7 @@
         ctx
           .inlineConfirm(host, {
             title: "Repair Codex config?",
-            body: 'OPai will create a backup, then remove only the invalid service_tier = "default" line from your Codex config.',
+            body: 'Vesta will create a backup, then remove only the invalid service_tier = "default" line from your Codex config.',
             confirmLabel: "Repair config",
           })
           .then(function (ok) {
@@ -2765,7 +2765,7 @@
         ctx
           .inlineConfirm(host, {
             title: "Sign out of " + label + "?",
-            body: "OPai runs the provider's own sign-out so the next run starts a fresh login. You'll need to sign in again to use it.",
+            body: "Vesta runs the provider's own sign-out so the next run starts a fresh login. You'll need to sign in again to use it.",
             confirmLabel: "Sign out",
             danger: true,
           })

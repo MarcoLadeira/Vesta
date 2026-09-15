@@ -39,7 +39,7 @@ test("the global model picker manages hidden and custom models without showing h
       models: [
         { id: "account:claude:opus", model: "opus", label: "Claude · Opus 4.8", kind: "account", provider: "claude" },
         { id: "account:codex:gpt-5.6-sol", model: "gpt-5.6-sol", label: "Codex · GPT-5.6 Sol", kind: "account", provider: "codex" },
-        { id: "auto", label: "OPai · Auto mode", kind: "auto", group: "routing" },
+        { id: "auto", label: "Vesta · Auto mode", kind: "auto", group: "routing" },
       ],
     },
     settings: {
@@ -99,7 +99,7 @@ test("the run-mode select offers every mode, in order, Auto-apply included", asy
     "Accept edits",
     "Bypass permissions",
   ]);
-  await expect(page.locator("#settingsPage")).toContainText("approval mode OPai starts with", seen);
+  await expect(page.locator("#settingsPage")).toContainText("approval mode Vesta starts with", seen);
 });
 
 test("an Auto-apply default is shown as the selection it is, and stays changeable", async ({ page }) => {

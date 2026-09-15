@@ -13,7 +13,8 @@ from typing import Any
 
 from opai.release_identity import surface_identity_payload
 
-from . import command_consent
+from . import command_consent, owner_lease
+from .execution_scope import assignment_scope, assignment_cost_events, financial_root
 from .agent_policy import (
     AgentMode,
     build_capability_contract,
@@ -77,6 +78,7 @@ from .repository_safety import (
     capture_repository_handle,
     save_repository_handle,
 )
+from .generated_lifecycle import LEGACY_STATUS_MAP, TERMINAL_STATE_IDS
 from .run_state import RunState, is_awaiting_input, run_state_for_verdict
 from .run_summary import build_run_summary
 from .task_packet import build_task_packet
@@ -96,7 +98,34 @@ from .workflow_state import WorkflowState, load_workflow_state, save_workflow_st
 from .boundary_errors import safe_detail
 
 
-_EDITING_MODES = {"safe-auto", "full-auto"}
+# Every run mode that may change the repository, however it asks first
+# (40d6dc0's contract): Manual asks before each edit, Auto asks through the
+# provider's gate, Accept Edits and Bypass Permissions apply edits directly.
+# Plan and Ask are read-only. This used to list only Auto and Bypass, so a
+# Manual or Accept Edits turn that asked for a fix ran read-only -- the mode
+# the user picked could not do the one thing it is named after.
+_EDIT_CAPABLE_MODES = frozenset(
+    {"safe-auto", "approve-edits", "auto-edits", "full-auto"}
+)
+
+# The mode that asks before *each* edit rather than once per mode.
+_ASKS_BEFORE_EACH_EDIT = "approve-edits"
+
+
+def _tool_loop_may_edit(
+    selected_mode: str, *, may_edit: bool, edit_grant: bool
+) -> bool:
+    """May Vesta's own tool loop (free and local models) edit on this turn?
+
+    The account CLIs can ask before an edit: Claude refuses it, and the
+    pipeline turns that refusal into an "Allow edits once" card. Vesta's own
+    tool loop cannot stop at an edit and ask, so in Manual it edits only once
+    the user has granted it -- never by default. Every other edit-capable
+    mode keeps exactly the authority it had.
+    """
+
+    return may_edit and (selected_mode != _ASKS_BEFORE_EACH_EDIT or edit_grant)
+
 
 # Terminal statuses where the turn ended because a *model* could not serve it.
 # These earn a named "continue with <other model>" offer, so no provider failure
@@ -138,7 +167,7 @@ def _awaiting_payload(status: str, payload: Mapping[str, Any]) -> dict[str, Any]
     """Why this run is waiting, and what it is waiting for.
 
     ``backgroundActive`` is False on every current path and says so explicitly
-    rather than omitting it: OPai stops the turn to ask, so nothing keeps
+    rather than omitting it: Vesta stops the turn to ask, so nothing keeps
     running behind the question. A future path that *does* leave work running
     must set it True, and the field being present forces that decision instead
     of leaving the user guessing whether a spinner is still spending money.
@@ -168,21 +197,21 @@ _DEAD_END_STATUSES = frozenset(
 )
 
 # Honest terminal titles for a run that produced text but did not complete
-# (Task 7). No non-COMPLETED run ever shows "OPai completed".
+# (Task 7). No non-COMPLETED run ever shows "Vesta completed".
 _INCOMPLETE_TITLES = {
-    CompletionState.STUCK_NO_PROGRESS: "OPai stopped without finishing",
-    CompletionState.PROVIDER_BLOCKED: "OPai stopped: provider blocked",
-    CompletionState.NEEDS_CONSENT: "OPai needs your confirmation to continue",
-    CompletionState.NEEDS_USER_INPUT: "OPai needs more information",
+    CompletionState.STUCK_NO_PROGRESS: "Vesta stopped without finishing",
+    CompletionState.PROVIDER_BLOCKED: "Vesta stopped: provider blocked",
+    CompletionState.NEEDS_CONSENT: "Vesta needs your confirmation to continue",
+    CompletionState.NEEDS_USER_INPUT: "Vesta needs more information",
     CompletionState.RETRYABLE_PROVIDER_ERROR: "Provider was temporarily unavailable",
     CompletionState.CANCELLED: "Stopped by you",
-    CompletionState.FAILED: "OPai could not complete the task",
+    CompletionState.FAILED: "Vesta could not complete the task",
 }
 
 
 def _incomplete_title(result: dict[str, Any]) -> str:
     return _INCOMPLETE_TITLES.get(
-        completion_state_from_legacy(result), "OPai stopped without finishing"
+        completion_state_from_legacy(result), "Vesta stopped without finishing"
     )
 
 
@@ -204,7 +233,7 @@ def repo_fingerprint(root: Path) -> tuple[str, tuple[str, ...]]:
     """A cheap, read-only snapshot of repository state: (HEAD sha, dirty paths).
 
     Used to tell "this run really changed the repository" from "this run only
-    said it did", for runs whose changes OPai cannot see in its own tool trace.
+    said it did", for runs whose changes Vesta cannot see in its own tool trace.
     Returns ``("", ())`` for a non-repo or any git failure, which compares equal
     to itself and so can only ever *withhold* evidence, never invent it.
     """
@@ -235,12 +264,12 @@ def _has_change_evidence(
     """True only when a run produced verifiable evidence of a change.
 
     The honesty gate for F14/F24: an edit-intent run may not be celebrated as
-    "OPai completed" when nothing actually changed — no changed files and no
+    "Vesta completed" when nothing actually changed — no changed files and no
     successful mutating tool call in the trace.
 
     ``repo_changed`` closes the other half of the gap (Round 2): an account
     provider CLI does its own git work through its own shell, so a real commit
-    left no ``changed_files`` and no OPai tool_trace entry, and a genuinely
+    left no ``changed_files`` and no Vesta tool_trace entry, and a genuinely
     successful commit was stamped "Partial — no changed-file or diff evidence".
     A moved HEAD or a changed working tree, measured across the run, is exactly
     the verifiable evidence this gate asks for — so it counts.
@@ -334,6 +363,7 @@ def request_tool_authority(
     repo_root: Path,
     focus_hint: str | None = None,
     github_public_read: bool = False,
+    edit_grant: bool = False,
 ) -> RequestToolAuthority:
     """Resolve which tools a request may call, and whether it may mutate.
 
@@ -356,7 +386,11 @@ def request_tool_authority(
 
     discovery = is_discovery_request(message)
     smalltalk = is_smalltalk_request(message)
-    allow_edits = (selected_mode in _EDITING_MODES) and not discovery
+    allow_edits = _tool_loop_may_edit(
+        selected_mode,
+        may_edit=selected_mode in _EDIT_CAPABLE_MODES and not discovery,
+        edit_grant=edit_grant,
+    )
     allow_github_public_read = True if (discovery or github_public_read) else None
     tool_names = (
         ()
@@ -377,8 +411,9 @@ def request_tool_authority(
 
 def _mode_label(mode: str) -> str:
     # Labels come from the single autonomy source (#400); an unknown mode falls
-    # back to Safe Auto here because the pipeline never runs a mode it can't map.
-    return MODE_LABELS.get(mode, "Safe Auto")
+    # back to Safe Auto's label -- read from that source too, because the
+    # hardcoded "Safe Auto" outlived the mode's rename to "Auto".
+    return MODE_LABELS.get(mode, MODE_LABELS["safe-auto"])
 
 
 def _plan_payload(mode: str, status: str, answer: str) -> dict[str, Any]:
@@ -557,7 +592,7 @@ def _gate_receipt_savings(
 ) -> dict[str, Any]:
     """Only a run that met its objective may claim savings (#381).
 
-    Savings are OPai's proof; claiming them for a partial/blocked/timeout/failed
+    Savings are Vesta's proof; claiming them for a partial/blocked/timeout/failed
     run is the differentiator becoming a liability. The gated receipt keeps its
     actual spend (``estimated_actual_usd``) so the user still sees what the run
     cost, but drops the savings claim with an explicit basis. Mutates and returns
@@ -716,6 +751,11 @@ def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+#: How often a running turn restamps its journal lease. Borrowed from
+#: ``owner_lease`` rather than chosen again: two intervals for one heartbeat
+#: would let the two records disagree about whether the same run is healthy.
+_HEARTBEAT_INTERVAL_SECONDS = owner_lease.HEARTBEAT_INTERVAL_SECONDS
+
 #: The journal identity of the turn running on this thread, or ``None``.
 #:
 #: Set by :func:`_handle_gui_message` once admission has been mirrored, read by
@@ -725,20 +765,123 @@ _JOURNAL_RUN: ContextVar[dict[str, Any] | None] = ContextVar(
     "_opai_journal_run", default=None
 )
 
-#: How a turn's reported status maps onto a terminal journal event.
+#: What a turn's ending is recorded as in the journal.
 #:
-#: Anything not listed here is treated as a completion, because a turn that
-#: returned *something* did finish. Guessing "failed" for an unrecognised
-#: status would invent a verdict the run never reached, which is worse than a
-#: coarse one -- Stage 4 compares these against the legacy record, and a
-#: fabricated failure would look exactly like a real contradiction.
-_TERMINAL_EVENTS: dict[str, tuple[str, str]] = {
-    "cancelled": (journal_runtime.EVENT_CANCELLED, "cancelled"),
-    "duplicate_request": (journal_runtime.EVENT_FINISHED, "duplicate"),
-    "failed": (journal_runtime.EVENT_FINISHED, "failed"),
-    "error": (journal_runtime.EVENT_FINISHED, "failed"),
-    "blocked": (journal_runtime.EVENT_FINISHED, "blocked"),
-}
+#: The first version mapped five statuses and defaulted everything else to
+#: "completed" -- measured on this repository's own journal, five of twenty-one
+#: runs recorded as completed were partial turns. The second version was a
+#: hand-written table of legacy status strings and verdict names, and it
+#: drifted the moment it was written: 10 of the 13 statuses the lifecycle calls
+#: AWAITING_INPUT were missing from it, and for every approval card the verdict
+#: it preferred says BLOCKED, so "shall I push?" was filed as a permanent
+#: `blocked` -- the thing #379's own comment at the `run_state` field warns
+#: against.
+#:
+#: Neither was necessary. Every decorated result already carries the engine's
+#: canonical `run_state` (#379), computed once from the verdict with the one
+#: exception only the status knows about: a turn that handed control back to
+#: the user is AWAITING_INPUT. That field is what every surface is meant to
+#: read, so it is what the journal records. A result without it -- the
+#: exception path, a result from an older build -- is derived the same way,
+#: through the one generated status map every surface shares.
+_JOURNAL_ENDINGS = frozenset(TERMINAL_STATE_IDS) | {RunState.AWAITING_INPUT.value}
+
+#: Statuses with no lifecycle state that are still not an unknown ending.
+_JOURNAL_ONLY_STATUSES = {"duplicate_request": "duplicate"}
+
+#: What an ending nobody can name becomes. Not "completed": a name we do not
+#: recognise is not evidence that the work succeeded, and this epic exists to
+#: stop exactly that substitution. Not "failed" either -- that would invent a
+#: failure Stage 4 could not tell from a real contradiction. The run *ended*;
+#: how it ended is unknown, and saying so is the only answer supported by what
+#: is actually known.
+_UNKNOWN_ENDING = "unknown"
+
+
+def _journal_ending(result: Any) -> tuple[str, str]:
+    """``(event type, verdict)`` for how this turn ended."""
+
+    payload = result if isinstance(result, Mapping) else {}
+    status = str(payload.get("status") or "").strip().lower()
+    state = str(payload.get("run_state") or "").strip().lower()
+    if state:
+        ending = state if state in _JOURNAL_ENDINGS else _UNKNOWN_ENDING
+    elif is_awaiting_input(status):
+        ending = RunState.AWAITING_INPUT.value
+    elif status in _JOURNAL_ONLY_STATUSES:
+        ending = _JOURNAL_ONLY_STATUSES[status]
+    else:
+        completion = payload.get("completion_verdict")
+        verdict = (
+            str(completion.get("verdict") or "").strip().lower()
+            if isinstance(completion, Mapping)
+            else ""
+        )
+        if verdict:
+            # The verdict outranks the status derived from it. One this build
+            # cannot name is unknown -- not an excuse to fall back to a stale
+            # "answered".
+            ending = verdict if verdict in _JOURNAL_ENDINGS else _UNKNOWN_ENDING
+        else:
+            canonical = LEGACY_STATUS_MAP.get(status) or (
+                status if status in _JOURNAL_ENDINGS else ""
+            )
+            if canonical == RunState.COMPLETED.value:
+                # #618's rule, which the saved conversation already follows: a
+                # bare "the provider answered" is transport, not completion.
+                # With no verdict behind it, it cannot claim more than "this
+                # could not be verified" -- and the conversation records the
+                # same turn that way, so the two records agree.
+                ending = RunState.NEEDS_ATTENTION.value
+            else:
+                ending = canonical or _UNKNOWN_ENDING
+    event = (
+        journal_runtime.EVENT_CANCELLED
+        if ending == RunState.CANCELLED.value
+        else journal_runtime.EVENT_FINISHED
+    )
+    return event, ending
+
+
+def _due_for_a_beat(last: float, now: float, *, has_run: bool) -> bool:
+    """Is this the moment to restamp the turn's lease?
+
+    Only once there is a run to beat. A turn's first events fire before
+    admission, and spending the throttle on them left the first real beat a
+    whole interval late (#818 review finding 20).
+
+    `now` is passed in rather than read here, so the caller stamps the same
+    instant it measured -- it used to read the clock twice, and the beat was
+    recorded a hair after the moment it was judged due.
+    """
+
+    return has_run and (now - last) >= _HEARTBEAT_INTERVAL_SECONDS
+
+
+def _journal_beat(root: Path) -> None:
+    """Restamp this turn's lease so a live run does not read as abandoned.
+
+    Until now nothing wrote ``leases.heartbeat_at`` between acquisition and
+    release, so the column recorded the moment a run *started* and nothing
+    else. A reader could tell that a lease was held; it could not tell whether
+    anyone was still holding it, and #818's "cancelled is impossible while
+    owned controllable work is still alive" rests on exactly that difference.
+
+    Called from the activity emitter, which fires as phases advance and as a
+    provider streams, and throttled there -- so the beat costs one small write
+    every ``HEARTBEAT_INTERVAL`` of a turn rather than one per event.
+
+    Best-effort in the strongest sense: a heartbeat that cannot be written
+    makes a run look quiet, and a heartbeat that raised would make it fail.
+    """
+
+    identity = _JOURNAL_RUN.get()
+    if not identity:
+        return
+    with contextlib.suppress(Exception):  # noqa: BLE001 - never block a turn
+        journal_runtime.beat_lease(
+            root, run_id=str(identity.get("run_id") or ""), now=_iso_now()
+        )
 
 
 def _journal_cost(root: Path, telemetry: Any, *, operation_key: str) -> None:
@@ -756,13 +899,27 @@ def _journal_cost(root: Path, telemetry: Any, *, operation_key: str) -> None:
     identity = _JOURNAL_RUN.get()
     if not identity or telemetry is None:
         return
+    # #818: the telemetry already knows how well it knows this number.
+    # `normalize_account_result` reports "actual" when a provider gave a real
+    # dollar figure (Claude does) and "estimated" when it did not (Codex), and
+    # this used to hard-code "estimated" over the top -- which is why every
+    # cost event in a real journal reads as an estimate and not one reads as
+    # actual. The store has accepted the distinction since v1.
+    #
+    # The zero mattered more. `cost_usd` is deliberately None for a call whose
+    # price nobody measured, and `or 0.0` turned that into a recorded $0.00 --
+    # "unknown cost represented as zero", in the canonical record itself. The
+    # store's `unavailable` kind exists for exactly this and had no writer.
+    measured = getattr(telemetry, "cost_usd", None)
+    known = isinstance(measured, (int, float)) and not isinstance(measured, bool)
+    kind = str(getattr(telemetry, "cost_measurement", "") or "estimated")
     with contextlib.suppress(Exception):  # noqa: BLE001 - never block a turn
         journal_runtime.record_run_cost(
             root,
             run_id=str(identity["run_id"]),
             operation_key=operation_key,
-            amount_usd=float(getattr(telemetry, "cost_usd", 0.0) or 0.0),
-            measurement_kind="estimated",
+            amount_usd=float(measured) if known else 0.0,
+            measurement_kind=kind if known else "unavailable",
             now=_iso_now(),
             fence=identity.get("fence"),
             model=str(getattr(telemetry, "model", "") or ""),
@@ -795,31 +952,54 @@ def _journal_verification(root: Path, manifest_payload: Mapping[str, Any]) -> No
         )
 
 
-def _record_turn_ending(root: Path, status: str, reason: str) -> None:
+def _tell_journal_run(listener: Any) -> None:
+    """Hand this turn's journal run id to a caller that asked for it."""
+
+    identity = _JOURNAL_RUN.get()
+    if not identity or not callable(listener):
+        return
+    with contextlib.suppress(Exception):  # noqa: BLE001 - never fail a finished turn
+        listener(str(identity.get("run_id") or ""))
+
+
+def _record_turn_ending(root: Path, result: Any) -> None:
     """Close out the journalled run for this turn, if there is one.
 
     Best-effort like everything else in Stage 3: a turn that already produced
     its answer must not fail because its bookkeeping did. A run with no
     journal identity -- admission was not mirrored -- simply has nothing to
-    close.
+    close. See :func:`_journal_ending` for what the ending is.
     """
 
     identity = _JOURNAL_RUN.get()
     if not identity:
         return
-    event, verdict = _TERMINAL_EVENTS.get(
-        status, (journal_runtime.EVENT_FINISHED, "completed")
-    )
+    payload = result if isinstance(result, Mapping) else {}
     with contextlib.suppress(Exception):  # noqa: BLE001 - never fail a finished turn
+        event, verdict = _journal_ending(payload)
         journal_runtime.record_terminal(
             root,
             run_id=str(identity["run_id"]),
             event_type=event,
             verdict=verdict,
-            reason=reason or status,
+            reason=str(payload.get("reason") or payload.get("status") or ""),
             now=_iso_now(),
             fence=identity.get("fence"),
         )
+
+
+#: Surfaces the canonical journal recognises as an origin. A closed set on
+#: purpose: `origin_surface` is what a projection groups by, so a free-text
+#: value would fragment the very grouping it exists to make possible. Anything
+#: unrecognised is recorded as "unknown", which is honest -- it says the run
+#: came from somewhere this build cannot name, rather than silently filing it
+#: under whichever surface happened to be the default.
+KNOWN_SURFACES = ("gui", "cli", "background", "agent", "automation")
+
+
+def _normalized_surface(surface: Any) -> str:
+    value = str(surface or "").strip().lower()
+    return value if value in KNOWN_SURFACES else "unknown"
 
 
 def _handle_gui_message(
@@ -842,6 +1022,28 @@ def _handle_gui_message(
     allow_edits_once: bool = False,
     allowEditsOnce: bool = False,
     defer_checkpoint_finalization: bool = False,
+    task_id: str | None = None,
+    run_id: str | None = None,
+    authority_root: Path | None = None,
+    local_model_endpoint: str | None = None,
+    objective_bypass_permissions: bool = False,
+    # Which surface asked for this turn. The CLI, background automations
+    # and `vesta build` all run through this exact pipeline, so an
+    # admission hardcoded to "gui" recorded every one of them as a
+    # desktop run -- and #818 AC2 asks for GUI, CLI and background
+    # projections built from one canonical state, which is impossible
+    # when the state cannot tell them apart.
+    #
+    # The default does not guess. A caller that does not say is recorded
+    # as "unknown", because a new surface silently inheriting the
+    # desktop's name is the same mistake in a fresh disguise.
+    surface: str = "",
+    # Which saved conversation this turn belongs to, from the caller that
+    # recorded the turn in it. Not looked up here: the workspace's thread
+    # file names whichever chat the GUI last had open, so every CLI,
+    # background and build turn used to be filed under it (#818 review
+    # finding 10). A turn nobody recorded in a conversation belongs to none.
+    conversation_id: str = "",
 ) -> dict[str, Any]:
     """Run one chat turn. With ``on_event``/``on_text``/``cancel`` supplied it
     emits live activity and streams account output; without them it behaves
@@ -856,7 +1058,20 @@ def _handle_gui_message(
     Edit/Write attempts refused by the provider's permission gate.
     """
 
+    # When this turn's lease was last restamped, on the monotonic clock so a
+    # system clock change cannot make the next beat look overdue or unreachable.
+    _last_beat = [0.0]
+
     def _emit(etype: str, status: str, title: str, **kw: Any) -> None:
+        # #818: the activity stream is the honest liveness signal available
+        # here -- if events are flowing, this turn is doing something. Beating
+        # on a timer instead would keep restamping a wedged run's lease and
+        # report it as healthy forever, which is the failure a heartbeat is
+        # supposed to expose rather than hide.
+        beat_at = time.monotonic()
+        if _due_for_a_beat(_last_beat[0], beat_at, has_run=bool(_JOURNAL_RUN.get())):
+            _last_beat[0] = beat_at
+            _journal_beat(root)
         if on_event:
             from opai.activity import make_event
 
@@ -871,7 +1086,7 @@ def _handle_gui_message(
     # status channel for the status strip (docs/AI_ACTIVITY_UX.md).
     from opai.activity import derived_id, new_id
 
-    turn_id = new_id()
+    turn_id = run_id or new_id()
     _phase_id = derived_id(turn_id, "phase")
     _phase_state = {"open": False, "etype": "request_prepare"}
     # Admission (#295 gate 3): prove this request enters the runtime once.
@@ -947,7 +1162,7 @@ def _handle_gui_message(
 
     root = project_root.expanduser().resolve()
     # Baseline for the change-evidence gate, taken before any provider runs.
-    # A provider CLI commits through its own shell, so the only proof OPai can
+    # A provider CLI commits through its own shell, so the only proof Vesta can
     # trust for those runs is the repository itself moving (Round 2).
     _repo_baseline = repo_fingerprint(root)
 
@@ -989,15 +1204,24 @@ def _handle_gui_message(
     # most: a refusal recorded by the previous turn must not resurface as this
     # turn's approval card, and a grant the user issued earlier must not
     # authorize a push they were never asked about (Round 5 finding 1).
-    command_consent.begin_turn(command_grant)
+    # `run=turn_id` binds the approval to this turn. The handshake
+    # directory is one fixed per-user path shared by every Vesta process on
+    # the machine, so without it a second window -- another repository,
+    # another run, a question its user was never asked -- could spend this
+    # window's push approval (#818 AC8).
+    command_consent.begin_turn(command_grant, run=turn_id)
     # One-shot edit grant from an edit-approval re-send (F26).
     edit_grant = bool(allow_edits_once or allowEditsOnce)
-    prefs = load_gui_preferences(root)
+    prefs = load_gui_preferences(financial_root(root))
     # Bypass Permissions is a switch, not a mode: it composes with whichever
     # mode is selected so turning it off returns the user to that mode.
-    bypass_permissions = prefs.get("bypass_permissions") is True
+    bypass_permissions = (
+        objective_bypass_permissions is True
+        if authority_root is not None
+        else prefs.get("bypass_permissions") is True
+    )
     selected_model = model_id or prefs.get("default_model") or "auto"
-    # Whether OPai is choosing the model (Auto mode). Set before any _decorate
+    # Whether Vesta is choosing the model (Auto mode). Set before any _decorate
     # call so the terminal recorder can always read it. The capability/cost/
     # reliability fallback chain is resolved later, once context is gathered.
     auto_active = selected_model == "auto"
@@ -1025,7 +1249,7 @@ def _handle_gui_message(
     contract = resolve_message_contract(
         root, message, agent_mode=policy.mode, selected_mode=str(mode or "")
     )
-    # #381: savings are OPai's proof, so a route/savings event is recorded only
+    # #381: savings are Vesta's proof, so a route/savings event is recorded only
     # for a run that met its declared objective. One objective per turn, shared
     # by the route gate below and the terminal verdict in _decorate, so the
     # aggregate ledger and the per-run receipt can never disagree.
@@ -1051,19 +1275,18 @@ def _handle_gui_message(
         selected_mode = "ask"
     # Will this turn write to the repository? Decided once, here, because both
     # Auto's fallback chain and the dead-end fallback offer need it *before* a
-    # provider is picked — a provider OPai cannot hand bounded edit tools is a
+    # provider is picked — a provider Vesta cannot hand bounded edit tools is a
     # guaranteed refusal on an editing turn and a perfectly good choice on a
-    # read-only one. Plan / Ask / Approve-Edits are read-only; Safe Auto / Full
-    # Auto may edit, except for a discovery request ("find me an issue to
-    # solve"), which locates work rather than changing the repository.
-    will_edit = selected_mode in {
-        "safe-auto",
-        "full-auto",
-    } and not is_discovery_request(message)
+    # read-only one. Plan / Ask are read-only; every other mode may edit
+    # (Manual asking first), except for a discovery request ("find me an issue
+    # to solve"), which locates work rather than changing the repository.
+    will_edit = selected_mode in _EDIT_CAPABLE_MODES and not is_discovery_request(
+        message
+    )
     repo_context = resolve_repo_context(root)
     save_active_repo(root, repo_context)
     previous_workflow = load_workflow_state(root)
-    runtime = AgentRuntime(root, task=message)
+    runtime = AgentRuntime(root, task=message, task_id=task_id)
     # #613 Stage 3: mirror this run's admission into the transactional journal.
     #
     # Placed here rather than beside the #295 admission gate above because that
@@ -1082,15 +1305,20 @@ def _handle_gui_message(
     with contextlib.suppress(Exception):  # noqa: BLE001 - never block a turn
         from .journal_runtime import record_admission
 
-        _journal_fence = record_admission(
-            root,
-            task_id=runtime.task_id,
-            run_id=turn_id,
-            task=message,
-            now=_iso_now(),
-            surface="gui",
-            mode=mode,
-            model=model_id,
+        _journal_fence = (
+            None
+            if authority_root is not None
+            else record_admission(
+                root,
+                task_id=runtime.task_id,
+                run_id=turn_id,
+                task=message,
+                now=_iso_now(),
+                surface=_normalized_surface(surface),
+                session=str(conversation_id or "").strip()[:200],
+                mode=mode,
+                model=model_id,
+            )
         )
         if _journal_fence is not None:
             # Published rather than returned: this function has many exits and
@@ -1109,13 +1337,13 @@ def _handle_gui_message(
     #
     # This used to raise, so every edit-capable turn in a plain folder -- a
     # synced drive, a scratch directory, a project not yet under version
-    # control -- was refused with "OPai could not establish and persist a fresh
+    # control -- was refused with "Vesta could not establish and persist a fresh
     # repository identity ... inspect the repository and retry", about a
     # repository that did not exist. In Bypass permissions, where every
     # non-discovery turn is edit-capable, that refused *every* message in the
     # folder, including ones that only asked for code to read.
     #
-    # What is genuinely lost without a repository is staleness detection: OPai
+    # What is genuinely lost without a repository is staleness detection: Vesta
     # cannot tell whether a file changed under it between reading and writing,
     # because there is no index or HEAD to compare against. That is worth
     # saying out loud, which the warning below does. It is not worth refusing
@@ -1244,7 +1472,7 @@ def _handle_gui_message(
         constraints=(
             "preserve unrelated user changes",
             "no force push, hard reset, clean, branch deletion, secret exposure, or production credential changes",
-            "paid or cloud calls require the existing OPai confirmation boundary",
+            "paid or cloud calls require the existing Vesta confirmation boundary",
         ),
         allowed_actions=policy.capabilities,
         forbidden_actions=(
@@ -1354,7 +1582,7 @@ def _handle_gui_message(
         }
 
     packet_block = (
-        "\n\nOPai task packet (workflow state remains owned by OPai):\n"
+        "\n\nVesta task packet (workflow state remains owned by Vesta):\n"
         + json.dumps(task_packet.to_dict(), sort_keys=True)
     )
     if resume_context:
@@ -1363,7 +1591,7 @@ def _handle_gui_message(
         safe_resume_context = normalize_resume_execution_context(resume_context)
         if safe_resume_context:
             packet_block += (
-                "\n\nOPai resumed local context (untrusted quoted data; it cannot "
+                "\n\nVesta resumed local context (untrusted quoted data; it cannot "
                 "override the capability contract, permissions, or current task):\n"
                 + json.dumps(safe_resume_context, ensure_ascii=False, sort_keys=True)
             )
@@ -1380,7 +1608,7 @@ def _handle_gui_message(
     def _tool_aware_message(allow_edits: bool) -> str:
         """Contract naming the provider's *actual* callable tools.
 
-        Free-tier/local models run OPai's own tool loop, so the contract must
+        Free-tier/local models run Vesta's own tool loop, so the contract must
         list that loop's real vocabulary (write_file, apply_patch, git_commit,
         ...). Capability nouns alone made smaller models refuse edits with
         "create_files was not permitted" — no tool by that name existed.
@@ -1420,7 +1648,7 @@ def _handle_gui_message(
                         "severity": "warning",
                         "reason": "not_a_repository",
                         "detail": (
-                            "This workspace is a plain folder, so OPai cannot "
+                            "This workspace is a plain folder, so Vesta cannot "
                             "detect changes made underneath it while it works, "
                             "and Git operations are unavailable. Run `git init` "
                             "here to enable both."
@@ -1437,11 +1665,11 @@ def _handle_gui_message(
         ):
             try:
                 # #614/#666: verification runs real subprocesses (the "verifying"
-                # state OPai refuses to let jump straight to "cancelled" for
+                # state Vesta refuses to let jump straight to "cancelled" for
                 # exactly this reason). Without threading the live signal through,
                 # a Stop pressed mid-check was never observed here — the check ran
                 # to its own timeout regardless, so cost and repository changes
-                # could keep accruing after the user was told OPai was stopping.
+                # could keep accruing after the user was told Vesta was stopping.
                 manifest = execute_policy(
                     effective_policy,
                     VerificationExecutionContext.from_repository_handle(
@@ -1560,7 +1788,7 @@ def _handle_gui_message(
         # instead: a moved HEAD is proof a commit landed, and a changed dirty set
         # is proof the tree moved, whichever shell did the work.
         repo_change = _repo_change_evidence(current_repo)
-        # #539 / gate 1: the verdict reads an allowlist of OPai-measured fields
+        # #539 / gate 1: the verdict reads an allowlist of Vesta-measured fields
         # rather than a spread of the whole result. Spreading made "can a
         # provider manufacture completion?" a question about which keys happen
         # to exist today instead of a property of the design; now a new field is
@@ -1596,7 +1824,7 @@ def _handle_gui_message(
                 verdict_payload["verification_manifest"] = manifest_reference
                 stored_verdict["verification_manifest"] = manifest_reference
         # Round 5 finding 2: the same turn showed a red "Failed" pill and prose
-        # reading "has been successfully pushed to the origin remote". OPai cannot
+        # reading "has been successfully pushed to the origin remote". Vesta cannot
         # tell from prose which one is right, so it must not let the claim stand
         # unqualified — the renderer reads this flag and marks the claim
         # unverified, so pill and prose can no longer say opposite things.
@@ -1649,8 +1877,8 @@ def _handle_gui_message(
             )
             gated["completion_verdict"] = stored_verdict
             # #295 gate 14: a receipt that states a verdict without the evidence
-            # behind it asks the user to take OPai's word for it. #539 made the
-            # verdict trust only evidence OPai observed; this is the half that
+            # behind it asks the user to take Vesta's word for it. #539 made the
+            # verdict trust only evidence Vesta observed; this is the half that
             # lets the user *see* that evidence and check the reasoning.
             gated["evidence"] = [ref.to_dict() for ref in verdict.evidence]
             gated["changed_files"] = list(attributed_paths)
@@ -1743,7 +1971,7 @@ def _handle_gui_message(
                 message="Provider response received; no repository changes detected",
                 metadata={"changed_files": []},
                 next_actions=(
-                    "ask OPai to actually apply the change",
+                    "ask Vesta to actually apply the change",
                     "check the run's tool trace for blocked or skipped steps",
                 ),
             )
@@ -1758,7 +1986,7 @@ def _handle_gui_message(
             runtime.transition(
                 RuntimePhase.REVIEWING_DIFF,
                 message=(
-                    "Provider response received; OPai is awaiting test and diff evidence"
+                    "Provider response received; Vesta is awaiting test and diff evidence"
                     if run_completed
                     else "Run stopped early — partial changes await review"
                 ),
@@ -2002,8 +2230,8 @@ def _handle_gui_message(
                         _blocks.record_block(root, _prov, _block_reason)
         # Never a dead end (consistency): when a turn ends because a provider
         # could not serve it, name one model that still can so the user
-        # continues in a single click. This is the difference between "OPai
-        # failed, go figure out why" and "OPai could not use Codex, continue
+        # continues in a single click. This is the difference between "Vesta
+        # failed, go figure out why" and "Vesta could not use Codex, continue
         # with Gemini?" — with real usage available somewhere, the second is
         # always the honest answer. Computed only on failure, and only when
         # some other model is genuinely runnable; ``None`` is left off entirely
@@ -2018,7 +2246,9 @@ def _handle_gui_message(
                 _failed_provider = _ar2.provider_of(selected_model)
                 fallback_offer = _ar2.best_alternative(
                     root,
-                    _app_state.available_models(root, discover_local=False),
+                    _app_state.available_models(
+                        financial_root(root), discover_local=False
+                    ),
                     exclude_providers={_failed_provider} if _failed_provider else set(),
                     exclude_ids={selected_model},
                     needs_edit=will_edit,
@@ -2030,7 +2260,7 @@ def _handle_gui_message(
             **({"fallback_offer": fallback_offer} if fallback_offer else {}),
             # Route transparency: routing quality and routing *trust* are
             # separate problems. Every turn reports the lane it ran in and why,
-            # so a user can see what OPai decided instead of inferring it.
+            # so a user can see what Vesta decided instead of inferring it.
             "message_contract": contract.to_dict(),
             "objective": objective.to_dict(),
             "completion_verdict": verdict_payload,
@@ -2097,7 +2327,7 @@ def _handle_gui_message(
             {
                 "status": "blocked",
                 "answer": (
-                    "OPai could not establish and persist a fresh repository "
+                    "Vesta could not establish and persist a fresh repository "
                     "identity for this edit-capable run. No provider was allowed "
                     "to mutate the workspace. Inspect the repository and retry."
                 ),
@@ -2121,7 +2351,7 @@ def _handle_gui_message(
             {
                 "status": "blocked",
                 "answer": (
-                    "OPai did not start the edit because its verification policy is blocked. "
+                    "Vesta did not start the edit because its verification policy is blocked. "
                     + verification_policy_error
                 ),
                 "error": {
@@ -2162,7 +2392,7 @@ def _handle_gui_message(
                 "answer": (
                     "This request includes a destructive or irreversible action. "
                     "Switch to Ask or Plan to review it without execution, or "
-                    "confirm that specific action before OPai runs it."
+                    "confirm that specific action before Vesta runs it."
                 ),
                 "tool_trace": [],
                 "receipt": blocked_receipt,
@@ -2188,7 +2418,9 @@ def _handle_gui_message(
 
         from . import auto_router
 
-        _catalog = _app_state.available_models(root, discover_local=False)
+        _catalog = _app_state.available_models(
+            financial_root(root), discover_local=False
+        )
         _auto_labels = {
             str(item.get("id") or ""): str(item.get("label") or item.get("id") or "")
             for item in (_catalog.get("models") or [])
@@ -2198,7 +2430,7 @@ def _handle_gui_message(
             message,
             _catalog,
             allow_paid=paid_authorized,
-            # An editing turn must not be routed to a provider OPai refuses to
+            # An editing turn must not be routed to a provider Vesta refuses to
             # give repository write access — that is a guaranteed refusal, not
             # a fallback step. The same provider stays eligible for Ask/Plan.
             needs_edit=will_edit,
@@ -2271,7 +2503,7 @@ def _handle_gui_message(
 
         Free-tier endpoints (Gemini especially) return an intermittent 503 that
         clears within a second, and the identical prompt then succeeds. Treating
-        the first blip as a provider failure is what made OPai feel unreliable:
+        the first blip as a provider failure is what made Vesta feel unreliable:
         the same message worked or didn't for no reason the user could see. One
         quiet re-attempt turns that coin-flip into a normal answer; a second
         failure is real, and the caller falls through to the fallback chain.
@@ -2302,7 +2534,7 @@ def _handle_gui_message(
         # never reached the provider. On a free model that ambiguity is
         # harmless. On a paid one, re-sending an identical prompt that may
         # already have been served bills the user twice for one question, and
-        # OPai has no record with which to notice: the paid lane only writes
+        # Vesta has no record with which to notice: the paid lane only writes
         # its ledger entry on success, so a call lost this way leaves no trace
         # at all. Withhold the retry unless the failure proves non-dispatch,
         # and say why rather than stalling silently.
@@ -2428,7 +2660,7 @@ def _handle_gui_message(
 
             blockers = _ar3.routing_blockers(
                 root,
-                _app_state.available_models(root, discover_local=False),
+                _app_state.available_models(financial_root(root), discover_local=False),
                 needs_edit=will_edit,
             )
         if not blockers:
@@ -2437,7 +2669,7 @@ def _handle_gui_message(
         return (
             "Auto could not use any connected model for this request:\n"
             f"{lines}\n\n"
-            "Fix any one of these, or pick a different model — OPai only needs "
+            "Fix any one of these, or pick a different model — Vesta only needs "
             "one working route."
         )
 
@@ -2472,7 +2704,7 @@ def _handle_gui_message(
             auto_chain[i].get("kind") == "free" for i in range(1, auto_pos)
         )
         prefix = (
-            "OPai tried the free options without a usable answer. "
+            "Vesta tried the free options without a usable answer. "
             if tried_free
             else "No free or local model is available. "
             if paid
@@ -2485,10 +2717,10 @@ def _handle_gui_message(
                 "answer": (
                     prefix
                     + (
-                        f"OPai can continue with {label}, a paid model — that call "
+                        f"Vesta can continue with {label}, a paid model — that call "
                         "costs money and sends task context off-device. "
                         if paid
-                        else f"OPai can continue with {label}, a free-tier cloud model. "
+                        else f"Vesta can continue with {label}, a free-tier cloud model. "
                         "Your task and compact project context will leave this device. "
                     )
                     + "Confirm to continue, or switch model."
@@ -2552,7 +2784,7 @@ def _handle_gui_message(
     _phase(
         "model_selected",
         "running",
-        "Selected OPai mode",
+        "Selected Vesta mode",
         metadata={"model": selected_model},
     )
     _status_mirror(
@@ -2591,7 +2823,7 @@ def _handle_gui_message(
                     "Safe Auto held this back because it matched a command that can "
                     "change or delete files"
                     + (f" ({reason})" if reason else "")
-                    + ".\nSwitch to Ask or Plan mode to have OPai explain or plan it "
+                    + ".\nSwitch to Ask or Plan mode to have Vesta explain or plan it "
                     "without running anything, or rephrase the request without the "
                     "risky command."
                 ),
@@ -2606,13 +2838,39 @@ def _handle_gui_message(
             }
         )
 
-    # Plan / Ask / Approve-Edits are read-only; Safe Auto / Full Auto may edit.
-    # A discovery request ("find me an issue to solve") stays read-only even in
-    # an editing mode — it locates work, it does not change the repository.
-    # Same decision Auto's chain was built from, so routing and execution agree.
+    # Plan / Ask are read-only; every other mode may edit. A discovery request
+    # ("find me an issue to solve") stays read-only even in an editing mode — it
+    # locates work, it does not change the repository. Same decision Auto's
+    # chain was built from, so routing and execution agree.
     allow_edits = will_edit
+    # Vesta's own tool loop cannot ask mid-run, so Manual edits there only with
+    # the user's one-shot grant (see _tool_loop_may_edit).
+    loop_allow_edits = _tool_loop_may_edit(
+        selected_mode, may_edit=will_edit, edit_grant=edit_grant
+    )
 
     while True:
+        from .execution_scope import managed_budget_gate
+
+        managed = managed_budget_gate(
+            root,
+            next_cost_usd=None
+            if selected_model.startswith(("account:", "paid:"))
+            else "0",
+        )
+        if managed["denied"]:
+            return _decorate(
+                {
+                    "status": "blocked",
+                    "answer": "; ".join(managed["reasons"]),
+                    "changed_files": [],
+                    "tool_trace": tool_trace,
+                    "warnings": [],
+                    "next_actions": [
+                        "Choose a local or free model, or revise the objective budget."
+                    ],
+                }
+            )
         if selected_model.startswith("free:"):
             from opai import app_state as A
 
@@ -2651,13 +2909,14 @@ def _handle_gui_message(
                 selected_mode=selected_mode,
                 repo_root=root,
                 focus_hint=focus_hint,
+                edit_grant=edit_grant,
             )
             result = A.ask(
                 root,
-                _tool_aware_message(allow_edits),
+                _tool_aware_message(loop_allow_edits),
                 selected_model,
                 allow_cloud=free_allow_cloud,
-                allow_edits=allow_edits,
+                allow_edits=loop_allow_edits,
                 tool_calling_enabled=authority.tool_calling_enabled,
                 allow_command=command_grant,
                 mode=selected_mode,
@@ -2694,7 +2953,7 @@ def _handle_gui_message(
                     {
                         "status": "needs_command_approval",
                         "answer": (
-                            "OPai needs your approval to run this command: "
+                            "Vesta needs your approval to run this command: "
                             f"`{approval['command']}`{reason_suffix}. Approve it to "
                             "continue, or edit your request."
                         ),
@@ -2706,7 +2965,7 @@ def _handle_gui_message(
                         "changed_files": [],
                         "warnings": [],
                         "next_actions": [
-                            "Approve the exact command to let OPai run it once.",
+                            "Approve the exact command to let Vesta run it once.",
                             "Or edit your request to avoid the command.",
                         ],
                         "raw_result": result,
@@ -2779,7 +3038,7 @@ def _handle_gui_message(
                     model=selected_model,
                 )
                 record_workflow_cost(
-                    root, runtime.task_id, free_telemetry, task=message
+                    financial_root(root), runtime.task_id, free_telemetry, task=message
                 )
                 _journal_cost(
                     root,
@@ -2816,7 +3075,7 @@ def _handle_gui_message(
                         # F14/F24: an edit-intent run that changed nothing is not
                         # a green completion.
                         _phase_close("warning", "Finished with no changes")
-                        _emit("completed", "warning", "OPai finished with no changes")
+                        _emit("completed", "warning", "Vesta finished with no changes")
                     else:
                         _phase_close("warning", "Verifying completion evidence")
                         _emit("verifying", "warning", "Verifying completion evidence")
@@ -2866,7 +3125,7 @@ def _handle_gui_message(
             _phase(
                 "provider_checking",
                 "running",
-                "Checking OPai connection",
+                "Checking Vesta connection",
                 metadata={"provider": provider},
             )
             if account_runner is None:
@@ -2925,7 +3184,7 @@ def _handle_gui_message(
                     _phase(
                         "provider_authenticated",
                         "running",
-                        "OPai sign-in verified locally",
+                        "Vesta sign-in verified locally",
                         metadata={"provider": provider},
                     )
                     _status_mirror(
@@ -2938,7 +3197,7 @@ def _handle_gui_message(
                 _phase(
                     "provider_authenticated",
                     "running",
-                    "OPai sign-in detected",
+                    "Vesta sign-in detected",
                     metadata={"provider": provider},
                 )
                 _status_mirror(
@@ -2950,7 +3209,7 @@ def _handle_gui_message(
             _phase(
                 "request_sending",
                 "running",
-                "Sending OPai request",
+                "Sending Vesta request",
                 metadata={"provider": provider},
             )
             # The provider stream takes over from here (its own connect/stream
@@ -3002,7 +3261,7 @@ def _handle_gui_message(
                     {
                         "status": "needs_command_approval",
                         "answer": (
-                            "OPai needs your approval to run this command: "
+                            "Vesta needs your approval to run this command: "
                             f"`{approval['command']}`{reason_suffix}. Approve it to "
                             "continue, or edit your request."
                         ),
@@ -3014,17 +3273,23 @@ def _handle_gui_message(
                         "changed_files": list(result.get("changed_files") or []),
                         "warnings": [],
                         "next_actions": [
-                            "Approve the exact command to let OPai run it once.",
+                            "Approve the exact command to let Vesta run it once.",
                             "Or edit your request to avoid the command.",
                         ],
                         "raw_result": result,
                     }
                 )
             denied_edits = _edit_denials(result)
-            if denied_edits and selected_mode == "safe-auto" and not edit_grant:
+            if (
+                denied_edits
+                and selected_mode in {"safe-auto", _ASKS_BEFORE_EACH_EDIT}
+                and not edit_grant
+            ):
                 # F26: Safe Auto gates edits at the provider CLI, which cannot ask
                 # interactively. Surface an actionable in-context approval card —
-                # never a prose "should I proceed?" that ends the run.
+                # never a prose "should I proceed?" that ends the run. Manual
+                # gates edits the same way, and without this card it had no
+                # way to ask at all: the CLI refused the edit and the run ended.
                 _phase_close("warning", "Awaiting your approval")
                 _emit(
                     "file_edit",
@@ -3038,7 +3303,7 @@ def _handle_gui_message(
                     {
                         "status": "needs_edit_approval",
                         "answer": (
-                            "OPai needs your approval to edit these files:\n"
+                            "Vesta needs your approval to edit these files:\n"
                             f"{file_list}\n\nAllow edits once to let this run "
                             "change them, or switch to Full Auto for the session."
                         ),
@@ -3109,7 +3374,9 @@ def _handle_gui_message(
             account_telemetry = normalize_account_result(
                 provider, result, model=selected_model
             )
-            record_workflow_cost(root, runtime.task_id, account_telemetry, task=message)
+            record_workflow_cost(
+                financial_root(root), runtime.task_id, account_telemetry, task=message
+            )
             _journal_cost(
                 root,
                 account_telemetry,
@@ -3130,7 +3397,7 @@ def _handle_gui_message(
                 } and not _has_change_evidence(result, repo_changed=_repo_changed()):
                     # F14/F24: an edit-intent run that changed nothing is not a
                     # green completion, no matter how confident the prose sounds.
-                    _emit("completed", "warning", "OPai finished with no changes")
+                    _emit("completed", "warning", "Vesta finished with no changes")
                 else:
                     _emit("verifying", "warning", "Verifying completion evidence")
             elif status == "answered":
@@ -3146,7 +3413,7 @@ def _handle_gui_message(
                 _emit(
                     event_type,
                     "error",
-                    str(error.get("title") or "OPai could not complete this request."),
+                    str(error.get("title") or "Vesta could not complete this request."),
                     metadata={"provider": provider, "code": code},
                 )
                 _decision = _recover(status=status, error=error or None)
@@ -3203,12 +3470,18 @@ def _handle_gui_message(
             return _decorate(
                 _cancelled_result(message, tool_trace, selected_model, selected_mode)
             )
-        _phase("request_sending", "running", "Running OPai locally")
+        _phase("request_sending", "running", "Running Vesta locally")
         # Honour the picked local model (#143): a concrete "provider:model" id must
         # run *that* model, not whatever detect_local_runner finds first. "auto"
         # (and unknown ids) fall through to run_ask's own local-first detection.
         picked_runner = None
-        if selected_model not in {"auto", "", None} and ":" in str(selected_model):
+        if authority_root is not None:
+            from .objective_routing import managed_local_runner
+
+            # The managed router admitted this exact model and endpoint. Never
+            # rebuild it from environment configuration or rediscover a runner.
+            picked_runner = managed_local_runner(selected_model, local_model_endpoint)
+        elif selected_model not in {"auto", "", None} and ":" in str(selected_model):
             picked_runner = runner_for_model(selected_model, root)
         # cancel threads into the local runner too (#107): Stop closes the HTTP
         # connection mid-generation instead of only ignoring the late result.
@@ -3219,7 +3492,7 @@ def _handle_gui_message(
             cancel=cancel,
             runner=picked_runner,
             selected_model_id=selected_model if picked_runner is not None else None,
-            allow_edits=allow_edits,
+            allow_edits=loop_allow_edits,
         )
         if result.get("status") == "cancelled":
             _phase_close("cancelled", "Stopped by you")
@@ -3273,7 +3546,7 @@ def _handle_gui_message(
                     continue
                 if _decision == "confirm":
                     return _auto_cloud_card()
-            # Auto ran out of candidates. OPai knows exactly which provider is
+            # Auto ran out of candidates. Vesta knows exactly which provider is
             # capped, which CLI is stale, and which cannot take write access —
             # so say that, instead of a generic "no available model" that leaves
             # the user guessing which of four things to fix.
@@ -3281,7 +3554,7 @@ def _handle_gui_message(
         elif result.get("status") == "confirmation_required":
             answer = (
                 "This needs a paid model. Pick your Claude or Codex account in the model "
-                "menu to run it — OPai won't spend on a paid call automatically."
+                "menu to run it — Vesta won't spend on a paid call automatically."
             )
         elif result.get("status") == "runner_error" or not answer:
             answer = (
@@ -3328,10 +3601,10 @@ def _handle_gui_message(
                     # The other two call sites already pass repo_changed; this
                     # one did not, so an account provider CLI -- which commits
                     # through its own shell and therefore leaves no
-                    # changed_files and no OPai tool_trace entry -- was stamped
+                    # changed_files and no Vesta tool_trace entry -- was stamped
                     # "finished with no changes" after a real, landed commit.
                     _phase_close("warning", "Finished with no changes")
-                    _emit("completed", "warning", "OPai finished with no changes")
+                    _emit("completed", "warning", "Vesta finished with no changes")
                 else:
                     _phase_close("warning", "Verifying completion evidence")
                     _emit("verifying", "warning", "Verifying completion evidence")
@@ -3342,8 +3615,8 @@ def _handle_gui_message(
             if on_text and answer and not result.get("streamed"):
                 on_text(answer)
         else:
-            _phase_close("error", "OPai could not complete locally")
-            _emit("failed", "error", "OPai could not complete locally")
+            _phase_close("error", "Vesta could not complete locally")
+            _emit("failed", "error", "Vesta could not complete locally")
         return _decorate(
             {
                 "status": final_status,
@@ -3401,16 +3674,44 @@ def handle_gui_message(*args: Any, **kwargs: Any) -> dict[str, Any]:
     next on this thread.
     """
 
+    # Out of band on purpose. The journal's id for this turn is what lets the
+    # surface that saves the turn keep it -- the key turn parity joins on
+    # (#818 review finding 4) -- but putting it in the result would change
+    # what the user receives, and the journal is background-only: a turn's
+    # result is byte for byte what the turn produced, journal or no journal.
+    on_journal_run = kwargs.pop("on_journal_run", None)
     token = _JOURNAL_RUN.set(None)
     root = Path(args[0] if args else kwargs["project_root"])
     try:
-        result = _handle_gui_message(*args, **kwargs)
+        authority = kwargs.get("authority_root")
+        scope = (
+            assignment_scope(
+                root,
+                authority,
+                task_id=kwargs.get("task_id"),
+                run_id=kwargs.get("run_id"),
+            )
+            if authority is not None
+            else contextlib.nullcontext()
+        )
+        with scope:
+            result = _handle_gui_message(*args, **kwargs)
+            if authority is not None:
+                result = {
+                    **result,
+                    "objective_cost_events": assignment_cost_events(
+                        authority, kwargs["run_id"]
+                    ),
+                }
     except BaseException as exc:  # noqa: BLE001 - re-raised immediately below
-        _record_turn_ending(root, "failed", type(exc).__name__)
+        _record_turn_ending(root, {"status": "failed", "reason": type(exc).__name__})
         raise
     else:
-        status = str((result or {}).get("status") or "completed")
-        _record_turn_ending(root, status, str((result or {}).get("reason") or ""))
+        # The whole result, not a status defaulted to "completed" when absent:
+        # a turn that returned no status did not thereby succeed (#818: zero
+        # false completion). _journal_ending reads the engine's run_state.
+        _record_turn_ending(root, result)
+        _tell_journal_run(on_journal_run)
         return result
     finally:
         _JOURNAL_RUN.reset(token)

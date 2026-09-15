@@ -1,7 +1,7 @@
 """#613 Stage 2: github_connector's shadow journal, and the secret it must never mirror.
 
 Stage 1 named ``opaihub/github_connector.py`` JOURNAL_OWNED -- "operations:
-GitHub delivery". ``~/.opai/github.json`` records who OPai is connected to and
+GitHub delivery". ``~/.opai/github.json`` records who Vesta is connected to and
 whether the user has consented to pushes and to anonymous public reads, so it
 is a *consent* record in the same family as ``integrations``.
 
@@ -13,7 +13,7 @@ therefore safe *today*.
 
 The validator's job is to keep it safe tomorrow. A journal is append-only and
 nothing prunes it, so a secret written into one outlives disconnects, token
-rotations and ``opai github disconnect`` alike -- and would sit in a second
+rotations and ``vesta github disconnect`` alike -- and would sit in a second
 file with its own permissions that no existing cleanup path knows about. So
 the mirror refuses any record carrying a credential-shaped key rather than
 duplicating it. Refusing to record is the right failure direction here; these

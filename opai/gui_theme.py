@@ -1,6 +1,6 @@
 """App-wide colour theme for the desktop GUI.
 
-The choices are Light, Viber Coder (OPai's original night sky, and the
+The choices are Light, Viber Coder (Vesta's original night sky, and the
 default), Dark (midnight: black and grey, no colour), Vesta (the Vesta logo's
 cream, dusty rose and sky blue), and System, which follows the OS between Light
 and Viber Coder.

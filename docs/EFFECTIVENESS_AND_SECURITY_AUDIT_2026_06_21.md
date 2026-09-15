@@ -1,17 +1,17 @@
-# OPai Effectiveness, Security, And Hosting Audit
+# Vesta Effectiveness, Security, And Hosting Audit
 
 Date: 2026-06-21
 
 Branch: `codex/private-launch-access`
 
 > **Historical record — superseded for launch planning.** This audit describes
-> a pre-free-launch private/paid distribution proposal. OPai's public alpha
+> a pre-free-launch private/paid distribution proposal. Vesta's public alpha
 > launches fully free; do not use its checkout, private-access, or source-
 > restriction recommendations as current release instructions.
 
 ## Executive Result
 
-OPai is effective on its local max benchmark, but it is **not ready to host as a
+Vesta is effective on its local max benchmark, but it is **not ready to host as a
 paid/private product** until access links, Cloudflare auth, and source
 distribution are finalized.
 
@@ -42,7 +42,7 @@ Result:
 | Run id | `bench-127fe09dadfe` |
 | Suite | `max` |
 | Tasks | `16` |
-| OPai effectiveness index | `100.0` |
+| Vesta effectiveness index | `100.0` |
 | Leaderboard grade | `A+` |
 | Context reduction | `50.0x` capped |
 | Paid-call avoidance | `50.0x` capped |
@@ -56,7 +56,7 @@ Result:
 Allowed public claim:
 
 ```text
-OPai reduced context by 50x and avoided 16 paid calls on the 16-task local
+Vesta reduced context by 50x and avoided 16 paid calls on the 16-task local
 benchmark suite.
 ```
 
@@ -91,7 +91,7 @@ Public launch page:
   - `PRIVATE_TEAM_PILOT_APPLY_URL`
   - `PRIVATE_BENCHMARK_PROOF_URL`
 
-Docs now warn that OPai cannot be protected by payments alone if the whole repo
+Docs now warn that Vesta cannot be protected by payments alone if the whole repo
 stays public.
 
 ### Secret Scan
@@ -127,8 +127,8 @@ python -m pip_audit
 Result: fail on the current Python environment, with 43 vulnerabilities across
 15 installed packages.
 
-Important nuance: `pyproject.toml` declares no OPai runtime dependencies, so this
-is an environment/tooling risk rather than a declared OPai dependency risk. Do
+Important nuance: `pyproject.toml` declares no Vesta runtime dependencies, so this
+is an environment/tooling risk rather than a declared Vesta dependency risk. Do
 not ship from this environment without either using a clean release environment
 or upgrading the vulnerable tooling packages.
 
@@ -167,7 +167,7 @@ python -m http.server 8766 --directory site
 
 Playwright results:
 
-- Page title: `OPai - AI Coding Cost Firewall`.
+- Page title: `Vesta - AI Coding Cost Firewall`.
 - Console errors: `0`.
 - Mobile viewport width: `390`.
 - Mobile document scroll width: `390`.
@@ -179,7 +179,7 @@ Playwright results:
 Do not host publicly until the payment/access links are real and the source
 distribution decision is made. The safest next sequence is:
 
-1. Make the repo/package distribution private if OPai should not be copied.
+1. Make the repo/package distribution private if Vesta should not be copied.
 2. Create Lemon Squeezy or Gumroad Founding Pro checkout.
 3. Create private Team Pilot application form.
 4. Create private benchmark proof form.

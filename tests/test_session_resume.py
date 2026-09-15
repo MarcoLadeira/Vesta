@@ -284,7 +284,10 @@ class ThreadPersistenceTests(_ThreadAPI):
             )
 
     def test_assistant_presentation_is_closed_redacted_bounded_and_provider_safe(self):
-        secret = "sk-history-secret-abcdefghijklmnopqrstuvwxyz"
+        # A deliberately fake key -- the alphabet -- used to prove redaction.
+        secret = (
+            "sk-history-secret-abcdefghijklmnopqrstuvwxyz"  # pragma: allowlist secret
+        )
         presentation = {
             "schema_version": 1,
             "run": {
@@ -1142,7 +1145,7 @@ class BootResumeContractTests(_ThreadAPI):
                     task_id="task-313",
                     mode="implement",
                     phase="testing",
-                    message="Tests were running when OPai closed",
+                    message="Tests were running when Vesta closed",
                     checkpoint_id=newest.checkpoint_id,
                     plan_steps=("Persist state", "Run focused tests"),
                     changed_files=("opai/gui_web.py",),
@@ -1251,7 +1254,7 @@ class BootResumeContractTests(_ThreadAPI):
                     checkpoint_id=new.checkpoint_id,
                     mode="implement",
                     phase="implementing",
-                    message="Provider was running when OPai closed",
+                    message="Provider was running when Vesta closed",
                 ),
             )
 
@@ -1266,7 +1269,7 @@ class BootResumeContractTests(_ThreadAPI):
 
 
 class CliResumeParityTests(_ThreadAPI):
-    """`opai resume` reports exactly what the GUI boot offers (#313 parity)."""
+    """`vesta resume` reports exactly what the GUI boot offers (#313 parity)."""
 
     def _run_cli(self, root: Path, *flags: str):
         import contextlib as _ctx
@@ -1303,7 +1306,7 @@ class CliResumeParityTests(_ThreadAPI):
 
     def test_cli_markdown_shows_this_process_as_owner_for_a_running_thread(self):
         # #545: the addendum's "ownership/lease view" -- a second terminal
-        # running `opai resume` while a turn is active (from either surface)
+        # running `vesta resume` while a turn is active (from either surface)
         # can tell "still running, owned right here" from an abandoned one.
         # begin_thread_turn is what actually claims a live lease (#295
         # invariant 4); save_thread always persists an empty one.

@@ -43,7 +43,7 @@ for (const [density, prefs] of Object.entries({
 
 test("rendered design-token preview documents the canonical scales", async ({ page }) => {
   await page.goto("/opai/assets/web/design-tokens-preview.html");
-  await expect(page.getByRole("heading", { name: "OPai web design tokens" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Vesta web design tokens" })).toBeVisible();
   await expect(page.getByText("Body — 14px / 1.5 / regular")).toBeVisible();
   await expect(page.getByLabel("Spacing samples from 4 to 32 pixels")).toBeVisible();
 });

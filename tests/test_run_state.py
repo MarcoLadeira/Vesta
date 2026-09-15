@@ -105,7 +105,7 @@ def test_stopping_work_in_flight_is_acknowledged_before_it_is_confirmed() -> Non
         assert can_transition(start, RunState.CANCEL_REQUESTED), start
     assert can_transition(RunState.CANCEL_REQUESTED, RunState.CANCELLED)
 
-    # ...and where nothing of OPai's is executing, the direct edge remains:
+    # ...and where nothing of Vesta's is executing, the direct edge remains:
     # acknowledging the teardown of nothing is ceremony, not evidence.
     for start in (RunState.QUEUED, RunState.PREPARING, RunState.AWAITING_INPUT):
         assert can_transition(start, RunState.CANCELLED), start

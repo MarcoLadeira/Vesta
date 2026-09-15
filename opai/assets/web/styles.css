@@ -1,8 +1,8 @@
-/* OPai — the cost-aware AI coding cockpit.
+/* Vesta — the cost-aware AI coding cockpit.
    Visual language: Cockpit × Honest Ledger. Deep instrument-panel surfaces,
    glass pods, an emerald money-signal gradient, mono type reserved for truth
    surfaces (commands, receipts, the CLI mirror), and motion that only moves
-   when OPai is genuinely working. Chromium-rendered: real font smoothing,
+   when Vesta is genuinely working. Chromium-rendered: real font smoothing,
    depth, and transitions. */
 
 @font-face {
@@ -127,7 +127,7 @@ code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas
   background: linear-gradient(180deg, transparent, rgba(var(--tint-accent-rgb), 0.14) 30%, transparent 80%);
   pointer-events: none;
 }
-/* OPai Build entry (#276): quieter sibling of New chat. */
+/* Vesta Build entry (#276): quieter sibling of New chat. */
 
 /* Build mode (#276): composer toggle + result card. */
 .build-pill {
@@ -280,10 +280,7 @@ code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas
   border-radius: 8px;
   display: grid;
   place-items: center;
-  background: var(--brand-gradient);
-  box-shadow: 0 3px 16px var(--accent-glow), var(--inset-hi);
   overflow: hidden;
-  padding: var(--space-1);
 }
 .header-logo img {
   width: 100%;
@@ -562,12 +559,6 @@ code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas
   object-fit: contain;
   display: block;
 }
-.empty-mark::after {
-  content: ""; position: absolute; inset: -10px; border-radius: 50%;
-  border: 1px solid rgba(var(--tint-accent-rgb), 0.22);
-  animation: markRing 3.2s var(--ease) infinite;
-}
-@keyframes markRing { 0% { opacity: 0.9; transform: scale(0.92); } 70%, 100% { opacity: 0; transform: scale(1.14); } }
 .empty h1 {
   font-size: clamp(var(--type-title), 4.4vw, var(--type-display)); font-weight: 760; letter-spacing: -0.035em; line-height: 1.08;
   background: linear-gradient(180deg, var(--headline-from) 20%, var(--headline-to) 100%);
@@ -688,7 +679,7 @@ kbd {
 .tool-card .t { font-size: var(--type-caption); font-weight: 700; margin-bottom: var(--space-1); }
 .tool-card pre { font-size: var(--type-caption); color: var(--muted); white-space: pre-wrap; user-select: text; }
 
-/* The receipt strip — OPai's signature footer: torn-edge dashes, mono truth.
+/* The receipt strip — Vesta's signature footer: torn-edge dashes, mono truth.
    Click (or Enter) copies the receipt. */
 .footer-note {
   color: var(--muted); font-size: var(--type-caption); margin-top: var(--space-2); padding-top: var(--space-2);
@@ -1119,7 +1110,7 @@ kbd {
   border-left: 1px solid var(--border);
   padding: var(--space-4) var(--space-4); overflow-y: auto; overflow-x: hidden; min-width: 0;
 }
-.app.panel-hidden .inspector { opacity: 0; pointer-events: none; }
+.app.panel-hidden .inspector { opacity: 0; visibility: hidden; pointer-events: none; padding: 0; border-left-width: 0; overflow: hidden; }
 .sidebar-backdrop { display: none; }
 .insp-title { font-size: var(--type-caption); font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink); position: relative; padding-bottom: var(--space-2); }
 .insp-title::after {
@@ -1658,7 +1649,7 @@ body.ai-working .header-on-dot { animation: pulse 1.3s ease-in-out infinite; }
 .usage-meta { margin-top: var(--space-2); color: var(--faint); font-size: var(--type-caption); }
 .config-repair { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-top: var(--space-3); padding: var(--space-3) var(--space-3); border: 1px solid rgba(var(--tint-repair-rgb), .4); border-radius: var(--r-md); background: rgba(var(--tint-repair-rgb), .06); }
 
-/* ---------- settings redesign (OPai Settings design doc) ---------- */
+/* ---------- settings redesign (Vesta Settings design doc) ---------- */
 /* Per-pane hero: title, one-sentence purpose, honest scope chips. */
 .pane-hero { margin-bottom: var(--space-2); }
 .pane-title { font-size: var(--type-title); font-weight: 750; letter-spacing: -0.026em; }
@@ -1858,7 +1849,7 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
 .usage2-pill.muted { color: var(--muted); }
 /* One consistent headline + subtext + optional bar, for every provider
    regardless of whether the number is a real percentage, a credit amount, or
-   OPai's own tracked count — same size/weight/color, only the tone modifier
+   Vesta's own tracked count — same size/weight/color, only the tone modifier
    (credit/tracked) shifts color, never scale. This is the fix for the two
    states that used to look like different products (a Kimi-style credit
    figure vs. a bare "N calls tracked" line): both are now the same headline. */
@@ -1871,7 +1862,7 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
 /* The progress bar mirrors the Claude reference: rounded, brand-filled. */
 .usage2-track { height: 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
 .usage2-track span { display: block; height: 100%; background: var(--brand-gradient); border-radius: inherit; transition: width 0.3s var(--ease); }
-/* OPai-tracked caption: one consistent small row wherever it appears
+/* Vesta-tracked caption: one consistent small row wherever it appears
    (alongside a real bar or a credit figure) — never the headline itself
    there, so it can never be mistaken for the provider's own number. */
 .usage2-tracked { display: flex; align-items: center; gap: var(--space-2); color: var(--faint); font-size: var(--type-caption); flex-wrap: wrap; }
@@ -2160,7 +2151,7 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
   .header-drag-space { min-width: 0; }
   .header-brand-name, .header-on-dot, .header-divider, #headerSettings { display: none; }
   .header-brand { padding: 0; }
-  .header-logo { width: 26px; height: 26px; padding: var(--space-1); }
+  .header-logo { width: 26px; height: 26px; }
   .topbar-icon { width: 34px; flex-basis: 34px; }
   .topbar-action { width: 34px; padding: 0; }
   .topbar-action .action-label { display: none; }
@@ -2313,15 +2304,11 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
 #ctxPop { left: var(--space-1); }
 #morePop { left: var(--space-1); }
 #modePop, #modelPop { right: 48px; }
-/* The mode menu is a fixed, known list -- four graded modes plus the Bypass
-   switch -- so it should never scroll. At 288px the longest description wrapped
-   to a second line, which both pushed the menu past its max-height and made one
-   row taller than the rest. Sized to fit every description on one line, with the
-   scroll removed so the whole menu is visible at once and evenly spaced. */
 #modePop {
   width: 356px;
-  max-height: none;
-  overflow: visible;
+  max-height: min(640px, calc(100dvh - 160px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 #modePop .cpop-row {
   align-items: center;
@@ -2335,6 +2322,18 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
 #modePop .cpop-meta { margin-left: auto; }
 #modePop .cpop-check { margin-left: var(--space-2); }
 #modePop .cpop-desc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#modePop [data-multi-agent] .cpop-desc,
+#modePop [data-agents-cloud] .cpop-desc,
+#modePop [data-multi-agent] .cpop-title,
+#modePop [data-agents-cloud] .cpop-title {
+  white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere;
+}
+#modePop [data-multi-agent], #modePop [data-agents-cloud] { padding-block: var(--space-3); }
+.cpop-agent-limits { margin: var(--space-1) var(--space-2); border-top: 1px solid var(--border); }
+.cpop-agent-limits > summary { cursor: pointer; padding: var(--space-3) 0; font-size: var(--type-caption); color: var(--muted); }
+.cpop-agent-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-2); margin-bottom: var(--space-3); }
+.cpop-agent-fields label { display: grid; gap: var(--space-1); font-size: var(--type-caption); color: var(--muted); }
+.cpop-agent-fields input, .cpop-agent-fields select { width: 100%; min-width: 0; padding: var(--space-2); color: var(--ink); background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--r-sm); }
 /* The switch reads as a switch: it keeps the caution dot and sits visually
    apart from the graded rows above it. */
 #modePop .cpop-row-switch { margin-top: var(--space-1); }
@@ -2464,7 +2463,7 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
   border-radius: 6px;
   object-fit: cover;
   background: var(--panel);
-  border: 1px solid var(--line);
+  border: 1px solid var(--border);
   flex: 0 0 auto;
 }
 .context-image-name {
@@ -2488,6 +2487,22 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
 .app.settings-active.sidebar-hidden,
 .app.settings-active.sidebar-hidden.panel-hidden {
   grid-template-columns: 0 minmax(0, 1fr) 0;
+}
+.app.settings-active.team-access:is(.team-open, .team-collapsed) {
+  grid-template-columns: 0 minmax(0, 1fr) 0 48px;
+}
+.app.settings-active.team-access.team-open {
+  grid-template-columns: 0 minmax(0, 1fr) 320px 48px;
+}
+@media (max-width: 1180px) {
+  .app.settings-active.team-access:is(.team-open, .team-collapsed) {
+    grid-template-columns: 0 minmax(0, 1fr) 40px;
+  }
+}
+@media (max-width: 700px) {
+  .app.settings-active.team-access:is(.team-open, .team-collapsed) {
+    grid-template-columns: minmax(0, 1fr) 40px;
+  }
 }
 .app.settings-active > .sidebar,
 .app.settings-active > .inspector,
@@ -2519,7 +2534,7 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
   display: grid;
   grid-template-rows: 28px minmax(0, 1fr) 28px;
   width: 22px;
-  padding: 3px;
+  padding: calc(var(--space-1) * .75);
   background: var(--settings-bar-solid);
   border: 1px solid var(--settings-border-strong);
   border-radius: 11px;
@@ -2554,7 +2569,7 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
 .settings-scroll-track {
   position: relative;
   min-height: 0;
-  margin: 2px 1px;
+  margin: calc(var(--space-1) / 2) calc(var(--space-1) / 4);
   background: var(--settings-selection);
   border-radius: 8px;
   box-shadow: inset 0 0 0 1px var(--settings-border);
@@ -2592,14 +2607,14 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
 .settings-search-results::-webkit-scrollbar-track,
 .settings-rail::-webkit-scrollbar-track,
 .pane-chips::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.035);
+  background: var(--glass);
   border-radius: 999px;
 }
 .settings-sidebar::-webkit-scrollbar-thumb,
 .settings-search-results::-webkit-scrollbar-thumb,
 .settings-rail::-webkit-scrollbar-thumb,
 .pane-chips::-webkit-scrollbar-thumb {
-  background: rgba(166, 177, 199, 0.5);
+  background: var(--faint);
   border: 2px solid transparent;
   border-radius: 999px;
   background-clip: padding-box;
@@ -2608,13 +2623,13 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
 .settings-search-results::-webkit-scrollbar-thumb:hover,
 .settings-rail::-webkit-scrollbar-thumb:hover,
 .pane-chips::-webkit-scrollbar-thumb:hover {
-  background: rgba(205, 214, 230, 0.72);
+  background: var(--muted);
   background-clip: padding-box;
 }
 .settings-search-results,
 .settings-rail,
 .pane-chips {
-  scrollbar-color: rgba(166, 177, 199, 0.5) rgba(255, 255, 255, 0.035);
+  scrollbar-color: var(--faint) var(--glass);
   scrollbar-width: thin;
 }
 #settingsPage {
@@ -2635,7 +2650,7 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
   border-right: 1px solid var(--settings-border);
   overflow-x: hidden;
   overflow-y: auto;
-  scrollbar-color: rgba(166, 177, 199, 0.5) rgba(255, 255, 255, 0.035);
+  scrollbar-color: var(--faint) var(--glass);
   scrollbar-gutter: stable;
   scrollbar-width: thin;
 }
@@ -2683,7 +2698,7 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
   width: 1px;
   height: 1px;
   padding: 0;
-  margin: -1px;
+  margin: calc(var(--space-1) / -4);
   overflow: hidden;
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
@@ -2817,7 +2832,7 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
   width: 100%;
   margin: 0 0 var(--space-4);
   border-bottom: 1px solid var(--settings-border);
-  background: rgba(8, 9, 12, 0.94);
+  background: var(--surface);
 }
 .workspace-tab {
   position: relative;
@@ -3094,7 +3109,7 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
     overflow-y: hidden;
     overscroll-behavior-x: contain;
     scroll-padding-inline: var(--space-4);
-    scrollbar-color: rgba(166, 177, 199, 0.5) rgba(255, 255, 255, 0.035);
+    scrollbar-color: var(--faint) var(--glass);
     scrollbar-width: thin;
   }
   .settings-rail-section { display: contents; }
@@ -3134,7 +3149,7 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
     flex-wrap: nowrap;
     padding-bottom: var(--space-1);
     overflow-x: auto;
-    scrollbar-color: rgba(166, 177, 199, 0.5) rgba(255, 255, 255, 0.035);
+    scrollbar-color: var(--faint) var(--glass);
     scrollbar-width: thin;
   }
   .pane-chip { flex: 0 0 auto; }
@@ -3507,14 +3522,14 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
     grid-template-columns: minmax(0, 1fr);
   }
   .app.settings-active .main { grid-column: 1; }
-  #settingsPage { padding-right: calc(var(--space-3) + 20px); }
+  #settingsPage { padding-right: calc(var(--space-3) + var(--space-5)); }
   .settings-page-scrollbar {
     top: 6px;
     right: 4px;
     bottom: 6px;
     grid-template-rows: 24px minmax(0, 1fr) 24px;
     width: 18px;
-    padding: 2px;
+    padding: calc(var(--space-1) / 2);
     border-radius: 9px;
   }
   .settings-scroll-step { height: 24px; }

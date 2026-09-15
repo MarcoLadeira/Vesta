@@ -32,7 +32,7 @@ def _key() -> tuple[Ed25519PrivateKey, str]:
 
 
 def _msix(
-    path: Path, *, name: str = "OPai.Desktop", publisher: str = "CN=OPai"
+    path: Path, *, name: str = "OPai.Desktop", publisher: str = "CN=Vesta"
 ) -> None:
     manifest = (
         '<?xml version="1.0" encoding="utf-8"?>'
@@ -98,7 +98,7 @@ def _artifacts(tmp_path: Path) -> tuple[list[ReleaseArtifact], str]:
             platform="windows",
             architecture="x86_64",
             install_type=InstallType.WINDOWS_MSIX,
-            publisher_identity="CN=OPai",
+            publisher_identity="CN=Vesta",
             package_identity="OPai.Desktop",
             native={"windows_signer_thumbprint": "A" * 40},
         ),
@@ -129,7 +129,7 @@ def _generate(tmp_path: Path, **overrides: object):
         "expires_at": NOW + timedelta(days=7),
         "feed_base_url": "https://updates.example.test/stable",
         "release_id": "v0.3.0",
-        "release_title": "OPai 0.3.0",
+        "release_title": "Vesta 0.3.0",
         "release_notes": "Security and reliability improvements.",
         "release_notes_url": "https://updates.example.test/releases/v0.3.0/notes",
         "metadata_keys": {"root-2": metadata_key},
@@ -185,7 +185,7 @@ def test_generated_manifest_authenticates_for_each_platform(tmp_path: Path):
             architecture="x86_64",
             install_type=InstallType.WINDOWS_MSIX,
             package_identity="OPai.Desktop",
-            publisher_identity="CN=OPai",
+            publisher_identity="CN=Vesta",
         ),
         cohort=1,
         prior_metadata_version=7,
@@ -289,7 +289,7 @@ def test_appinstaller_identity_and_uri_match_manifest_candidate(tmp_path: Path):
     )
 
     assert package.attrib["Name"] == "OPai.Desktop"
-    assert package.attrib["Publisher"] == "CN=OPai"
+    assert package.attrib["Publisher"] == "CN=Vesta"
     assert package.attrib["Uri"].endswith(".msix")
     assert package.attrib["Version"] == "0.3.0.65535"
 

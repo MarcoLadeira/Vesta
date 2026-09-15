@@ -70,7 +70,7 @@ def _write_release_repo(
         f'APPLICATION_VERSION = "{version}"\n'
         'RELEASE_CHANNEL = "alpha"\n'
         f'RELEASE_STAGE = "{stage}"\n'
-        f'DISPLAY_NAME = "OPai {base} Alpha.{alpha}"\n'
+        f'DISPLAY_NAME = "Vesta {base} Alpha.{alpha}"\n'
         f'PUBLISHED_TAG = "v{version}"\n',
         encoding="utf-8",
     )
@@ -98,7 +98,7 @@ def _write_release_repo(
         release, surface="docs/INSTALL_PROOF.md"
     )
     site_identity = render_documentation_projection(release, surface="site/index.html")
-    (root / "README.md").write_text(f"# OPai\n\n{readme_identity}\n", encoding="utf-8")
+    (root / "README.md").write_text(f"# Vesta\n\n{readme_identity}\n", encoding="utf-8")
     (root / "docs").mkdir()
     (root / "docs" / "INSTALL_PROOF.md").write_text(
         f"# Install proof\n\n{install_identity}\n", encoding="utf-8"
@@ -1250,7 +1250,7 @@ class ReportTests(unittest.TestCase):
 
 
 class CliTests(unittest.TestCase):
-    """The `opai release` CLI is the one documented command (#32 AC)."""
+    """The `vesta release` CLI is the one documented command (#32 AC)."""
 
     def _run(self, argv):
         import contextlib

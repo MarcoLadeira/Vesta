@@ -6,7 +6,7 @@
 
 ## Context
 
-OPai has good persistence *primitives* — atomic replacement, interprocess locks,
+Vesta has good persistence *primitives* — atomic replacement, interprocess locks,
 versioned state — and no single ordered history. Trust-critical state lives in
 per-subsystem JSON and JSONL files, each individually plausible.
 
@@ -146,7 +146,7 @@ person said yes, once, to a specific thing, here. Runs and costs survive the
 restore — only authority is refused. Restore also backs up what it replaces,
 so recovery is never the step that destroys the last copy.
 
-Reachable as `opai journal status | backup | backups | restore`.
+Reachable as `vesta journal status | backup | backups | restore`.
 
 ## What did not finish
 
@@ -163,7 +163,7 @@ check whether that process exists, and this store cannot. Two tests pin the
 refusal: a live run and one killed with `os._exit` must look identical, and no
 field may be named "orphaned", "dead" or "crashed".
 
-Reachable as `opai journal pending`, counted in `opai journal status` and
+Reachable as `vesta journal pending`, counted in `vesta journal status` and
 doctor.
 
 ## Minimisation (requirement 9)
@@ -202,4 +202,4 @@ to solve it.
 2. **Restore cannot replace a journal another process holds open.** On Windows
    an open handle blocks the replace. The refusal is the safe outcome and it
    names the real cause (`journal_in_use`) rather than blaming the backup, but
-   a restore still means closing OPai first.
+   a restore still means closing Vesta first.

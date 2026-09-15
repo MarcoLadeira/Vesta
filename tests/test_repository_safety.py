@@ -210,7 +210,7 @@ class UnbornHeadTests(unittest.TestCase):
     Requiring `rev-parse HEAD` to succeed conflated "has history" with "is a Git
     repository". A brand-new project — one of the most common places a user
     starts, and the exact case for "build me an app" — has an unborn HEAD, so
-    every edit-capable run in it was refused with "OPai could not establish and
+    every edit-capable run in it was refused with "Vesta could not establish and
     persist a fresh repository identity": wrong, and nothing the user could act
     on. It also turned `main` red.
     """

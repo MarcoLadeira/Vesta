@@ -39,14 +39,14 @@
       installed: { version: "0.2.1a1", build_id: "test-build", install_type: "portable" },
     },
     brand: {
-      name: "OPai",
+      name: "Vesta",
       tagline: "Every step visible. Every dollar accounted.",
       emptyTitle: "Better. Faster. Cheaper.",
-      composerPlaceholder: "Tell OPai what to build, fix, or explain…",
+      composerPlaceholder: "Tell Vesta what to build, fix, or explain…",
     },
     models: [
-      { id: "account:claude:opus", label: "OPai · Powerful mode", advanced_label: "Claude Opus 4.8 via Anthropic account connector", kind: "account", provider: "claude", badge: "slower · highest · $$$" },
-      { id: "auto", label: "OPai · Auto mode", advanced_label: "Automatic local-first routing", kind: "auto", badge: "" },
+      { id: "account:claude:opus", label: "Vesta · Powerful mode", advanced_label: "Claude Opus 4.8 via Anthropic account connector", kind: "account", provider: "claude", badge: "slower · highest · $$$" },
+      { id: "auto", label: "Vesta · Auto mode", advanced_label: "Automatic local-first routing", kind: "auto", badge: "" },
     ],
     selectedModel: "account:claude:opus",
     modes: [{ id: "ask", label: "Ask" }, { id: "safe-auto", label: "Safe Auto" }],
@@ -55,7 +55,7 @@
     accounts: [{ id: "claude", label: "Claude", connected: true }],
     connections: [],
     modelOverrides: { global: true, path: "~/.opai/models.json", providers: {}, hidden: {}, errors: [] },
-    status: { on: true, line: "OPai · Ask · $0.00 today · $0.00 saved" },
+    status: { on: true, line: "Vesta · Ask · $0.00 today · $0.00 saved" },
     inspector: { rows: [], budget: { pct: 0, text: "$0.00 today" }, permissions: [], privacy: [] },
     defaultView: "chat", initialTask: "", tools: [],
     resume: { available: false, requires_choice: false, thread: {}, workflow: {}, checkpoint: {} },
@@ -74,7 +74,7 @@
     },
     agents: {
       title: "Agent Readiness",
-      subtitle: "Know which launches OPai can capture.",
+      subtitle: "Know which launches Vesta can capture.",
       cards: [{
         title: "Codex", status: "ACTIVE", severity: "success",
         metrics: [
@@ -102,7 +102,7 @@
   }
   var bridge = {
     replyReady: Sig(), buildReady: Sig(), activity: Sig(), activityBatch: Sig(), token: Sig(), toolReady: Sig(), cancelReady: Sig(), workspaceChanged: Sig(), modelsChanged: Sig(), providerLoginReady: Sig(), connectionDoctorReady: Sig(), updateReady: Sig(),
-    dashboardReady: Sig(), settingsReady: Sig(), toolApplied: Sig(), statusReady: Sig(),
+    dashboardReady: Sig(), objectiveReady: Sig(), objectiveControlReady: Sig(), settingsReady: Sig(), toolApplied: Sig(), statusReady: Sig(),
     workspaceReady: Sig(), inspectorReady: Sig(),
     boot: function (cb) { cb(JSON.stringify(boot)); },
     // Round 2: the header's "N uncommitted" badge came from the boot payload
@@ -345,7 +345,8 @@
       }, scenario.doctorDelayMs || 0);
     },
     savePref: function (key, value) { window.__mock.savedPrefs.push([key, value]); },
-    // OPai Build (#276): scaffold an app under the workspace, zero tokens.
+    controlObjective: function (raw) { window.__mock.objectiveControls.push(JSON.parse(raw)); },
+    // Vesta Build (#276): scaffold an app under the workspace, zero tokens.
     scaffoldApp: function (payload, cb) {
       var parsed = {};
       try { parsed = JSON.parse(payload); } catch (_e) { /* keep {} */ }
@@ -454,7 +455,7 @@
                 status: "needs_edit_approval",
                 edit_files: editGate.files,
                 edit_approval: { files: editGate.files },
-                answer: "OPai needs your approval to edit these files.",
+                answer: "Vesta needs your approval to edit these files.",
               },
             }));
           }, editGate.delayMs || 0);
@@ -599,7 +600,7 @@
     deletedProviderKeys: [], providerTests: [], savedUsageLimits: [], codexRepairs: 0,
     freeConsentGrants: [], disconnects: [], diffDecisions: [], providerLogins: [],
     githubConnects: [], githubPushToggles: [], githubDisconnects: 0,
-    dashboardRequests: [], settingsRequests: [], statusRequests: [],
+    dashboardRequests: [], objectiveControls: [], settingsRequests: [], statusRequests: [],
     workspaceRequests: [], inspectorRequests: [],
     updateChecks: [], updateActions: [], updatePolicies: [], interactiveMarks: 0, usageRefreshes: 0,
     modelDiscoveries: 0, savedModelOverrides: [],
@@ -628,6 +629,10 @@
       bridge.token.emit(JSON.stringify(payload));
     },
     emitReply: function (id, result) { bridge.replyReady.emit(JSON.stringify({ requestId: id, result: result })); },
+    emitObjective: function (payload) { bridge.objectiveReady.emit(JSON.stringify(payload)); },
+    emitObjectiveControl: function (payload) { bridge.objectiveControlReady.emit(JSON.stringify(payload)); },
+    emitDashboard: function (payload) { bridge.dashboardReady.emit(JSON.stringify(payload)); },
+    updateDashboard: function (id, data) { dashboards[id] = data; },
     emitProviderLogin: function (id, result) { bridge.providerLoginReady.emit(JSON.stringify({ requestId: id, provider: result.provider, result: result })); },
   };
 })();

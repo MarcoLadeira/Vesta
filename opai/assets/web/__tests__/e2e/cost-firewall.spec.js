@@ -34,7 +34,7 @@ test("budget exceeded is blocked without a fake receipt", async ({ page }) => {
   await expect(page.locator(".footer-note")).toHaveCount(0);
 });
 
-test("panic-mode action delegates to OPai and makes no provider request", async ({ page }) => {
+test("panic-mode action delegates to Vesta and makes no provider request", async ({ page }) => {
   await openNav(page, "Cost Firewall");
   await page.getByRole("button", { name: "Enable panic mode" }).click();
   expect(await page.evaluate(() => window.__mock.runTools)).toEqual(["panic"]);
@@ -44,5 +44,5 @@ test("panic-mode action delegates to OPai and makes no provider request", async 
 test("budget status action exposes the CLI parity command", async ({ page }) => {
   await openNav(page, "Cost Firewall");
   await page.getByRole("button", { name: "Copy budget status" }).click();
-  await expect(page.locator("#toast")).toContainText("opai budget status");
+  await expect(page.locator("#toast")).toContainText("vesta budget status");
 });

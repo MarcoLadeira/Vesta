@@ -578,8 +578,8 @@ class EditIntentHonestyTests(unittest.TestCase):
             )
 
         titles = [str(e.get("title") or "") for e in events]
-        self.assertNotIn("OPai completed", titles)
-        self.assertIn("OPai finished with no changes", titles)
+        self.assertNotIn("Vesta completed", titles)
+        self.assertIn("Vesta finished with no changes", titles)
         completed_events = [e for e in events if e["type"] == "completed"]
         self.assertEqual(completed_events[-1]["status"], "warning")
         self.assertEqual(result["status"], "answered")
@@ -676,8 +676,8 @@ class EditIntentHonestyTests(unittest.TestCase):
                 )
 
         titles = [str(e.get("title") or "") for e in events]
-        self.assertNotIn("OPai completed", titles)
-        self.assertIn("OPai finished with no changes", titles)
+        self.assertNotIn("Vesta completed", titles)
+        self.assertIn("Vesta finished with no changes", titles)
         self.assertEqual(result["completion_note"], "no_changes")
 
 
@@ -685,7 +685,7 @@ class LocalRunRepoMovementIsChangeEvidenceTests(unittest.TestCase):
     """A landed commit must not be reported as "finished with no changes".
 
     Pins the contract on the free/local branch: a change that reached the
-    repository through a shell leaves no ``changed_files`` and no OPai
+    repository through a shell leaves no ``changed_files`` and no Vesta
     ``tool_trace`` entry, so repository movement is the only evidence there is.
 
     Note this passes both with and without the ``repo_changed`` argument added
@@ -745,7 +745,7 @@ class LocalRunRepoMovementIsChangeEvidenceTests(unittest.TestCase):
                 )
 
         titles = [str(e.get("title") or "") for e in events]
-        self.assertNotIn("OPai finished with no changes", titles)
+        self.assertNotIn("Vesta finished with no changes", titles)
         self.assertNotEqual(result.get("completion_note"), "no_changes")
 
 

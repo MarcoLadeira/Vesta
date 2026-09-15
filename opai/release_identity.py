@@ -1,4 +1,4 @@
-"""Canonical OPai application and build identity.
+"""Canonical Vesta application and build identity.
 
 The only human-edited application version lives in ``pyproject.toml``. Runtime
 code imports the generated projection from :mod:`opai._generated_release`, while
@@ -142,7 +142,7 @@ def derive_project_release(version: str) -> ProjectRelease:
         channel = "stable"
         stage = "stable"
         display_stage = ""
-    display_name = f"OPai {base}"
+    display_name = f"Vesta {base}"
     if display_stage:
         display_name = f"{display_name} {display_stage}"
     return ProjectRelease(
@@ -200,7 +200,7 @@ def read_project_release(pyproject_path: Path) -> ProjectRelease:
             ) from exc
     if project.get("name") != "opai":
         raise ReleaseIdentityError(
-            f"canonical version source does not describe OPai: {path}"
+            f"canonical version source does not describe Vesta: {path}"
         )
     return derive_project_release(str(project.get("version") or ""))
 
@@ -243,7 +243,7 @@ def render_documentation_projection(release: ProjectRelease, *, surface: str) ->
         body = (
             f"The current application release is **{release.display_name}** (package\n"
             f"`{release.application_version}`, channel `{release.release_channel}`, "
-            f"canonical tag `{release.published_tag}`). OPai is a local-first\n"
+            f"canonical tag `{release.published_tag}`). Vesta is a local-first\n"
             "AI coding hub that installs into your terminal and AI coding clients so every\n"
             "project gets better routing, safer automation, reusable context, Superpowers\n"
             "skills, MCP-ready registries, testing workflows, GitOps helpers, governance\n"
@@ -251,7 +251,7 @@ def render_documentation_projection(release: ProjectRelease, *, surface: str) ->
         )
     elif surface == "docs/INSTALL_PROOF.md":
         body = (
-            f"- [ ] **CLI resolves.** `opai version` begins with `OPai "
+            f"- [ ] **CLI resolves.** `vesta version` begins with `Vesta "
             f"{release.application_version} {release.release_stage}`\n"
             "      and reports either the exact packaged build SHA or the honest\n"
             "      `development`/`unknown` fallback."
@@ -511,7 +511,7 @@ def safe_identity_payload() -> dict[str, str]:
     return payload
 
 
-def surface_identity_payload(*, brand: str = "OPai") -> dict[str, object]:
+def surface_identity_payload(*, brand: str = "Vesta") -> dict[str, object]:
     """Project one identity onto backward-compatible user/evidence fields."""
 
     from .compatibility import runtime_compatibility_payload
@@ -638,7 +638,7 @@ def validate_artifact_identity(
     return actual
 
 
-def release_version_text(*, brand: str = "OPai") -> str:
+def release_version_text(*, brand: str = "Vesta") -> str:
     """Render a human version string that never hides the exact build identity."""
 
     identity = safe_identity_payload()

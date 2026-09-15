@@ -1,4 +1,4 @@
-# OPai Team & Enterprise Governance
+# Vesta Team & Enterprise Governance
 
 Per the [business strategy](../../docs/BUSINESS_STRATEGY.md), the highest-value
 revenue is **team and enterprise governance**, not solo subscriptions. This is
@@ -14,8 +14,8 @@ A team policy is one file committed to the repo so everyone routes under the
 same rules (unlike per-project state under the gitignored `.opaihub/`):
 
 ```sh
-opai team init --team acme --profile team-safe   # writes opai-team-policy.yaml
-opai team apply                                  # set local policy from it
+vesta team init --team acme --profile team-safe   # writes opai-team-policy.yaml
+vesta team apply                                  # set local policy from it
 ```
 
 `opai-team-policy.yaml` pins the profile, budgets, paid posture, and an optional
@@ -39,15 +39,15 @@ PR cannot merge with a policy drift, an unapproved MCP server, an ungated cloud
 model, or a broken guarded-workflow contract:
 
 ```sh
-opai policy check          # exits 1 on violation
-opai policy check --audit  # also record the result to the audit trail
-opai policy check --require-team-policy  # strict CI: missing team policy fails
+vesta policy check          # exits 1 on violation
+vesta policy check --audit  # also record the result to the audit trail
+vesta policy check --require-team-policy  # strict CI: missing team policy fails
 ```
 
 Example GitHub Actions step:
 
 ```yaml
-- name: OPai governance gate
+- name: Vesta governance gate
   run: python -m opai policy check
 ```
 
@@ -60,10 +60,10 @@ Tail truncation is detected by the local checkpoint head file written beside the
 log.
 
 ```sh
-opai audit log              # recent events
-opai audit status           # counts + chain validity
-opai audit verify           # verify the hash chain (exit 1 if broken)
-opai audit export --out audit.json   # signed bundle for review/compliance
+vesta audit log              # recent events
+vesta audit status           # counts + chain validity
+vesta audit verify           # verify the hash chain (exit 1 if broken)
+vesta audit export --out audit.json   # signed bundle for review/compliance
 ```
 
 The log redacts secrets and stores no raw prompts.
@@ -74,8 +74,8 @@ Guarded-workflow evidence packets can be HMAC-signed and verified, so a reviewer
 knows a packet was not altered after it was produced:
 
 ```sh
-opai guard evidence release_preflight --sign
-opai guard verify .opaihub/evidence/release_preflight.json
+vesta guard evidence release_preflight --sign
+vesta guard verify .opaihub/evidence/release_preflight.json
 ```
 
 Teams share one key out-of-band via `OPAI_SIGNING_KEY` (e.g. a CI secret); solo
@@ -87,12 +87,12 @@ A team lead can answer "who routed what, did it follow policy, what spend was
 avoided, is the audit intact?":
 
 ```sh
-opai team report
+vesta team report
 ```
 
 ## Free Public Alpha coverage
 
-The governance controls implemented in OPai alpha are free: shared local team
+The governance controls implemented in Vesta alpha are free: shared local team
 policy, team reports, audit logs, approved MCP checks, CI policy gates, and
 evidence exports. They have no checkout, licence, or tier requirement.
 

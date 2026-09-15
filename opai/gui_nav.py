@@ -1,4 +1,4 @@
-"""Navigation model for the OPai desktop workspace.
+"""Navigation model for the Vesta desktop workspace.
 
 Qt-free on purpose: the sidebars (web + Qt fallback) render these items and the
 main area is a stack of views keyed by ``id``. Keeping the model here means the

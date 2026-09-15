@@ -155,7 +155,7 @@ class DashboardTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             html = build_opaibench_dashboard(Path(tmp)).read_text(encoding="utf-8")
         self.assertIn("No OPaiBench run recorded yet", html)
-        self.assertIn("opai hub opaibench run", html)
+        self.assertIn("vesta hub opaibench run", html)
 
 
 class CliTests(unittest.TestCase):

@@ -2,7 +2,7 @@
 
 This module accepts only transport observations.  It deliberately does not
 produce completion, cost, authority, or verification truth; those are owned by
-the layers that observe and evaluate an OPai run.
+the layers that observe and evaluate a Vesta run.
 """
 
 from __future__ import annotations

@@ -35,7 +35,9 @@ class ProviderConnectionTests(unittest.TestCase):
             with (
                 mock.patch("opaihub.accounts._which", return_value=None),
                 mock.patch.dict(
-                    "os.environ", {"LOCALAPPDATA": str(local_app_data), "PATH": ""}, clear=False
+                    "os.environ",
+                    {"LOCALAPPDATA": str(local_app_data), "PATH": ""},
+                    clear=False,
                 ),
             ):
                 candidates = accounts._codex_cli_candidates(Path(tmp) / "home")
@@ -55,7 +57,7 @@ class ProviderConnectionTests(unittest.TestCase):
 
         self.assertEqual(connection["authStatus"], "unknown")
         self.assertEqual(connection["credentialSource"], "user_account")
-        self.assertEqual(connection["userFacingName"], "OPai")
+        self.assertEqual(connection["userFacingName"], "Vesta")
         self.assertIn("detected", connection["safeDiagnostic"].lower())
 
     def test_missing_cli_is_misconfigured(self):
@@ -199,9 +201,7 @@ class ProviderConnectionTests(unittest.TestCase):
                     "codex", home=home, run=run, force=True
                 )
             stored = json.loads(
-                (home / ".opai" / "connection_history.json").read_text(
-                    encoding="utf-8"
-                )
+                (home / ".opai" / "connection_history.json").read_text(encoding="utf-8")
             )
 
         self.assertEqual(connection["authStatus"], "connected")
@@ -290,9 +290,7 @@ class ProviderConnectionTests(unittest.TestCase):
         api_key = account_models(accounts=[account], account_types={"codex": "api_key"})
 
         self.assertEqual([option["id"] for option in chatgpt], ["account:codex"])
-        self.assertIn(
-            "account:codex:gpt-5.6-sol", [option["id"] for option in api_key]
-        )
+        self.assertIn("account:codex:gpt-5.6-sol", [option["id"] for option in api_key])
 
     def test_codex_picker_disables_a_known_outdated_cli(self):
         account = {
@@ -581,7 +579,7 @@ class ProviderConnectionTests(unittest.TestCase):
         ):
             options = account_models()
 
-        # Labels now use provider-prefixed format, not OPai generic labels
+        # Labels now use provider-prefixed format, not Vesta generic labels
         self.assertTrue(
             all(option["label"].startswith("Claude ·") for option in options),
             f"Expected all labels to start with 'Claude ·', got: {[o['label'] for o in options]}",

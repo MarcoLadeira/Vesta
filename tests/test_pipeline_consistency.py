@@ -79,7 +79,7 @@ class TransientRetryPipelineTests(unittest.TestCase):
         "status": "runner_error",
         "error": {
             "code": "PROVIDER_UNAVAILABLE",
-            "title": "OPai could not reach this provider.",
+            "title": "Vesta could not reach this provider.",
             "userMessage": "The provider is unavailable.",
             "provider": "gemini",
             "retryable": True,
@@ -215,7 +215,7 @@ class GovernedLanePipelineTests(unittest.TestCase):
         "status": "runner_error",
         "error": {
             "code": "PROVIDER_UNAVAILABLE",
-            "title": "OPai could not reach this provider.",
+            "title": "Vesta could not reach this provider.",
             "userMessage": "The provider is unavailable.",
             "provider": "gemini",
             "retryable": True,

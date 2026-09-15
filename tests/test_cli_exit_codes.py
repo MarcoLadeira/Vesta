@@ -8,7 +8,7 @@ could not tell:
 - `blocked` — a refusal that retrying will hit again, from
 - `partial` — work that actually landed but could not be fully verified.
 
-"It failed" was the only thing automation could learn, which makes OPai unusable
+"It failed" was the only thing automation could learn, which makes Vesta unusable
 in the CI and scripted flows it is meant to serve.
 
 The mapping lives in `run_state` beside the states themselves, so the CLI cannot
@@ -41,7 +41,7 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(len(codes), len(set(codes)))
 
     def test_success_is_zero_and_nothing_else_is(self) -> None:
-        # Keeps the ordinary idiom working: `if ! opai ask ...` behaves exactly
+        # Keeps the ordinary idiom working: `if ! vesta ask ...` behaves exactly
         # as it did before this contract existed.
         self.assertEqual(exit_code_for(RunState.COMPLETED), 0)
         for state in TERMINAL_STATES - {RunState.COMPLETED}:

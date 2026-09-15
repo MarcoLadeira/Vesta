@@ -1,4 +1,4 @@
-"""Standard-library startup boundary for every OPai application entry point.
+"""Standard-library startup boundary for every Vesta application entry point.
 
 Nothing in this module imports the CLI, runtime, YAML parser, or Qt at module
 load time.  That is deliberate: startup failures must name the missing layer
@@ -110,6 +110,16 @@ def _packaged_runtime() -> bool:
     return bool(getattr(sys, "frozen", False) or "__compiled__" in globals())
 
 
+def _runtime_executable() -> str:
+    """Resolve the executable which understands Vesta's internal entry points."""
+    # Nuitka standalone sets sys.executable to an unshipped python.exe unless
+    # its multiprocessing plugin changes it. Its argv[0] is the native entry.
+    # Normal Python and PyInstaller retain their interpreter/bootloader path.
+    if "__compiled__" in globals():
+        return str(Path(sys.argv[0]).resolve())
+    return sys.executable
+
+
 def _embedded_build_exists(root: Path) -> bool:
     return any(
         candidate.is_file() and not candidate.is_symlink()
@@ -125,7 +135,7 @@ def _repair_command(mode: str, *, desktop: bool = False) -> str:
         suffix = '".[desktop-gui]"' if desktop else "."
         return f"Run `python -m pip install -e {suffix}` and retry."
     if mode == "packaged_application":
-        return "Reinstall OPai from the signed desktop package, then retry."
+        return "Reinstall Vesta from the signed desktop package, then retry."
     return (
         "Run `python -m pip install --force-reinstall "
         f'"opai=={APPLICATION_VERSION}"` and retry.'
@@ -158,7 +168,7 @@ def detect_startup_context(
                     category="package_metadata_unavailable",
                     component="opai-distribution-metadata",
                     message=(
-                        "This packaged OPai payload is missing its installed "
+                        "This packaged Vesta payload is missing its installed "
                         "distribution metadata."
                     ),
                     remediation=_repair_command(mode),
@@ -169,7 +179,7 @@ def detect_startup_context(
             raise BootstrapFailure(
                 category="package_metadata_unavailable",
                 component="opai-distribution-metadata",
-                message="OPai package metadata is unreadable.",
+                message="Vesta package metadata is unreadable.",
                 remediation=_repair_command("installed_distribution"),
                 startup_mode="unknown",
             ) from exc
@@ -185,7 +195,7 @@ def detect_startup_context(
             category="unsupported_startup_mode",
             component="raw-source-invocation",
             message=(
-                "This OPai source copy has neither an editable checkout marker nor "
+                "This Vesta source copy has neither an editable checkout marker nor "
                 "installed package metadata."
             ),
             remediation=(
@@ -203,7 +213,7 @@ def detect_startup_context(
             category="package_integrity_failure",
             component="opai-distribution-metadata",
             message=(
-                f"Installed metadata reports OPai {distribution_version}, but the "
+                f"Installed metadata reports Vesta {distribution_version}, but the "
                 f"runtime reports {APPLICATION_VERSION}."
             ),
             remediation=_repair_command(mode),
@@ -256,11 +266,11 @@ def _validate_persisted_project_schema(
             category="incompatible_schema",
             component="project-state",
             message=(
-                f"Runtime project schema {observed} is newer than this OPai build "
+                f"Runtime project schema {observed} is newer than this Vesta build "
                 f"supports ({supported})."
             ),
             remediation=(
-                "Use the newer OPai version that wrote this project state, or restore "
+                "Use the newer Vesta version that wrote this project state, or restore "
                 "a compatible project-state backup before retrying."
             ),
             startup_mode=startup_mode,
@@ -313,7 +323,7 @@ def preflight_startup(
             raise BootstrapFailure(
                 category="missing_dependency",
                 component=missing.component,
-                message=f"OPai requires {missing.component} before {missing.purpose}.",
+                message=f"Vesta requires {missing.component} before {missing.purpose}.",
                 remediation=_repair_command(context.startup_mode, desktop=desktop),
                 startup_mode=context.startup_mode,
             )
@@ -337,7 +347,7 @@ def preflight_startup(
                 raise AssetIntegrityError(
                     "package_integrity_failure",
                     "compatibility-identity",
-                    "packaged compatibility identity is missing; reinstall OPai",
+                    "packaged compatibility identity is missing; reinstall Vesta",
                 )
             validate_runtime_compatibility(compatibility)
         _validate_persisted_project_schema(
@@ -354,11 +364,11 @@ def preflight_startup(
             )
     except AssetIntegrityError as exc:
         message = {
-            "missing_packaged_asset": "Required packaged OPai assets are missing.",
+            "missing_packaged_asset": "Required packaged Vesta assets are missing.",
             "package_integrity_failure": (
-                "Packaged OPai assets or identity metadata failed integrity validation."
+                "Packaged Vesta assets or identity metadata failed integrity validation."
             ),
-        }.get(exc.code, "Packaged OPai integrity validation failed.")
+        }.get(exc.code, "Packaged Vesta integrity validation failed.")
         raise BootstrapFailure(
             category=exc.code,
             component=exc.component,
@@ -423,7 +433,7 @@ def _emit_failure(
         print(json.dumps(failure.to_dict(), sort_keys=True), file=stdout)
         return
     print(
-        f"OPai startup failed [{failure.category}] ({failure.component}).\n"
+        f"Vesta startup failed [{failure.category}] ({failure.component}).\n"
         f"{failure.message}\n{failure.remediation}",
         file=stderr,
     )
@@ -437,13 +447,13 @@ def _desktop_failure_dialog(failure: BootstrapFailure) -> None:
         if sys.platform.startswith("win"):
             import ctypes
 
-            ctypes.windll.user32.MessageBoxW(0, text, "OPai could not start", 0x10)
+            ctypes.windll.user32.MessageBoxW(0, text, "Vesta could not start", 0x10)
             return
         if sys.platform == "darwin":
             script = (
                 "display dialog "
                 + json.dumps(text)
-                + ' with title "OPai could not start" buttons {"OK"} '
+                + ' with title "Vesta could not start" buttons {"OK"} '
                 'default button "OK" with icon stop'
             )
             subprocess.run(  # nosec B603 - fixed system executable and safe text
@@ -458,7 +468,7 @@ def _desktop_failure_dialog(failure: BootstrapFailure) -> None:
 
         root = tkinter.Tk()
         root.withdraw()
-        messagebox.showerror("OPai could not start", text, parent=root)
+        messagebox.showerror("Vesta could not start", text, parent=root)
         root.destroy()
     except Exception:
         # stderr emission remains the portable fallback; startup diagnostics
@@ -473,9 +483,9 @@ def _module_failure(exc: BaseException, mode: str) -> BootstrapFailure | None:
         return BootstrapFailure(
             category="malformed_user_configuration",
             component="user-configuration",
-            message="OPai could not parse a user configuration file.",
+            message="Vesta could not parse a user configuration file.",
             remediation=(
-                "Run `opai doctor`, repair the reported configuration file, and retry."
+                "Run `vesta doctor`, repair the reported configuration file, and retry."
             ),
             startup_mode=mode,
         )
@@ -490,9 +500,9 @@ def _module_failure(exc: BaseException, mode: str) -> BootstrapFailure | None:
         return BootstrapFailure(
             category="malformed_user_configuration",
             component="user-configuration",
-            message="OPai could not parse a user registry configuration file.",
+            message="Vesta could not parse a user registry configuration file.",
             remediation=(
-                "Run `opai doctor`, repair the reported configuration file, and retry."
+                "Run `vesta doctor`, repair the reported configuration file, and retry."
             ),
             startup_mode=mode,
         )
@@ -500,7 +510,7 @@ def _module_failure(exc: BaseException, mode: str) -> BootstrapFailure | None:
         return BootstrapFailure(
             category="package_metadata_unavailable",
             component="opai-distribution-metadata",
-            message="OPai package metadata is unavailable.",
+            message="Vesta package metadata is unavailable.",
             remediation=_repair_command(mode),
             startup_mode=mode,
         )
@@ -515,7 +525,7 @@ def _module_failure(exc: BaseException, mode: str) -> BootstrapFailure | None:
             return BootstrapFailure(
                 category="missing_dependency",
                 component=dependency,
-                message=f"OPai requires {dependency} before startup can continue.",
+                message=f"Vesta requires {dependency} before startup can continue.",
                 remediation=_repair_command(mode, desktop=dependency == "PySide6"),
                 startup_mode=mode,
             )
@@ -538,8 +548,18 @@ def _run(
     validate_integrity: bool = True,
 ) -> int:
     try:
-        needs_desktop = (desktop or _gui_requested(arguments)) and (
-            "--once" not in arguments
+        internal_entries = {
+            "--opai-objective-worker": ("opaihub.objective_worker", "main"),
+            "--opai-objective-guardian": ("opaihub.objective_guardian", "main"),
+            "--opai-objective-child": ("opaihub.objective_guardian", "child_main"),
+        }
+        objective_worker = bool(arguments and arguments[0] in internal_entries)
+        if objective_worker and len(arguments) != 3:
+            return 2
+        needs_desktop = (
+            not objective_worker
+            and (desktop or _gui_requested(arguments))
+            and ("--once" not in arguments)
         )
         context = preflight_startup(
             arguments,
@@ -563,6 +583,10 @@ def _run(
             else:
                 print(release_version_text(), file=stdout)
             return 0
+        if objective_worker:
+            module_name, entrypoint = internal_entries[arguments[0]]
+            module = importer(module_name)
+            return int(getattr(module, entrypoint)(arguments[1:]))
         module = importer("opai.cli")
         if desktop:
             return int(module.gui_main())  # type: ignore[attr-defined]

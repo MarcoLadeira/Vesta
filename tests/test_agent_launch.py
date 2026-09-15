@@ -310,7 +310,7 @@ class PowerShellWrapperE2ETests(unittest.TestCase):
 
         self.assertEqual(proc.returncode, 7, proc.stderr)
         self.assertIn("RAW:--output-format json -p private-wrapper-prompt", proc.stdout)
-        self.assertNotIn("Using OPai", proc.stdout)
+        self.assertNotIn("Using Vesta", proc.stdout)
         persisted = str(read_events(self.root))
         self.assertNotIn("private-wrapper-prompt", persisted)
         self.assertEqual(_capture_events(self.root)[0]["outcome"], "passthrough")

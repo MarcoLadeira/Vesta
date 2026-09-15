@@ -415,7 +415,7 @@ class SchemaAndContractTests(unittest.TestCase):
         self.assertIn("do not claim edits are not permitted", contract)
         # Push disabled -> the model is told BOTH gates (token + consent) and
         # pointed at the control a GUI user can actually see. Round 2: the old
-        # text named CLI commands (`opai github allow-push on`) to a GUI-only
+        # text named CLI commands (`vesta github allow-push on`) to a GUI-only
         # user, who then invented their own plausible-sounding Settings path.
         # The contract now dictates the exact wording and forbids improvising.
         self.assertIn("Providers & Connections", contract)
@@ -442,7 +442,7 @@ class SchemaAndContractTests(unittest.TestCase):
 class GuardDecisionAuditTests(unittest.TestCase):
     """A live tool call leaves a real audit-trail entry, not just a return
     value (#546). Before this, opaihub.audit's tamper-evident chain only
-    recorded entries from the manual `opai guard` CLI command -- an actual
+    recorded entries from the manual `vesta guard` CLI command -- an actual
     autonomous run's own decisions left no trace at all."""
 
     def test_a_permitted_write_is_recorded_as_guard_allow(self):

@@ -607,7 +607,34 @@ class BootPayloadTests(unittest.TestCase):
         # read-only Ask run doesn't clutter the panel with it.
         from opai.gui_web import _github_row_value, _inspector
 
-        self.assertEqual(_github_row_value({"ready": True}), "Ready to push & open PRs")
+        # #818: "ready" used to mean `bool(token)` and rendered as a promise
+        # about the future. An expired, revoked, wrong-scope or mistyped token
+        # produced the identical line, and the user found out after a run had
+        # done all the work. The promise is now only made when a live check
+        # actually said so.
+        self.assertEqual(
+            _github_row_value(
+                {"ready": True, "verification": "valid", "verification_fresh": True}
+            ),
+            "Ready to push & open PRs",
+        )
+        self.assertIn(
+            "not verified",
+            _github_row_value({"ready": True, "verification": "unknown"}),
+        )
+        self.assertIn(
+            "not verified",
+            _github_row_value({"ready": True}),
+            "a caller that says nothing about verification has not verified anything",
+        )
+        self.assertIn(
+            "rejected",
+            _github_row_value({"ready": True, "verification": "rejected"}),
+        )
+        self.assertIn(
+            "reach GitHub",
+            _github_row_value({"ready": True, "verification": "unreachable"}),
+        )
         self.assertIn(
             "token", _github_row_value({"ready": False, "reason": "no_token"})
         )
@@ -1375,5 +1402,439 @@ class RuntimeIndexUrlTests(unittest.TestCase):
             self.assertEqual(Path(url.toLocalFile()).name, "index.html")
 
 
+class AnUnreadableLedgerIsNotZeroSpendTests(unittest.TestCase):
+    """#818: "unknown cost is never represented as zero".
+
+    ``gui_web._status`` wraps the whole ledger read in a bare ``except`` and
+    used to substitute ``0.0``. Every way that read can fail -- a corrupt
+    ledger, a permissions error, a partially-written overview cache -- landed
+    on the same confident "$0.00 today" in the header, which is the most
+    reassuring possible way to be wrong about money.
+    """
+
+    def _status_with_a_broken_ledger(self):
+        from opai import gui_web
+
+        with mock.patch.object(
+            gui_web, "cached_overview", side_effect=OSError("ledger unreadable")
+        ):
+            return gui_web._status(Path("."), "Sonnet", "Ask")
+
+    def test_a_failed_read_reports_no_number_rather_than_zero(self):
+        status = self._status_with_a_broken_ledger()
+
+        self.assertIsNone(status["spent"])
+        self.assertIsNone(status["saved"])
+
+    def test_the_header_line_says_so_instead_of_showing_zero_dollars(self):
+        from opai.gui_controls import UNKNOWN_SPEND
+
+        line = self._status_with_a_broken_ledger()["line"]
+
+        self.assertIn(UNKNOWN_SPEND, line)
+        self.assertNotIn("$0.00", line)
+
+    def test_a_working_ledger_is_unaffected(self):
+        """The guard must not make a real zero unreportable."""
+
+        from opai import gui_web
+
+        with (
+            mock.patch.object(
+                gui_web,
+                "cached_overview",
+                return_value={"on": True, "savings": {"estimated_savings_usd": 0.0}},
+            ),
+            mock.patch.object(
+                gui_web.A,
+                "inspector_state",
+                return_value={"budget": {"spent_today": 0.0}},
+            ),
+        ):
+            status = gui_web._status(Path("."), "Sonnet", "Ask")
+
+        self.assertEqual(status["spent"], 0.0)
+        self.assertIn("$0.00 today", status["line"])
+
+
+class TheLedgersOwnCompletenessJudgementReachesTheHeaderTests(unittest.TestCase):
+    """`inspector_state` must not drop what `budget_status` measured.
+
+    The chain is `budget_status` -> `app_state.inspector_state` ->
+    `gui_web._status` -> `header_status`. The judgement was computed at one end
+    and thrown away at the second link, which is why every surface after it
+    presented a lower bound as a complete figure.
+    """
+
+    def test_a_partial_total_survives_the_whole_chain(self):
+        from opai import gui_web
+
+        with (
+            mock.patch.object(
+                gui_web,
+                "cached_overview",
+                return_value={"on": True, "savings": {"estimated_savings_usd": 0.0}},
+            ),
+            mock.patch.object(
+                gui_web.A,
+                "inspector_state",
+                return_value={"budget": {"spent_today": 2.5, "spend_complete": False}},
+            ),
+        ):
+            status = gui_web._status(Path("."), "Sonnet", "Ask")
+
+        self.assertIn("at least $2.50 today", status["line"])
+
+    def test_a_complete_total_is_not_hedged(self):
+        from opai import gui_web
+
+        with (
+            mock.patch.object(
+                gui_web,
+                "cached_overview",
+                return_value={"on": True, "savings": {"estimated_savings_usd": 0.0}},
+            ),
+            mock.patch.object(
+                gui_web.A,
+                "inspector_state",
+                return_value={"budget": {"spent_today": 2.5, "spend_complete": True}},
+            ),
+        ):
+            status = gui_web._status(Path("."), "Sonnet", "Ask")
+
+        self.assertIn("$2.50 today", status["line"])
+        self.assertNotIn("at least", status["line"])
+
+    def test_inspector_state_publishes_what_the_ledger_measured(self):
+        """Read against a real project rather than a mock, so a renamed key in
+        `budget_status` breaks this instead of passing silently."""
+
+        from opai.app_state import inspector_state
+
+        with tempfile.TemporaryDirectory() as tmp:
+            budget = inspector_state(Path(tmp))["budget"]
+
+        self.assertIn("spend_complete", budget)
+        self.assertIn("unpriced_calls_today", budget)
+        self.assertIn("abandoned_calls_today", budget)
+
+    def _inspector_with_ledger(self, status):
+        """`inspector_state` against a ledger that reports what we say.
+
+        `budget_status` is imported inside the function, so the patch has to
+        land on `opaihub.budget`, not on a name bound in `app_state`.
+        """
+
+        import opaihub.budget
+        from opai.app_state import inspector_state
+
+        with (
+            mock.patch.object(opaihub.budget, "budget_status", return_value=status),
+            tempfile.TemporaryDirectory() as tmp,
+        ):
+            return inspector_state(Path(tmp))["budget"]
+
+    def _ledger(
+        self,
+        *,
+        complete,
+        complete_today=None,
+        unpriced=0,
+        abandoned=0,
+        spent=2.5,
+        cap=None,
+    ):
+        completeness = {
+            "complete": complete,
+            "unpriced_calls_today": unpriced,
+            "abandoned_calls_today": abandoned,
+            "unaccounted_calls": 0,
+        }
+        if complete_today is not None:
+            completeness["complete_today"] = complete_today
+        return {
+            "caps": {"daily_usd_limit": cap},
+            "spent": {"today_usd": spent},
+            "panic": False,
+            "spend_completeness": completeness,
+        }
+
+    def test_todays_figure_is_qualified_by_todays_facts_not_all_time(self):
+        """#818. `complete` is deliberately all-time, so one unreconciled call
+        from three weeks ago would hedge today's number forever -- and a hedge
+        that can never clear is one nobody reads. Observed in the running app:
+        "at least $0.00 today" on a day with no calls at all."""
+
+        budget = self._inspector_with_ledger(
+            self._ledger(complete=False, complete_today=True)
+        )
+
+        self.assertTrue(budget["spend_complete"])
+        self.assertNotIn("at least", budget["text"])
+
+    def test_a_day_that_is_itself_incomplete_is_still_marked(self):
+        """The narrowing must not switch the warning off altogether."""
+
+        budget = self._inspector_with_ledger(
+            self._ledger(complete=False, complete_today=False)
+        )
+
+        self.assertFalse(budget["spend_complete"])
+        self.assertIn("at least", budget["text"])
+
+    def test_a_ledger_without_the_narrower_key_falls_back(self):
+        """An older ledger payload must not start reporting every day as
+        complete just because it cannot answer the narrower question."""
+
+        budget = self._inspector_with_ledger(self._ledger(complete=False))
+
+        self.assertFalse(budget["spend_complete"])
+
+    def test_a_ledger_that_says_partial_is_carried_not_discarded(self):
+        """The link that was dropping it. Two sabotages -- hardcoding
+        `complete = True` here, and publishing `True` downstream -- survived
+        every other test in this file, because a fresh project's ledger is
+        complete anyway and the assertions only checked that keys existed."""
+
+        budget = self._inspector_with_ledger(self._ledger(complete=False, unpriced=3))
+
+        self.assertFalse(budget["spend_complete"])
+        self.assertEqual(budget["unpriced_calls_today"], 3)
+        self.assertIn("at least $2.50", budget["text"])
+
+    def test_a_ledger_that_says_complete_is_not_hedged(self):
+        budget = self._inspector_with_ledger(self._ledger(complete=True))
+
+        self.assertTrue(budget["spend_complete"])
+        self.assertNotIn("at least", budget["text"])
+
+    def test_a_partial_total_is_marked_against_a_cap_too(self):
+        budget = self._inspector_with_ledger(
+            self._ledger(complete=False, abandoned=2, cap=10.0)
+        )
+
+        self.assertEqual(budget["text"], "at least $2.50 / $10.00 today")
+        self.assertEqual(budget["abandoned_calls_today"], 2)
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+class AVerdictIsAboutOneTokenTests(unittest.TestCase):
+    """#818 review finding 9: a verdict outlived the token it was about."""
+
+    def setUp(self) -> None:
+        from opaihub import github_connector
+
+        self.gc = github_connector
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        patcher = mock.patch.object(
+            github_connector, "_config_path", lambda: Path(self._tmp.name) / "g.json"
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_a_check_of_another_token_says_nothing_about_this_one(self):
+        self.gc.record_verification({"authStatus": "connected"}, token="old")
+
+        found = self.gc.last_verification("new")
+
+        self.assertEqual(found["status"], self.gc.VERIFICATION_UNKNOWN)
+        self.assertFalse(found["fresh"])
+
+    def test_reconnecting_with_a_good_token_clears_a_stale_rejection(self):
+        self.gc.record_verification({"authStatus": "invalid"}, token="bad")
+        with mock.patch.object(self.gc, "CredentialStore") as store:
+            store.return_value.set.return_value = None
+            result = self.gc.connect_github(
+                "good", http=lambda *a, **k: (200, {"login": "someone"})
+            )
+
+        self.assertTrue(result["connected"])
+        found = self.gc.last_verification("good")
+        self.assertEqual(found["status"], self.gc.VERIFICATION_VALID)
+
+    def test_a_rejected_connect_does_not_touch_the_stored_verdict(self):
+        self.gc.record_verification({"authStatus": "connected"}, token="good")
+
+        self.gc.connect_github("typo", http=lambda *a, **k: (401, {}))
+
+        self.assertEqual(
+            self.gc.last_verification("good")["status"], self.gc.VERIFICATION_VALID
+        )
+
+    def test_disconnecting_forgets_the_verdict(self):
+        self.gc.record_verification({"authStatus": "connected"}, token="good")
+        with mock.patch.object(self.gc, "CredentialStore"):
+            self.gc.disconnect_github()
+
+        self.assertEqual(
+            self.gc.last_verification("good")["status"], self.gc.VERIFICATION_UNKNOWN
+        )
+
+    def test_a_verdict_from_before_checks_named_their_token_is_unknown(self):
+        path = Path(self._tmp.name) / "g.json"
+        path.write_text(
+            json.dumps({"verification_status": "valid", "verified_at": 1}),
+            encoding="utf-8",
+        )
+
+        self.assertEqual(
+            self.gc.last_verification("any")["status"], self.gc.VERIFICATION_UNKNOWN
+        )
+
+    def test_an_old_valid_check_is_not_rendered_as_ready(self):
+        from opai.gui_web import _github_row_value
+
+        row = _github_row_value(
+            {"ready": True, "verification": "valid", "verification_fresh": False}
+        )
+
+        self.assertNotIn("Ready", row)
+        self.assertIn("over a day ago", row)
+
+
+class GithubReadinessCitesACheckTests(unittest.TestCase):
+    """#818: a claim about the future needs something behind it.
+
+    `github_readiness` computed `connected = bool(token)` -- the presence of a
+    string -- and the inspector rendered that as "Ready to push & open PRs".
+    An expired, revoked, wrong-scope or mistyped token is the same string to a
+    presence check.
+
+    Vesta already knew how to check: `verify_github_connection` calls /user and
+    returns a real verdict. It was wired to one button in the Connection
+    Doctor, its result was never persisted, and the readiness row never
+    consulted it. The check answered a dialog and was forgotten.
+    """
+
+    def test_a_verdict_is_remembered_so_a_later_claim_can_cite_it(self):
+        from opaihub import github_connector
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(
+                github_connector, "_config_path", lambda: Path(tmp) / "github.json"
+            ):
+                github_connector.record_verification(
+                    {"authStatus": "connected", "login": "someone"}, token="t0ken"
+                )
+                found = github_connector.last_verification("t0ken")
+
+        self.assertEqual(found["status"], github_connector.VERIFICATION_VALID)
+        self.assertEqual(found["login"], "someone")
+        self.assertTrue(found["fresh"])
+
+    def test_a_rejection_is_remembered_too(self):
+        from opaihub import github_connector
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(
+                github_connector, "_config_path", lambda: Path(tmp) / "github.json"
+            ):
+                github_connector.record_verification(
+                    {"authStatus": "invalid"}, token="t0ken"
+                )
+                found = github_connector.last_verification("t0ken")
+
+        self.assertEqual(found["status"], github_connector.VERIFICATION_REJECTED)
+
+    def test_never_checked_reads_as_unknown_not_as_valid(self):
+        from opaihub import github_connector
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(
+                github_connector, "_config_path", lambda: Path(tmp) / "github.json"
+            ):
+                found = github_connector.last_verification("t0ken")
+
+        self.assertEqual(found["status"], github_connector.VERIFICATION_UNKNOWN)
+        self.assertFalse(found["fresh"])
+        self.assertEqual(found["checked_at"], 0)
+
+    def test_the_stored_verdict_never_contains_a_credential(self):
+        """The config's shadow journal refuses credential-shaped keys.
+
+        A secret written into an append-only journal survives disconnects,
+        rotations and `vesta github disconnect` alike, so the record has to
+        stay clear of anything that looks like one.
+        """
+
+        from opaihub import github_connector
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "github.json"
+            with mock.patch.object(github_connector, "_config_path", lambda: path):
+                github_connector.record_verification(
+                    {"authStatus": "connected", "login": "someone"},
+                    token="ghp_" + "a" * 36,
+                )
+                stored = json.loads(path.read_text(encoding="utf-8"))
+
+        self.assertTrue(stored)
+        self.assertNotIn("a" * 36, json.dumps(stored), "the token itself was stored")
+        for key in stored:
+            self.assertFalse(
+                github_connector._looks_like_a_credential(key),
+                f"{key!r} would be refused by the config's own credential guard",
+            )
+
+    def test_every_exit_of_the_live_check_is_recorded(self):
+        """Five exits, and hooking them one at a time misses the sixth.
+
+        The wrapper records once, by construction -- the same reasoning
+        `gui_pipeline.handle_gui_message` uses for its terminal event.
+        """
+
+        from opaihub import github_connector
+
+        cases = [
+            (200, {"login": "someone"}, github_connector.VERIFICATION_VALID),
+            (401, {}, github_connector.VERIFICATION_REJECTED),
+            (500, {}, github_connector.VERIFICATION_UNREACHABLE),
+        ]
+        for status_code, body, expected in cases:
+            with self.subTest(status=status_code):
+                with tempfile.TemporaryDirectory() as tmp:
+                    with (
+                        mock.patch.object(
+                            github_connector,
+                            "_config_path",
+                            lambda: Path(tmp) / "github.json",
+                        ),
+                        mock.patch.object(
+                            github_connector,
+                            "stored_github_token",
+                            lambda: ("t0ken", "keychain"),
+                        ),
+                    ):
+                        github_connector.verify_github_connection(
+                            http=lambda *a, **k: (status_code, body)
+                        )
+                        found = github_connector.last_verification("t0ken")
+
+                self.assertEqual(found["status"], expected)
+
+    def test_readiness_carries_the_verdict_to_whoever_renders_it(self):
+        from opaihub import github_connector
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                mock.patch.object(
+                    github_connector, "_config_path", lambda: Path(tmp) / "github.json"
+                ),
+                mock.patch.object(
+                    github_connector,
+                    "stored_github_token",
+                    lambda: ("t0ken", "keychain"),
+                ),
+            ):
+                github_connector.record_verification(
+                    {"authStatus": "connected"}, token="t0ken"
+                )
+                readiness = github_connector.github_readiness()
+
+        self.assertIn("verification", readiness)
+        self.assertEqual(readiness["verification"], github_connector.VERIFICATION_VALID)
+        self.assertTrue(readiness["verification_fresh"])

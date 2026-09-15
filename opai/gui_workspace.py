@@ -27,10 +27,10 @@ def is_valid_workspace(path: str | Path) -> bool:
 
 
 def resolve_gui_workspace(path: str | Path) -> Path:
-    """Resolve a selected folder without swallowing a nested OPai Build app.
+    """Resolve a selected folder without swallowing a nested Vesta Build app.
 
     Ordinary folders keep the existing active-repository behaviour: selecting
-    somewhere inside a Git worktree opens that worktree.  A scaffolded OPai
+    somewhere inside a Git worktree opens that worktree.  A scaffolded Vesta
     Build app is intentionally its own workspace, even when it was created
     inside a parent repository, because Build mode and its per-app history live
     at that exact directory.

@@ -6,7 +6,7 @@ governed state rather than a side effect of how a request happened to be worded.
 
 The failure this attacks is *message-shape variance* — semantically similar
 requests succeeding or failing depending on wording, length, or which provider
-happened to pick them up. OPai already classified intent (`agent_policy`) and
+happened to pick them up. Vesta already classified intent (`agent_policy`) and
 task type (`model_intelligence.classify_task`) and ordered providers by cost and
 reliability (`auto_router`), but nothing bound those into a single decision, and
 nothing said which runtime *policies* followed from it. The result was that two
@@ -106,9 +106,9 @@ class MessageContract:
     # NOTE: the context-compaction threshold is deliberately *not* a lane knob.
     # Raising it for long tasks is tempting — more history in view — but the
     # tool loop only clamps it against the provider's real context window when
-    # `provider_context_chars` is known, and OPai does not know it for every
+    # `provider_context_chars` is known, and Vesta does not know it for every
     # local model. A raised threshold would silently overflow a small-context
-    # model's window. The shared conservative default stays until OPai can read
+    # model's window. The shared conservative default stays until Vesta can read
     # the true window per provider.
     # --- context policy ---------------------------------------------------
     # Keep this turn's exploration out of the main thread's context.
@@ -214,7 +214,7 @@ def lane_description(lane: str) -> str:
         STABLE: "Predictable routing with automatic recovery.",
         EXPLORE: "Read-only search, kept out of this chat's context.",
         LONG_HORIZON: "Extra tool and time budget for multi-file work.",
-        GOVERNED: "Irreversible work — OPai will ask rather than reroute.",
+        GOVERNED: "Irreversible work — Vesta will ask rather than reroute.",
     }.get(str(lane or ""), _LANE_LABELS[STABLE])
 
 

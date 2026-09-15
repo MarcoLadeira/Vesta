@@ -1,4 +1,4 @@
-# OPai Desktop UX — Control Layer
+# Vesta Desktop UX — Control Layer
 
 > **Extended by the full workspace redesign.** This doc covers the original
 > Ctrl+K control layer. For the premium workspace overhaul (workspace switcher,
@@ -11,7 +11,7 @@ React/Tailwind/Playwright layer._
 
 ## Design principle (deliberate)
 
-`opai gui` stays a **calm, Claude-desktop-style chat**: sidebar + conversation +
+`vesta gui` stays a **calm, Claude-desktop-style chat**: sidebar + conversation +
 composer. We add **control and clarity without a busy IDE pane**. Power lives in
 a command palette and keyboard shortcuts, not in always-on side panels.
 

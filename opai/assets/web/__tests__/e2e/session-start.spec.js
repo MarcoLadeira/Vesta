@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { openApp } from "./helpers/app.js";
 
 /**
- * Starting OPai lands you in a new chat.
+ * Starting Vesta lands you in a new chat.
  *
  * There used to be a gate here: a card that stopped everything and asked
  * whether you wanted to resume your previous session, with the composer
@@ -139,8 +139,8 @@ test("a failed clear says so and leaves the composer usable", async ({ page }) =
       ok: false,
       error: {
         code: "SESSION_CLEAR_FAILED",
-        userMessage: "OPai could not clear the saved session.",
-        recoveryActions: ["Close other OPai windows and try again."],
+        userMessage: "Vesta could not clear the saved session.",
+        recoveryActions: ["Close other Vesta windows and try again."],
       },
       resume,
     },
@@ -160,7 +160,7 @@ test("a failed clear history keeps the saved chats listed", async ({ page }) => 
       ok: false,
       error: {
         code: "SESSION_CLEAR_FAILED",
-        userMessage: "OPai could not clear the saved history.",
+        userMessage: "Vesta could not clear the saved history.",
         recoveryActions: ["Try again."],
       },
       resume,

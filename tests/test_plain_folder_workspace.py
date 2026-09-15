@@ -4,7 +4,7 @@ Every edit-capable turn used to demand a Git worktree up front. In a plain
 folder -- a synced drive, a scratch directory, a project not yet under version
 control -- that produced:
 
-    OPai could not establish and persist a fresh repository identity for this
+    Vesta could not establish and persist a fresh repository identity for this
     edit-capable run. No provider was allowed to mutate the workspace. Inspect
     the repository and retry.
 

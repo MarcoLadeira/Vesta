@@ -909,7 +909,7 @@ def _has_pre_existing_delta(identity: PathIdentity) -> bool | None:
     """Return whether a path already differed from HEAD at the baseline.
 
     ``None`` means the evidence is incomplete and therefore cannot authorize
-    OPai-only ownership.
+    Vesta-only ownership.
     """
 
     if not identity.complete:

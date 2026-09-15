@@ -20,7 +20,7 @@ aspirations):
 |---|---|
 | `chat` | Can answer/converse |
 | `code_execution` | Runs as a coding agent with its own tools |
-| `repo_editing` | Can edit the repository through OPai |
+| `repo_editing` | Can edit the repository through Vesta |
 | `streaming` | Emits incremental output |
 | `tool_calling` | Has native tool/function calling |
 
@@ -30,7 +30,7 @@ aspirations):
 
 Plus `supports_cancellation`. Two truths the picker must not hide:
 
-- **Copilot cannot edit** through OPai (its repo edits fail closed), so
+- **Copilot cannot edit** through Vesta (its repo edits fail closed), so
   `repo_editing = False` for Copilot while `True` for Claude/Codex.
 - **Local runtimes do not stream yet (#154)**, so `streaming = False` for
   ollama / openai-compatible rather than an aspirational `True`.
@@ -53,7 +53,7 @@ unknown  (nothing learned yet — never a synthesised "healthy")
 those can recover; `unknown` may resolve to anything; any state may re-observe
 itself. `can_transition(a, b)` enforces it.
 
-`canonical_health(...)` folds OPai's existing signals into the enum: a missing
+`canonical_health(...)` folds Vesta's existing signals into the enum: a missing
 account CLI is `not_installed` (outranks a stale auth string), an explicit
 rate-limit error code wins (authenticated-but-throttled), and everything else maps
 from `authStatus`. Anything unrecognised is honestly `unknown`.

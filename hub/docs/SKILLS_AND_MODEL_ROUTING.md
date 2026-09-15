@@ -1,17 +1,17 @@
-# OPai Skills And Model Routing
+# Vesta Skills And Model Routing
 
-OPai 0.2.0 alpha.1 has a small model-intelligence layer and an OPai skill library. The goal is to make every coding session start with local evidence, choose the cheapest capable route, and expose repeatable workflows through native skill discovery.
+Vesta 0.2.0 alpha.1 has a small model-intelligence layer and a Vesta skill library. The goal is to make every coding session start with local evidence, choose the cheapest capable route, and expose repeatable workflows through native skill discovery.
 
 ## Commands
 
 ```sh
-opai skills list
-opai skills doctor
-opai models recommend "fix failing tests cheaply"
-opai hub models recommend "prepare a production security release"
+vesta skills list
+vesta skills doctor
+vesta models recommend "fix failing tests cheaply"
+vesta hub models recommend "prepare a production security release"
 ```
 
-`opai skills doctor` verifies the skill registry and every `SKILL.md` path. `opai models recommend` classifies a task, scores available model tiers, and reports whether confirmation is required before using a cloud or stronger model.
+`vesta skills doctor` verifies the skill registry and every `SKILL.md` path. `vesta models recommend` classifies a task, scores available model tiers, and reports whether confirmation is required before using a cloud or stronger model.
 
 ## Installed Skill Surface
 
@@ -23,7 +23,7 @@ The global Codex integration writes:
 ~/.agents/skills/opai/<skill-id>/SKILL.md
 ```
 
-This makes OPai project-neutral. The root skill tells the AI client to use OPai, Superpowers, local evidence, safety rules, and cost routing. The 35 child skills cover routing, model selection, project onboarding, repo context, diffs, testing, debugging, implementation, review, refactor, security, dependency updates, release checks, MCP setup, local models, and tool installation.
+This makes Vesta project-neutral. The root skill tells the AI client to use Vesta, Superpowers, local evidence, safety rules, and cost routing. The 35 child skills cover routing, model selection, project onboarding, repo context, diffs, testing, debugging, implementation, review, refactor, security, dependency updates, release checks, MCP setup, local models, and tool installation.
 
 ## Model Tiers
 
@@ -61,12 +61,12 @@ These tools are registered but disabled by default:
 - LM Studio: desktop local LLM runtime and local server. Source: https://lmstudio.ai/docs
 - Context7 MCP: version-specific docs through MCP. Source: https://context7.com/docs
 
-OPai should recommend these tools only when the task benefits from them. Tool installation, network use, cloud APIs, file edits by external agents, model downloads, and spend-bearing evals require explicit user intent.
+Vesta should recommend these tools only when the task benefits from them. Tool installation, network use, cloud APIs, file edits by external agents, model downloads, and spend-bearing evals require explicit user intent.
 
 ## Next Build Steps
 
-1. Add an `opai models eval` command that runs cached prompt fixtures across local model providers.
+1. Add an `vesta models eval` command that runs cached prompt fixtures across local model providers.
 2. Add per-project `model_routing.yaml` overrides in `.opaihub/`.
 3. Record anonymized local routing outcomes in `.opaihub/analytics/` without secrets.
 4. Add a `tool enable --profile local-models` setup path for Ollama/LM Studio detection.
-5. Add installer repair checks that verify both OPai and Superpowers skills are discoverable after restart.
+5. Add installer repair checks that verify both Vesta and Superpowers skills are discoverable after restart.

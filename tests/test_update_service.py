@@ -45,7 +45,7 @@ def _installed(**overrides: object) -> InstalledBuild:
         "architecture": "x86_64",
         "install_type": InstallType.WINDOWS_MSIX,
         "package_identity": "OPai.Desktop",
-        "publisher_identity": "CN=OPai",
+        "publisher_identity": "CN=Vesta",
     }
     values.update(overrides)
     return InstalledBuild(**values)
@@ -64,9 +64,9 @@ def _candidate(**overrides: object) -> dict[str, object]:
         "artifact_url": "https://updates.example.test/releases/v0.3.0/OPai.msix",
         "artifact_sha256": hashlib.sha256(ARTIFACT).hexdigest(),
         "artifact_size": len(ARTIFACT),
-        "publisher_identity": "CN=OPai",
+        "publisher_identity": "CN=Vesta",
         "metadata_key_ids": ["root-1"],
-        "release_title": "OPai 0.3.0",
+        "release_title": "Vesta 0.3.0",
         "release_notes": "Security and reliability improvements.",
         "release_notes_url": "https://updates.example.test/releases/v0.3.0/notes",
         "minimum_current_version": "0.2.0",
@@ -91,7 +91,7 @@ def _candidate(**overrides: object) -> dict[str, object]:
                 "artifact_url": "https://updates.example.test/releases/v0.2.1/OPai.msix",
                 "artifact_sha256": hashlib.sha256(ARTIFACT).hexdigest(),
                 "artifact_size": len(ARTIFACT),
-                "publisher_identity": "CN=OPai",
+                "publisher_identity": "CN=Vesta",
                 "metadata_key_ids": ["root-1"],
                 "rollback_compatible": False,
                 "native": {
@@ -195,7 +195,7 @@ class Adapter:
     def __init__(
         self,
         *,
-        publisher: str = "CN=OPai",
+        publisher: str = "CN=Vesta",
         install_ok: bool = True,
         rollback_ok: bool = True,
     ):
@@ -591,7 +591,7 @@ def test_source_checkout_offline_git_check_is_retried_unavailable(
     "reason",
     [
         "No 'origin' remote is configured.",
-        "OPai isn't running from a git checkout, so it can't check for updates itself.",
+        "Vesta isn't running from a git checkout, so it can't check for updates itself.",
     ],
 )
 def test_source_checkout_without_remote_is_manual_not_offline(
@@ -669,7 +669,7 @@ def test_developer_apply_success_reports_restart_and_refreshes_state(
     result = service.apply_developer_source()
 
     assert result["ok"] is True
-    assert result["message"] == "Updated to 0.2.1a2 — restart OPai to use it."
+    assert result["message"] == "Updated to 0.2.1a2 — restart Vesta to use it."
     operation = service.store.load_operation()
     # This asserted UP_TO_DATE, which pinned the bug rather than the behaviour.
     # The re-check after an apply is right -- the checkout *is* up to date --
@@ -682,7 +682,7 @@ def test_developer_apply_success_reports_restart_and_refreshes_state(
     # COMPLETED is the state that means installed-but-not-yet-running, and it
     # is the one the surface offers Restart now from.
     assert operation.state is UpdateState.COMPLETED
-    assert operation.safe_diagnostic == "Updated to 0.2.1a2 — restart OPai to use it."
+    assert operation.safe_diagnostic == "Updated to 0.2.1a2 — restart Vesta to use it."
 
 
 def test_developer_apply_with_restored_changes_says_so(
@@ -915,14 +915,14 @@ def test_source_checkout_publishes_progress_while_it_updates(
         monkeypatch,
         apply_result=APPLIED,
         checks=[AHEAD],
-        stages=("Fetching the latest version", "Reinstalling OPai"),
+        stages=("Fetching the latest version", "Reinstalling Vesta"),
     )
 
     operation = service.check(force=True)
 
     assert seen == [
         ("Fetching the latest version", 0, 2),
-        ("Reinstalling OPai", 1, 2),
+        ("Reinstalling Vesta", 1, 2),
     ]
     assert operation.state is UpdateState.COMPLETED
     # And the finished state carries no half-drawn bar.
@@ -978,7 +978,7 @@ def test_source_checkout_updates_itself_when_automatic_downloads_are_on(
     assert operation.state is UpdateState.COMPLETED
     assert "fast-forwarded 3 commits" in operation.safe_diagnostic
     assert "0.2.1a2" in operation.safe_diagnostic
-    assert "Restart OPai" in operation.safe_diagnostic
+    assert "Restart Vesta" in operation.safe_diagnostic
     assert apply_forces == [False]  # an automatic update never stashes
 
 
@@ -1187,7 +1187,7 @@ def test_a_restart_banner_does_not_survive_the_restart_it_asked_for(
     )
     applied = service.check(force=True)
     assert applied.state is UpdateState.COMPLETED
-    assert "Restart OPai" in applied.safe_diagnostic
+    assert "Restart Vesta" in applied.safe_diagnostic
 
     # The restart: a new process, started after the update was recorded.
     monkeypatch.setattr(
@@ -1230,7 +1230,7 @@ def test_a_pending_restart_banner_survives_until_the_restart(
     operation = service.maintain()
 
     assert operation.state is UpdateState.COMPLETED
-    assert "Restart OPai" in operation.safe_diagnostic
+    assert "Restart Vesta" in operation.safe_diagnostic
 
 
 def test_a_packaged_completion_is_left_alone(

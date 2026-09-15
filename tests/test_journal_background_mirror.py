@@ -6,7 +6,7 @@ was correct, tested, and unreachable from the running application: doctor could
 only answer "needs_legacy_comparison", because nothing had assembled the other
 half of the comparison.
 
-``background_runs`` is that other half -- the one legacy record in OPai that is
+``background_runs`` is that other half -- the one legacy record in Vesta that is
 durable, enumerable and keyed by run id. Mirroring it makes both halves cover
 the same population, which is what turns Stages 4-7 from machinery into a
 migration that can actually be finished.
@@ -193,7 +193,7 @@ class TheLegacyCorpusTests(_BackgroundFixture):
         self.assertEqual(corpus[run.run_id]["terminal_verdict"], "")
 
     def test_an_unknown_state_reports_no_verdict(self):
-        """A record from a newer OPai must not be read as finished."""
+        """A record from a newer Vesta must not be read as finished."""
 
         run = self._enqueue()
         fake = dataclasses.replace(run, run_state="some-future-state")
@@ -348,7 +348,7 @@ class TheCorpusDoesNotLockEveryRunTests(_BackgroundFixture):
     ``background_runs.load_run`` takes an interprocess lock per file, which is
     right for a caller about to act on that run and wrong for a census. The
     first version of ``legacy_runs`` went through it and cost ~4 s on a
-    300-run project inside ``opai doctor``; the comparison it fed took 40 ms.
+    300-run project inside ``vesta doctor``; the comparison it fed took 40 ms.
 
     Counting locks rather than milliseconds for the same reason as the
     store-open ratchet: a duration threshold that passes on a developer SSD and

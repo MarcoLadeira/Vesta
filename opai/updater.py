@@ -1,6 +1,6 @@
-"""OPai self-update: check-for-update and forced-update for the desktop app.
+"""Vesta self-update: check-for-update and forced-update for the desktop app.
 
-OPai normally runs from a git checkout: ``install.ps1``/``install.sh`` clone
+Vesta normally runs from a git checkout: ``install.ps1``/``install.sh`` clone
 or ``git pull`` a copy under ``~/.opai/source`` and ``pip install -e`` it, so
 "update" is exactly those same three steps — fetch, fast-forward, reinstall —
 made available as one call instead of a re-run of the installer. This module
@@ -24,7 +24,6 @@ from __future__ import annotations
 import json
 import re
 import subprocess  # nosec B404 - fixed git/pip argv, never a shell
-import sys
 import time
 from pathlib import Path
 from typing import Any, Callable, Sequence
@@ -52,15 +51,15 @@ _APPLY_STAGES = (
     "Checking your working tree",
     "Fetching the latest version",
     "Fast-forwarding to it",
-    "Reinstalling OPai",
+    "Reinstalling Vesta",
 )
 
 
 def install_root() -> Path:
-    """Where OPai's own source lives — never the user's active project.
+    """Where Vesta's own source lives — never the user's active project.
 
     ``check_for_update``/``apply_update`` operate on *this*, resolved from
-    this module's own file location so it works whether OPai is installed
+    this module's own file location so it works whether Vesta is installed
     editable (``pip install -e .`` against a git clone, the normal case) or,
     later, from a non-editable copy (where it will simply not be a git
     checkout, and updates are honestly reported as unavailable here).
@@ -87,10 +86,24 @@ def _default_git(root: Path, args: Sequence[str]) -> "subprocess.CompletedProces
 
 
 def _default_pip_install(root: Path) -> "subprocess.CompletedProcess[str]":
-    from opaihub.proc import no_window_kwargs
+    from opaihub.proc import console_interpreter, no_window_kwargs
 
+    # Not sys.executable: the updater usually runs inside the desktop app,
+    # whose interpreter is pythonw.exe, and pip derives a gui_scripts
+    # launcher from it by replacing "python" with "pythonw" -- producing
+    # "pythonww.exe", which does not exist. Installing Vesta from its own GUI
+    # would then leave the desktop icon dead, exiting 1 with no window and no
+    # message. See opaihub.proc.console_interpreter.
     return subprocess.run(  # nosec B603 - fixed argv, no shell
-        [sys.executable, "-m", "pip", "install", "-e", str(root), "--no-deps"],
+        [
+            console_interpreter(),
+            "-m",
+            "pip",
+            "install",
+            "-e",
+            str(root),
+            "--no-deps",
+        ],
         capture_output=True,
         text=True,
         check=False,
@@ -174,7 +187,7 @@ def check_for_update(
     root = Path(project_root)
     if not _is_git_checkout(root, git):
         result = _not_checked(
-            "OPai isn't running from a git checkout, so it can't check for updates itself.",
+            "Vesta isn't running from a git checkout, so it can't check for updates itself.",
             branch,
         )
         _save_cache(cache_path, result)
@@ -274,7 +287,7 @@ def apply_update(
     root = Path(project_root)
     stage(0)
     if not _is_git_checkout(root, git):
-        return {"ok": False, "error": "OPai isn't running from a git checkout."}
+        return {"ok": False, "error": "Vesta isn't running from a git checkout."}
     if not _has_origin(root, git):
         return {"ok": False, "error": "No 'origin' remote is configured."}
 
@@ -346,7 +359,7 @@ def apply_update(
                     "Updated to the latest version, but your local changes couldn't be "
                     "restored automatically because they now conflict with it. They're "
                     "safe in the git stash — run 'git stash pop' yourself to resolve, "
-                    "then restart OPai."
+                    "then restart Vesta."
                 ),
             }
 
@@ -357,13 +370,13 @@ def apply_update(
     except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired) as exc:
         return {
             "ok": False,
-            "error": f"Updated the code, but reinstalling failed: {safe_detail(exc)}. Restart OPai and try again.",
+            "error": f"Updated the code, but reinstalling failed: {safe_detail(exc)}. Restart Vesta and try again.",
             "code_updated": True,
         }
     if installed.returncode != 0:
         return {
             "ok": False,
-            "error": "Updated the code, but reinstalling the package failed. Restart OPai and try again.",
+            "error": "Updated the code, but reinstalling the package failed. Restart Vesta and try again.",
             "code_updated": True,
         }
 

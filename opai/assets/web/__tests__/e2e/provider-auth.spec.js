@@ -4,7 +4,7 @@ import { DISCONNECTED_ACCOUNTS } from "./helpers/fixtures.js";
 import { finishRequest, openApp, sendPrompt } from "./helpers/app.js";
 
 
-test("disconnected providers produce a clear OPai setup state", async ({ page }) => {
+test("disconnected providers produce a clear Vesta setup state", async ({ page }) => {
   await openApp(page, { boot: { accounts: DISCONNECTED_ACCOUNTS } });
   await expect(page.locator("#acct")).toContainText("No account connected");
   await expect(page.locator("#emptySub")).toContainText("Connect your Claude, Codex, or Copilot account");
@@ -27,7 +27,7 @@ test("codex invalid-config error offers a one-click repair, then retries", async
     status: "failed",
     error: {
       code: "CONFIG_INVALID",
-      title: "OPai found a problem in this provider's config.",
+      title: "Vesta found a problem in this provider's config.",
       userMessage: "The provider CLI's config file has an invalid setting, so it won't start.",
       recoveryActions: ["repair_config", "open_settings", "show_details"],
       technicalMessage: "unknown variant `default`, expected `fast` or `flex`",
@@ -44,7 +44,7 @@ test("codex invalid-config error offers a one-click repair, then retries", async
 });
 
 test("a live 401 after 'connected' offers a real Test connection check, not just Open Settings", async ({ page }) => {
-  // The reported bug: OPai says connected, the real send still 401s. Open
+  // The reported bug: Vesta says connected, the real send still 401s. Open
   // Settings alone showed nothing new (it just repeats the same cached
   // "connected" row) — this proves the error card offers an actual live
   // re-check with the concrete next step (login hint), right where the
@@ -55,7 +55,7 @@ test("a live 401 after 'connected' offers a real Test connection check, not just
     status: "failed",
     error: {
       code: "AUTH_INVALID",
-      title: "OPai could not authenticate this connection.",
+      title: "Vesta could not authenticate this connection.",
       userMessage: "Reconnect the provider account or update its credentials in Settings.",
       recoveryActions: ["open_settings", "reconnect", "show_details"],
       technicalMessage: "Failed to authenticate. API Error: 401 Invalid authentication credentials",
@@ -77,7 +77,7 @@ test("a live 401 also offers Disconnect account, since Retry alone cannot fix a 
     error: {
       code: "AUTH_INVALID",
       title: "This account's sign-in was rejected by the provider.",
-      userMessage: "OPai detected a signed-in session, but the request was refused (401).",
+      userMessage: "Vesta detected a signed-in session, but the request was refused (401).",
       recoveryActions: ["disconnect", "reconnect", "open_settings", "show_details"],
       provider: "claude",
     },

@@ -3,7 +3,7 @@ already computed, so every surface attaches one result instead of deciding
 completion truth again from its own slice of the same facts (#612, #618).
 
 This module never re-derives evidence. ``evaluate_completion`` (#539) already
-decided whether a run's objective was met from evidence OPai itself observed;
+decided whether a run's objective was met from evidence Vesta itself observed;
 a completion verdict *is* the verification act, not raw provider prose. What
 this module adds is turning that verdict, plus whatever durable evidence
 reference the caller already holds for delivery and cost, into the one

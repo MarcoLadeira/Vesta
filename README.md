@@ -1,17 +1,17 @@
-# OPai — the AI coding cost firewall
+# Vesta — the AI coding cost firewall
 
-![OPai mascot](opai/assets/opai-mascot.png)
+![Vesta logo](opai/assets/opai-mascot.png)
 
-**OPai is the AI coding cost firewall.** It sits in front of Claude, Codex,
+**Vesta is the AI coding cost firewall.** It sits in front of Claude, Codex,
 Copilot, Cursor, and Cline and routes the tasks it runs to the cheapest safe
 path — deterministic tools and local models first, paid cloud models only with
 your confirmation — then proves the savings in numbers, locally and privately.
-OPai measures the sessions it observes (its GUI chat and wrapped/proxy runs);
+Vesta measures the sessions it observes (its GUI chat and wrapped/proxy runs);
 direct unwrapped launches are shown as pass-through, not counted as captured.
 
 <!-- opai-release-identity: application_version=0.2.1a1; release_stage=alpha.1; published_tag=v0.2.1a1 -->
-The current application release is **OPai 0.2.1 Alpha.1** (package
-`0.2.1a1`, channel `alpha`, canonical tag `v0.2.1a1`). OPai is a local-first
+The current application release is **Vesta 0.2.1 Alpha.1** (package
+`0.2.1a1`, channel `alpha`, canonical tag `v0.2.1a1`). Vesta is a local-first
 AI coding hub that installs into your terminal and AI coding clients so every
 project gets better routing, safer automation, reusable context, Superpowers
 skills, MCP-ready registries, testing workflows, GitOps helpers, governance
@@ -28,23 +28,23 @@ commands below apply after a verified free artifact is published on
 have installed this source checkout for contributor development.
 
 ```sh
-opai gui                                        # simple desktop chat app: type a task, pick your model, run it local-first
-opai ask "summarize my changes"                # answer a cheap task locally for $0 (no cloud)
-opai quickstart                                # guided first run: activate, route, savings
-opai doctor                                    # which clients are active/broken/missing
-opai route "fix the failing test" --record     # cheapest safe route + ledger entry
-opai why "fix the failing test"                # explain the route and its savings
-opai savings --markdown                        # estimated AI spend saved on this project
-opai benchmark run --suite local --mode both   # compare normal AI vs OPai-routed use
-opai benchmark run --suite max --mode both     # leaderboard-aligned local max suite
-opai benchmark gate --min-context-reduction 10 # CI gate for benchmark proof
-opai share --markdown                          # a shareable savings badge for your README
+vesta gui                                        # simple desktop chat app: type a task, pick your model, run it local-first
+vesta ask "summarize my changes"                # answer a cheap task locally for $0 (no cloud)
+vesta quickstart                                # guided first run: activate, route, savings
+vesta doctor                                    # which clients are active/broken/missing
+vesta route "fix the failing test" --record     # cheapest safe route + ledger entry
+vesta why "fix the failing test"                # explain the route and its savings
+vesta savings --markdown                        # estimated AI spend saved on this project
+vesta benchmark run --suite local --mode both   # compare normal AI vs Vesta-routed use
+vesta benchmark run --suite max --mode both     # leaderboard-aligned local max suite
+vesta benchmark gate --min-context-reduction 10 # CI gate for benchmark proof
+vesta share --markdown                          # a shareable savings badge for your README
 ```
 
 ## Desktop app (GUI)
 
-OPai ships a local-first desktop control center — a chat window where you type a
-task, pick a model and a run mode, and watch OPai route it to the cheapest safe
+Vesta ships a local-first desktop control center — a chat window where you type a
+task, pick a model and a run mode, and watch Vesta route it to the cheapest safe
 path while showing every step and the running cost. It renders in Chromium
 (QtWebEngine) with a classic Qt window as an automatic fallback. Everything is
 local: no telemetry, and nothing leaves your machine unless you confirm a cloud
@@ -64,7 +64,7 @@ python -m pip install -e ".[desktop-gui]"
 Verify it can start without opening a window:
 
 ```sh
-opai gui --once        # prints the control-center state as JSON, exits 0 if ready
+vesta gui --once        # prints the control-center state as JSON, exits 0 if ready
 ```
 
 If you see `{"status": "gui_unavailable", ...}`, install the contributor extra
@@ -73,22 +73,22 @@ above or wait for the verified public artifact (that is the only requirement).
 ### 2. Launch it
 
 ```sh
-opai gui                          # open the desktop window for the current project
-opai gui --project /path/to/repo  # open it for a specific project
-opai gui "summarize my changes"   # open with a task pre-filled in the composer
-opai gui --classic                # force the classic Qt window (no Chromium)
+vesta gui                          # open the desktop window for the current project
+vesta gui --project /path/to/repo  # open it for a specific project
+vesta gui "summarize my changes"   # open with a task pre-filled in the composer
+vesta gui --classic                # force the classic Qt window (no Chromium)
 ```
 
 On Windows you can also run `python -m opai gui` if `opai` is not yet on your
 `PATH`.
 
-**Windowed launcher (no console).** Installing OPai also adds an `opai-gui`
-launcher. Unlike `opai gui`, it opens the app **without a background console
+**Windowed launcher (no console).** Installing Vesta also adds an `opai-gui`
+launcher. Unlike `vesta gui`, it opens the app **without a background console
 window**, so it's what you want for a desktop/Start-menu/taskbar shortcut:
 
 ```sh
 opai-gui                          # open the desktop app, no console window
-opai-gui --project /path/to/repo  # same options as `opai gui`
+opai-gui --project /path/to/repo  # same options as `vesta gui`
 ```
 
 To pin it on Windows, create a shortcut to the `opai-gui.exe` in your Python
@@ -98,7 +98,7 @@ and drag it to the Start menu or taskbar.
 ### 3. Use it
 
 - **Type a task** in the composer and press **Send** (or `Enter`; use
-  `Shift`+`Enter` for a newline). OPai gathers cheap local context first, routes
+  `Shift`+`Enter` for a newline). Vesta gathers cheap local context first, routes
   to the cheapest capable model, and streams the answer with a live activity
   timeline.
 - **Pick a model** (top-right selector): `Auto` (local-first routing), your
@@ -120,7 +120,7 @@ and drag it to the Start menu or taskbar.
 - **Settings** (sidebar) connects accounts, sets per-model usage limits, and
   manages privacy — chat history is redacted, kept per workspace, and clearable.
 - **Money Saved / receipts** show the estimated spend avoided; export a signed,
-  verifiable savings receipt and check it with `opai receipt verify <file>`.
+  verifiable savings receipt and check it with `vesta receipt verify <file>`.
 - **Command palette**: press `Ctrl`+`K`.
 
 ### Let runs commit, push, and open PRs (GitHub connector)
@@ -130,11 +130,11 @@ Auto). To let them also push branches and open pull requests on your GitHub
 repositories, connect your account once and grant push consent explicitly:
 
 ```sh
-opai github connect --token <PAT>   # validates, then stores in the OS keychain
-opai github status                  # connection + consent at a glance
-opai github allow-push on           # explicit consent for push/PR (revocable)
-opai github allow-push off          # turn it back off any time
-opai github disconnect              # remove the token and revoke consent
+vesta github connect --token <PAT>   # validates, then stores in the OS keychain
+vesta github status                  # connection + consent at a glance
+vesta github allow-push on           # explicit consent for push/PR (revocable)
+vesta github allow-push off          # turn it back off any time
+vesta github disconnect              # remove the token and revoke consent
 ```
 
 Create the token at github.com/settings/tokens with `repo` scope (classic) or
@@ -146,7 +146,7 @@ tools (commits are always staged from only the files that run touched).
 
 ### Repository safety and isolated worktrees
 
-Before an edit-capable run touches a repository, OPai records a canonical,
+Before an edit-capable run touches a repository, Vesta records a canonical,
 redacted identity (physical worktree, Git metadata, remote identity, branch,
 HEAD, and porcelain-v2 dirty state). It rechecks that identity immediately
 before every provider-tool file or Git mutation. A moved branch/HEAD, changed remote,
@@ -157,20 +157,20 @@ task must proceed alongside existing work.
 Inspect the same status shown by the GUI from the terminal:
 
 ```sh
-opai repo inspect --project /path/to/repo --json
-opai repo worktrees --project /path/to/repo --json
-opai repo worktrees --project /path/to/repo --recover --json
+vesta repo inspect --project /path/to/repo --json
+vesta repo worktrees --project /path/to/repo --json
+vesta repo worktrees --project /path/to/repo --recover --json
 ```
 
 `--recover` only reconciles lease records and recommends `resume` or `inspect`;
-it never cleans, deletes, force-removes, or recreates a worktree. OPai removes a
+it never cleans, deletes, force-removes, or recreates a worktree. Vesta removes a
 worktree only through an owned, pristine lease after a fresh Git-registry and
 filesystem check. Modified, unknown, interrupted, or committed worktrees remain
 in place for review.
 
 ### Verification policy dry runs
 
-Before an edit-capable GUI run dispatches a provider, OPai resolves and stores a
+Before an edit-capable GUI run dispatches a provider, Vesta resolves and stores a
 versioned verification policy for the canonical worktree. The policy names the
 required checks, human-review requirements, source precedence, bounded
 execution requirements, and a stable digest. A malformed or weakening policy
@@ -181,7 +181,7 @@ Inspect exactly the same policy decision in a terminal or CI job without
 executing repository commands:
 
 ```sh
-opai verify policy --project /path/to/repo --task "Fix the parser" --mode implement --json
+vesta verify policy --project /path/to/repo --task "Fix the parser" --mode implement --json
 ```
 
 This is a policy-only dry run. Structured command execution, evidence bundles,
@@ -192,7 +192,7 @@ To execute only the explicit argv declared by that policy and write a local,
 redacted evidence manifest, use:
 
 ```sh
-opai verify run --project /path/to/repo --task "Fix the parser" --json
+vesta verify run --project /path/to/repo --task "Fix the parser" --json
 ```
 
 `verified` means every required check has intact structured evidence. A model's
@@ -212,12 +212,12 @@ damaged required evidence remains visibly non-verified.
 ### Headless / CI use
 
 ```sh
-opai gui --once                       # JSON readiness smoke test (no window)
-opai gui --screenshot out.png         # render a screenshot for visual QA and exit
-opai gui --screenshot out.png --width 1440 --height 900
+vesta gui --once                       # JSON readiness smoke test (no window)
+vesta gui --screenshot out.png         # render a screenshot for visual QA and exit
+vesta gui --screenshot out.png --width 1440 --height 900
 ```
 
-**New to OPai?** The one-page install funnel lives in [`site/index.html`](site/index.html).
+**New to Vesta?** The one-page install funnel lives in [`site/index.html`](site/index.html).
 Read the [archived pre-free-launch business strategy](docs/BUSINESS_STRATEGY.md)
 for historical positioning hypotheses and the
 [free public-alpha policy](hub/docs/PRICING_AND_EDITIONS.md).
@@ -239,25 +239,25 @@ See also the [Quickstart](docs/QUICKSTART.md), the grounded
 ### More efficiency & adoption commands
 
 ```sh
-opai context pack --changed   # tiny, redacted context (changed files + adjacent tests)
-opai test --changed           # run only the tests likely to cover your changes
-opai metrics                  # local product metrics: tokens/escalations avoided, cache rate
-opai benchmark report         # latest local OPai Efficiency Score
-opai edition show             # Free Public Alpha availability (legacy-compatible)
+vesta context pack --changed   # tiny, redacted context (changed files + adjacent tests)
+vesta test --changed           # run only the tests likely to cover your changes
+vesta metrics                  # local product metrics: tokens/escalations avoided, cache rate
+vesta benchmark report         # latest local Vesta Efficiency Score
+vesta edition show             # Free Public Alpha availability (legacy-compatible)
 ```
 
 ### Team & enterprise governance
 
-OPai is also the control plane for teams ([GOVERNANCE.md](hub/docs/GOVERNANCE.md)):
+Vesta is also the control plane for teams ([GOVERNANCE.md](hub/docs/GOVERNANCE.md)):
 
 ```sh
-opai team init                # committable opai-team-policy.yaml (shared policy)
-opai team apply               # apply the team policy locally
-opai policy check             # fail-closed CI gate (exits non-zero on violation)
-opai policy check --require-team-policy  # strict team CI: policy file required
-opai guard evidence <wf> --sign   # signed, tamper-evident evidence packet
-opai audit log                # tamper-evident governance audit trail
-opai team report              # who routed what, did it follow policy, spend avoided
+vesta team init                # committable opai-team-policy.yaml (shared policy)
+vesta team apply               # apply the team policy locally
+vesta policy check             # fail-closed CI gate (exits non-zero on violation)
+vesta policy check --require-team-policy  # strict team CI: policy file required
+vesta guard evidence <wf> --sign   # signed, tamper-evident evidence packet
+vesta audit log                # tamper-evident governance audit trail
+vesta team report              # who routed what, did it follow policy, spend avoided
 ```
 
 Default posture:
@@ -266,13 +266,13 @@ Default posture:
 deterministic tools -> compact cache/context -> local model -> confirmed cheap cloud -> strong model only after evidence
 ```
 
-Both `op` and `opai` launch OPai. The legacy OPcoding CLI remains available as `opcoding`.
+Both `op` and `opai` launch Vesta. The legacy OPcoding CLI remains available as `opcoding`.
 
-## What OPai Gives You
+## What Vesta Gives You
 
 - A branded `op` CLI for project activation, routing, scans, doctors, dashboards, and release checks.
 - Automatic project instructions for Codex, Claude Code, and GitHub Copilot where those tools read local instruction files.
-- Superpowers as part of OPai; the default installer fetches the free open-source Superpowers repo and exposes its skills through native discovery.
+- Superpowers as part of Vesta; the default installer fetches the free open-source Superpowers repo and exposes its skills through native discovery.
 - A local-first tool registry for coding, testing, GitOps, security, MCP, docs, local models, browser automation, and deployment helpers.
 - Optional graphify integration (local code knowledge graph): the `graphify-code-graph` skill, tool registry, and MCP entries answer codebase questions at L0 before any model call.
 - Cost-aware routing that gathers git diffs, tests, profiles, registry data, logs, and cached context before model escalation.
@@ -282,7 +282,7 @@ Both `op` and `opai` launch OPai. The legacy OPcoding CLI remains available as `
 
 ## Free Public Alpha
 
-OPai alpha launches fully free. No checkout, license, invitation, or private
+Vesta alpha launches fully free. No checkout, license, invitation, or private
 access link is required to use alpha functionality. **No public desktop artifact
 or package installation command is published yet.** When platform release proof
 is complete, the current verified path will be published on
@@ -296,7 +296,7 @@ op status
 ```
 
 The installer installs the `op`/`opai` CLI, activates the project you ran it
-from, writes OPai discovery files, installs and enables Superpowers discovery,
+from, writes Vesta discovery files, installs and enables Superpowers discovery,
 and installs persistent AI-client shell wrappers by default.
 
 From this folder during development:
@@ -311,7 +311,7 @@ If Windows says `op` is not on `PATH` before your shell profile reloads, use `py
 The free alpha may offer optional local tools or a Superpowers network-clone
 skip for locked-down environments; those choices are never payment gates.
 
-The installer writes managed shell functions for `op`, `opai`, `codex`, `claude`, and `copilot` in PowerShell plus POSIX profiles where available. The AI-client wrappers activate OPai in the current project and send canonical one-shot calls through its local cost/safety proxy. Interactive, stdin-driven, structured-output, and unknown advanced forms pass directly to the real CLI with their original arguments, TTY, and exit code. OPai reports those launches as unmeasurable instead of claiming they were captured. The blue one-line `Using OPai` badge is written to stderr so scripted stdout stays clean. Set `OPAI_WELCOME=1` or pass `op launch <tool> --welcome` when you want the mascot graphic.
+The installer writes managed shell functions for `op`, `opai`, `codex`, `claude`, and `copilot` in PowerShell plus POSIX profiles where available. The AI-client wrappers activate Vesta in the current project and send canonical one-shot calls through its local cost/safety proxy. Interactive, stdin-driven, structured-output, and unknown advanced forms pass directly to the real CLI with their original arguments, TTY, and exit code. Vesta reports those launches as unmeasurable instead of claiming they were captured. The blue one-line `Using Vesta` badge is written to stderr so scripted stdout stays clean. Set `OPAI_WELCOME=1` or pass `op launch <tool> --welcome` when you want the mascot graphic.
 
 Developer install:
 
@@ -321,7 +321,7 @@ op activate --repair --shell-aliases
 op status
 ```
 
-This installs OPai's small core runtime dependency set. Desktop Qt and terminal
+This installs Vesta's small core runtime dependency set. Desktop Qt and terminal
 image support remain opt-in through the `desktop-gui` and `terminal-ui` extras.
 
 **Run a CI profile locally.** `scripts/ci_local.py` runs fail-closed checks and
@@ -357,26 +357,26 @@ Optional free local tools:
 op install --with-tools
 ```
 
-These tools install into an external OPai tool cache instead of dropping venvs
+These tools install into an external Vesta tool cache instead of dropping venvs
 or `node_modules` trees into every project.
 
-After the first install, restart terminal sessions and AI coding clients so native skill discovery can see OPai and Superpowers.
+After the first install, restart terminal sessions and AI coding clients so native skill discovery can see Vesta and Superpowers.
 
 ## Ultra-Low Credit Mode
 
-This OPai alpha is tuned to spend less than normal AI coding by default:
+This Vesta alpha is tuned to spend less than normal AI coding by default:
 
-- `opai route` returns compact local evidence instead of large logs and full diffs.
-- `opai slim` writes AI-client ignore files and reports generated context bloat.
+- `vesta route` returns compact local evidence instead of large logs and full diffs.
+- `vesta slim` writes AI-client ignore files and reports generated context bloat.
 - Release, deploy, security, and publish tasks start at local preflight, not strong AI.
 - Model prompts are not stored in cache unless `OPAI_STORE_PROMPTS=1`.
 - Default generated project budgets are `$0.50/day`, `$5/month`, and `$0.10` soft limit per task.
 - Context is capped to a compact 6,000 characters by default, with a hard 12,000-character guard.
 - Cloud model use, paid tools, deploys, destructive commands, and large contexts require confirmation.
 
-Use `opai route "<task>" --full-evidence` only when you need the larger diagnostic payload.
+Use `vesta route "<task>" --full-evidence` only when you need the larger diagnostic payload.
 
-## Use OPai In Any Project
+## Use Vesta In Any Project
 
 Run this in a project once:
 
@@ -385,7 +385,7 @@ op activate --repair --shell-aliases
 op status
 ```
 
-Then start coding through an OPai-aware wrapper:
+Then start coding through a Vesta-aware wrapper:
 
 ```powershell
 op launch codex
@@ -407,68 +407,68 @@ claude
 copilot
 ```
 
-OPai writes compact managed instruction blocks to the top of `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md`, and `.opaihub/` so new AI sessions know to use local evidence, Superpowers, safety gates, and cost controls first. It also writes `.claudeignore`, `.cursorignore`, `.aiderignore`, `.continueignore`, `.geminiignore`, and `.opaiignore` so generated caches stay out of model context.
+Vesta writes compact managed instruction blocks to the top of `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md`, and `.opaihub/` so new AI sessions know to use local evidence, Superpowers, safety gates, and cost controls first. It also writes `.claudeignore`, `.cursorignore`, `.aiderignore`, `.continueignore`, `.geminiignore`, and `.opaiignore` so generated caches stay out of model context.
 
-## OPai Commands
+## Vesta Commands
 
 ```text
-opai version          show canonical app version, stage, and exact build identity
-op version            same as opai version
+vesta version          show canonical app version, stage, and exact build identity
+op version            same as vesta version
 op activate           attach current project and ensure Superpowers/AI instructions
 op status             show activation, Superpowers, wrappers, and project state
 op slim               write AI ignore files and report generated context bloat
 op slim --clean       remove generated caches that waste AI context
 op publish status     show git/publish readiness
-opai install          create local .opaihub state and dashboards
-opai statusline       print the right-aligned "Using OPai" badge
-opai welcome          print the OPai mascot, badge, and quick commands
-opai welcome --animate animate the OPai mascot in place
-opai integrate install install global AI-client discovery files
-opai launch codex     print one OPai badge line, then run codex
-opai route "<task>"   print compact local-first routing decision
-opai route --full-evidence "<task>" print full evidence only when needed
-opai benchmark list    list local benchmark suites and optional harnesses
-opai benchmark run     compare normal AI use with OPai-routed use
-opai benchmark run --suite max run the leaderboard-aligned local max suite
-opai benchmark gate    fail CI if proof metrics regress below thresholds
-opai benchmark compare compare latest two benchmark runs
-opai benchmark export  write optional promptfoo handoff config
-opai benchmark report  render the latest OPai Efficiency Score
-opai models recommend "<task>" choose the cheapest capable model tier
-opai skills list      list OPai-managed skills exposed to Codex discovery
-opai skills doctor    verify OPai skill files and registry paths
-opai scan             summarize hub registries
-opai doctor           validate registries and tool health
-opai tools            list registered tools
-opai agents           list registered agents
-opai workflows        list registered workflows
-opai dashboard --html write a local HTML dashboard
-opai hub <command>    pass through to the full hub CLI
+vesta install          create local .opaihub state and dashboards
+vesta statusline       print the right-aligned "Using Vesta" badge
+vesta welcome          print the Vesta mascot, badge, and quick commands
+vesta welcome --animate animate the Vesta mascot in place
+vesta integrate install install global AI-client discovery files
+vesta launch codex     print one Vesta badge line, then run codex
+vesta route "<task>"   print compact local-first routing decision
+vesta route --full-evidence "<task>" print full evidence only when needed
+vesta benchmark list    list local benchmark suites and optional harnesses
+vesta benchmark run     compare normal AI use with Vesta-routed use
+vesta benchmark run --suite max run the leaderboard-aligned local max suite
+vesta benchmark gate    fail CI if proof metrics regress below thresholds
+vesta benchmark compare compare latest two benchmark runs
+vesta benchmark export  write optional promptfoo handoff config
+vesta benchmark report  render the latest Vesta Efficiency Score
+vesta models recommend "<task>" choose the cheapest capable model tier
+vesta skills list      list Vesta-managed skills exposed to Codex discovery
+vesta skills doctor    verify Vesta skill files and registry paths
+vesta scan             summarize hub registries
+vesta doctor           validate registries and tool health
+vesta tools            list registered tools
+vesta agents           list registered agents
+vesta workflows        list registered workflows
+vesta dashboard --html write a local HTML dashboard
+vesta hub <command>    pass through to the full hub CLI
 ```
 
 Examples:
 
 ```powershell
-opai welcome
-opai welcome --animate
-opai welcome --compact --animate --frames 7
-opai welcome --image ansi
-opai welcome --image ascii
-opai welcome --image kitty
-opai models recommend "fix failing tests cheaply"
-opai skills doctor
-opai hub discover tools
-opai hub sandbox check --command "git reset --hard"
-opai hub schedule create daily_hub_check --cadence daily
-opai hub analytics status
-opai hub team init --mode solo
+vesta welcome
+vesta welcome --animate
+vesta welcome --compact --animate --frames 7
+vesta welcome --image ansi
+vesta welcome --image ascii
+vesta welcome --image kitty
+vesta models recommend "fix failing tests cheaply"
+vesta skills doctor
+vesta hub discover tools
+vesta hub sandbox check --command "git reset --hard"
+vesta hub schedule create daily_hub_check --cadence daily
+vesta hub analytics status
+vesta hub team init --mode solo
 ```
 
-Global integration files are written under `~/.opai/`, `~/.agents/skills/opai/`, and managed client-specific instruction files where supported. Closed desktop apps may not expose a UI surface that OPai can draw into directly; OPai provides the blue statusline command, mascot welcome screen, CLI wrappers, and discovery/instruction files for clients that support them. The ANSI image renderer uses Pillow when available and falls back cleanly to ASCII.
+Global integration files are written under `~/.opai/`, `~/.agents/skills/opai/`, and managed client-specific instruction files where supported. Closed desktop apps may not expose a UI surface that Vesta can draw into directly; Vesta provides the blue statusline command, mascot welcome screen, CLI wrappers, and discovery/instruction files for clients that support them. The ANSI image renderer uses Pillow when available and falls back cleanly to ASCII.
 
-Superpowers is treated as part of OPai. The default installer clones or updates it under `~/.codex/superpowers`, then OPai activation ensures it is visible to native skill discovery at `~/.agents/skills/superpowers`. Restart Codex/Claude/Copilot after first activation so skills are rediscovered.
+Superpowers is treated as part of Vesta. The default installer clones or updates it under `~/.codex/superpowers`, then Vesta activation ensures it is visible to native skill discovery at `~/.agents/skills/superpowers`. Restart Codex/Claude/Copilot after first activation so skills are rediscovered.
 
-OPai also publishes its own skill library under `~/.agents/skills/opai/`. That folder contains the root `opai` skill plus 36 focused OPai skills for routing, model selection, codebase knowledge graphs via graphify, testing, debugging, GitOps, security, refactors, MCP setup, local models, and release preflight.
+Vesta also publishes its own skill library under `~/.agents/skills/opai/`. That folder contains the root `opai` skill plus 36 focused Vesta skills for routing, model selection, codebase knowledge graphs via graphify, testing, debugging, GitOps, security, refactors, MCP setup, local models, and release preflight.
 
 ## Legacy Name
 

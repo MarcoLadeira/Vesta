@@ -34,7 +34,7 @@ test("context action copies a read-only profiling command", async ({ page }) => 
   await openApp(page);
   await openNav(page, "Context Waste");
   await page.getByRole("button", { name: "Copy profile command" }).click();
-  await expect(page.locator("#toast")).toContainText("opai context profile");
+  await expect(page.locator("#toast")).toContainText("vesta context profile");
 });
 
 test("cleanup actions preview in app and require approval before writing ignores", async ({ page }) => {

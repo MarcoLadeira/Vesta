@@ -1,4 +1,4 @@
-"""Build a channel-labelled portable OPai desktop artifact from an exact tag."""
+"""Build a channel-labelled portable Vesta desktop artifact from an exact tag."""
 
 from __future__ import annotations
 
@@ -33,17 +33,26 @@ from opaihub.desktop_artifacts import (  # noqa: E402
     write_bundle_evidence,
 )
 from opaihub.proc import no_window_kwargs  # noqa: E402
+from opaihub.process_tree import adopt, isolated_group_kwargs, terminate_tree  # noqa: E402
 
 
 def _run(command: list[str], *, cwd: Path, timeout: int = 1800) -> None:
-    print("+", " ".join(command))
-    subprocess.run(  # nosec B603 - generated local build-tool commands only
+    print("+", " ".join(command), flush=True)
+    proc = subprocess.Popen(  # nosec B603 - generated local build-tool commands only
         command,
         cwd=str(cwd),
-        check=True,
-        timeout=timeout,
-        **no_window_kwargs(),
+        stdin=subprocess.DEVNULL,
+        stdout=sys.stdout,
+        stderr=sys.stderr,
+        **isolated_group_kwargs(),
     )
+    try:
+        adopt(proc)
+        returncode = proc.wait(timeout=timeout)
+        if returncode:
+            raise subprocess.CalledProcessError(returncode, command)
+    finally:
+        terminate_tree(proc)
 
 
 def _deploy_script(build_python: Path) -> Path:
@@ -177,15 +186,66 @@ def _prepare_staging(work: Path, specs: DeploymentSpecs) -> DeploymentSpecs:
     )
 
 
-def _component_output(directory: Path, name: str) -> Path:
+def _with_native_args(
+    specs: DeploymentSpecs, arguments: tuple[str, ...]
+) -> DeploymentSpecs:
+    return DeploymentSpecs(
+        gui=replace(specs.gui, extra_args=(*specs.gui.extra_args, *arguments)),
+        cli=replace(specs.cli, extra_args=(*specs.cli.extra_args, *arguments)),
+    )
+
+
+def _native_icon(build_python: Path, work: Path) -> Path | None:
+    if sys.platform != "win32":
+        return None
+    destination = work / "OPai.ico"
+    # Qt is already pinned in the build environment. Convert through Qt rather
+    # than relying on Nuitka's optional, unpinned imageio/Pillow toolchain.
+    _run(
+        [
+            str(build_python),
+            "-c",
+            (
+                "import sys; from PySide6.QtGui import QImage; "
+                "from PySide6.QtCore import Qt; "
+                "image = QImage(sys.argv[1]); "
+                "assert not image.isNull(), 'cannot load desktop icon'; "
+                "assert image.scaled(256, 256, Qt.KeepAspectRatio, "
+                "Qt.SmoothTransformation).save(sys.argv[2]), 'cannot save desktop icon'"
+            ),
+            str(ROOT / "opai" / "assets" / "opai-icon.png"),
+            str(destination),
+        ],
+        cwd=ROOT,
+        timeout=30,
+    )
+    return destination
+
+
+def _component_output(
+    directory: Path, name: str, *, entrypoint: Path | None = None
+) -> Path:
     candidates = (
         directory / f"{name}.dist",
         directory / f"{name}.app",
         directory / f"{name}.exe",
         directory / name,
     )
+    # Nuitka names standalone directories after the input module, even when
+    # --output-filename changes the executable inside them.
+    if entrypoint is not None:
+        candidates += (directory / f"{entrypoint.stem}.dist",)
     for candidate in candidates:
-        if candidate.exists():
+        if candidate.is_file():
+            return candidate
+        if candidate.is_dir() and any(
+            executable.is_file()
+            for executable in (
+                candidate / f"{name}.exe",
+                candidate / name,
+                candidate / "Contents" / "MacOS" / name,
+            )
+        ):
             return candidate
     raise ArtifactReleaseError(f"native build did not produce {name} in {directory}")
 
@@ -213,7 +273,7 @@ def _default_bundle_path(tag: str, channel: str) -> Path:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Build a source-free, portable OPai desktop artifact from an exact tag."
+        description="Build a source-free, portable Vesta desktop artifact from an exact tag."
     )
     parser.add_argument(
         "--output-dir", help="Empty destination directory for the bundle"
@@ -229,6 +289,13 @@ def main() -> int:
     )
     parser.add_argument("--allow-untagged", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--nuitka-extra-arg",
+        action="append",
+        default=[],
+        help="Explicit native compiler option for both components; use =--option. "
+        "Downloads require =--assume-yes-for-downloads; otherwise prompts fail closed.",
+    )
     parser.add_argument(
         "--channel",
         choices=("unsigned-prealpha", "production"),
@@ -260,7 +327,9 @@ def main() -> int:
             raise ArtifactReleaseError(f"native build lock is missing: {lock_file}")
         deploy_script = _deploy_script(build_python)
         raw_output = Path(tempfile.gettempdir()) / "opai-artifact-dry-run" / "raw"
-        specs = deployment_specs(ROOT, raw_output)
+        specs = _with_native_args(
+            deployment_specs(ROOT, raw_output), tuple(args.nuitka_extra_arg)
+        )
 
         if args.dry_run:
             commands = build_commands(
@@ -291,13 +360,19 @@ def main() -> int:
         destination.mkdir(parents=True, exist_ok=False)
         with tempfile.TemporaryDirectory(prefix="opai-artifact-build-") as temporary:
             work = Path(temporary)
-            raw_specs = deployment_specs(ROOT, work / "raw")
+            raw_specs = _with_native_args(
+                deployment_specs(ROOT, work / "raw"), tuple(args.nuitka_extra_arg)
+            )
             staged_specs = _prepare_staging(work, raw_specs)
             spec_dir = work / "specs"
             spec_dir.mkdir()
             gui_spec = spec_dir / "gui-pyside6-deploy.spec"
             gui_spec.write_text(
-                render_pyside_deploy_spec(staged_specs.gui, build_python=build_python),
+                render_pyside_deploy_spec(
+                    staged_specs.gui,
+                    build_python=build_python,
+                    icon=_native_icon(build_python, work),
+                ),
                 encoding="utf-8",
             )
             gui_command, cli_command = build_commands(
@@ -307,13 +382,22 @@ def main() -> int:
                 spec_dir=spec_dir,
             )
             _run(gui_command, cwd=ROOT)
+            # PySide Deploy can return zero after a failed compiler subprocess.
+            # Require its output before spending time compiling the second component.
+            gui_output = _component_output(
+                staged_specs.gui.output_dir, staged_specs.gui.name
+            )
             _run(cli_command, cwd=ROOT)
             _copy_component(
-                _component_output(staged_specs.gui.output_dir, staged_specs.gui.name),
+                gui_output,
                 destination / "gui",
             )
             _copy_component(
-                _component_output(staged_specs.cli.output_dir, staged_specs.cli.name),
+                _component_output(
+                    staged_specs.cli.output_dir,
+                    staged_specs.cli.name,
+                    entrypoint=staged_specs.cli.entrypoint,
+                ),
                 destination / "cli",
             )
         artifact_identity = runtime_identity(

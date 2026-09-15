@@ -1,4 +1,4 @@
-/* OPai web UI front-end. Renders JSON the Python bridge provides; never computes
+/* Vesta web UI front-end. Renders JSON the Python bridge provides; never computes
    anything sensitive itself. */
 "use strict";
 
@@ -57,6 +57,8 @@ const state = {
   model: { id: "auto", label: "Auto", kind: "auto" },
   mode: { id: "safe-auto", label: "Safe Auto" },
   focus: "general", format: "normal",
+  multiAgentEnabled: false, agentsAllowCloud: false, agentsMaxParallel: 2, agentsSizing: "automatic", agentsBudgetUsd: "", agentsSnapshot: null, agentsSelection: null, agentsPollTimer: null, agentsRequests: new Map(),
+  teamOpen: false, teamMapOpen: false, teamObjectiveId: null, teamAgentId: null, teamPollTimer: null, teamRequest: null, teamRefreshError: '', teamDiscovered: false,
   // Hidden until the boot payload (or the user) says otherwise, matching
   // gui_preferences' documented default. Starting true meant the shell
   // painted an empty inspector before any preference was known -- and, with
@@ -342,6 +344,16 @@ function applyBootSelection(b) {
   state.bypassPermissions = b.prefs.bypassPermissions === true;
   state.focus = b.prefs.focus || "general";
   state.format = b.prefs.format || "normal";
+  state.multiAgentEnabled = b.prefs.multiAgentEnabled === true && b.agentsRuntime?.supported !== false;
+  state.agentsAllowCloud = false;
+  state.agentsMaxParallel = 2;
+  state.agentsSizing = "automatic";
+  state.agentsBudgetUsd = "";
+  state.teamOpen = false;
+  state.teamObjectiveId = null;
+  state.teamAgentId = null;
+  state.teamMapOpen = false;
+  state.teamDiscovered = false;
   const m = (b.models || []).find((x) => x.id === b.selectedModel) || (b.models || [])[0];
   if (m) state.model = { ...m, advancedLabel: m.advanced_label };
   const md = (b.modes || []).find((x) => x.id === b.prefs.mode) || (b.modes || [])[0];
@@ -470,6 +482,8 @@ function boot() {
   if (bridge.connectionDoctorReady) bridge.connectionDoctorReady.connect(onConnectionDoctorReady);
   // #146: async data delivery — heavy payloads computed off the GUI thread.
   if (bridge.dashboardReady) bridge.dashboardReady.connect(onDashboardReady);
+  if (bridge.objectiveReady) bridge.objectiveReady.connect(onObjectiveReady);
+  if (bridge.objectiveControlReady) bridge.objectiveControlReady.connect(onObjectiveControlReady);
   if (bridge.settingsReady) bridge.settingsReady.connect(onSettingsReady);
   if (bridge.statusReady) bridge.statusReady.connect(onStatusReady);
   if (bridge.workspaceReady) bridge.workspaceReady.connect(onWorkspaceReady);
@@ -543,20 +557,20 @@ function renderUpdateBanner(update) {
   const manualReply = state.update.manual_check;
   if (manualReply && manualReply.message) toast(String(manualReply.message));
   const states = {
-    available: ["Update available", "A signed OPai update is ready to download.", "accent"],
-    downloading: ["Downloading update", "You can keep working while OPai downloads.", "accent"],
+    available: ["Update available", "A signed Vesta update is ready to download.", "accent"],
+    downloading: ["Downloading update", "You can keep working while Vesta downloads.", "accent"],
     verifying: ["Verifying update", "Checking the artifact digest and publisher identity.", "accent"],
     ready_to_install: ["Ready to restart", "The verified update is staged and ready.", "accent"],
     waiting_for_idle: ["Restart when finished", operation.safe_diagnostic || "Waiting for active work to finish.", "warning"],
-    install_on_quit: ["Installs on quit", "The verified update will install after OPai closes safely.", "accent"],
+    install_on_quit: ["Installs on quit", "The verified update will install after Vesta closes safely.", "accent"],
     deferred: ["Update deferred", "The verified update remains available for later.", "neutral"],
     failed_retriable: ["Update paused", operation.safe_diagnostic || "The update can be retried.", "warning"],
     failed_terminal: ["Update blocked", operation.safe_diagnostic || "The update failed a security check.", "danger"],
-    policy_blocked: [policy.owner && policy.owner !== "opai" ? "Managed by administrator" : "Updates disabled by policy", "OPai will not race another update owner.", "neutral"],
+    policy_blocked: [policy.owner && policy.owner !== "opai" ? "Managed by administrator" : "Updates disabled by policy", "Vesta will not race another update owner.", "neutral"],
     unsupported_install: ["Manual update required", operation.safe_diagnostic || "This installation cannot update transactionally.", "neutral"],
     rollback_pending: ["Recovery required", "The new build did not pass startup health checks.", "danger"],
     needs_attention: ["Update needs attention", operation.safe_diagnostic || "Automatic recovery could not complete.", "danger"],
-    rolled_back: ["Update rolled back", "OPai restored the last-known-good build.", "warning"],
+    rolled_back: ["Update rolled back", "Vesta restored the last-known-good build.", "warning"],
     unavailable: ["Couldn’t check for updates", operation.safe_diagnostic || "Update status is temporarily unavailable.", "warning"],
   };
   // COMPLETED is normally the quiet end of a packaged update: the app has
@@ -568,7 +582,7 @@ function renderUpdateBanner(update) {
   // fast-forward runs inside the check — fetch, merge, reinstall — and the
   // reinstall alone takes seconds with nothing on screen. A progress label
   // is the updater saying it is mid-stage, so show the stage and the bar.
-  if (operation.progress_label) states.checking = ["Updating OPai", operation.progress_label, "accent"];
+  if (operation.progress_label) states.checking = ["Updating Vesta", operation.progress_label, "accent"];
   const visible = Object.prototype.hasOwnProperty.call(states, status);
   shell.hidden = !visible;
   // The update-state event fans out to Settings and other listeners, so it
@@ -586,14 +600,14 @@ function renderUpdateBanner(update) {
   shell.dataset.tone = config[2];
   // Plain copy, from the backend. The internal diagnostic -- "cannot update
   // transactionally", "4 commits behind origin/main" -- is true, useful in
-  // `opai update doctor`, and not what someone wanting the new version needs
+  // `vesta update doctor`, and not what someone wanting the new version needs
   // to read.
   const summary = ((state.update || {}).discovery || {}).summary || {};
   const title = String(summary.title || config[0]);
   const message = String(summary.message || config[1]);
   $("#updateBannerText").textContent = title;
   $("#updateSheetTitle").textContent = candidate.version
-    ? `${title} · OPai ${candidate.version}`
+    ? `${title} · Vesta ${candidate.version}`
     : title;
   $("#updateSheetDescription").textContent = message;
   const meta = $("#updateSheetMeta");
@@ -760,6 +774,14 @@ function wireUpdateSheet() {
 }
 
 function rebootFromState() {
+  clearTimeout(state.agentsPollTimer);
+  clearTimeout(state.teamPollTimer);
+  state.teamPollTimer = null;
+  state.teamRequest = null;
+  state.teamRefreshError = '';
+  state.agentsSnapshot = null;
+  state.agentsSelection = null;
+  state.agentsRequests.clear();
   state.dashRequest = null;
   state.settingsRequest = null;
   state.statusRequest = null;
@@ -782,7 +804,7 @@ function rebootFromState() {
   if (state.panel) refreshInspector();
 }
 
-/* OPai Build in the cockpit (#276): when the workspace is a scaffolded app,
+/* Vesta Build in the cockpit (#276): when the workspace is a scaffolded app,
    offer Build mode — a chat message becomes a cheap, verified targeted edit. */
 function syncBuildMode() {
   const ws = (state.boot && state.boot.workspace) || {};
@@ -810,12 +832,14 @@ function updateSendLabel() {
   updateComposerAvailability();
 }
 function submitComposer() {
+  const recipient = composerAgent();
+  if (recipient) { sendAgentMessage(recipient); return; }
   if (composerBlockReason()) return;
   const text = $("#input").value.trim();
   // A sent prompt starts history over, so the next Up recalls what was just
   // sent rather than resuming a half-finished walk through older entries.
   historyReset();
-  // #295: "OPai must not silently ignore a new instruction because an older run
+  // #295: "Vesta must not silently ignore a new instruction because an older run
   // is active." Enter used to be dropped on the floor mid-run — the keystroke
   // vanished with no trace, which is the worst outcome for someone correcting
   // or redirecting the work. Hold it instead and send it when the run ends.
@@ -1109,7 +1133,7 @@ function renderModelSelect(syncContext = true) {
     { id: "codex",   label: "Codex" },
     { id: "copilot", label: "Copilot" },
     { id: "free",    label: "Free models" },
-    { id: "routing", label: "OPai routing" },
+    { id: "routing", label: "Vesta routing" },
     { id: "local",   label: "Local models" },
   ];
   const allModels = state.boot.models || [];
@@ -1119,7 +1143,7 @@ function renderModelSelect(syncContext = true) {
   const selectable = allModels.filter((m) => !m.out_of_credit && isModelVisible(m));
   const currentEntry = allModels.find((m) => m.id === state.model.id);
   if (currentEntry && currentEntry.out_of_credit) {
-    state.model = { id: "auto", label: "OPai · Auto mode", kind: "auto", provider: "" };
+    state.model = { id: "auto", label: "Vesta · Auto mode", kind: "auto", provider: "" };
     bridge.savePref("default_model", "auto");
   }
   const grouped = {};
@@ -1185,7 +1209,7 @@ function renderComposerSelects() {
     // immediately, then let the asynchronous status refresh fill in its
     // independently computed spend and savings values. This avoids showing the
     // previous (potentially more permissive) mode while that refresh is in flight.
-    renderStatus({ line: $("#statusLine").textContent });
+    renderStatus({ line: state.statusLineSource || "" });
     renderComposerContext(); refreshInspector(); refreshStatus();
   };
   renderModelSelect();
@@ -1387,6 +1411,15 @@ function raiseTheLights(resume) {
 }
 
 function composerBlockReason() {
+  const recipient = composerAgent();
+  if (recipient) {
+    if (!recipient.agent?.team_controls?.can_message) return 'This agent cannot receive a follow-up yet. Resolve its current task or choose To: Team.';
+    if (typeof bridge.controlObjective !== 'function') return 'Agent messaging is unavailable in this host.';
+    if (teamComposer.pending) return 'Waiting for the message to be queued…';
+    if (state.contextHints.length) return 'Agent follow-ups use their existing task context. Remove attached context or choose To: Team.';
+    if ($('#input').value.trim().length > 8000) return 'Keep agent messages within 8,000 characters.';
+    return $('#input').value.trim() ? '' : EMPTY_PROMPT_REASON;
+  }
   if (state.resumePending) return "Choose how to continue this saved session before sending.";
   if (selectedAccountNeedsConnection()) {
     return `Connect ${state.model.provider ? providerName(state.model.provider) : "this provider"} before sending.`;
@@ -1399,7 +1432,7 @@ function renderComposerContext() {
   const root = $("#composerContext");
   if (!root || !state.boot) return;
   const modeLabel = modePresentationLabel(state.mode);
-  const modelLabel = state.model.kind === "auto" ? "OPai · Auto mode" : (state.model.label || "Selected model");
+  const modelLabel = state.model.kind === "auto" ? "Vesta · Auto mode" : (state.model.label || "Selected model");
   // These legacy pills now live in the visually-hidden .composer-native block
   // (the redesigned toolbar summarises the same state). tabindex="-1" keeps them
   // out of the tab order so their aria-hidden container has no focusable content.
@@ -1431,6 +1464,13 @@ function updateComposerAvailability() {
   // availability change (typing, mode/model change, send lifecycle).
   if (window.OPaiComposer) window.OPaiComposer.refresh();
   const blocked = composerBlockReason();
+  if (composerAgent()) {
+    send.textContent = 'Send'; send.classList.remove('stop'); send.disabled = !!blocked; send.setAttribute('aria-label', 'Send to selected agent');
+    $('#composerStatus').hidden = true;
+    reason.textContent = blocked === EMPTY_PROMPT_REASON ? '' : blocked; reason.dataset.tone = 'hint';
+    return;
+  }
+  send.textContent = state.busy ? 'Stop' : ((state.buildMode && state.buildApp) ? 'Build' : 'Send'); send.classList.toggle('stop', state.busy);
   if (state.busy) { send.disabled = false; reason.innerHTML = ""; delete reason.dataset.tone; return; }
   send.disabled = Boolean(blocked);
   send.setAttribute("aria-label", (state.buildMode && state.buildApp) ? "Start build" : "Send prompt");
@@ -1735,13 +1775,13 @@ function updateInspectorLive(stepText) {
 
 function renderStatus(st) {
   if (!st) return;
-  const segments = String(st.line || "").split(" · ");
-  // Mode is selected locally, while the rest of this line (provider, spend,
-  // savings) is supplied by the backend. Keep the only immediately knowable
-  // value authoritative even if a queued status response was generated before
-  // the user changed modes.
-  if (segments.length >= 2 && state.mode) segments[1] = modePresentationLabel(state.mode);
-  $("#statusLine").innerHTML = esc(segments.join(" · ")).replace(/^([^·]+)/, "<b>$1</b>");
+  state.statusLineSource = String(st.line || "");
+  const segments = state.statusLineSource.split(" · ");
+  if (segments.length >= 3 && state.mode) {
+    const label = modePresentationLabel(state.mode) + ' mode' + (state.bypassPermissions ? ' · Bypass on' : '');
+    $('#statusLine').innerHTML = '<b>' + esc(label) + '</b>' + segments.slice(2).map((value) => ' · ' + (/saved$/.test(value) ? '<strong class="status-savings">' + esc(value) + '</strong>' : esc(value))).join('');
+  } else $('#statusLine').textContent = st.line || '';
+
 }
 
 /* ---------- views ---------- */
@@ -1866,7 +1906,12 @@ function wireSettingsPageScrollbar() {
 }
 
 function switchView(id) {
+  if (state.view !== id) state.teamOpen = false;
+  clearTimeout(state.agentsPollTimer);
+  state.dashRequest = null;
+  state.dashPaint = null;
   state.view = id;
+  applyPanel();
   closeMobileSidebar();
   const app = $("#app");
   if (app) app.classList.toggle("settings-active", id === "settings");
@@ -1890,11 +1935,12 @@ function switchView(id) {
   else if (id === "settings") renderSettings();
   else $("#input").focus();
   refreshSettingsPageScrollbar();
+  updateTeamComposerClearance();
 }
 
 /* ---------- chat ---------- */
 function renderEmptyChips() {
-  // Agent-grade starters that show what OPai really does (plan, gate, receipt)
+  // Agent-grade starters that show what Vesta really does (plan, gate, receipt)
   // without promising anything the engine doesn't deliver.
   const chips = [
     ["Summarize my changes", "Summarize my uncommitted changes"],
@@ -1915,8 +1961,12 @@ function renderEmptyChips() {
   $$("#chips .chip").forEach((b) => (b.onclick = () => { setComposerDraft(b.dataset.p); send(); }));
 }
 function clearChat() {
+  state.teamMapOpen = false;
+  if ($("#teamMap")) $("#teamMap").hidden = true;
+  $("#chatScroll").hidden = false;
+  document.querySelector(".team-edit-dialog")?.close();
   const t = $("#thread");
-  t.querySelectorAll(".msg").forEach((m) => m.remove());
+  t.querySelectorAll(".msg, .chat-timestamp").forEach((m) => m.remove());
   $("#empty").style.display = "";
   state.followLatest = true;
   state.tlNodes = null;
@@ -1938,13 +1988,13 @@ function clearFailure(message) {
     error: {
       code: "SESSION_CLEAR_FAILED",
       userMessage: message,
-      recoveryActions: ["Try again after closing other OPai windows for this workspace."],
+      recoveryActions: ["Try again after closing other Vesta windows for this workspace."],
     },
   };
 }
 function parseClearResponse(raw) {
   try { return JSON.parse(raw || "{}"); }
-  catch (_e) { return clearFailure("OPai could not confirm that the saved work was cleared."); }
+  catch (_e) { return clearFailure("Vesta could not confirm that the saved work was cleared."); }
 }
 // #416: drop the "Resume your previous work?" choice card from the DOM right now,
 // on click — the dismissal must not wait for the async session bridge to answer,
@@ -1958,7 +2008,7 @@ function showSessionClearFailure(response) {
   // bring back any more, and a composer left disabled with nothing on screen
   // explaining why is the worst of both.
   appendMsg(
-    roleHeader("OPai", "var(--red)") + `<div class="body" role="alert">${esc(message)}</div>`,
+    roleHeader("Vesta", "var(--red)") + `<div class="body" role="alert">${esc(message)}</div>`,
     "bot",
   );
   setResumeGate(false);
@@ -2022,12 +2072,12 @@ function renderConversation(conv) {
     messages.forEach((m) => {
       const text = String(m.text || "");
       if (m.role === "user") {
-        appendMsg(userMessageHtml(text), "user");
+        appendMsg(userMessageHtml(text), "user", m.timestamp || null);
         return;
       }
       const el = appendMsg(
         assistantPresentationHtml(
-          roleHeader("OPai", "var(--muted)", { copy: true }),
+          roleHeader("Vesta", "var(--muted)", { copy: true }),
           text,
           m.presentation,
         )
@@ -2145,7 +2195,7 @@ function finalizeBuild(r) {
   const sel = state.lastSend || {};
   const durMs = Date.now() - state.startTime;
   el.innerHTML = assistantPresentationHtml(
-    roleHeader("OPai Build", "var(--accent)"),
+    roleHeader("Vesta Build", "var(--accent)"),
     typeof r.answer === "string" ? r.answer : "",
     r.presentation,
     {
@@ -2217,7 +2267,7 @@ function buildResultHtml(r) {
   const msg = (r.error && (r.error.userMessage || r.error)) || r.answer || status;
   return `<div class="build-card error" role="group" aria-label="Build failed"><div class="bres-t">${uiIcon("error")} ${esc(String(msg)).slice(0, 400)}</div></div>`;
 }
-function appendMsg(html, cls) {
+function appendMsg(html, cls, timestamp) {
   $("#empty").style.display = "none";
   // Every path that puts a message on screen lights the room, not just send():
   // slash commands, a restored session and a queued message all arrive here.
@@ -2228,7 +2278,18 @@ function appendMsg(html, cls) {
   // animation at that point instead, which is the same stutter one frame late.
   d.className = "msg " + (cls || "") + (chatBatchDepth > 0 ? " no-entry" : "");
   d.innerHTML = html;
-  withChatScrollPreserved(() => $("#thread").appendChild(d));
+  withChatScrollPreserved(() => {
+    const thread = $("#thread");
+    const stamp = cls === "user" && window.OPaiChatTime?.stamp(timestamp === undefined ? new Date() : timestamp);
+    const previous = thread.querySelector(':scope > .chat-timestamp:last-of-type');
+    if (stamp && previous?.dataset.minute !== String(stamp.minute)) {
+      const time = document.createElement('time');
+      time.className = 'chat-timestamp'; time.dateTime = stamp.iso; time.title = stamp.title;
+      time.dataset.minute = stamp.minute; time.textContent = stamp.label;
+      thread.appendChild(time);
+    }
+    thread.appendChild(d);
+  });
   return d;
 }
 function roleHeader(label, color, opts) {
@@ -2276,7 +2337,7 @@ function send(retryOf) {
   // after the guards above so an empty or blocked send never triggers it, and
   // before everything below so no state is mutated twice on the way through.
   if (raiseTheLights(() => send(retryOf))) return;
-  // Slash commands run local OPai tools ("/panic", "/savings", "/connect") —
+  // Slash commands run local Vesta tools ("/panic", "/savings", "/connect") —
   // they must NEVER be sent to a paid model as a prompt.
   if (!retryOf && text.startsWith("/")) {
     setComposerDraft("");
@@ -2290,15 +2351,33 @@ function send(retryOf) {
   const sel = retryOf || {
     text, model: state.model.id, mode: state.mode.id, focus: state.focus, format: state.format,
     modelKind: state.model.kind, modelLabel: state.model.label, modelProvider: state.model.provider,
+    multiAgentEnabled: state.multiAgentEnabled === true,
+    maxParallel: state.agentsMaxParallel,
+    budgetUsd: state.agentsBudgetUsd.trim() || null,
+    bypassPermissions: state.bypassPermissions === true,
+    allowCloud: state.multiAgentEnabled === true && state.agentsAllowCloud === true,
     contextHints: state.contextHints.slice(),
   };
+  if (sel.multiAgentEnabled) {
+    if (state.boot.agentsRuntime?.supported === false) {
+      toast(state.boot.agentsRuntime.reason || "Multi-agent execution is unavailable on this host.");
+      return;
+    }
+    try {
+      Object.assign(sel, window.OPaiAgentsWorkspace.runSettings(sel.maxParallel ?? 2, sel.budgetUsd ?? null));
+    } catch (error) {
+      toast(error.message);
+      return;
+    }
+  }
   // Free-tier consent: one confirmation per provider, ever. If the user has
   // already confirmed this free model in the past (persisted per workspace),
   // send with allowCloud=true up front — no card. Otherwise the pipeline
   // returns needs_free_confirmation and the in-chat card handles it.
-  if (sel.modelKind === "free" && sel.allowCloud !== true && state.freeConsent && state.freeConsent.has(sel.model)) {
+  if (!sel.multiAgentEnabled && sel.modelKind === "free" && sel.allowCloud !== true && state.freeConsent && state.freeConsent.has(sel.model)) {
     sel.allowCloud = true;
   }
+  if (!retryOf && sel.multiAgentEnabled) state.agentsAllowCloud = false;
   if (!retryOf) setComposerDraft("");
   state.lastSend = sel;
   if (!retryOf) {
@@ -2340,6 +2419,10 @@ function send(retryOf) {
   bridge.send(JSON.stringify({
     requestId, text: requestText, model: sel.model, mode: sel.mode, focus: sel.focus,
     format: sel.format, allowCloud: sel.allowCloud === true, allowLimit: sel.allowLimit === true,
+    bypassPermissions: sel.bypassPermissions === true,
+    multiAgentEnabled: sel.multiAgentEnabled === true,
+    maxParallel: sel.multiAgentEnabled ? sel.maxParallel : undefined,
+    budgetUsd: sel.multiAgentEnabled ? sel.budgetUsd : undefined,
     contextHints,
     // F9/F17: one-time approval for a policy-blocked command — the exact
     // string echoed by the pipeline, never a rewritten one. Omitted unless set.
@@ -2354,7 +2437,7 @@ function buildPending(sel) {
   const initialStage = OPaiActivity.stageMessage(0, { modelLabel: sel.modelLabel || sel.model }).stage;
   state.latestActivity = null;
   const el = appendMsg(
-    roleHeader("OPai", "var(--accent)") +
+    roleHeader("Vesta", "var(--accent)") +
     `<div class="gen">
        <div class="gen-work-surface">
          <div class="gen-head">
@@ -2926,7 +3009,7 @@ function finishCancel(cancelledId, teardown) {
   state.store.cancelRunning(); renderTimeline();
   finalize("cancelled", {
     answer: state.streamedText || "",
-    // Reported, not hidden: an unconfirmed teardown means OPai could not prove
+    // Reported, not hidden: an unconfirmed teardown means Vesta could not prove
     // the provider call stopped, and the user may still be paying for it.
     cancel_teardown: teardown,
   });
@@ -3139,7 +3222,7 @@ function completionVerdictHtml(r) {
 
 // The verdict owns the user-facing outcome everywhere. Runtime phases describe
 // internal progress and can legitimately end "completed" after a provider
-// returned, even when OPai could not verify the user's objective. Rendering a
+// returned, even when Vesta could not verify the user's objective. Rendering a
 // runtime phase as the final status reintroduced the Round 6 contradiction:
 // "Partial" above "Implement · Completed" below.
 /**
@@ -3179,15 +3262,15 @@ function completionVerdictLabel(item) {
 // Round 5 finding 2: one push turn showed a red "Failed" pill directly above the
 // words "has been successfully pushed to the origin remote". Whichever was wrong,
 // the two surfaces sent opposite messages and a user who glanced at only one drew
-// the opposite conclusion. OPai cannot tell from prose which is right — so it
+// the opposite conclusion. Vesta cannot tell from prose which is right — so it
 // refuses to let the claim read as settled, and says so where the claim is.
 function unverifiedClaimHtml(r) {
   const item = completionVerdict(r);
   if (!item || !item.answerConflicts) return "";
   return `<div class="unverified-claim" role="note">${uiIcon("warning")} ` +
-    `<span><strong>OPai could not verify this.</strong> The response below says the ` +
+    `<span><strong>Vesta could not verify this.</strong> The response below says the ` +
     `work succeeded, but this run ended as <em>${esc(completionVerdictLabel(item))}</em> ` +
-    `and OPai found no evidence the action completed. Treat the claim as unconfirmed ` +
+    `and Vesta found no evidence the action completed. Treat the claim as unconfirmed ` +
     `and check the result yourself before relying on it.</span></div>`;
 }
 function metaFooter(r, sel, durMs) {
@@ -3196,7 +3279,7 @@ function metaFooter(r, sel, durMs) {
   // Cost/savings line — the SAME honest text the flat footer used, so the
   // money-truth contract holds: a paid call shows spend and never "saved".
   const elapsed = OPaiActivity.formatElapsed(durMs);
-  const bits = [sel.modelLabel || "OPai"];
+  const bits = [sel.modelLabel || "Vesta"];
   // Same rule as the summary row: a turn that finished inside the clock's
   // resolution has no duration worth printing.
   if (elapsed && !/^0+[:0]*$/.test(String(elapsed).replace(/[^0-9:]/g, ""))) bits.push(elapsed);
@@ -3237,7 +3320,7 @@ function wireReceipt(el, sel, r) {
     const badge = strip.querySelector(".rc-badge");
     const bits = strip.querySelector(".rc-bits");
     const line = [badge && badge.textContent.trim(), bits && bits.textContent.trim()].filter(Boolean).join(" · ");
-    copyText(`OPai receipt\nTask: ${(sel && sel.text) || "—"}\n${line || strip.textContent.trim()}`);
+    copyText(`Vesta receipt\nTask: ${(sel && sel.text) || "—"}\n${line || strip.textContent.trim()}`);
     toast("Receipt copied");
   };
   strip.onclick = copy;
@@ -3415,7 +3498,7 @@ function renderErrorCard(el, status, r, sel) {
     "needs_auto_confirmation",
     "needs_limit_confirmation",
   ].includes(status);
-  const title = error.title || ERROR_TITLES[status] || "OPai could not complete this request.";
+  const title = error.title || ERROR_TITLES[status] || "Vesta could not complete this request.";
   const what = error.userMessage || (typeof (r && r.answer) === "string" && r.answer) || "Retry, or open Settings if the problem continues.";
   const raw = redactSecrets(
     error.technicalMessage ||
@@ -3437,8 +3520,8 @@ function renderErrorCard(el, status, r, sel) {
     : String((sel && sel.modelLabel) || "the provider").split(" · ")[0];
   // Never a dead end: when the engine could name a model that can still run
   // this request, offer it as the primary action. "Switch model" alone made the
-  // user diagnose a routing problem OPai had already solved — the whole point
-  // of OPai is that having usage somewhere is enough to keep working.
+  // user diagnose a routing problem Vesta had already solved — the whole point
+  // of Vesta is that having usage somewhere is enough to keep working.
   // Suppressed on awaiting-input cards (`canRetry` is the same test): those
   // already carry the exact action that unblocks them, and offering a different
   // model there would read as a way around a safety gate.
@@ -3448,7 +3531,7 @@ function renderErrorCard(el, status, r, sel) {
   const offerId = offer ? String(offer.id || "") : "";
   const offerLabel = offer ? String(offer.label || offerId) : "";
   const showOffer = !!offerId && offerId !== String((sel && sel.model) || "");
-  // Route transparency. When OPai deliberately declines to reroute — an
+  // Route transparency. When Vesta deliberately declines to reroute — an
   // irreversible request in the governed lane — the absence of a "Continue
   // with" button is a decision, not the dead end this release spent its time
   // removing. Say so, or it reads as the same old failure.
@@ -3456,11 +3539,11 @@ function renderErrorCard(el, status, r, sel) {
     ? r.message_contract
     : null;
   const heldLane = lane && lane.allowProviderFallback === false
-    ? `OPai will not move this request to another model on its own — ${String(lane.reason || "it cannot be safely repeated")} Choose a model yourself to continue.`
+    ? `Vesta will not move this request to another model on its own — ${String(lane.reason || "it cannot be safely repeated")} Choose a model yourself to continue.`
     : "";
   // Keep the activity evidence reviewable after a failure while retaining the
   // structured provider recovery actions from the shared message contract.
-  el.innerHTML = roleHeader(sel && sel.build ? "OPai Build" : "OPai", "var(--red)") + activitySummaryHtml() +
+  el.innerHTML = roleHeader(sel && sel.build ? "Vesta Build" : "Vesta", "var(--red)") + activitySummaryHtml() +
     `<div class="error-card" role="alert"><div class="ec-t">${esc(title)}</div><div class="ec-w">${esc(what)}</div>` +
     (heldLane ? `<div class="ec-w" data-lane-note>${esc(heldLane)}</div>` : "") +
     `<div class="ec-actions">` +
@@ -3468,7 +3551,7 @@ function renderErrorCard(el, status, r, sel) {
     (canRetry ? `<button class="btn" data-a="retry">Retry</button>` : "") +
     (actions.includes("repair_config") ? `<button class="btn primary" data-a="repair">Repair Codex config</button>` : "") +
     (offerLogin ? `<button class="btn primary" data-a="signin">Sign in to ${esc(providerName(loginProvider))}</button>` : "") +
-    // A live re-check, not just a link to Settings: OPai may have said
+    // A live re-check, not just a link to Settings: Vesta may have said
     // "connected" from a cached/on-disk signal right before this exact call
     // 401'd — "Open Settings" alone showed nothing new. This runs the same
     // check right here and reports the truth, plus the concrete next step.
@@ -3657,9 +3740,9 @@ function finalize(status, r) {
     const isProvider = sel.modelKind === "account" || sel.modelKind === "free";
   const label = isProvider
     ? String(sel.modelLabel).replace(" · ", " ").replace(/\s+\(free tier\)$/, "")
-    : "OPai";
+    : "Vesta";
   const color = isProvider ? (PROVIDER_COLOR[sel.modelProvider] || "var(--ink)") : "var(--muted)";
-  const answer = (typeof rawAnswer === "string" && rawAnswer) || state.streamedText || "OPai didn't return a response for that one.";
+  const answer = (typeof rawAnswer === "string" && rawAnswer) || state.streamedText || "Vesta didn't return a response for that one.";
   const headerHtml = roleHeader(label, color, { copy: true });
   let changesHtml = "";
   let supportHtml = "";
@@ -3834,7 +3917,7 @@ function diffFileCardHtml(file, opts) {
   </details>`;
 }
 
-// Everything OPai knows about a code change lives here — whether it's already
+// Everything Vesta knows about a code change lives here — whether it's already
 // on disk and verified, or held (via "Manual") for review before it
 // can ship. Both states reuse the same evidence and row markup; only the
 // "reviewing_diff" phase gets approve/reject actions.
@@ -4194,20 +4277,23 @@ function setBusy(on) {
 }
 
 /* ---------- dashboards ---------- */
-function renderDashboard(section) {
+function renderDashboard(section, quiet = false) {
+  clearTimeout(state.agentsPollTimer);
+  const workspaceRoot = (state.boot.workspace || {}).root;
   const page = $("#dashPage");
-  renderViewState(page, {
+  if (!quiet) renderViewState(page, {
     kind: "loading",
     title: "Loading dashboard",
     reason: "Waiting for locally prepared dashboard data.",
   });
   const paint = (json) => {
+    if (state.view !== section || (state.boot.workspace || {}).root !== workspaceRoot) return;
     let s = {};
     try { s = JSON.parse(json); } catch (_e) {
       renderViewState(page, {
         kind: "error",
         title: "Couldn't load this dashboard",
-        reason: "OPai received an invalid local dashboard response.",
+        reason: "Vesta received an invalid local dashboard response.",
         action: "retry_dashboard",
         actionLabel: "Try again",
       }, () => renderDashboard(section));
@@ -4217,7 +4303,7 @@ function renderDashboard(section) {
       renderViewState(page, {
         kind: "error",
         title: "Couldn't load this dashboard",
-        reason: "OPai received an invalid local dashboard response.",
+        reason: "Vesta received an invalid local dashboard response.",
         action: "retry_dashboard",
         actionLabel: "Try again",
       }, () => renderDashboard(section));
@@ -4241,6 +4327,14 @@ function renderDashboard(section) {
         action: "open_chat",
         actionLabel: "Open chat",
       }, () => switchView("chat"));
+      return;
+    }
+    if (section === "agents" && window.OPaiAgentsWorkspace) {
+      mergeAgentsSnapshot(s);
+      paintAgentsWorkspace();
+      state.agentsPollTimer = setTimeout(() => {
+        if (state.view === "agents" && (state.boot.workspace || {}).root === workspaceRoot) renderDashboard("agents", true);
+      }, 3000);
       return;
     }
     if (!s.hero && !(s.kpis || []).length && !(s.cards || []).length && !(s.actions || []).length) {
@@ -4291,12 +4385,341 @@ function onDashboardReady(json) {
     if (state.dashPaint) state.dashPaint("");
     return;
   }
+  if (d?.requestId && d.requestId === state.teamRequest?.id) { receiveAgentTeam(d); return; }
   if (!state.dashPaint || !d || typeof d !== "object" || Array.isArray(d) || d.requestId !== state.dashRequest) return; // stale
+  if (d.workspaceRoot && d.workspaceRoot !== (state.boot.workspace || {}).root) return;
   if (!Object.prototype.hasOwnProperty.call(d, "data") || !d.data || typeof d.data !== "object" || Array.isArray(d.data)) {
     state.dashPaint("");
     return;
   }
   state.dashPaint(JSON.stringify(d.data));
+}
+function inspectAgentArtifact(payload) {
+  if (!bridge.inspectObjectiveArtifact) { toast("Artifact inspection is unavailable in this host."); return; }
+  const workspaceRoot = (state.boot.workspace || {}).root;
+  bridge.inspectObjectiveArtifact(JSON.stringify(payload), (json) => {
+    let result; try { result = JSON.parse(json); } catch (_) { result = {}; }
+    if (workspaceRoot !== (state.boot.workspace || {}).root) return;
+    if (!result.ok) { toast(safeStateReason(result.error, "No matching artifact is available.")); return; }
+    if (result.workspaceRoot !== workspaceRoot || result.kind !== payload.kind || result.objective_id !== payload.objective_id || (result.assignment_id || "") !== (payload.assignment_id || "")) return;
+    const dialog = document.createElement("dialog");
+    dialog.className = "agents-artifact-dialog";
+    const returnFocus = document.activeElement;
+    const header = document.createElement("header");
+    const title = document.createElement("h3");
+    title.id = "agents-artifact-title";
+    title.textContent = result.summary || "Recorded changes";
+    dialog.setAttribute("aria-labelledby", title.id);
+    const close = document.createElement("button");
+    close.type = "button"; close.className = "btn"; close.textContent = "Close"; close.onclick = () => dialog.close();
+    const description = document.createElement("p");
+    description.textContent = "Base " + result.base_sha + " · Head " + result.head_sha + (result.truncated ? " · Preview truncated; open the worktree for the full diff." : "");
+    const preview = document.createElement("pre");
+    preview.tabIndex = 0;
+    preview.setAttribute("aria-label", "Recorded diff");
+    preview.textContent = result.text || "No changes in this recorded diff.";
+    header.append(title, close);
+    dialog.append(header, description, preview);
+    dialog.onclose = () => {
+      dialog.remove();
+      if (returnFocus && returnFocus.isConnected) returnFocus.focus({ preventScroll: true });
+    };
+    document.body.append(dialog); dialog.showModal(); close.focus();
+  });
+}
+function paintAgentsWorkspace() {
+  paintAgentChatCards();
+  paintAgentTeam();
+  if (state.view !== "agents" || !state.agentsSnapshot) return;
+  if (document.querySelector('.agents-artifact-dialog[open]')) return;
+  window.OPaiAgentsWorkspace.mount($("#dashPage"), state.agentsSnapshot, {
+    selection: state.agentsSelection,
+    onAction: runAction,
+    onBackToChat: () => openAgentTeam(state.agentsSelection?.objectiveId, state.agentsSelection?.assignmentId),
+    onCopyReceipt: (receipt) => { copyText(JSON.stringify(receipt, null, 2)); toast("Receipt copied."); },
+    onInspectArtifact: inspectAgentArtifact,
+    onOpenWorktree: (payload) => {
+      if (!bridge.openObjectiveWorktree) { toast("Worktree access is unavailable in this host."); return; }
+      bridge.openObjectiveWorktree(JSON.stringify(payload), (json) => {
+        let result; try { result = JSON.parse(json); } catch (_) { result = {}; }
+        if (!result.ok) toast(safeStateReason(result.error, "The worktree could not be opened."));
+      });
+    },
+    onSelect: (selection) => { state.agentsSelection = selection; paintAgentsWorkspace(); },
+    onControl: (payload) => {
+      if (bridge.controlObjective) bridge.controlObjective(JSON.stringify(payload));
+      else toast("Objective controls are unavailable in this host.");
+    },
+  });
+}
+function paintAgentChatCards() {
+  if (!window.OPaiAgentsWorkspace) return;
+  const scroll = captureChatScroll();
+  document.querySelectorAll("[data-agent-chat-objective]").forEach((element) => {
+    const objective = ((state.agentsSnapshot || {}).objectives || []).find((o) => o.objective_id === element.dataset.agentChatObjective);
+    if (!objective) return;
+    const html = window.OPaiAgentsWorkspace.renderCompact(objective) + (window.OPaiAgentsTeam ? window.OPaiAgentsTeam.feedHtml(objective) : '');
+    if (element._agentsHtml === html) return;
+    const active = element.contains(document.activeElement) ? document.activeElement : null;
+    const focused = active ? JSON.stringify({ ...active.dataset }) : null;
+    element.innerHTML = html;
+    element._agentsHtml = html;
+    element.querySelectorAll('[data-team-select]').forEach((button) => {
+      button.onclick = () => openAgentTeam(objective.objective_id, button.dataset.teamSelect);
+    });
+    const team = element.querySelector('[data-open-team]');
+    if (team) team.onclick = () => openAgentTeam(objective.objective_id);
+    if (focused) Array.from(element.querySelectorAll('button')).find((button) => JSON.stringify({ ...button.dataset }) === focused)?.focus({ preventScroll: true });
+  });
+  restoreChatScroll(scroll);
+}
+function peekAgentTeam(objectiveId, assignmentId) {
+  state.teamObjectiveId = objectiveId;
+  state.teamAgentId = assignmentId || null;
+  state.teamOpen = true;
+  applyPanel();
+  if (assignmentId) { $('#agentsTeam').scrollTop = 0; $('#agentsTeam [data-team-close]')?.focus({ preventScroll: true }); }
+}
+function openAgentTeam(objectiveId, assignmentId) {
+  if (state.view !== 'chat') switchView('chat');
+  peekAgentTeam(objectiveId, assignmentId);
+}
+const teamComposer = { root: null, key: 'team', drafts: new Map(), pending: null, placeholder: '' };
+function composerAgent() {
+  if (state.view !== 'chat' || !state.teamMapOpen || !state.teamOpen || !state.teamAgentId) return null;
+  const objective = (state.agentsSnapshot?.objectives || []).find((o) => o.objective_id === state.teamObjectiveId);
+  return { objective, agent: objective?.assignments?.find((a) => a.assignment_id === state.teamAgentId) };
+}
+function syncTeamRecipient(objective) {
+  const select = $('#teamRecipient'), input = $('#input'), root = state.boot.workspace?.root;
+  if (!select || !input) return;
+  const enabled = state.view === 'chat' && state.teamMapOpen && !!objective;
+  if (teamComposer.root !== root) { if (teamComposer.key !== 'team') input.value = ''; teamComposer.root = root; teamComposer.key = 'team'; teamComposer.drafts.clear(); teamComposer.pending = null; }
+  const target = composerAgent(), agent = target?.agent;
+  const key = target ? JSON.stringify([objective?.objective_id, agent?.agent_id || state.teamAgentId]) : 'team';
+  if (key !== teamComposer.key) {
+    teamComposer.drafts.set(teamComposer.key, input.value);
+    teamComposer.key = key; input.value = teamComposer.drafts.get(key) || ''; autoSize(); historyReset();
+  }
+  while (teamComposer.drafts.size > 96) { const oldest = [...teamComposer.drafts.keys()].find((k) => k !== 'team' && k !== key); if (!oldest) break; teamComposer.drafts.delete(oldest); }
+  if (!teamComposer.placeholder) teamComposer.placeholder = input.placeholder;
+  select.hidden = !enabled;
+  const people = window.OPaiAgentsTeam.agents(objective);
+  const html = '<option value="">To: Team</option>' + people.map((a, index) => '<option value="' + esc(a.assignment_id) + '">To: ' + esc(window.OPaiAgentsTeam.name(a, index)) + '</option>').join('') + (target && agent && !people.some((a) => a.assignment_id === agent.assignment_id) ? '<option value="' + esc(agent.assignment_id) + '">To: ' + esc(window.OPaiAgentsTeam.name(agent, 0)) + '</option>' : '') + (target && !agent ? '<option value="' + esc(state.teamAgentId) + '">Agent unavailable</option>' : '');
+  if (select._options !== html) { select.innerHTML = html; select._options = html; }
+  select.value = target ? state.teamAgentId : '';
+  select.onchange = () => {
+    state.teamAgentId = select.value || null; state.teamOpen = !!select.value;
+    if (!select.value) { const map = $('#teamMap'); if (map) map._focusId = null; }
+    applyPanel(); input.focus();
+  };
+  $('#composer').classList.toggle('to-agent', !!target);
+  input.placeholder = target ? 'Ask ' + (agent ? window.OPaiAgentsTeam.name(agent, 0) : 'this agent') + ' · queued after the current task…' : enabled ? 'Give your team a new objective…' : teamComposer.placeholder;
+  updateComposerAvailability();
+}
+function sendAgentMessage(target) {
+  const message = $('#input').value.trim();
+  if (composerBlockReason() || !target.agent || !target.objective) return;
+  const request = { objective_id: target.objective.objective_id, assignment_id: target.agent.assignment_id, action: 'agent_message', value: { revision: target.objective.team_revision || 0, message } };
+  teamComposer.pending = { ...request, key: teamComposer.key, name: window.OPaiAgentsTeam.name(target.agent, 0), root: state.boot.workspace?.root };
+  teamComposer.drafts.set(teamComposer.key, $('#input').value);
+  try { teamControl(request); } catch (_) { teamComposer.pending = null; toast('Could not queue the message. Your draft is still here.'); }
+  updateComposerAvailability();
+}
+function settleTeamMessage(response) {
+  const pending = teamComposer.pending, control = response.control;
+  if (!pending || pending.root !== response.workspaceRoot || control?.action !== 'agent_message' || control.assignment_id !== pending.assignment_id || control.revision !== pending.value.revision || (response.objective?.objective_id || control.objective_id) !== pending.objective_id) return;
+  teamComposer.pending = null;
+  if (response.ok) {
+    if (teamComposer.drafts.get(pending.key)?.trim() === pending.value.message) teamComposer.drafts.delete(pending.key);
+    if (teamComposer.key === pending.key && $('#input').value.trim() === pending.value.message) { $('#input').value = ''; autoSize(); }
+    toast('Queued for ' + pending.name + ' · starts after the current task.');
+  }
+  updateComposerAvailability();
+}
+function teamModels() {
+  return Array.from($('#modelSel')?.options || []).filter((o) => !o.disabled).map((o) => ({ value: o.value, label: o.value === 'auto' ? 'Auto model' : o.textContent }));
+}
+function teamControl(payload) {
+  if (bridge.controlObjective) bridge.controlObjective(JSON.stringify(payload));
+  else toast('Team controls are unavailable in this host.');
+}
+function teamMapOptions(objective) {
+  const root = state.boot.workspace?.root;
+  return {
+    models: teamModels(), selectedId: state.teamOpen ? state.teamAgentId : null,
+    getObjective: () => root === state.boot.workspace?.root && ((state.agentsSnapshot || {}).objectives || []).find((o) => o.objective_id === objective.objective_id),
+    onControl: teamControl,
+    onAdd: () => window.OPaiTeamMap.addDialog(objective, teamMapOptions(objective)),
+    onSelect: (assignmentId) => openAgentTeam(objective.objective_id, assignmentId),
+    onAgentOptions: () => { const menu = $('#agentsTeam .team-agent-menu'); if (menu) { menu.open = true; menu.querySelector('summary').focus(); } },
+    onClearFocus: () => { state.teamOpen = false; state.teamAgentId = null; applyPanel(); },
+    onBack: () => { state.teamMapOpen = false; paintAgentTeam(); $('#input')?.focus(); },
+    onDialogClose: () => paintAgentTeam(),
+  };
+}
+function openTeamMap(objective) {
+  if (!objective) return;
+  if (state.view !== 'chat') switchView('chat');
+  $('#teamMap')?._stopEditing?.();
+  state.teamMapOpen = true; state.teamObjectiveId = objective.objective_id;
+  state.teamOpen = false; applyPanel();
+  $('#teamMap [data-map-back]')?.focus();
+}
+function paintAgentTeam() {
+  const element = $('#agentsTeam');
+  if (!element || !window.OPaiAgentsTeam) return;
+  const objectives = (state.agentsSnapshot || {}).objectives || [];
+  const objective = objectives.find((o) => o.objective_id === state.teamObjectiveId) || objectives[0];
+  const map = $('#teamMap');
+  if (map) {
+    map.hidden = state.view !== 'chat' || !state.teamMapOpen || !objective;
+    $('#chatScroll').hidden = !map.hidden;
+    const app = $('#app'), wasMap = app.classList.contains('team-map-active');
+    if (!map.hidden && !wasMap) { map._sidebarWasHidden = app.classList.contains('sidebar-hidden'); app.classList.add('sidebar-hidden'); closeMobileSidebar(); $('#sidebarToggle').setAttribute('aria-expanded', 'false'); }
+    if (map.hidden && wasMap) { app.classList.toggle('sidebar-hidden', !!map._sidebarWasHidden); $('#sidebarToggle').setAttribute('aria-expanded', String(!isCompactShell() && !map._sidebarWasHidden)); }
+    app.classList.toggle('team-map-active', !map.hidden);
+    syncTeamRecipient(objective);
+    if (!map.hidden && !document.querySelector('.team-edit-dialog[open]')) window.OPaiTeamMap.mount(map, objective, teamMapOptions(objective));
+  }
+  const strip = $('#agentsTeamStrip');
+  if (strip && !strip.hidden) {
+    const html = window.OPaiAgentsTeam.stripHtml(objective, objectives, state.teamOpen ? state.teamAgentId : null);
+    if (strip._teamHtml !== html) {
+      const focused = strip.contains(document.activeElement) ? document.activeElement : null;
+      const shortcut = focused?.dataset.teamShortcut, focusedObjective = focused?.dataset.teamObjective;
+      const scrollTop = strip.querySelector('.team-shortcuts')?.scrollTop || 0;
+      strip.innerHTML = html; strip._teamHtml = html;
+      strip.querySelector('.team-shortcuts').scrollTop = scrollTop;
+      if (focused) (Array.from(strip.querySelectorAll('[data-team-shortcut]')).find((b) => b.dataset.teamShortcut === shortcut && b.dataset.teamObjective === focusedObjective) || strip.querySelector('button')).focus({ preventScroll: true });
+    }
+    strip.querySelector('.team-strip-open').onclick = () => peekAgentTeam(objective?.objective_id);
+    strip.querySelectorAll('[data-team-shortcut]').forEach((button) => { button.onclick = () => peekAgentTeam(button.dataset.teamObjective, button.dataset.teamShortcut); });
+  }
+  if (element.hidden || document.querySelector('.agents-artifact-dialog[open]')) return;
+  if (objective) state.teamObjectiveId = objective.objective_id;
+  window.OPaiAgentsTeam.mountPanel(element, objective, state.teamAgentId, {
+    unavailable: state.teamRefreshError || (state.boot.agentsRuntime?.supported === false ? state.boot.agentsRuntime.reason : ''),
+    onClose: () => { state.teamOpen = false; applyPanel(); $('#agentsTeamStrip .team-strip-open')?.focus(); },
+    onSelect: (assignmentId) => {
+      const previous = state.teamAgentId;
+      state.teamAgentId = assignmentId; paintAgentTeam();
+      if (assignmentId) element.querySelector('[data-team-close]')?.focus({ preventScroll: true });
+      else Array.from(element.querySelectorAll('.team-person')).find((b) => b.dataset.teamSelect === previous)?.focus({ preventScroll: true });
+      element.scrollTop = 0;
+    },
+    models: teamModels(), unifiedComposer: state.view === 'chat' && state.teamMapOpen,
+    onMap: () => openTeamMap(objective),
+    onAdd: () => window.OPaiTeamMap.addDialog(objective, teamMapOptions(objective)),
+    onArtifact: inspectAgentArtifact,
+    onInspect: (assignmentId) => {
+      state.agentsSelection = { objectiveId: objective.objective_id, assignmentId };
+      switchView('agents'); paintAgentsWorkspace();
+    },
+    onControl: teamControl,
+  });
+}
+function mergeAgentsSnapshot(snapshot) {
+  const current = (state.agentsSnapshot || {}).objectives || [];
+  const merged = (Array.isArray(snapshot.objectives) ? snapshot.objectives : []).map((objective) => {
+    const previous = current.find((item) => item.objective_id === objective.objective_id);
+    return previous && objectiveRevision(previous) > objectiveRevision(objective) ? previous : objective;
+  });
+  current.forEach((objective) => {
+    if (!merged.some((item) => item.objective_id === objective.objective_id)) merged.push(objective);
+  });
+  state.agentsSnapshot = { ...snapshot, objectives: merged };
+}
+function wantsAgentTeamUpdates() {
+  const active = ((state.agentsSnapshot || {}).objectives || []).some((o) => ['planning', 'ready', 'running', 'stopping'].includes(o.status));
+  return !state.teamDiscovered || state.teamOpen || active || (state.view === 'chat' && (state.teamMapOpen || !!document.querySelector('[data-agent-chat-objective]')));
+}
+function syncAgentTeamPolling() {
+  if (!wantsAgentTeamUpdates()) {
+    clearTimeout(state.teamPollTimer);
+    state.teamPollTimer = null;
+    state.teamRequest = null;
+  } else if (!state.teamPollTimer && !state.teamRequest) refreshAgentTeam();
+}
+function refreshAgentTeam() {
+  state.teamPollTimer = null;
+  if (!wantsAgentTeamUpdates() || !bridge || (!bridge.requestDashboard && !bridge.dashboard)) return;
+  const request = { id: `team-${Date.now()}-${Math.random().toString(16).slice(2)}`, root: state.boot.workspace?.root };
+  state.teamRequest = request;
+  state.teamPollTimer = setTimeout(() => receiveAgentTeam({ requestId: request.id, data: null }), 15000);
+  if (bridge.requestDashboard && bridge.dashboardReady) bridge.requestDashboard('agents', request.id);
+  else bridge.dashboard('agents', (json) => {
+    let data = null; try { data = JSON.parse(json); } catch (_) {}
+    receiveAgentTeam({ requestId: request.id, workspaceRoot: request.root, data });
+  });
+}
+function receiveAgentTeam(response) {
+  const request = state.teamRequest;
+  if (!request || response.requestId !== request.id || request.root !== state.boot.workspace?.root) return;
+  if (response.workspaceRoot && response.workspaceRoot !== request.root) return;
+  clearTimeout(state.teamPollTimer);
+  state.teamRequest = null;
+  const snapshot = response.data;
+  const valid = snapshot && !snapshot.error && !snapshot.degraded && Array.isArray(snapshot.objectives);
+  state.teamRefreshError = valid ? '' : 'Team updates are temporarily unavailable. Reconnecting…';
+  state.teamDiscovered = true;
+  if (valid) mergeAgentsSnapshot(snapshot);
+  paintAgentChatCards(); paintAgentTeam();
+  state.teamPollTimer = wantsAgentTeamUpdates() ? setTimeout(refreshAgentTeam, valid ? 3000 : 5000) : null;
+}
+function objectiveRevision(objective) {
+  return Number.isSafeInteger(objective.revision) && objective.revision >= 0 ? objective.revision : 0;
+}
+function applyObjectiveSnapshot(objective) {
+  if (!objective || typeof objective.objective_id !== "string") return false;
+  const snapshot = state.agentsSnapshot || {};
+  const objectives = Array.isArray(snapshot.objectives) ? snapshot.objectives.slice() : [];
+  const index = objectives.findIndex((o) => o.objective_id === objective.objective_id);
+  if (index >= 0 && objectiveRevision(objectives[index]) > objectiveRevision(objective)) return false;
+  if (index < 0) objectives.unshift(objective); else objectives[index] = objective;
+  state.agentsSnapshot = { ...snapshot, objectives };
+  return true;
+}
+function onObjectiveReady(json) {
+  let d; try { d = JSON.parse(json); } catch (_e) { return; }
+  if (!d || d.workspaceRoot !== (state.boot.workspace || {}).root) return;
+  const initial = d.requestId === state.currentRequest && state.lastSend && state.lastSend.multiAgentEnabled;
+  const knownObjective = state.agentsRequests.get(d.requestId);
+  if (!initial && (!knownObjective || knownObjective !== (d.objective || {}).objective_id)) return;
+  if (!applyObjectiveSnapshot(d.objective)) return;
+  if (!initial) { paintAgentsWorkspace(); return; }
+  state.agentsRequests.set(d.requestId, d.objective.objective_id);
+  state.agentsSelection = { objectiveId: d.objective.objective_id };
+  state.teamObjectiveId = d.objective.objective_id;
+  state.teamAgentId = null;
+  state.teamMapOpen = false;
+  state.teamOpen = true;
+  stopTimer(); cancelTokenRender();
+  state.currentRequest = null;
+  state.message = null;
+  $("#statusStrip").hidden = true;
+  if (state.pending) {
+    state.pending.innerHTML = '';
+    state.pending.dataset.agentChatObjective = d.objective.objective_id;
+    paintAgentChatCards();
+  }
+  state.pending = null;
+  setBusy(false);
+  applyPanel();
+  paintAgentsWorkspace();
+}
+function onObjectiveControlReady(json) {
+  let d; try { d = JSON.parse(json); } catch (_e) { return; }
+  if (!d || d.workspaceRoot !== (state.boot.workspace || {}).root) return;
+  settleTeamMessage(d);
+  window.OPaiTeamMap?.settle(d);
+  window.OPaiAgentsTeam?.settle($('#agentsTeam'), d);
+  if (!d.ok) { toast(safeStateReason(d.error, "Objective control failed.")); return; }
+  // Invalidate a pre-control poll so it cannot overwrite the newer snapshot.
+  state.dashRequest = null;
+  if (applyObjectiveSnapshot(d.objective)) paintAgentsWorkspace();
+  clearTimeout(state.agentsPollTimer);
+  if (state.view === "agents") state.agentsPollTimer = setTimeout(() => renderDashboard("agents", true), 3000);
 }
 function runAction(aid, cmd) {
   if (aid === "panic_toggle") { switchView("chat"); bridge.runTool("panic"); return; }
@@ -4376,7 +4799,7 @@ function renderSettings() {
       renderViewState(page, {
         kind: "error",
         title: "Couldn't load settings",
-        reason: "OPai received an invalid local settings response.",
+        reason: "Vesta received an invalid local settings response.",
         action: "retry_settings",
         actionLabel: "Try again",
       }, renderSettings);
@@ -4386,7 +4809,7 @@ function renderSettings() {
       renderViewState(page, {
         kind: "error",
         title: "Couldn't load settings",
-        reason: "OPai received an invalid local settings response.",
+        reason: "Vesta received an invalid local settings response.",
         action: "retry_settings",
         actionLabel: "Try again",
       }, renderSettings);
@@ -4452,7 +4875,7 @@ function onTool(json) {
 // (config-level toggles vs. anything unknown). No invented risk theater.
 const APPROVAL_SCOPE = {
   panic: { risk: "Config change", scope: "Routing policy for this project (reversible)" },
-  repair: { risk: "Config change", scope: "OPai client integration files (additive, no source deleted)" },
+  repair: { risk: "Config change", scope: "Vesta client integration files (additive, no source deleted)" },
   ignores: { risk: "Config change", scope: "Supported AI ignore files (additive; user rules preserved)" },
   benchmark_run: { risk: "Local evidence write", scope: ".opaihub benchmark history (privacy-safe metadata; no raw prompts)" },
   proof_json: { risk: "Local file write", scope: ".opaihub/proof-bundle.json (redacted and locally signed)" },
@@ -4575,7 +4998,7 @@ function appendCard(title, text) {
 function renderCommandApprovalCard(el, r, sel) {
   const command = String((r && r.command) || "");
   const reason = modePresentationCopy((r && r.reason) || "The current run mode blocks this command.");
-  el.innerHTML = roleHeader("OPai", "var(--amber)") + activitySummaryHtml() +
+  el.innerHTML = roleHeader("Vesta", "var(--amber)") + activitySummaryHtml() +
     `<div class="approval-card command-approval" role="group" aria-label="Command approval required">
        <div class="ap-head"><span class="ap-badge">Command blocked</span><span class="ap-risk">One-time approval</span></div>
        <div class="ap-title">Approve this command once?</div>
@@ -4609,7 +5032,7 @@ function renderCommandApprovalCard(el, r, sel) {
 }
 
 // F26: in-chat approval for file edits the provider's permission gate refused
-// in Safe Auto. Mirrors the command-approval card: the card names the EXACT
+// in Auto or Manual. Mirrors the command-approval card: the card names the EXACT
 // files; "Allow edits once" re-sends the original message with
 // allowEditsOnce=true (Safe Auto keeps commands and destructive actions
 // gated); Deny changes nothing.
@@ -4619,11 +5042,11 @@ function renderEditApprovalCard(el, r, sel) {
   const more = files.length - listed.length;
   const rows = listed.map((f) => `<li><code>${esc(f)}</code></li>`).join("") +
     (more > 0 ? `<li>…and ${more} more</li>` : "");
-  el.innerHTML = roleHeader("OPai", "var(--amber)") + activitySummaryHtml() +
+  el.innerHTML = roleHeader("Vesta", "var(--amber)") + activitySummaryHtml() +
     `<div class="approval-card edit-approval" role="group" aria-label="Edit approval required">
        <div class="ap-head"><span class="ap-badge">Edits blocked</span><span class="ap-risk">One-time approval</span></div>
-       <div class="ap-title">Allow OPai to edit these files once?</div>
-       <div class="ap-why">In Auto, OPai asks before changing files. Commands and destructive actions stay gated.</div>
+       <div class="ap-title">Allow Vesta to edit these files once?</div>
+       <div class="ap-why">Vesta asks before changing files in this mode. Commands and destructive actions stay gated.</div>
        <div class="ap-scope"><span class="k">Files</span><span class="v"><ul class="ap-files">${rows || "<li>(paths unavailable)</li>"}</ul></span></div>
        <div class="ap-actions">
          <button class="btn primary" data-ap="approve">Allow edits once</button>
@@ -4653,18 +5076,36 @@ function renderEditApprovalCard(el, r, sel) {
 }
 
 /* ---------- palette + shortcuts ---------- */
+function teamPaletteItems() {
+  if (state.view !== 'chat' || !state.teamMapOpen) return [];
+  const click = (selector) => () => $('#teamMap ' + selector)?.click();
+  const items = [
+    { id: 'team_fit', label: 'Fit team to view', hint: 'F', run: click('[data-map-fit]') },
+    { id: 'team_configure', label: $('#teamMap')?._editing ? 'Finish configuring team' : 'Configure team', hint: '', run: click('[data-map-edit]') },
+    { id: 'team_chat', label: 'Back to chat', hint: '', run: click('[data-map-back]') },
+  ];
+  const target = composerAgent();
+  if (target?.agent) {
+    const name = window.OPaiAgentsTeam.name(target.agent, 0);
+    items.unshift({ id: 'team_options', label: 'Options for ' + name, hint: 'Model · group · controls', run: () => teamMapOptions(target.objective).onAgentOptions() });
+    if (target.agent.team_controls?.can_message) items.unshift({ id: 'team_message', label: 'Message ' + name, hint: 'After the current task', run: () => $('#input').focus() });
+  }
+  return items;
+}
 function openPalette() {
   const ov = $("#palette"); ov.classList.add("open");
   const inp = $("#paletteInput"); inp.value = ""; renderPalette(""); inp.focus();
 }
 function renderPalette(q) {
   const list = $("#paletteList");
-  const items = PALETTE.filter((c) => (c.label + " " + c.id).toLowerCase().includes(q.toLowerCase()));
+  const items = [...teamPaletteItems(), ...PALETTE].filter((c) => (c.label + " " + c.id).toLowerCase().includes(q.toLowerCase()));
   list.innerHTML = items.map((c, i) => `<div class="opt${i === 0 ? " sel" : ""}" data-id="${c.id}"><span>${esc(c.label)}</span><span class="hint">${esc(c.hint)}</span></div>`).join("");
   $$("#paletteList .opt").forEach((o) => (o.onclick = () => runCommand(o.dataset.id)));
 }
 function runCommand(id) {
   $("#palette").classList.remove("open");
+  const teamCommand = teamPaletteItems().find((item) => item.id === id);
+  if (teamCommand) { teamCommand.run(); return; }
   switch (id) {
     case "new_chat": startNewChat(); break;
     case "focus_input": switchView("chat"); $("#input").focus(); break;
@@ -4682,6 +5123,8 @@ function runCommand(id) {
   }
 }
 function togglePanel() {
+  state.teamOpen = false;
+  state.teamObjectiveId = null;
   state.panel = !state.panel; applyPanel();
   // #246: the inspector is deferred at boot; load it the first time the panel
   // is opened (and refresh each open, matching pre-defer behaviour).
@@ -4689,9 +5132,21 @@ function togglePanel() {
   bridge.savePref("show_control_panel", state.panel ? "true" : "false");
 }
 function applyPanel() {
-  $("#app").classList.toggle("panel-hidden", !state.panel);
+  const team = state.teamOpen;
+  const collapsed = !team;
+  const chatTeam = state.view === 'chat' && !!state.teamObjectiveId;
+  $('#app').classList.add('team-access');
+  $('#app').classList.toggle('team-collapsed', collapsed);
+  if ($('#agentsTeamStrip')) $('#agentsTeamStrip').hidden = false;
+  $('#app').classList.toggle('team-open', team);
+  if ($('#agentsTeam')) $('#agentsTeam').hidden = !team;
+  $('#app').classList.toggle('panel-hidden', !team && (!state.panel || chatTeam));
   $("#panelToggle").classList.toggle("on", state.panel);
   $("#panelToggle").setAttribute("aria-pressed", state.panel ? "true" : "false");
+  paintAgentTeam();
+  syncAgentTeamPolling();
+  updateTeamComposerClearance();
+  if (window.OPaiComposer) window.OPaiComposer.refresh();
 }
 
 function isCompactShell() {
@@ -4747,8 +5202,13 @@ function toast(msg) {
   const t = $("#toast"); t.textContent = msg; t.classList.add("show");
   clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), 3200);
 }
+function updateTeamComposerClearance() {
+  const composer = $('.composer');
+  if (composer) $('#app').style.setProperty('--team-composer-clearance', (state.view === 'chat' ? Math.max(120, window.innerHeight - composer.getBoundingClientRect().top + 12) : 12) + 'px');
+}
 function autoSize() {
   const i = $("#input"); i.style.height = "auto"; i.style.height = Math.min(180, i.scrollHeight) + "px";
+  updateTeamComposerClearance();
 }
 function setComposerDraft(value, options = {}) {
   const input = $("#input");
@@ -4845,16 +5305,18 @@ function wire() {
   const sidebarNewChat = $("#newChat");
   if (sidebarNewChat) sidebarNewChat.onclick = startNewChat;
   $("#headerNewChat").onclick = startNewChat;
+  $("#headerAgents").onclick = () => switchView("agents");
   $("#footSettings").onclick = () => switchView("settings");
   $("#headerSettings").onclick = () => switchView("settings");
   $("#sidebarToggle").onclick = toggleSidebar;
   $("#sidebarBackdrop").onclick = closeMobileSidebar;
-  $("#send").onclick = () => (state.busy ? stop() : submitComposer());
+  $("#send").onclick = () => (state.busy && !composerAgent() ? stop() : submitComposer());
   const buildToggle = $("#buildToggle");
   if (buildToggle) buildToggle.onclick = () => { state.buildMode = !state.buildMode; syncBuildMode(); };
   $("#panelToggle").onclick = togglePanel;
   $("#wsSwitch").onclick = (e) => { e.stopPropagation(); toggleWsMenu(); };
   $("#wsMenu").addEventListener("click", (e) => e.stopPropagation());
+  document.addEventListener('click', (event) => { document.querySelectorAll('.team-agent-menu[open], .team-view-menu[open]').forEach((menu) => { if (!menu.contains(event.target)) menu.open = false; }); });
   document.addEventListener("click", closeWsMenu);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeWsMenu(); });
   $("#input").addEventListener("input", () => {
@@ -4866,7 +5328,7 @@ function wire() {
     // Enter sends. While a request is active the text is queued rather than
     // discarded (#295) — still no second concurrent request.
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitComposer(); }
-    else if (e.key === "ArrowUp" || e.key === "ArrowDown") historyKey(e);
+    else if (!composerAgent() && (e.key === "ArrowUp" || e.key === "ArrowDown")) historyKey(e);
     else if (e.key === "Escape" && state.history.index >= 0) { e.preventDefault(); historyCancel(); }
   });
   const contextPath = $("#contextPath");
@@ -4902,6 +5364,7 @@ function wire() {
   $("#palette").addEventListener("click", (e) => { if (e.target.id === "palette") $("#palette").classList.remove("open"); });
   wireWindowChrome();
   window.addEventListener("resize", () => {
+    updateTeamComposerClearance();
     if (!isCompactShell()) {
       $("#app").classList.remove("mobile-sidebar-open");
       $("#sidebarToggle").setAttribute("aria-expanded", $("#app").classList.contains("sidebar-hidden") ? "false" : "true");
@@ -4921,7 +5384,7 @@ function wire() {
     else if (c && e.key === "m") { e.preventDefault(); openModelPicker(); }
     else if (c && e.key === "b") { e.preventDefault(); toggleSidebar(); }
     else if (e.key === "?" && !isTypingTarget(e.target)) { e.preventDefault(); runCommand("shortcuts"); }
-    else if (e.key === "Escape" && state.busy) { e.preventDefault(); stop(); }
+    else if (e.key === "Escape" && state.busy && !composerAgent()) { e.preventDefault(); stop(); }
   });
 }
 
@@ -4943,6 +5406,26 @@ if (typeof window !== "undefined") {
     // Pure-ish internals exposed for unit tests: the payload→state selection
     // sync (F16/F4) and the derived next-run agent mode preview (F21).
     applyBootSelection: (b) => applyBootSelection(b),
+    setMultiAgentEnabled: (enabled) => {
+      state.multiAgentEnabled = enabled === true && state.boot.agentsRuntime?.supported !== false;
+      state.teamOpen = state.multiAgentEnabled && ((state.agentsSnapshot || {}).objectives || []).length > 0;
+      applyPanel();
+      if (!state.multiAgentEnabled) state.agentsAllowCloud = false;
+      if (state.boot && state.boot.prefs) state.boot.prefs.multiAgentEnabled = state.multiAgentEnabled;
+      if (bridge && bridge.savePref) bridge.savePref("multi_agent_enabled", String(state.multiAgentEnabled));
+      if (window.OPaiComposer) window.OPaiComposer.refresh();
+    },
+    setAgentsAllowCloud: (enabled) => {
+      state.agentsAllowCloud = state.multiAgentEnabled && enabled === true;
+    },
+    setAgentsRunSettings: (settings) => {
+      if (Number.isInteger(settings.maxParallel)) { state.agentsMaxParallel = settings.maxParallel; state.agentsSizing = settings.sizing || String(settings.maxParallel); }
+      if (typeof settings.budgetUsd === "string") state.agentsBudgetUsd = settings.budgetUsd;
+    },
+    toggleAgentTeam: () => {
+      state.teamOpen = !state.teamOpen;
+      applyPanel();
+    },
     derivedAgentMode: () => derivedAgentMode(),
     applyAppearance: (p) => applyAppearance(p),
     // Used by the redesigned composer's overflow menu (Keyboard shortcuts).

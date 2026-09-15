@@ -50,7 +50,7 @@ trusted GitHub app, and required internal check IDs. `tests/test_ci_architecture
 rejects drift between the manifest, workflows, local components, triggers,
 permissions, action pins, trust boundaries, and artifact names.
 
-OPai's GitHub check consumer resolves the repository default branch to an exact
+Vesta's GitHub check consumer resolves the repository default branch to an exact
 commit, then loads this manifest from that immutable tree/blob rather than from
 the candidate checkout. Deleting or shrinking the manifest in a PR therefore
 cannot downgrade the gate. It requires every exact name from the current PR
@@ -103,7 +103,7 @@ Each schema-v2 manifest records profile/component/version, declared inventory,
 candidate, source, parent and checkout SHA, whether a merge candidate was
 tested, workspace cleanliness/promotability, run ID/attempt/event, platform, tool versions,
 timestamps, bounded artifact locations, and one record per check. Failure output
-is passed through OPai's canonical credential redactor and capped at 4,000
+is passed through Vesta's canonical credential redactor and capped at 4,000
 characters. Raw browser HTML, traces, screenshots, provider responses, and
 credentials are not uploaded.
 
@@ -116,7 +116,7 @@ network outages are infrastructure rather than product failures.
 ## Reproducible tools and caches
 
 - Python CI/build bootstrap tools are pinned in `requirements-ci.txt`; editable
-  OPai installation uses `--no-deps --no-build-isolation`, followed by
+  Vesta installation uses `--no-deps --no-build-isolation`, followed by
   `pip check`.
 - JavaScript uses only the committed `package-lock.json` through `npm ci`.
 - setup-python/setup-node caches are keyed by the relevant lock/requirements

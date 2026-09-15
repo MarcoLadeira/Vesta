@@ -60,7 +60,7 @@ test("background Codex discovery clears a stale degraded connection card", async
       ],
     },
     discoveredModels: [
-      { id: "auto", label: "OPai · Auto mode", kind: "auto", group: "routing" },
+      { id: "auto", label: "Vesta · Auto mode", kind: "auto", group: "routing" },
     ],
     discoveredConnections: [
       { providerId: "codex", authStatus: "connected", safeDiagnostic: "Connected." },
@@ -73,7 +73,7 @@ test("background Codex discovery clears a stale degraded connection card", async
 });
 
 test("test connection on a connected account reports the live truth, not the cached label", async ({ page }) => {
-  // Reproduces the reported bug: OPai's on-disk "connected" state can be stale
+  // Reproduces the reported bug: Vesta's on-disk "connected" state can be stale
   // (an OAuth session that died since detection). Clicking Test connection
   // must run a live check and update the row, not just repeat "connected".
   await openApp(page, {
@@ -126,7 +126,7 @@ test("successful Codex sign-in refreshes the model catalog", async ({ page }) =>
         : account
     ),
     discoveredModels: [
-      { id: "auto", label: "OPai · Auto mode", kind: "auto", group: "routing" },
+      { id: "auto", label: "Vesta · Auto mode", kind: "auto", group: "routing" },
       {
         id: "account:codex:gpt-5.6-sol",
         label: "Codex · GPT-5.6 Sol",

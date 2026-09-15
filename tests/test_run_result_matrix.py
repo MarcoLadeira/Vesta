@@ -178,7 +178,7 @@ SCENARIOS: tuple[Scenario, ...] = (
     Scenario(
         "task deadline while provider responsive",
         "timeout",
-        "OPai's own task deadline expired while work was still progressing",
+        "Vesta's own task deadline expired while work was still progressing",
         mutating=True,
         verification=_unverified("blocked"),
         diagnostics={"codes": ("task_deadline",)},

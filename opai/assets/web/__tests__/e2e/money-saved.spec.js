@@ -61,5 +61,5 @@ test("savings report action copies an explicit CLI command", async ({ page }) =>
   await openApp(page);
   await openNav(page, "Money Saved");
   await page.getByRole("button", { name: "Copy savings report" }).click();
-  await expect(page.locator("#toast")).toContainText("opai savings --markdown");
+  await expect(page.locator("#toast")).toContainText("vesta savings --markdown");
 });

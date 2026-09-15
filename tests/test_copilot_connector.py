@@ -1,6 +1,6 @@
 """GitHub Copilot account connector.
 
-OPai already routes through the user's logged-in ``claude`` and ``codex`` CLIs;
+Vesta already routes through the user's logged-in ``claude`` and ``codex`` CLIs;
 this suite covers the third connector, ``copilot`` (the GitHub Copilot CLI). It
 asserts detection (auth file *or* GH token env), the non-interactive command the
 runner builds for each mode, model expansion in the picker, the proxy/app_state
@@ -124,7 +124,7 @@ class CopilotDetectionTests(unittest.TestCase):
         self.assertIn("copilot", spec["login_hint"].lower())
 
     def test_detection_never_reads_token_value(self):
-        # Presence of the env var is enough; OPai must not touch the secret.
+        # Presence of the env var is enough; Vesta must not touch the secret.
         with isolated_home() as home, _no_token_env():
             os.environ["GH_TOKEN"] = "super-secret-value"
             with mock.patch.object(accounts, "_which", return_value="/usr/bin/copilot"):

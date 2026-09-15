@@ -5,7 +5,7 @@ local model whenever one is demonstrably capable enough. Capability is
 scored deterministically from what the model advertises (parameter size,
 coding focus) and adjusted by locally observed outcomes; each task kind
 has a quality threshold. When no local model clears the bar the decision
-is *requires_confirmation* - OPai proposes cloud escalation and stops.
+is *requires_confirmation* - Vesta proposes cloud escalation and stops.
 Nothing in this module ever contacts a cloud provider or spends money.
 """
 

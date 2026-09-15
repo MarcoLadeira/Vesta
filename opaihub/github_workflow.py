@@ -1081,7 +1081,7 @@ class GitHubAdapter:
         """Post a comment once, however many times the turn is retried (#295 gate 4).
 
         A duplicate comment is outward, visible to everyone on the thread, and
-        not undoable by OPai — so a retried, resumed or reconnected turn must not
+        not undoable by Vesta — so a retried, resumed or reconnected turn must not
         post the same thing twice. The key is the comment's identity (repo, PR
         number, body), never an attempt counter.
         """
@@ -1175,8 +1175,8 @@ class GitHubAdapter:
         if method not in {"merge", "squash", "rebase"}:
             raise ValueError("Unsupported merge method")
         # #616 / #295 gate 4: a merge is the single most irreversible outward
-        # action OPai can take — it lands on the repository's default branch
-        # history and cannot be undone by OPai. A retried, resumed or
+        # action Vesta can take — it lands on the repository's default branch
+        # history and cannot be undone by Vesta. A retried, resumed or
         # reconnected turn must not merge twice, and a lost response after
         # GitHub accepted the merge must fail closed as uncertain rather than
         # silently dispatching a second merge. The key is the merge's identity

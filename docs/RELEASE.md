@@ -1,6 +1,6 @@
 # Release process
 
-OPai uses a **reproducible, inspectable release-candidate preflight** to prove
+Vesta uses a **reproducible, inspectable release-candidate preflight** to prove
 which source revision was tested before any artifact is published. The local
 command produces a scope-aware planning or source verdict. Final release
 qualification is produced only by the protected workflow that builds and
@@ -14,7 +14,7 @@ Issue: [#32](https://github.com/MarcoLadeira/OPai/issues/32).
 ## Planning, source qualification, and final qualification
 
 ```bash
-opai release preflight
+vesta release preflight
 ```
 
 The default is a local planning report: tests and final artifacts may be shown as
@@ -22,7 +22,7 @@ The default is a local planning report: tests and final artifacts may be shown a
 credential-free **source** scope:
 
 ```bash
-opai release preflight \
+vesta release preflight \
   --qualification-required \
   --source-only \
   --candidate-sha <exact-40-character-commit> \
@@ -57,12 +57,12 @@ Checks:
 Common flags:
 
 ```bash
-opai release preflight --run-tests                     # include the full local gate
-opai release preflight --source-only                   # source evidence; artifacts pending
-opai release preflight --candidate-sha <sha>            # bind evidence to HEAD
-opai release preflight --qualification-required        # make SKIP blocking
-opai release preflight --artifacts dist/manifest.json  # structural/offline audit; not final trust
-opai release preflight --format json --out preflight.json  # archive sanitized evidence
+vesta release preflight --run-tests                     # include the full local gate
+vesta release preflight --source-only                   # source evidence; artifacts pending
+vesta release preflight --candidate-sha <sha>            # bind evidence to HEAD
+vesta release preflight --qualification-required        # make SKIP blocking
+vesta release preflight --artifacts dist/manifest.json  # structural/offline audit; not final trust
+vesta release preflight --format json --out preflight.json  # archive sanitized evidence
 ```
 
 The final artifact inventory uses schema 3. It is generated and consumed inside
@@ -158,7 +158,7 @@ Preflight never tags, uploads, publishes, or notifies. To prove a dry-run has no
 external side effects:
 
 ```bash
-opai release dry-run-proof
+vesta release dry-run-proof
 ```
 
 This shows every publish step is disabled and refuses to execute, and that
@@ -172,13 +172,13 @@ never silently ship.
 Plan a rollback to the previous tested release (read-only by default):
 
 ```bash
-opai release rollback --previous-manifest previous/manifest.json --to "<previous-version>"
+vesta release rollback --previous-manifest previous/manifest.json --to "<previous-version>"
 ```
 
 Execute it against an installed release, protecting user state:
 
 ```bash
-opai release rollback --execute \
+vesta release rollback --execute \
   --previous-manifest previous/manifest.json --to "<previous-version>" \
   --release-root /opt/opai --pointer /opt/opai/active.json \
   --protect /opt/opai/.opaihub

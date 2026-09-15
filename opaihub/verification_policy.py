@@ -1,4 +1,4 @@
-"""Deterministic verification-policy resolution for managed OPai tasks (#538).
+"""Deterministic verification-policy resolution for managed Vesta tasks (#538).
 
 This module deliberately declares *what* verification a task needs.  It never
 executes repository commands and does not compute a terminal completion verdict;
@@ -864,7 +864,7 @@ def _policy_artifact_path(root: Path, *, task_id: str, run_id: str) -> Path:
     try:
         target.resolve(strict=False).relative_to(state_root)
     except (OSError, ValueError) as exc:
-        raise OSError("verification policy artifact path escaped OPai state") from exc
+        raise OSError("verification policy artifact path escaped Vesta state") from exc
     return target
 
 
@@ -994,7 +994,7 @@ def resolve_verification_policy(
                 "requested_schema_version": requested_schema,
             },
             checks=tuple(checks),
-            sources=(PolicySource("builtin", "Versioned OPai safe defaults"),),
+            sources=(PolicySource("builtin", "Versioned Vesta safe defaults"),),
             acceptance_criteria=criteria,
             human_reviews=reviews,
             findings=(
@@ -1042,7 +1042,7 @@ def resolve_verification_policy(
             existing_reviews.add(requirement)
     root_path = Path(root).expanduser().resolve()
     sources: list[PolicySource] = [
-        PolicySource("builtin", "Versioned OPai safe defaults")
+        PolicySource("builtin", "Versioned Vesta safe defaults")
     ]
     for source, loader in (
         ("team", _overlay_from_team),

@@ -3,7 +3,7 @@
 A visible Stop or window close must terminate the *entire* agent process tree,
 not just the direct CLI child. Provider CLIs spawn grandchildren (language
 servers, git, sub-agents) that can survive a plain ``terminate()`` and keep
-spending or mutating the repo after OPai reports the run stopped.
+spending or mutating the repo after Vesta reports the run stopped.
 
 Three pieces, all platform-aware and injectable for tests:
 
@@ -35,9 +35,11 @@ from __future__ import annotations
 
 import contextlib
 import os
+from pathlib import Path
 import signal
 import subprocess  # nosec B404 - argv-only taskkill, never a shell
 import sys
+import time
 import weakref
 from typing import Any, Callable
 
@@ -48,6 +50,7 @@ from .proc import no_window_kwargs
 #: handle's lifetime is the process's lifetime, with no registry to leak.
 _JOB_ATTR = "_opai_job_handle"  # Windows: a job object
 _PGID_ATTR = "_opai_pgid"  # POSIX: the process group the child leads
+_SUBREAPER_ATTR = "_opai_subreaper"  # Linux: exclusive guardian child custody
 
 # Win32 constants (winnt.h / jobapi2.h).
 _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
@@ -68,6 +71,10 @@ def isolated_group_kwargs(*, no_window: bool = True) -> dict[str, Any]:
         if no_window:
             flags |= subprocess.CREATE_NO_WINDOW
         return {"creationflags": flags}
+    if os.environ.get("OPAI_OBJECTIVE_TREE_CUSTODY") == "posix-group":
+        # The guardian owns the outer group. Nested provider/check processes
+        # must stay in it so supervisor loss cannot orphan a new session.
+        return {}
     # POSIX: start_new_session=True calls setsid() in the child.
     return {"start_new_session": True}
 
@@ -106,6 +113,14 @@ def _kernel32() -> Any:
         k.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
         k.TerminateJobObject.restype = wintypes.BOOL
         k.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+        k.QueryInformationJobObject.restype = wintypes.BOOL
+        k.QueryInformationJobObject.argtypes = [
+            wintypes.HANDLE,
+            ctypes.c_int,
+            wintypes.LPVOID,
+            wintypes.DWORD,
+            wintypes.LPVOID,
+        ]
         k.CloseHandle.restype = wintypes.BOOL
         k.CloseHandle.argtypes = [wintypes.HANDLE]
         return k
@@ -117,7 +132,7 @@ def _new_kill_on_close_job(k: Any) -> int | None:
     """Create a job whose members are killed when the last handle closes.
 
     ``KILL_ON_JOB_CLOSE`` is the belt to :func:`terminate_tree`'s braces: even
-    if OPai is killed outright and never gets to terminate anything, Windows
+    if Vesta is killed outright and never gets to terminate anything, Windows
     closes the handle on exit and reaps the tree.
     """
     import ctypes
@@ -227,7 +242,12 @@ def adopt(proc: Any) -> Any:
         # later is the point: ``getpgid`` fails once the leader dies, which is
         # exactly the crash case where survivors must still be reachable.
         with contextlib.suppress(Exception):  # noqa: BLE001
-            setattr(proc, _PGID_ATTR, pid)
+            group = (
+                os.getpgid(pid)
+                if os.environ.get("OPAI_OBJECTIVE_TREE_CUSTODY") == "posix-group"
+                else pid
+            )
+            setattr(proc, _PGID_ATTR, group)
         return proc
 
     k = _kernel32()
@@ -286,6 +306,195 @@ def _terminate_job(proc: Any) -> bool:
     return True
 
 
+def _linux_children() -> set[int]:
+    """Read our kernel child lists; an unreadable list is never emptiness."""
+    children = set()
+    tasks = list(Path("/proc/self/task").iterdir())
+    if not tasks:
+        raise OSError("Guardian task list is unavailable")
+    for task in tasks:
+        children.update(int(pid) for pid in (task / "children").read_text().split())
+    return children
+
+
+def _child_subreaper(*, enable: bool = False) -> bool:
+    import ctypes
+
+    libc = ctypes.CDLL(None, use_errno=True)
+    if enable and libc.prctl(36, 1, 0, 0, 0) != 0:  # PR_SET_CHILD_SUBREAPER
+        raise OSError(ctypes.get_errno(), "Unable to establish child subreaper")
+    value = ctypes.c_int()
+    if libc.prctl(37, ctypes.byref(value), 0, 0, 0) != 0:
+        raise OSError(ctypes.get_errno(), "Unable to verify child subreaper")
+    return value.value == 1
+
+
+class _LinuxSubreaper:
+    """Custody for one dedicated guardian, including setsid/double-fork children.
+
+    The guardian must spawn only its gated worker. Linux reparents every orphan
+    descendant to this subreaper, even when it leaves the original process group.
+    No child is reaped between enumerating and signalling it, so its PID cannot
+    be reused during that interval. This is not a sandbox against hostile code
+    with permission to kill the guardian or change the guardian's credentials.
+    """
+
+    def __init__(self):
+        if _linux_children():
+            raise RuntimeError("Guardian already has unrelated children")
+        if signal.getsignal(signal.SIGCHLD) != signal.SIG_DFL:
+            raise RuntimeError("Guardian requires exclusive child reaping")
+        if not _child_subreaper(enable=True):
+            raise RuntimeError("Child subreaper could not be established")
+        self.owner_pid = os.getpid()
+        self.root_pid = None
+        self.drained = False
+
+    def terminate(self, proc: Any, *, timeout: float) -> bool:
+        if self.drained:
+            return True
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                # Reap the direct Popen child through Popen before waitpid(-1).
+                # Killing each generation causes even escaped descendants to
+                # become direct children, which the next iteration can reach.
+                proc.poll()
+                children = _linux_children()
+                for pid in children:
+                    os.kill(pid, signal.SIGKILL)
+                if proc.poll() is not None:
+                    while True:
+                        try:
+                            pid, _ = os.waitpid(-1, os.WNOHANG)
+                        except ChildProcessError:
+                            # ECHILD accounts for live children and unreaped
+                            # zombies. Confirm /proc access still works too.
+                            if _linux_children():
+                                return False
+                            self.drained = True
+                            return True
+                        if pid == 0:
+                            break
+            except (OSError, ValueError):
+                return False
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.05)
+
+
+def objective_runtime_support() -> dict[str, Any]:
+    supported = sys.platform in {"win32", "linux"}
+    return {
+        "supported": supported,
+        "platform": sys.platform,
+        "reason": ""
+        if supported
+        else (
+            "Multi-agent execution is unavailable on this host. Use Windows or "
+            "Linux; existing objectives remain available for inspection."
+        ),
+    }
+
+
+def prepare_guardian_custody() -> _LinuxSubreaper | None:
+    """Establish full descendant custody before spawning a gated worker.
+
+    Process groups alone do not contain setsid() children. Other POSIX hosts
+    therefore fail closed until an equivalent descendant custody API exists.
+    """
+    if sys.platform == "win32":
+        return None
+    if sys.platform != "linux":
+        raise RuntimeError("Full worker tree custody is unavailable on this platform")
+    return _LinuxSubreaper()
+
+
+def adopt_guardian(proc: Any, custody: _LinuxSubreaper | None) -> Any:
+    adopt(proc)
+    if custody is not None:
+        if custody.owner_pid != os.getpid() or custody.root_pid is not None:
+            raise RuntimeError("Guardian custody cannot be shared or reused")
+        custody.root_pid = proc.pid
+        setattr(proc, _SUBREAPER_ATTR, custody)
+    return proc
+
+
+def custody_kind(proc: Any) -> str:
+    """Require a retained tree identity before opening a worker's start gate."""
+    if sys.platform == "win32":
+        job = getattr(proc, _JOB_ATTR, None)
+        if isinstance(job, _Job) and job.handle:
+            return "windows-job"
+    elif sys.platform == "linux":
+        custody = getattr(proc, _SUBREAPER_ATTR, None)
+        if (
+            isinstance(custody, _LinuxSubreaper)
+            and custody.owner_pid == os.getpid()
+            and custody.root_pid == proc.pid
+            and _child_subreaper()
+        ):
+            return "linux-subreaper"
+    raise RuntimeError("Worker tree custody could not be established")
+
+
+def _job_active_processes(job: _Job) -> int:
+    import ctypes
+    from ctypes import wintypes
+
+    class Accounting(ctypes.Structure):
+        _fields_ = [
+            ("TotalUserTime", ctypes.c_int64),
+            ("TotalKernelTime", ctypes.c_int64),
+            ("ThisPeriodTotalUserTime", ctypes.c_int64),
+            ("ThisPeriodTotalKernelTime", ctypes.c_int64),
+            ("TotalPageFaultCount", wintypes.DWORD),
+            ("TotalProcesses", wintypes.DWORD),
+            ("ActiveProcesses", wintypes.DWORD),
+            ("TotalTerminatedProcesses", wintypes.DWORD),
+        ]
+
+    info = Accounting()
+    kernel = _kernel32()
+    if kernel is None or not kernel.QueryInformationJobObject(
+        job.handle, 1, ctypes.byref(info), ctypes.sizeof(info), None
+    ):
+        raise OSError("Unable to query retained worker job")
+    return int(info.ActiveProcesses)
+
+
+def terminate_tree_confirmed(proc: Any, *, timeout: float = 10.0) -> bool:
+    """Kill custody members and prove emptiness before releasing its identity.
+
+    Unlike the legacy best-effort cleanup, root exit and a successful kill
+    request are not proof. On failure the job handle stays open for a retry.
+    """
+    try:
+        kind = custody_kind(proc)
+    except (OSError, RuntimeError, ValueError):
+        return False
+    if kind == "linux-subreaper":
+        return getattr(proc, _SUBREAPER_ATTR).terminate(proc, timeout=timeout)
+    deadline = time.monotonic() + timeout
+    job = getattr(proc, _JOB_ATTR, None)
+    kernel = _kernel32()
+    if kernel is None or not kernel.TerminateJobObject(job.handle, 1):
+        return False
+    while True:
+        proc.poll()
+        try:
+            empty = _job_active_processes(job) == 0
+            if empty:
+                proc.wait(timeout=max(0.1, deadline - time.monotonic()))
+                job.close()
+                return True
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            return False
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.05)
+
+
 # --------------------------------------------------------------------------
 # Termination
 # --------------------------------------------------------------------------
@@ -314,7 +523,7 @@ def _default_tree_killer(pid: int) -> None:
 def _killpg(pgid: int, sig: int) -> None:
     """Signal a process group, refusing to signal our own.
 
-    Killing our own group would take OPai down with the run it is cleaning up.
+    Killing our own group would take Vesta down with the run it is cleaning up.
     Cheap to check and catastrophic to miss, so it is checked every time rather
     than reasoned about at each call site.
     """

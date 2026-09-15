@@ -1,8 +1,8 @@
-"""Deterministic app scaffolding — the free-boilerplate foundation of OPai Build
+"""Deterministic app scaffolding — the free-boilerplate foundation of Vesta Build
 (#276).
 
 The cheapest tokens are the ones you never spend. Instead of paying a model to
-emit every line of an app skeleton (what Lovable does), OPai writes the runnable
+emit every line of an app skeleton (what Lovable does), Vesta writes the runnable
 boilerplate deterministically here — HTML shell, CSS reset, JS structure, README
 — for **zero tokens**. AI spend then goes only to the custom logic, so the same
 budget buys many more iteration prompts.
@@ -79,9 +79,9 @@ _WEB_INDEX = """<!doctype html>
     <button id="themeToggle" class="ghost" aria-label="Toggle dark mode">Dark</button>
   </header>
   <main id="app" class="container">
-    <!-- OPai scaffolds the shell for free; ask OPai to build the features here. -->
+    <!-- Vesta scaffolds the shell for free; ask Vesta to build the features here. -->
   </main>
-  <footer class="foot">Built with OPai · __APP_DESC__</footer>
+  <footer class="foot">Built with Vesta · __APP_DESC__</footer>
   <script src="app.js"></script>
 </body>
 </html>
@@ -102,23 +102,23 @@ button.ghost { background:transparent; color:var(--fg); border-color:var(--line)
 """
 
 _WEB_APP_JS = """/* __APP_TITLE__ — starter app. Zero dependencies; open index.html or run
-   `python -m http.server` in this folder. Ask OPai to build features into
+   `python -m http.server` in this folder. Ask Vesta to build features into
    render() and the state below. */
 (function () {
   "use strict";
 
-  // --- state (ask OPai to extend this) ---
+  // --- state (ask Vesta to extend this) ---
   const state = { greeting: "Welcome to __APP_TITLE__" };
 
-  // --- render (ask OPai to build the UI here) ---
+  // --- render (ask Vesta to build the UI here) ---
   function render() {
     const app = document.getElementById("app");
     app.innerHTML =
       '<section class="card">' +
       "<h2>" + escapeHtml(state.greeting) + "</h2>" +
       "<p>__APP_DESC__</p>" +
-      '<p style="color:var(--muted)">This runnable shell was scaffolded by OPai for zero tokens. ' +
-      'Ask OPai to build the real features — every edit is a small, cheap diff.</p>' +
+      '<p style="color:var(--muted)">This runnable shell was scaffolded by Vesta for zero tokens. ' +
+      'Ask Vesta to build the real features — every edit is a small, cheap diff.</p>' +
       "</section>";
   }
 
@@ -150,7 +150,7 @@ _WEB_README = """# __APP_TITLE__
 
 __APP_DESC__
 
-Scaffolded by **OPai Build** — the runnable skeleton was generated for free
+Scaffolded by **Vesta Build** — the runnable skeleton was generated for free
 (zero tokens). Now build the real features with cheap, targeted prompts.
 
 ## Preview it (no install needed)
@@ -161,13 +161,13 @@ python -m http.server 8000
 
 Then open http://localhost:8000 — or just open `index.html` in a browser.
 
-## Build features with OPai
+## Build features with Vesta
 
 ```
-opai build "implement <the feature you want>"
+vesta build "implement <the feature you want>"
 ```
 
-OPai sends only the relevant files, gets back complete updated files, and
+Vesta sends only the relevant files, gets back complete updated files, and
 applies them itself with a backup of anything it overwrites. Each prompt is a
 small diff routed to the cheapest capable model, so your budget buys many
 iterations — and you get a savings receipt.
@@ -192,7 +192,7 @@ _STATIC_INDEX = """<!doctype html>
     <p>__APP_DESC__</p>
     <a class="cta" href="#">Get started</a>
   </main>
-  <footer>Built with OPai</footer>
+  <footer>Built with Vesta</footer>
 </body>
 </html>
 """
@@ -234,7 +234,7 @@ _DATA_INDEX = """<!doctype html>
     <ul id="list" class="list" aria-live="polite"></ul>
     <p id="empty" class="empty" hidden>Nothing yet — add your first item above.</p>
   </main>
-  <footer class="foot">Built with OPai · __APP_DESC__</footer>
+  <footer class="foot">Built with Vesta · __APP_DESC__</footer>
   <script src="app.js"></script>
 </body>
 </html>
@@ -263,7 +263,7 @@ button.ghost { background:transparent; color:var(--fg); border-color:var(--line)
 """
 
 _DATA_APP_JS = """/* __APP_TITLE__ — a working list app. Zero dependencies; open index.html or
-   run `python -m http.server`. Items persist in localStorage. Ask OPai to add
+   run `python -m http.server`. Items persist in localStorage. Ask Vesta to add
    features (due dates, filters, categories) — each edit is a cheap diff. */
 (function () {
   "use strict";
@@ -348,7 +348,7 @@ _DATA_README = """# __APP_TITLE__
 
 __APP_DESC__
 
-A **working** list app scaffolded by OPai Build for free — add items, click to
+A **working** list app scaffolded by Vesta Build for free — add items, click to
 mark done, delete, and everything persists in your browser (localStorage). No
 build step, no dependencies.
 
@@ -360,11 +360,11 @@ python -m http.server 8000
 
 Then open http://localhost:8000 — or open `index.html` directly.
 
-## Build features with OPai
+## Build features with Vesta
 
 ```
-opai build "add due dates to each item"
-opai build "add a filter for done vs active"
+vesta build "add due dates to each item"
+vesta build "add a filter for done vs active"
 ```
 
 Each prompt sends only the relevant files and applies a small, verified diff —
@@ -538,11 +538,11 @@ def scaffold_app(
         next_steps=[
             f"cd {root}",
             str(spec["preview_cmd"]) + "   # preview it (no install needed)",
-            'opai build "implement <the first feature>"   # cheap targeted diff',
+            'vesta build "implement <the first feature>"   # cheap targeted diff',
         ],
     )
-    # The build manifest marks this directory as an OPai Build app — the
-    # customization loop (`opai build`, opaihub/build_loop.py) reads it to
+    # The build manifest marks this directory as a Vesta Build app — the
+    # customization loop (`vesta build`, opaihub/build_loop.py) reads it to
     # select context and apply edits safely.
     from opaihub.build_loop import save_app_manifest
 
@@ -556,7 +556,7 @@ def scaffold_app(
             "entrypoint": result.entrypoint,
             "preview_cmd": result.preview_cmd,
             "files": result.files,
-            "created_by": "opai new",
+            "created_by": "vesta new",
             # Persisted so the per-app receipt can always report what the
             # free scaffold saved, even long after creation (#276).
             "boilerplate_tokens_avoided": estimate_boilerplate_tokens(

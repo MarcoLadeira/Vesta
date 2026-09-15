@@ -13,7 +13,7 @@ enterprise controls:
   usage paths.
 - Devin sells individual, team, and enterprise tiers with cloud agents, admin
   analytics, integrations, SSO, enterprise controls, and dedicated deployment.
-- Claude Code cost analysis keeps pointing at the same drivers OPai targets:
+- Claude Code cost analysis keeps pointing at the same drivers Vesta targets:
   context size, model choice, and multi-agent/auto-accept multipliers.
 
 ## Benchmark signal
@@ -29,9 +29,9 @@ The credible proof stack is now layered:
 - Terminal-Bench measures long-horizon terminal autonomy with realistic tasks.
 - Aider Polyglot measures cross-language file editing and test repair.
 
-## OPai wedge
+## Vesta wedge
 
-Most tools sell stronger agents. OPai should sell the control plane around all
+Most tools sell stronger agents. Vesta should sell the control plane around all
 agents:
 
 - Reduce wasted context before a paid model sees it.
@@ -43,14 +43,14 @@ agents:
 The strongest next product move is a benchmark proof loop:
 
 ```sh
-opai benchmark run --suite local --mode both
-opai benchmark run --suite max --mode both
-opai benchmark gate --min-context-reduction 10 --require-risk-blocks
-opai benchmark compare --format markdown
-opai benchmark export --harness promptfoo
+vesta benchmark run --suite local --mode both
+vesta benchmark run --suite max --mode both
+vesta benchmark gate --min-context-reduction 10 --require-risk-blocks
+vesta benchmark compare --format markdown
+vesta benchmark export --harness promptfoo
 ```
 
-This makes OPai defensible even when underlying coding agents improve, because
+This makes Vesta defensible even when underlying coding agents improve, because
 the product promise is not "we are the smartest agent"; it is "we make every
 agent cheaper, smaller, safer, and measurable."
 
@@ -58,7 +58,7 @@ agent cheaper, smaller, safer, and measurable."
 
 The `max` suite is a local readiness suite, not a public leaderboard submission.
 It deliberately maps tasks to SWE-bench Pro, Terminal-Bench, Aider Polyglot,
-promptfoo, and OPai governance signals so OPai can measure the control-plane
+promptfoo, and Vesta governance signals so Vesta can measure the control-plane
 behaviors that top coding-agent benchmarks increasingly care about: smaller
 context, fewer paid calls, deterministic evidence first, bounded autonomy, and
 auditable risk gates.

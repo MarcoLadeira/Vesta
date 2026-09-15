@@ -9,7 +9,7 @@ test("core controls expose useful accessible names", async ({ page }) => {
   await expect(page.locator("#headerNewChat")).toBeVisible();
   await expect(page.getByRole("button", { name: "Inspector" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Send" })).toBeVisible();
-  await expect(page.getByPlaceholder(/Tell OPai what to build/)).toBeVisible();
+  await expect(page.getByPlaceholder(/Tell Vesta what to build/)).toBeVisible();
 });
 
 test("keyboard shortcuts focus the composer and toggle Inspector", async ({ page }) => {

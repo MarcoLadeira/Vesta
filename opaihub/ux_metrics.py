@@ -1,7 +1,7 @@
 """Local-only UX / product-health metrics (#395).
 
 Privacy-first by construction: every number here is computed from the
-append-only *local* ledger — the same ``completion_verdict`` events OPai already
+append-only *local* ledger — the same ``completion_verdict`` events Vesta already
 records — and this module never opens a socket. The user's machine is the only
 place these metrics exist; sharing them is a separate, explicit, redacted export
 action, never a background upload.
@@ -88,7 +88,7 @@ def render_ux_metrics_markdown(metrics: dict[str, Any]) -> str:
     """A compact, script-friendly report of the local product-health metrics."""
 
     runs = int(metrics.get("runs") or 0)
-    lines = ["# OPai product health (local only)", ""]
+    lines = ["# Vesta product health (local only)", ""]
     if not runs:
         lines.append("No runs recorded yet — run a task to start your metrics.")
         return "\n".join(lines) + "\n"

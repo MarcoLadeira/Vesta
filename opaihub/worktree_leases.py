@@ -1,4 +1,4 @@
-"""Durable, reconciled leases for OPai-owned isolated Git worktrees (#537)."""
+"""Durable, reconciled leases for Vesta-owned isolated Git worktrees (#537)."""
 
 from __future__ import annotations
 
@@ -170,7 +170,7 @@ def _valid_lease_record(record: Mapping[str, Any]) -> bool:
 
 
 class WorktreeManager:
-    """Create and reconcile OPai-owned worktrees without touching user ones."""
+    """Create and reconcile Vesta-owned worktrees without touching user ones."""
 
     def __init__(
         self,

@@ -1,17 +1,17 @@
 name: Bug report
-description: Report something that is not working in OPai.
+description: Report something that is not working in Vesta.
 title: "[Bug]: "
 labels: ["bug"]
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for testing OPai alpha. Please avoid posting secrets, tokens, or private logs.
+        Thanks for testing Vesta alpha. Please avoid posting secrets, tokens, or private logs.
   - type: input
     id: version
     attributes:
-      label: OPai version
-      placeholder: opai version
+      label: Vesta version
+      placeholder: vesta version
     validations:
       required: true
   - type: textarea
@@ -34,7 +34,7 @@ body:
     id: local_checks
     attributes:
       label: Local checks
-      description: Paste redacted output from op status, opai doctor, or failing tests.
+      description: Paste redacted output from op status, vesta doctor, or failing tests.
       render: text
   - type: dropdown
     id: area

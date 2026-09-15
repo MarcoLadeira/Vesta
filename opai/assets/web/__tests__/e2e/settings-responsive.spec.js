@@ -64,7 +64,7 @@ test("phone starts at a Settings index and uses an explicit back path", async ({
   await expect(page.locator(".settings-content")).toBeHidden();
   await expect(page.locator(".settings-rail-item")).toHaveCount(DESTINATIONS.length);
   await expect(page.locator(".settings-rail-group")).toHaveText([
-    "OPai",
+    "Vesta",
     "AI",
     "Development",
     "Trust",

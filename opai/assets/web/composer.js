@@ -1,4 +1,4 @@
-/* OPai Composer Redesign controller.
+/* Vesta Composer Redesign controller.
  *
  * Implements the three explored directions from the design doc
  * (docs/design/opai-prompt-composer-redesign.md) as one switchable card:
@@ -24,11 +24,11 @@
   var DEFAULT_STYLE = "toolbar";
 
   // The menu Claude Code presents, in its order and its words, rendered with
-  // OPai's own rows. Four graded modes, numbered so they can be picked from
+  // Vesta's own rows. Four graded modes, numbered so they can be picked from
   // the keyboard, and Bypass sitting apart from the ladder rather than one
   // more step along it -- reaching it should be a decision, not a drift.
   var MODE_MENU = [
-    { id: "safe-auto", label: "Auto", desc: "OPai handles permission decisions" },
+    { id: "safe-auto", label: "Auto", desc: "Vesta handles permission decisions" },
     { id: "approve-edits", label: "Manual", desc: "Always ask before making changes" },
     { id: "auto-edits", label: "Accept edits", desc: "Automatically accept all file edits" },
     { id: "plan", label: "Plan", desc: "Create a plan before making changes" },
@@ -49,7 +49,7 @@
     ask: "Answer questions without changing files.",
     plan: "Create a plan before making changes",
     "approve-edits": "Always ask before making changes",
-    "safe-auto": "OPai handles permission decisions",
+    "safe-auto": "Vesta handles permission decisions",
     "auto-edits": "Automatically accept all file edits",
     "full-auto": "Run everything, including pushes, without asking",
   };
@@ -76,7 +76,7 @@
     if (m.provider === "claude") return "Claude";
     if (m.provider === "codex" || m.provider === "openai") return "GPT";
     if (m.provider === "copilot") return "Copilot";
-    var lbl = String(m.label || "").replace(/^OPai\s*·\s*/, "");
+    var lbl = String(m.label || "").replace(/^Vesta\s*·\s*/, "");
     return lbl.split(/[\s·]+/)[0] || "Model";
   }
   function routesLocal(m) {
@@ -141,13 +141,20 @@
   }
 
   /* ---------- popovers ---------- */
+  function fitModePop() {
+    var pop = openPop === "teamPop" ? els.teamPop : els.modePop;
+    if (!pop || pop.hidden) return;
+    var header = document.getElementById('appHeader');
+    var top = Math.max(0, header ? header.getBoundingClientRect().bottom : 0) + 8;
+    pop.style.maxHeight = Math.max(80, Math.min(640, pop.getBoundingClientRect().bottom - top)) + 'px';
+  }
   function closePopovers() {
     STYLES.forEach(function () {});
-    ["ctxPop", "modePop", "modelPop", "morePop"].forEach(function (id) {
+    ["ctxPop", "modePop", "modelPop", "morePop", "teamPop"].forEach(function (id) {
       var el = els[id];
       if (el) el.hidden = true;
     });
-    ["ctxBtn", "modeBtn", "modelBtn", "moreBtn"].forEach(function (id) {
+    ["ctxBtn", "modeBtn", "modelBtn", "moreBtn", "teamModeBtn"].forEach(function (id) {
       var el = els[id];
       if (el) el.setAttribute("aria-expanded", "false");
     });
@@ -165,6 +172,7 @@
     if (btn) btn.setAttribute("aria-expanded", "true");
     els.composer && els.composer.classList.add("pop-open");
     openPop = popId;
+    if (popId === 'modePop' || popId === 'teamPop') fitModePop();
     var first = pop.querySelector("button, input, [tabindex]");
     if (first) { try { first.focus(); } catch (_e) { /* best effort */ } }
   }
@@ -199,7 +207,7 @@
       '<button type="button" role="menuitem" class="cpop-row" data-act="repo"><span class="cpop-ico">' + icon("workspace") + '</span><span class="cpop-body"><span class="cpop-title">Use this repository</span></span><span class="cpop-meta" title="' + esc(repo) + '">' + esc(repo) + "</span></button>" +
       '<div class="cpop-sep"></div>' +
       '<div class="cpop-input"><span>›</span><input id="ctxPathDraft" placeholder="Type a path and press Enter" aria-label="Add a path" autocomplete="off" /></div>' +
-      '<p class="cpop-note">OPai links to your files — it sends their location, not their contents.</p>';
+      '<p class="cpop-note">Vesta links to your files — it sends their location, not their contents.</p>';
     pop.querySelector('[data-act="repo"]').onclick = function () { useRepo(); closePopovers(); };
     pop.querySelector('[data-act="file"]').onclick = function () { pickContext("file"); };
     pop.querySelector('[data-act="image"]').onclick = function () { pickImages(); };
@@ -225,8 +233,8 @@
         if (result.rejected && typeof api.notify === "function") {
           api.notify(
             result.rejected === 1
-              ? "One file was not an image OPai can send."
-              : result.rejected + " files were not images OPai can send."
+              ? "One file was not an image Vesta can send."
+              : result.rejected + " files were not images Vesta can send."
           );
         }
         closePopovers();
@@ -255,7 +263,9 @@
     var cur = (st.mode && st.mode.id) || "";
     var selectedModel = st.model || {};
     var editsUnavailable = selectedModel.repo_editing === false;
+    var agentsUnavailable = boot().agentsRuntime && boot().agentsRuntime.supported === false;
     var pop = els.modePop;
+    var limitsOpen = !!pop.querySelector('[data-agents-limits][open]');
     var offered = {};
     modes.forEach(function (m) { offered[m.id] = true; });
     var editRow = function (entry, index) {
@@ -290,12 +300,44 @@
         // and would only promise authority that will not materialise.
         disabled: editsUnavailable,
       }).replace('class="cpop-row', 'data-bypass="1" class="cpop-row cpop-row-switch') +
+      '<div class="cpop-sep" role="separator"></div>' +
+      menuRow({ role: "menuitemcheckbox", title: "Allow multiple agents mode", desc: agentsUnavailable ? boot().agentsRuntime.reason : "Coordinate independent assignments within your current permissions", active: st.multiAgentEnabled === true, disabled: agentsUnavailable }).replace('class="cpop-row', 'data-multi-agent="true" class="cpop-row') +
+      (st.multiAgentEnabled ? menuRow({ role: "menuitemcheckbox", title: "Allow cloud providers for this objective", desc: "Sends code and context to cloud providers and may use paid or account quota. Applies to the next objective only.", active: st.agentsAllowCloud === true }).replace('class="cpop-row', 'data-agents-cloud="true" class="cpop-row') : "") +
+      (st.multiAgentEnabled ? '<details class="cpop-agent-limits" data-agents-limits' + (limitsOpen ? ' open' : '') + '><summary>Team limits</summary><div class="cpop-agent-fields"><label>Concurrent agents<select data-agents-parallel aria-label="Concurrent agents">' + [1, 2, 3, 4].map(function (n) { return '<option value="' + n + '"' + (n === (st.agentsMaxParallel || 2) ? ' selected' : '') + '>' + n + (n === 1 ? ' · Sequential' : n === 2 ? ' · Default' : '') + '</option>'; }).join('') + '</select></label><label>Objective budget (USD)<input data-agents-budget aria-label="Objective budget in USD" type="text" inputmode="decimal" maxlength="100" placeholder="No cap" value="' + esc(st.agentsBudgetUsd || '') + '"></label></div><p class="cpop-note">Applies to each new objective in this workspace session. A dollar cap blocks providers that cannot enforce it.</p></details>' : '') +
       (editsUnavailable
         ? '<p class="cpop-note cpop-note-warn">Update this provider CLI to enable scoped edits. Plan remains available.</p>'
         : "");
     pop.querySelectorAll("[data-id]").forEach(function (row) {
       row.onclick = function () { setMode(row.dataset.id); closePopovers(); };
     });
+    pop.querySelector("[data-multi-agent]").onclick = function (event) {
+      event.stopPropagation();
+      var api = global.__opai || {};
+      if (api.setMultiAgentEnabled) api.setMultiAgentEnabled(!state().multiAgentEnabled);
+      buildModePop();
+      pop.querySelector("[data-multi-agent]").focus();
+    };
+    var cloudToggle = pop.querySelector("[data-agents-cloud]");
+    if (cloudToggle) cloudToggle.onclick = function (event) {
+      event.stopPropagation();
+      var api = global.__opai || {};
+      if (api.setAgentsAllowCloud) api.setAgentsAllowCloud(!state().agentsAllowCloud);
+      buildModePop();
+      pop.querySelector("[data-agents-cloud]").focus();
+    };
+    var parallel = pop.querySelector('[data-agents-parallel]');
+    var budget = pop.querySelector('[data-agents-budget]');
+    if (parallel) parallel.onchange = function () {
+      var api = global.__opai || {};
+      if (api.setAgentsRunSettings) api.setAgentsRunSettings({ maxParallel: Number(parallel.value) });
+    };
+    if (budget) budget.oninput = function () {
+      var api = global.__opai || {};
+      if (api.setAgentsRunSettings) api.setAgentsRunSettings({ budgetUsd: budget.value });
+    };
+    var limits = pop.querySelector('[data-agents-limits]');
+    if (limits) limits.ontoggle = fitModePop;
+    fitModePop();
     var bypassRow = pop.querySelector("[data-bypass]");
     if (bypassRow) {
       bypassRow.onclick = function () {
@@ -310,6 +352,7 @@
     // 1-4 pick a graded mode while the menu is open. Bypass has no number on
     // purpose -- a keystroke is exactly the kind of drift it should not have.
     pop.onkeydown = function (event) {
+      if (event.target.matches('input, select, textarea') || event.target.isContentEditable) return;
       var index = "1234".indexOf(event.key);
       if (index < 0 || index >= rows.length) return;
       var target = rows[index];
@@ -347,14 +390,14 @@
     return "";
   }
   function modelName(m) {
-    // Strip the "OPai · " / "Provider · " prefix and the "(free tier)" suffix so
+    // Strip the "Vesta · " / "Provider · " prefix and the "(free tier)" suffix so
     // the flat row reads as a clean model name; the provider is its own column.
     return String(m.label || "")
-      .replace(/^OPai\s*·\s*/, "")
+      .replace(/^Vesta\s*·\s*/, "")
       .replace(/\s*\(free tier\)\s*$/i, "")
       .trim() || (m.id || "Model");
   }
-  // Exact remaining credit for a model's provider, when OPai knows it —
+  // Exact remaining credit for a model's provider, when Vesta knows it —
   // "€85.00 left" from a live balance, the user's manual entry, or an
   // observed refusal. Unknown balances show nothing (never a made-up number).
   var BALANCE_SYMBOLS = { USD: "$", EUR: "€", GBP: "£", CNY: "¥", JPY: "¥" };
@@ -367,7 +410,7 @@
   }
   // Out-of-credit models are removed from selection entirely; this builds the
   // one-line explanation of what was hidden and why (per provider, deduped).
-  // A model that works for Ask and Plan but that OPai will refuse to hand
+  // A model that works for Ask and Plan but that Vesta will refuse to hand
   // repository write access (Copilot's CLI today, because it cannot expose a
   // bounded edit-tool set). It stays fully selectable — read-only work is a
   // legitimate use — but the row says so up front instead of letting the user
@@ -551,6 +594,35 @@
   }
   var scopeIdx = 0;
 
+  function buildTeamPop() {
+    var st = state();
+    var pop = els.teamPop;
+    var api = global.__opai || {};
+    pop.innerHTML = '<div class="cpop-head">Team</div>' +
+      ['automatic', '2', '3', '4'].map(function (size) {
+        return menuRow({ role: 'menuitemradio', title: size === 'automatic' ? 'Automatic' : 'Up to ' + size + ' agents at once', desc: size === 'automatic' ? 'Vesta assigns roles and coordinates the work.' : '', active: (st.agentsSizing || 'automatic') === size }).replace('class="cpop-row', 'data-team-size="' + size + '" class="cpop-row');
+      }).join('') + '<div class="cpop-sep"></div>' +
+      menuRow({ role: 'menuitemcheckbox', title: 'Allow cloud providers for this objective', desc: 'Sends code and context to cloud providers and may use paid or account quota. Applies to the next objective only.', active: st.agentsAllowCloud === true }).replace('class="cpop-row', 'data-team-cloud class="cpop-row') +
+      '<button type="button" class="cpop-row" role="menuitem" data-team-show>Show team</button>' +
+      '<button type="button" class="cpop-row" role="menuitem" data-team-configure>Configure team…</button>' +
+      '<button type="button" class="cpop-row" role="menuitem" data-team-permissions>Permissions: ' + esc(modeLabelOf(st.mode)) + (st.bypassPermissions ? ' · Bypass on' : '') + '</button>' +
+      '<button type="button" class="cpop-row" role="menuitem" data-team-off>Turn Team off</button>';
+    pop.querySelectorAll('[data-team-size]').forEach(function (button) { button.onclick = function () {
+      var size = button.dataset.teamSize;
+      api.setAgentsRunSettings({ maxParallel: size === 'automatic' ? 2 : Number(size), sizing: size });
+      closePopovers(); els.teamModeBtn.focus();
+    }; });
+    pop.querySelector('[data-team-cloud]').onclick = function () { api.setAgentsAllowCloud(!state().agentsAllowCloud); buildTeamPop(); pop.querySelector('[data-team-cloud]').focus(); fitModePop(); };
+    pop.querySelector('[data-team-show]').onclick = function () { closePopovers(); if (!state().teamOpen) api.toggleAgentTeam(); };
+    pop.querySelector('[data-team-off]').onclick = function () { api.setMultiAgentEnabled(false); closePopovers(); els.teamModeBtn.focus(); };
+    pop.querySelector('[data-team-permissions]').onclick = function () { closePopovers(); openMode(); };
+    pop.querySelector('[data-team-configure]').onclick = function () {
+      closePopovers(); openMode();
+      var limits = els.modePop.querySelector('[data-agents-limits]');
+      if (limits) { limits.open = true; limits.querySelector('summary').focus(); fitModePop(); }
+    };
+  }
+  function openTeam() { togglePop('teamPop', 'teamModeBtn', buildTeamPop); }
   function openContext() { togglePop("ctxPop", "ctxBtn", buildContextPop); }
   function openMode() { togglePop("modePop", "modeBtn", buildModePop); }
   function openModel() { togglePop("modelPop", "modelBtn", buildModelPop); }
@@ -575,6 +647,16 @@
     var st = state();
     var mode = st.mode || {};
     var model = st.model || {};
+    var teamButton = document.getElementById('teamModeBtn');
+    if (teamButton) {
+      teamButton.setAttribute('aria-pressed', String(st.multiAgentEnabled === true));
+      teamButton.setAttribute('aria-label', st.multiAgentEnabled ? 'Team on: options' : 'Enable AI Team');
+      document.getElementById('teamModeLabel').textContent = st.multiAgentEnabled ? 'Team ON' : 'Team';
+      teamButton.setAttribute('aria-haspopup', 'menu');
+      teamButton.setAttribute('aria-expanded', String(openPop === 'teamPop'));
+      teamButton.disabled = boot().agentsRuntime && boot().agentsRuntime.supported === false;
+      teamButton.title = teamButton.disabled ? boot().agentsRuntime.reason : 'Use an AI team for your objective';
+    }
 
     // Mode button — visible text shows the value; aria-label carries purpose +
     // value so the menu button announces both to assistive tech.
@@ -584,7 +666,7 @@
     // its own name -- the switch is additive, so the pill says so.
     var bypassing = st.bypassPermissions === true;
     if (els.modeBtnLabel) {
-      els.modeBtnLabel.textContent = bypassing ? mLabel + " · Bypass" : mLabel;
+      els.modeBtnLabel.textContent = mLabel + (bypassing ? " · Bypass" : "");
     }
     if (els.modeDot) {
       els.modeDot.style.background = dotVar(
@@ -592,15 +674,17 @@
       );
     }
     if (els.modeBtn) {
+      els.modeBtn.hidden = st.multiAgentEnabled === true && mode.id === 'safe-auto' && !bypassing;
       els.modeBtn.setAttribute(
         "aria-label",
         bypassing
-          ? "Mode: " + mLabel + ", permissions bypassed"
-          : "Mode: " + mLabel
+          ? "Mode: " + mLabel + ", permissions bypassed" + (st.multiAgentEnabled ? ", multiple agents enabled" : "")
+          : "Mode: " + mLabel + (st.multiAgentEnabled ? ", multiple agents enabled" : "")
       );
     }
     // Model button
     var mdLabel = shortModel(model);
+    if (mdLabel === 'Auto') mdLabel = 'Auto model';
     if (els.modelBtnLabel) els.modelBtnLabel.textContent = mdLabel;
     if (els.modelBtn) els.modelBtn.setAttribute("aria-label", "Model: " + mdLabel);
 
@@ -647,7 +731,7 @@
   /* ---------- init ---------- */
   function cache() {
     ["composer", "composerStatus", "composerTokens",       "ctxBtn", "moreBtn", "modeBtn", "modelBtn", "modeBtnLabel", "modelBtnLabel", "modeDot",
-      "ctxPop", "modePop", "modelPop", "morePop", "composerDrop"].forEach(function (id) {
+      "ctxPop", "modePop", "modelPop", "morePop", "teamPop", "teamModeBtn", "composerDrop"].forEach(function (id) {
       els[id] = document.getElementById(id);
     });
     els.status = els.composerStatus;
@@ -661,6 +745,13 @@
     els.moreBtn && (els.moreBtn.onclick = openMore);
     els.modeBtn && (els.modeBtn.onclick = openMode);
     els.modelBtn && (els.modelBtn.onclick = openModel);
+    var teamButton = document.getElementById('teamModeBtn');
+    if (teamButton) teamButton.onclick = function () {
+      if (!global.__opai) return;
+      if (state().multiAgentEnabled) openTeam();
+      else global.__opai.setMultiAgentEnabled(true);
+    };
+    window.addEventListener('resize', fitModePop);
 
     // Outside click / Escape close (Escape only closes popovers; app.js owns
     // Escape-to-stop when a run is active and no popover is open).

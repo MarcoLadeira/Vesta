@@ -1,4 +1,4 @@
-"""Deterministic evidence contracts for source-free OPai desktop artifacts."""
+"""Deterministic evidence contracts for source-free Vesta desktop artifacts."""
 
 from __future__ import annotations
 
@@ -181,6 +181,7 @@ def deployment_specs(project_root: Path, output_dir: Path) -> DeploymentSpecs:
     if not gui_entry.is_file() or not cli_entry.is_file():
         raise ArtifactReleaseError("desktop artifact entry points are missing")
     gui_args = [
+        "--output-filename=OPai",
         "--include-package=opai",
         "--include-package=opaihub",
         "--include-package=opcoding",
@@ -224,12 +225,14 @@ def deployment_specs(project_root: Path, output_dir: Path) -> DeploymentSpecs:
     )
 
 
-def render_pyside_deploy_spec(spec: DeploymentSpec, *, build_python: Path) -> str:
+def render_pyside_deploy_spec(
+    spec: DeploymentSpec, *, build_python: Path, icon: Path | None = None
+) -> str:
     """Render a self-contained PySide6 Deploy config for the GUI component."""
     if spec.tool != "pyside6-deploy":
         raise ArtifactReleaseError("only the GUI component may use PySide6 Deploy")
     root = spec.project_root
-    icon = root / "opai" / "assets" / "opai-icon.png"
+    icon = icon or root / "opai" / "assets" / "opai-icon.png"
     if not icon.is_file():
         raise ArtifactReleaseError("desktop icon is missing")
     pins = load_build_pins(root)
@@ -274,6 +277,8 @@ def build_commands(
         "--config-file",
         str(gui_spec_path),
         "--force",
+        "--mode=standalone",
+        "--verbose",
         f"--nuitka-version={nuitka_version}",
     ]
     cli_command = [

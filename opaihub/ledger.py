@@ -34,6 +34,7 @@ from .cost_model import (
 )
 from .model_identity import canonical_usage_model_id, model_provider
 from .state import state_dir
+from .execution_scope import attribution_fields, financial_root
 from .usage_report import ProviderTurnUsage, UsageValue
 
 
@@ -48,7 +49,7 @@ EVENT_OPERATION_INTENT = "operation_intent"
 EVENT_MODEL_CALL_STARTED = "model_call_started"
 EVENT_MODEL_CALL_USAGE_OBSERVED = "model_call_usage_observed"
 # A pre-dispatch identity whose adapter later proved that no provider request
-# left OPai. This closes the open item without inventing usage or counting a
+# left Vesta. This closes the open item without inventing usage or counting a
 # model call.
 EVENT_MODEL_CALL_NOT_DISPATCHED = "model_call_not_dispatched"
 # A dispatched call retired without ever learning its cost (#685). Terminal and
@@ -83,7 +84,7 @@ OUTCOME_SCHEMA_VERSION = 1
 # Terminal classes. Every turn ends in exactly one; there is no "running" state
 # in the ledger because only terminal outcomes are recorded.
 OUTCOME_CATEGORIES = {"completed", "partial", "failed", "blocked", "cancelled"}
-# Sentinel for a value OPai has not measured. Distinct from a real 0 (e.g. zero
+# Sentinel for a value Vesta has not measured. Distinct from a real 0 (e.g. zero
 # tokens because no model call happened), which is a fact, not a guess.
 UNKNOWN = "unknown"
 
@@ -91,10 +92,10 @@ UNKNOWN = "unknown"
 # boundary. Client readiness (how many clients are wired) is NOT capture — a
 # 5/5 readiness never means 100% of sessions are measured.
 CAPTURE_RATE_DEFINITION = {
-    "numerator": "capture_session events with captured=true (a session OPai measured)",
+    "numerator": "capture_session events with captured=true (a session Vesta measured)",
     "denominator": "all observed capture_session events (measurable sessions)",
     "excludes": (
-        "Direct unwrapped agent launches OPai never sees are unmeasurable and are "
+        "Direct unwrapped agent launches Vesta never sees are unmeasurable and are "
         "not in the denominator. Client readiness is not capture."
     ),
     "unit": "percent of observed proxy sessions",
@@ -124,15 +125,15 @@ def _now_iso() -> str:
 
 
 def ledger_path(project_root: Path) -> Path:
-    return state_dir(project_root) / "ledger" / "usage.jsonl"
+    return state_dir(financial_root(project_root)) / "ledger" / "usage.jsonl"
 
 
 def ledger_head_path(project_root: Path) -> Path:
-    return state_dir(project_root) / "ledger" / "ledger.head.json"
+    return state_dir(financial_root(project_root)) / "ledger" / "ledger.head.json"
 
 
 def ledger_index_path(project_root: Path) -> Path:
-    return state_dir(project_root) / "ledger" / "usage.index.sqlite3"
+    return state_dir(financial_root(project_root)) / "ledger" / "usage.index.sqlite3"
 
 
 def _head_state_hash(head: Mapping[str, Any]) -> str:
@@ -713,7 +714,7 @@ def _recover_ledger_head(project_root: Path) -> dict[str, Any]:
 def _ledger_transaction(
     project_root: Path,
 ) -> Iterator[tuple[Path, Path, dict[str, Any]]]:
-    root = project_root.expanduser().resolve()
+    root = financial_root(project_root)
     path = ledger_path(root)
     with _LEDGER_LOCK:
         with interprocess_transaction(path):
@@ -754,6 +755,7 @@ def _build_event(
         event["task_summary_redacted"] = summary
     for key, value in fields.items():
         event[str(key)] = _privacy_safe_value(value)
+    event.update(attribution_fields())
     return event
 
 
@@ -907,7 +909,7 @@ def record_capture_session(
     deliberately separate from ``model_call``: blocked/cancelled sessions prove
     policy activity, but they are not spend and must not affect savings math.
     """
-    root = project_root.expanduser().resolve()
+    root = financial_root(project_root)
     stable_id = str(capture_id).strip()
     if not stable_id:
         raise ValueError("capture_id is required")
@@ -991,7 +993,7 @@ def record_task_outcome(
     events by :func:`summarize_outcomes`. Unmeasured fields stay :data:`UNKNOWN`
     rather than being synthesised. See docs/TASK_OUTCOMES.md.
     """
-    root = project_root.expanduser().resolve()
+    root = financial_root(project_root)
     stable_id = str(outcome_id).strip()
     if not stable_id:
         raise ValueError("outcome_id is required")
@@ -1056,7 +1058,7 @@ def record_route_decision(
     (route/benchmark) let the ledger roll up by client, repo, and origin so a
     benchmark event and a normal routed action share one schema (#49).
     """
-    root = project_root.expanduser().resolve()
+    root = financial_root(project_root)
     cost_model = load_cost_model(root)
     savings = estimate_route_savings(
         model_tier, task_tokens=task_tokens, model=cost_model
@@ -1382,7 +1384,7 @@ def reconcile_observed_model_calls(
         if call_ids is None
         else {_required_identifier(call_id, "call_id") for call_id in call_ids}
     )
-    root = project_root.expanduser().resolve()
+    root = financial_root(project_root)
     if not ledger_path(root).exists():
         return []
     with _ledger_transaction(root) as (root, path, head):
@@ -1535,7 +1537,7 @@ def unresolved_model_calls(project_root: Path) -> list[dict[str, Any]]:
     """Provider turns that were dispatched but whose result never landed (#619).
 
     A ``model_call_started`` with no matching ``model_call_finalized`` means the
-    request left OPai — the provider may well have billed for it — and then the
+    request left Vesta — the provider may well have billed for it — and then the
     process died, the machine slept, or the write failed. The work happened; the
     cost is simply unknown.
 
@@ -1605,7 +1607,7 @@ def reconcile_abandoned_calls(
     Calls this process started are never retired, so running the sweep
     mid-turn is safe.
 
-    Records ``cost_unknown`` — never a number. An abandoned call is spend OPai
+    Records ``cost_unknown`` — never a number. An abandoned call is spend Vesta
     could not measure, and #619 AC5 is explicit that unknown is unavailable and
     never zero. Ageing changes what may be *gated on*, not what is *reported*.
     """
@@ -1677,7 +1679,7 @@ def cost_reconciliation(
     reconciled", never a confident total that silently omits it.
 
     Ageing a call out (#685) does not change that. An abandoned call is still
-    spend OPai could not measure, so it still counts against ``verified`` and
+    spend Vesta could not measure, so it still counts against ``verified`` and
     still appears here — permanently. What ageing changes is only whether a
     call is an *open item* a gate may act on.
 
@@ -1695,7 +1697,7 @@ def cost_reconciliation(
     report costs no extra scan on a hot path.
     """
 
-    root = project_root.expanduser().resolve()
+    root = financial_root(project_root)
     if not ledger_path(root).exists():
         # Nothing has ever been recorded; say so without creating the ledger.
         return {
@@ -1832,7 +1834,7 @@ def record_model_call(
     to zero"). ``cost_price_known`` on the event says which happened, so a
     genuine free-tier zero stays distinguishable from an unpriced one.
     """
-    root = project_root.expanduser().resolve()
+    root = financial_root(project_root)
     cost_model = load_cost_model(root)
     price_known = real_cost_usd is not None or tier_price_known(model_tier, cost_model)
     cost = (
@@ -1845,7 +1847,7 @@ def record_model_call(
         # `measurement` describes where the *usage* numbers came from, and
         # opaihub/usage.py reads it to decide whether a window is measured or
         # estimated. Price availability is a different fact — a provider can
-        # report exact tokens for a tier OPai has no price for — so it gets
+        # report exact tokens for a tier Vesta has no price for — so it gets
         # its own field rather than overloading this one. Conflating them
         # would report provider-measured usage as unmeasured, which is the
         # kind of contradiction #619 AC4 exists to prevent.
@@ -1940,7 +1942,7 @@ def summarize_ledger(project_root: Path) -> dict[str, Any]:
     result is cached by the file's (size, mtime); an append changes both, so
     the cache invalidates itself correctly and repeated reads are O(1).
     """
-    root = project_root.expanduser().resolve()
+    root = financial_root(project_root)
     signature = _ledger_signature(ledger_path(root))
     key = str(root)
     with _SUMMARY_CACHE_LOCK:
@@ -2015,7 +2017,7 @@ def summarize_ledger(project_root: Path) -> dict[str, Any]:
         # contributed real money that nobody can price, so the total is a
         # lower bound whenever anything is outstanding. `cost_reconciliation`
         # has known this all along and said so in its own note; until now no
-        # savings surface asked it, so `opai savings` presented an
+        # savings surface asked it, so `vesta savings` presented an
         # authoritative-looking figure that silently omitted those attempts.
         # Reuses the events already read above: this runs on every chat send,
         # and a second full scan here would double the cost of the hot path.
@@ -2024,9 +2026,9 @@ def summarize_ledger(project_root: Path) -> dict[str, Any]:
         "context_tokens_saved": int(_sum(routes, "context_tokens_saved")),
         "capture": {
             "observed_sessions": len(capture_sessions),
-            # Measurable = sessions OPai actually observed (the denominator).
+            # Measurable = sessions Vesta actually observed (the denominator).
             # Pass-through = observed but not captured (fail-open/unsupported).
-            # Unmeasured = direct unwrapped launches OPai never saw: unknown by
+            # Unmeasured = direct unwrapped launches Vesta never saw: unknown by
             # definition, so they are NOT counted here (#9).
             "measurable_sessions": len(capture_sessions),
             "captured_sessions": captured_sessions,
@@ -2042,7 +2044,7 @@ def summarize_ledger(project_root: Path) -> dict[str, Any]:
                 else "No proxy sessions observed"
             ),
             "outcomes": dict(sorted(outcomes.items())),
-            "scope": "Observed OPai proxy sessions only",
+            "scope": "Observed Vesta proxy sessions only",
             "caveat": (
                 "Direct unwrapped agent launches are not measurable yet and are not "
                 "included in this rate. Client readiness is not session capture."
@@ -2093,7 +2095,7 @@ def summarize_outcomes(project_root: Path) -> dict[str, Any]:
     double-count. Unknown latency/context values are reported as unknown counts,
     never imputed. See docs/TASK_OUTCOMES.md.
     """
-    root = project_root.expanduser().resolve()
+    root = financial_root(project_root)
     events = read_events(root)
     outcomes = [e for e in events if e.get("event_type") == EVENT_TASK_OUTCOME]
     model_calls = [e for e in events if e.get("event_type") == EVENT_MODEL_CALL]
@@ -2107,7 +2109,7 @@ def summarize_outcomes(project_root: Path) -> dict[str, Any]:
 
     completed = by_category["completed"]
     # Authoritative spend — identical to summarize_ledger's headline (#286): the
-    # single source of truth for what OPai actually spent.
+    # single source of truth for what Vesta actually spent.
     authoritative_spend = _sum(model_calls, "estimated_actual_usd")
     cost_per_completed = (
         round(authoritative_spend / completed, 6) if completed else UNKNOWN
@@ -2186,7 +2188,7 @@ def _bucket(
 
 def rollup_ledger(project_root: Path) -> dict[str, Any]:
     """Roll up savings by day, week, month, agent, and repo (#49). Read-only."""
-    root = project_root.expanduser().resolve()
+    root = financial_root(project_root)
     routes = [
         event for event in read_events(root) if event.get("event_type") == EVENT_ROUTE
     ]

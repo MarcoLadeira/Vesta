@@ -48,10 +48,10 @@ describe("cliMirror (GUI/CLI parity)", () => {
   const { cliMirror } = OPaiActivity;
   it("strips the account: prefix to friendly shorthand", () => {
     expect(cliMirror("account:claude:opus", "plan", "fix tests"))
-      .toBe('opai ask --model claude:opus --mode plan "fix tests"');
+      .toBe('vesta ask --model claude:opus --mode plan "fix tests"');
   });
   it("omits --mode for the default ask mode", () => {
-    expect(cliMirror("auto", "ask", "hello")).toBe('opai ask --model auto "hello"');
+    expect(cliMirror("auto", "ask", "hello")).toBe('vesta ask --model auto "hello"');
   });
   it("truncates long tasks and sanitizes quotes", () => {
     const cmd = cliMirror("auto", "ask", 'say "hi" ' + "x".repeat(100));

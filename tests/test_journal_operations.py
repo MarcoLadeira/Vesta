@@ -23,6 +23,8 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+
+from opaihub import journal_store
 from pathlib import Path
 from unittest import mock
 
@@ -57,7 +59,7 @@ class _OperationFixture(unittest.TestCase):
 
 
 class TheMirrorFollowsIdempotencyTests(_OperationFixture):
-    """Every exact-once effect in OPai passes through this one choke point."""
+    """Every exact-once effect in Vesta passes through this one choke point."""
 
     def test_claiming_a_key_records_a_claimed_operation(self):
         key = idempotency.operation_key("github.pr", head="feat/x", base="main")
@@ -248,6 +250,105 @@ class KeysDistinguishRealOperationsTests(_OperationFixture):
         self.assertEqual(
             store.execute("SELECT COUNT(*) FROM operations").fetchone()[0], 1
         )
+
+
+class AnOperationNeverGoesBackwardsTests(unittest.TestCase):
+    """#818: `runs` has forbidden terminal regression since #613; `operations`
+    had no such guard.
+
+    `record_operation` set `state` unconditionally, so a caller writing an
+    earlier state over a later one would quietly un-reconcile a settled
+    external effect -- "this push already happened" becoming "this push is in
+    flight". Nothing does that today, because the two layers that write
+    operations happen to use disjoint key schemes. That is luck, not design,
+    and it is exactly the luck that runs out when those keys are unified into
+    the one operation identity per external effect #818 asks for.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        self.store = open_store(self.root)
+        self.addCleanup(self.store.close)
+
+    def _write(self, state: str) -> None:
+        journal_store.record_operation(
+            self.store,
+            operation_key="op-1",
+            kind="github.pr",
+            target_digest="d",
+            state=state,
+            now="2026-09-08T10:00:00+00:00",
+        )
+
+    def _state(self) -> str:
+        row = self.store.execute(
+            "SELECT state FROM operations WHERE operation_key = 'op-1'"
+        ).fetchone()
+        return str(row["state"])
+
+    def test_a_reconciled_operation_cannot_go_back_to_executing(self):
+        self._write("reconciled")
+
+        with self.assertRaises(journal_store.JournalStoreError):
+            self._write("executing")
+
+        self.assertEqual(self._state(), "reconciled")
+
+    def test_a_reconciled_operation_cannot_be_re_observed(self):
+        """The specific collision that unifying the cost and idempotency keys
+        would cause: the cost mirror claims its operation as `observed`."""
+
+        self._write("reconciled")
+
+        with self.assertRaises(journal_store.JournalStoreError):
+            self._write("observed")
+
+    def test_moving_forward_is_allowed(self):
+        self._write("executing")
+        self._write("observed")
+        self._write("reconciled")
+
+        self.assertEqual(self._state(), "reconciled")
+
+    def test_rewriting_the_same_state_is_allowed(self):
+        """A retry that re-claims an operation is a no-op, not a regression."""
+
+        self._write("executing")
+        self._write("executing")
+
+        self.assertEqual(self._state(), "executing")
+
+    def test_uncertain_is_an_escalation_not_a_regression(self):
+        """An outcome that becomes unknowable after it was reconciled is a
+        real thing to record. Refusing it would be the opposite of honest."""
+
+        self._write("reconciled")
+        self._write("uncertain")
+
+        self.assertEqual(self._state(), "uncertain")
+
+    def test_a_state_this_build_cannot_rank_is_not_refused(self):
+        """Forwards compatibility: a newer Vesta's state must not become a hard
+        failure in an older one.
+
+        This used `uncertain` as its example, and so pinned a hole: uncertain
+        is a state this build *knows*, and allowing uncertain -> executing let
+        an operation walk back down the ladder (#818 review finding 19). The
+        property is about a state this build cannot name, so that is what is
+        planted -- directly, the way a newer build would have left it.
+        """
+
+        self._write("executing")
+        self.store.execute(
+            "UPDATE operations SET state = 'a_state_from_a_later_build'"
+            " WHERE operation_key = 'op-1'"
+        )
+
+        self._write("executing")
+
+        self.assertEqual(self._state(), "executing")
 
 
 if __name__ == "__main__":  # pragma: no cover - convenience

@@ -101,11 +101,11 @@ test("a host refusal is shown to the user and attaches nothing", async ({ page }
   // The host owns what counts as an image — it sniffs the bytes. Its wording
   // is the wording, so the user reads one explanation rather than two.
   await openApp(page, {
-    attachImageReply: { ok: false, error: "That file is not an image OPai can send." },
+    attachImageReply: { ok: false, error: "That file is not an image Vesta can send." },
   });
   await dispatchImage(page, { event: "paste", selector: "#input", kind: "items-only" });
 
-  await expect(page.locator("#toast")).toContainText("not an image OPai can send", seen);
+  await expect(page.locator("#toast")).toContainText("not an image Vesta can send", seen);
   await expect(page.locator(".context-hint.context-image")).toHaveCount(0);
 });
 

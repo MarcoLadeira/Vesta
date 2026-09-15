@@ -1,4 +1,4 @@
-"""Which OPai is running, and who is allowed to update it (#832 scope item 3).
+"""Which Vesta is running, and who is allowed to update it (#832 scope item 3).
 
 Two questions that looked like one.
 

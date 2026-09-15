@@ -4,7 +4,7 @@ import { finishRequest, openApp, openNav, openTurnDetails, sendPrompt } from "./
 import { auditThemeInPage } from "./helpers/theme-audit.js";
 
 
-// Themes (Settings › Appearance): Light, Viber Coder -- OPai's original night
+// Themes (Settings › Appearance): Light, Viber Coder -- Vesta's original night
 // sky and the default -- Dark, which is midnight with no colour at all, Vesta,
 // the Vesta logo's cream, dusty rose and sky blue, and System. A theme is one attribute on <html>; these specs hold the promises
 // that attribute makes: it is chosen and remembered like any other appearance

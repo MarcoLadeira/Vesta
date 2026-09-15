@@ -61,7 +61,7 @@ class FreePublicAlphaCatalogTests(unittest.TestCase):
         ]:
             text = (REPO / relative).read_text(encoding="utf-8")
             self.assertIn("Free Public Alpha", text, relative)
-            self.assertNotIn("opai edition set", text, relative)
+            self.assertNotIn("vesta edition set", text, relative)
             self.assertNotIn("upgrade hint", text.lower(), relative)
             self.assertNotIn("$19 / user / month", text, relative)
             self.assertNotIn("Private Paid Distribution", text, relative)

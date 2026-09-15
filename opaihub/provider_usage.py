@@ -20,8 +20,8 @@ Data provenance is always explicit and never fabricated:
   either observed from the rate-limit headers of your actual calls (recorded
   in the local ledger's ``quota_snapshot``) or refreshed live from a safe,
   prompt-free endpoint (``GET /models``) or the balance API (Kimi).
-* ``opai-tracked`` — OPai's own local count of calls/tokens in the applicable
-  window, from the privacy-safe ledger. Always labelled as OPai-tracked, and
+* ``opai-tracked`` — Vesta's own local count of calls/tokens in the applicable
+  window, from the privacy-safe ledger. Always labelled as Vesta-tracked, and
   never presented as the provider's official percentage.
 * ``unavailable`` — no safe machine-readable usage endpoint exists (the
   account CLIs). The verifiable window definition and where to check official
@@ -71,11 +71,11 @@ USAGE_MODELS: dict[str, dict[str, Any]] = {
         "liveSource": None,
         "checkUrl": "https://claude.ai/settings/usage",
         "note": (
-            "Claude subscriptions meter a rolling ~5-hour session window. OPai "
+            "Claude subscriptions meter a rolling ~5-hour session window. Vesta "
             "signs in through the Claude CLI, which does not expose a "
             "machine-readable usage figure, so the exact percentage is only "
-            "visible in Claude directly. OPai's own count below only includes "
-            "messages sent through OPai's chat — not the claude CLI used directly."
+            "visible in Claude directly. Vesta's own count below only includes "
+            "messages sent through Vesta's chat — not the claude CLI used directly."
         ),
     },
     "codex": {
@@ -88,9 +88,9 @@ USAGE_MODELS: dict[str, dict[str, Any]] = {
         "checkUrl": "https://chatgpt.com/#settings",
         "note": (
             "Codex runs on your ChatGPT plan, which enforces weekly message "
-            "limits. The plan does not publish a usage endpoint OPai can read, "
-            "so official usage is shown in ChatGPT. OPai's own count below only "
-            "includes messages sent through OPai's chat — not the codex CLI "
+            "limits. The plan does not publish a usage endpoint Vesta can read, "
+            "so official usage is shown in ChatGPT. Vesta's own count below only "
+            "includes messages sent through Vesta's chat — not the codex CLI "
             "used directly."
         ),
     },
@@ -104,8 +104,8 @@ USAGE_MODELS: dict[str, dict[str, Any]] = {
         "checkUrl": "https://github.com/settings/copilot",
         "note": (
             "Copilot meters premium requests monthly. GitHub reports usage in "
-            "your account billing page rather than through an API OPai can call. "
-            "OPai's own count below only includes messages sent through OPai's "
+            "your account billing page rather than through an API Vesta can call. "
+            "Vesta's own count below only includes messages sent through Vesta's "
             "chat — not GitHub Copilot used directly in your editor."
         ),
     },
@@ -373,7 +373,7 @@ def probe_usage(
 
 
 # ---------------------------------------------------------------------------
-# ledger reads (observed provider quota + OPai-tracked window counts)
+# ledger reads (observed provider quota + Vesta-tracked window counts)
 # ---------------------------------------------------------------------------
 def _event_time(event: dict[str, Any]) -> float | None:
     text = str(event.get("created_at") or "").replace("Z", "+00:00")
@@ -447,13 +447,13 @@ def _window_start(
 def _opai_tracked(
     events: list[dict[str, Any]], provider: str, model: dict[str, Any], *, now: float
 ) -> dict[str, Any]:
-    """OPai's own local activity count for ``provider``.
+    """Vesta's own local activity count for ``provider``.
 
-    Account CLIs (Claude/Codex/Copilot) have no official window OPai can
+    Account CLIs (Claude/Codex/Copilot) have no official window Vesta can
     verify the real boundaries of — mimicking a tight rolling window (e.g.
-    Claude's actual ~5 hours) against events timestamped by *OPai's* clock
+    Claude's actual ~5 hours) against events timestamped by *Vesta's* clock
     would almost always read as empty, since most usage of these tools
-    happens through the CLI directly and never touches OPai's ledger at all.
+    happens through the CLI directly and never touches Vesta's ledger at all.
     For these, count all-time activity instead, with a "last used" freshness
     readout — an honest, always-useful signal rather than a technically
     precise but practically always-zero one. Free-tier APIs with a real
@@ -488,7 +488,7 @@ def _opai_tracked(
         token_count = _to_float(raw_tokens)
         tokens += int(token_count) if token_count is not None and token_count > 0 else 0
     labels = {
-        "rolling": "All time via OPai",
+        "rolling": "All time via Vesta",
         "daily": "Today",
         "weekly": "This week",
         "monthly": "This month",
@@ -537,7 +537,7 @@ def usage_snapshot(
             "window": None,
             "official": {"available": False},
             "opaiTracked": None,
-            "detail": "OPai does not track usage windows for this provider yet.",
+            "detail": "Vesta does not track usage windows for this provider yet.",
             "checkUrl": None,
             "supportsRefresh": False,
         }
@@ -624,7 +624,7 @@ def usage_snapshot(
             status = "unavailable"
             detail = (
                 "Live usage appears after your first call to this provider "
-                "(OPai reads the rate-limit headers your call returns)."
+                "(Vesta reads the rate-limit headers your call returns)."
             )
 
     if source is None and configured:

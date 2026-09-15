@@ -236,6 +236,57 @@ class LocalCiEvidenceTests(unittest.TestCase):
             {"execution": "timed_out", "outcome": "failed"},
         )
 
+    def test_a_timeout_scale_stretches_every_budget_and_is_recorded(self):
+        ci = _load_ci_local_module()
+        step = ci.Step(
+            "timed check",
+            [sys.executable, "-c", "import time; time.sleep(0.3)"],
+            timeout_seconds=0.1,
+        )
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            manifest = Path(temporary_directory) / "evidence.json"
+            with mock.patch.object(ci, "PROFILE_STEPS", {"fast": (step,)}):
+                result = ci.main(
+                    [
+                        "--profile",
+                        "fast",
+                        "--manifest",
+                        str(manifest),
+                        "--timeout-scale",
+                        "50",
+                    ]
+                )
+            evidence = json.loads(manifest.read_text(encoding="utf-8"))
+
+        self.assertNotEqual(
+            _check(evidence, "timed check")["status"]["execution"], "timed_out"
+        )
+        self.assertEqual(_check(evidence, "timed check")["timeout_seconds"], 5.0)
+        self.assertIsInstance(result, int)
+
+    def test_without_a_scale_every_budget_is_the_declared_one(self):
+        ci = _load_ci_local_module()
+        step = ci.Step("quick check", [sys.executable, "-c", "pass"])
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            manifest = Path(temporary_directory) / "evidence.json"
+            with mock.patch.object(ci, "PROFILE_STEPS", {"fast": (step,)}):
+                ci.main(["--profile", "fast", "--manifest", str(manifest)])
+            evidence = json.loads(manifest.read_text(encoding="utf-8"))
+
+        self.assertEqual(
+            _check(evidence, "quick check")["timeout_seconds"],
+            ci.DEFAULT_TIMEOUT_SECONDS,
+        )
+
+    def test_a_scale_below_one_is_refused(self):
+        ci = _load_ci_local_module()
+
+        for value in ("0.5", "nan"):
+            with self.subTest(value=value), self.assertRaises(SystemExit):
+                ci.main(["--profile", "fast", "--timeout-scale", value])
+
     def test_failure_diagnostics_are_redacted_and_bounded(self):
         ci = _load_ci_local_module()
         secret = "sk-opai-this-must-never-enter-evidence"

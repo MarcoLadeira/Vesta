@@ -60,7 +60,7 @@ alongside it. `test_completion_contract.py` and `test_run_state.py` hold the
 one-for-one mapping between terminal states and verdicts.
 
 **A provider can no longer manufacture one.** `evaluate_completion` promised in
-its own docstring that only evidence from OPai's execution path could return
+its own docstring that only evidence from Vesta's execution path could return
 `COMPLETED`, and two things contradicted that:
 
 - `_has_successful_test` accepted a bare `{"tests": {"status": "passed"}}` —
@@ -75,7 +75,7 @@ its own docstring that only evidence from OPai's execution path could return
 Nothing populated those keys on the live path, so it was not exploitable —
 which is exactly the distinction removed. Unreachable-today is one refactor from
 reachable, and the gate asks for *impossible*. Test evidence now requires a
-record of something OPai ran (its own tool trace, or a check carrying the exit
+record of something Vesta ran (its own tool trace, or a check carrying the exit
 status it observed), and `evidence_payload()` allowlists what the verdict may
 read, so a new field is invisible to it until deliberately added to
 `MEASURED_EVIDENCE_KEYS`. `test_false_completion_guards.py` (14 tests + 6
@@ -151,7 +151,7 @@ and the two outward operations that had no protection at all are wired to it:
   resumed or reconnected turn opened a second pull request.
 - `comment_pr` — the same, posting a duplicate comment on the thread.
 
-Both are visible to other people and not undoable by OPai.
+Both are visible to other people and not undoable by Vesta.
 
 The third state is the design point. A set of completed keys is wrong at exactly
 the moment it matters: the process can die *between* performing the side effect
@@ -221,8 +221,8 @@ root dies*:
 | POSIX | process group id recorded at spawn | `getpgid` fails on a dead leader — exactly when it is needed. |
 
 The Windows job also carries `KILL_ON_JOB_CLOSE`, so the tree dies even when
-OPai is force-killed and none of its cleanup code ever runs. `_killpg` refuses
-to signal OPai's own group: cheap to check, unrecoverable to miss.
+Vesta is force-killed and none of its cleanup code ever runs. `_killpg` refuses
+to signal Vesta's own group: cheap to check, unrecoverable to miss.
 
 **Evidence.** `test_orphan_processes.py` spawns real child *and grandchild*
 processes and proves each scenario the gate names — cancel, timeout, app exit,
@@ -262,12 +262,12 @@ the same lifecycle and proves no legal phase move implies an illegal canonical
 transition.
 
 The CLI now maps terminal states to **distinct** exit codes from the same
-canonical source (`run_state.exit_code_for`), so `opai ask` and the streaming
+canonical source (`run_state.exit_code_for`), so `vesta ask` and the streaming
 path cannot drift from each other or from the engine:
 
 | ending | code | why |
 | --- | --- | --- |
-| completed | 0 | success; keeps `if ! opai ask …` working unchanged |
+| completed | 0 | success; keeps `if ! vesta ask …` working unchanged |
 | failed | 2 | the code it already meant |
 | partial | 3 | work landed but is unverified — not the same as failure |
 | blocked | 4 | a refusal; retrying hits it again |
@@ -453,7 +453,7 @@ The remaining two failures were faults in the harness, not the product, and are
 recorded as such: `cost_is_real_or_unknown` rejected `None`, which the clause
 itself calls conforming; and the local probe called `runner.complete` directly
 rather than through the product's own `_complete_streaming`, measuring a call
-OPai never makes.
+Vesta never makes.
 
 **Coverage is now complete for the advertised adapters**: claude, **codex** and
 copilot on the CLI side, Ollama, **free-tier API** and OpenAI-compatible on the
@@ -509,7 +509,7 @@ Receipts carry route, cost, model and the verdict, and `message_contract`
 records the lane and its reason. Probing a real run showed `evidence`,
 `changed_files` and `approvals` were all absent — a receipt stating an outcome
 without the evidence behind it, or what the run was allowed to do, asks the user
-to take OPai's word for it, which is what a receipt exists to avoid.
+to take Vesta's word for it, which is what a receipt exists to avoid.
 
 Receipts now carry:
 

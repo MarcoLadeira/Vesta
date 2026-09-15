@@ -286,7 +286,7 @@ class SavingsReportTests(unittest.TestCase):
         self.assertTrue(report["has_data"])
         self.assertEqual(report["totals"]["routed_tasks"], 1)
         self.assertGreater(report["totals"]["estimated_savings_usd"], 0.0)
-        self.assertIn("OPai Savings Report", markdown)
+        self.assertIn("Vesta Savings Report", markdown)
         self.assertIn("Cloud calls avoided", markdown)
 
     def test_analytics_summary_reads_real_ledger_not_placeholder(self):

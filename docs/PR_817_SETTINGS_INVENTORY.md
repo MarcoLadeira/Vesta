@@ -6,7 +6,7 @@ This document is the implementation inventory for the second-pass Settings infor
 
 The Settings rail has ten task-oriented destinations grouped by similarity:
 
-1. OPai: General, Appearance
+1. Vesta: General, Appearance
 2. AI: Models & Routing, Agents, Plugins, Usage & Budgets
 3. Development: Workspace, Connections
 4. Trust: Safety & Privacy
@@ -77,7 +77,7 @@ Legacy routes remain aliases only. New navigation writes canonical hashes.
 | Free model API keys | Connect or replace provider key | `saveProviderCredential` | Retained; secret is never echoed back |
 | Free model API keys | Test provider | `testProviderCredential` | Retained |
 | Free model API keys | Remove provider key | `deleteProviderCredential` | Retained |
-| Data boundary | What OPai can access | Existing local-data policy copy | Retained beside connection controls |
+| Data boundary | What Vesta can access | Existing local-data policy copy | Retained beside connection controls |
 
 ### Usage & Budgets
 
@@ -88,7 +88,7 @@ Legacy routes remain aliases only. New navigation writes canonical hashes.
 | Per-model limits | Local usage progress and source | Usage payload | Retained |
 | Per-model limits | Soft limit input and save | `saveUsageLimit` | Retained |
 | Provider usage | Official provider allowance, reset window, freshness, and status | Provider usage payload | Merged from Model Usage; truth labels retained |
-| Provider usage | OPai-tracked calls, tasks, and tokens | Local usage payload | Retained and kept visually distinct from official data |
+| Provider usage | Vesta-tracked calls, tasks, and tokens | Local usage payload | Retained and kept visually distinct from official data |
 | Provider usage | Refresh live usage | `refreshProviderUsage` | Retained |
 | Provider usage | Official usage link | Native external-link bridge | Retained |
 | Provider balances | Balance, source, freshness, and recharge guidance | Provider balance payload | Merged from Credits & Balance |

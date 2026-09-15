@@ -1,7 +1,7 @@
 """Safe provider connection, error, and display-name contracts.
 
 This module is deliberately framework-free. Provider processes feed it raw
-diagnostics and every UI receives the same redacted, OPai-first dictionary.
+diagnostics and every UI receives the same redacted, Vesta-first dictionary.
 Credential values are never accepted or returned as structured fields.
 """
 
@@ -50,7 +50,7 @@ ERROR_CODES = (
 _ERROR_SPECS: dict[str, dict[str, Any]] = {
     "AUTH_MISSING": {
         "authStatus": "not_configured",
-        "title": "OPai needs a valid connection.",
+        "title": "Vesta needs a valid connection.",
         "userMessage": "Connect a provider account in Settings before sending this request.",
         "actions": ["open_settings", "reconnect"],
         "retryable": False,
@@ -59,10 +59,10 @@ _ERROR_SPECS: dict[str, dict[str, Any]] = {
         "authStatus": "invalid",
         "title": "This account's sign-in was rejected by the provider.",
         "userMessage": (
-            "OPai detected a signed-in session for this account, but the "
+            "Vesta detected a signed-in session for this account, but the "
             "request itself was refused by the provider (a 401). This "
             "usually means the session expired or was revoked outside "
-            "OPai — sign-in checks can look fine locally right up until a "
+            "Vesta — sign-in checks can look fine locally right up until a "
             "real request fails. Disconnect this account, then sign in "
             "again to get a fresh session."
         ),
@@ -82,7 +82,7 @@ _ERROR_SPECS: dict[str, dict[str, Any]] = {
     },
     "PROVIDER_RATE_LIMITED": {
         "authStatus": "rate_limited",
-        "title": "OPai is being rate limited.",
+        "title": "Vesta is being rate limited.",
         "userMessage": "Wait a moment, then retry or choose another connection.",
         "actions": ["retry", "open_settings"],
         "retryable": True,
@@ -98,46 +98,46 @@ _ERROR_SPECS: dict[str, dict[str, Any]] = {
     },
     "PROVIDER_TIMEOUT": {
         "authStatus": "unknown",
-        "title": "OPai did not receive a response in time.",
+        "title": "Vesta did not receive a response in time.",
         "userMessage": "Retry with a smaller request or choose a faster mode.",
         "actions": ["retry", "change_mode"],
         "retryable": True,
     },
     "TASK_DEADLINE": {
         "authStatus": "unknown",
-        "title": "OPai reached the task time limit.",
+        "title": "Vesta reached the task time limit.",
         "userMessage": (
-            "This run reached OPai's task limit while work may have been in "
+            "This run reached Vesta's task limit while work may have been in "
             "progress. Inspect retained changes or continue from the saved "
-            "state after OPai reconciles the previous operation."
+            "state after Vesta reconciles the previous operation."
         ),
         "actions": ["inspect_changes", "continue", "show_details"],
         "retryable": False,
     },
     "PROVIDER_UNAVAILABLE": {
         "authStatus": "provider_unavailable",
-        "title": "OPai could not reach this provider.",
+        "title": "Vesta could not reach this provider.",
         "userMessage": "The provider is unavailable. Retry later or choose another connection.",
         "actions": ["retry", "open_settings", "show_details"],
         "retryable": True,
     },
     "NETWORK_ERROR": {
         "authStatus": "unknown",
-        "title": "OPai could not connect.",
+        "title": "Vesta could not connect.",
         "userMessage": "Check your network connection and retry.",
         "actions": ["retry", "show_details"],
         "retryable": True,
     },
     "MODEL_UNAVAILABLE": {
         "authStatus": "connected",
-        "title": "This OPai mode is unavailable.",
+        "title": "This Vesta mode is unavailable.",
         "userMessage": "Choose another mode or update the provider connection.",
         "actions": ["change_mode", "open_settings", "show_details"],
         "retryable": False,
     },
     "CONFIG_INVALID": {
         "authStatus": "misconfigured",
-        "title": "OPai found a problem in this provider's config.",
+        "title": "Vesta found a problem in this provider's config.",
         "userMessage": (
             "The provider CLI's config file has an invalid setting, so it won't "
             "start. Run the one-click repair (it backs up your config first), "
@@ -148,7 +148,7 @@ _ERROR_SPECS: dict[str, dict[str, Any]] = {
     },
     # The installed provider CLI is too old for the model it was asked to run —
     # e.g. Codex answering `The 'gpt-5.6-terra' model requires a newer version
-    # of Codex`. This used to fall through to UNKNOWN ("OPai could not complete
+    # of Codex`. This used to fall through to UNKNOWN ("Vesta could not complete
     # this request"), which hid a one-command fix and made Codex look broken as
     # a fallback provider. Not retryable: retrying the same CLI cannot succeed.
     "PROVIDER_CLI_OUTDATED": {
@@ -164,7 +164,7 @@ _ERROR_SPECS: dict[str, dict[str, Any]] = {
     },
     "SUBPROCESS_PERMISSION_DENIED": {
         "authStatus": "misconfigured",
-        "title": "OPai could not start this provider CLI.",
+        "title": "Vesta could not start this provider CLI.",
         "userMessage": (
             "Windows denied access to the provider command. Reinstall or repair "
             "the CLI, then reconnect this provider in Settings."
@@ -181,28 +181,28 @@ _ERROR_SPECS: dict[str, dict[str, Any]] = {
     },
     "STREAM_ABORTED": {
         "authStatus": "unknown",
-        "title": "OPai lost the response stream.",
+        "title": "Vesta lost the response stream.",
         "userMessage": "The partial response is preserved. Retry to start a new request.",
         "actions": ["retry", "show_details"],
         "retryable": True,
     },
     "USER_CANCELLED": {
         "authStatus": "unknown",
-        "title": "OPai stopped safely.",
+        "title": "Vesta stopped safely.",
         "userMessage": "Generation was stopped by you.",
         "actions": ["retry", "edit"],
         "retryable": True,
     },
     "NO_RESPONSE": {
         "authStatus": "connected",
-        "title": "OPai received no response.",
+        "title": "Vesta received no response.",
         "userMessage": "Retry or choose another connection.",
         "actions": ["retry", "open_settings"],
         "retryable": True,
     },
     "UNKNOWN": {
         "authStatus": "unknown",
-        "title": "OPai could not complete this request.",
+        "title": "Vesta could not complete this request.",
         "userMessage": "Retry, or open technical details if the problem continues.",
         "actions": ["retry", "show_details"],
         "retryable": True,
@@ -216,7 +216,7 @@ def redact_secrets(detail: Any) -> str:
     #622: this used to be a second, independent pattern list — narrower than
     and drifted from ``opaihub.command_runner.redact`` (the canonical
     redactor, imported by 28+ modules and kept current with every credential
-    shape OPai's own providers use). Measured before fixing: this function's
+    shape Vesta's own providers use). Measured before fixing: this function's
     own patterns missed GitHub fine-grained PATs, Google/Gemini keys, Groq
     keys, AWS access key IDs and Slack tokens — the exact five categories
     #549/#546 had already fixed in the canonical redactor, just never here.
@@ -253,7 +253,7 @@ def classify_error_code(
     timed_out: bool = False,
     timeout_origin: str | None = None,
 ) -> str:
-    """Classify a provider diagnostic into the stable OPai error vocabulary."""
+    """Classify a provider diagnostic into the stable Vesta error vocabulary."""
 
     if str(timeout_origin or "").strip().lower() == "task_deadline":
         return "TASK_DEADLINE"
@@ -362,7 +362,7 @@ def classify_error_code(
         return "MODEL_UNAVAILABLE"
     # Transport failures, classified before the generic fallbacks below.
     #
-    # These used to land in UNKNOWN ("OPai could not complete this request"),
+    # These used to land in UNKNOWN ("Vesta could not complete this request"),
     # which is the single biggest source of the "sometimes my messages just
     # don't work" experience: a momentary socket timeout or an overloaded
     # endpoint produced an alarming dead-end error instead of being absorbed by
@@ -523,8 +523,8 @@ def provider_display_name(
         display = _COPILOT_DISPLAY.get(model_id, model or "model")
         return f"Copilot · {display}"
     if provider_id == "local":
-        return "OPai · Local mode"
+        return "Vesta · Local mode"
     if provider_id in {"auto", ""}:
-        return "OPai · Auto mode"
-    # Generic fallback keeps OPai branding for any unrecognized provider.
-    return f"OPai · {(model or provider or 'model').strip()}"
+        return "Vesta · Auto mode"
+    # Generic fallback keeps Vesta branding for any unrecognized provider.
+    return f"Vesta · {(model or provider or 'model').strip()}"

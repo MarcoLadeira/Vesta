@@ -1,21 +1,21 @@
-# OPai Landing Page
+# Vesta Landing Page
 
-Static single-file site for OPai — the AI coding cost firewall — built around the
-**free public alpha** narrative. OPai is free. Install it in one command.
+Static single-file site for Vesta — the AI coding cost firewall — built around the
+**free public alpha** narrative. Vesta is free. Install it in one command.
 
 ## The Funnel
 
 ```text
-visit -> pip install opai -> opai doctor -> opai savings -> share
+visit -> pip install opai -> vesta doctor -> vesta savings -> share
 ```
 
 The page has exactly one goal: **install**. The single CTA is the install
 command itself (`pip install opai`, copy-to-clipboard). Secondary links go to
-GitHub and Discussions. After install, `opai doctor` verifies the setup and
-`opai savings` proves the value in numbers.
+GitHub and Discussions. After install, `vesta doctor` verifies the setup and
+`vesta savings` proves the value in numbers.
 
 Hard rule: **no paid-tier or gated-access CTAs on this page.** No pricing
-sections, no checkout links, no invite walls, no "apply" forms. OPai is free
+sections, no checkout links, no invite walls, no "apply" forms. Vesta is free
 during alpha — no credit card, no invite.
 
 ## Files

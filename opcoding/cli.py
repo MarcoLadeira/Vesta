@@ -595,7 +595,7 @@ def build_parser() -> argparse.ArgumentParser:
     mo.set_defaults(func=cmd_morph)
 
     p = sub.add_parser(
-        "statusline", help="Print a one-line OPai status for shell prompts"
+        "statusline", help="Print a one-line Vesta status for shell prompts"
     )
     p.add_argument("project", nargs="?", default=".")
     p.set_defaults(func=cmd_statusline)

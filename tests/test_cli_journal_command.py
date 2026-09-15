@@ -20,6 +20,7 @@ import io
 import json
 import tempfile
 import unittest
+from unittest import mock
 from contextlib import redirect_stdout
 from pathlib import Path
 
@@ -277,7 +278,7 @@ class AJournalInUseIsNotABadBackupTests(_JournalCommandFixture):
     """Reporting the wrong cause is how a good backup gets thrown away.
 
     On Windows an open handle blocks replacing the journal, so a restore
-    attempted while OPai is running cannot proceed. Refusing is correct --
+    attempted while Vesta is running cannot proceed. Refusing is correct --
     nothing is overwritten -- but the first version reported it as
     ``backup_unreadable``, which points the user at the one file that is
     actually fine and is still their only copy.
@@ -294,7 +295,7 @@ class AJournalInUseIsNotABadBackupTests(_JournalCommandFixture):
         if report.ok:  # pragma: no cover - POSIX allows replacing an open file
             self.skipTest("this platform permits replacing an open database")
         self.assertEqual(report.reason, journal_backup.REFUSE_IN_USE)
-        self.assertIn("close OPai", report.detail)
+        self.assertIn("close Vesta", report.detail)
 
     def test_nothing_is_lost_when_the_restore_is_refused(self):
         self._finished_runs(2)
@@ -367,7 +368,7 @@ class CompactTests(_JournalCommandFixture):
 
 
 class PendingTests(_JournalCommandFixture):
-    """`opai journal pending` -- the first question after a crash.
+    """`vesta journal pending` -- the first question after a crash.
 
     #613 opens by describing a run that "may appear active with no worker".
     Answering that from Python only would repeat the mistake this migration
@@ -413,14 +414,98 @@ class PendingTests(_JournalCommandFixture):
         self.assertEqual(code, 0)
         self.assertIn("github.pr", output)
 
-    def test_the_output_refuses_to_call_a_run_dead(self):
-        """The honesty the underlying report is built on, carried to the surface."""
+    def test_the_output_says_who_owns_each_unfinished_run(self):
+        """#818: this used to print "this record cannot tell those apart".
+
+        It could not, because the lease recorded ``owner="gui"`` -- a category
+        with no process behind it. Now that the lease names a process, the
+        surface says which Vesta holds the run instead of apologising for not
+        knowing.
+        """
 
         self._unfinished_run()
 
         _, output = self._run("pending")
 
-        self.assertIn("cannot tell those apart", output)
+        self.assertIn("This Vesta is working on it now.", output)
+        self.assertNotIn("cannot tell those apart", output)
+
+    def test_the_output_still_refuses_to_call_an_unverifiable_owner_dead(self):
+        """The refusal that survives.
+
+        A pid that is still in use may have been reused by something
+        unrelated, so an unverified owner must not be presented as finished or
+        as abandoned -- and the closing caveat must appear for exactly that
+        case, not as boilerplate on every run.
+        """
+
+        from opaihub import journal_liveness
+
+        self._unfinished_run()
+
+        with mock.patch.object(
+            journal_liveness,
+            "owner_liveness",
+            return_value=journal_liveness.OWNER_UNVERIFIED,
+        ):
+            _, output = self._run("pending")
+
+        self.assertIn("Another Vesta may still be working on it.", output)
+        self.assertIn("cannot verify", output)
+
+    def test_a_stale_owner_gets_its_own_caveat_not_the_unverified_one(self):
+        """Two different situations that ask different things of the reader.
+
+        "Vesta cannot verify who owns this" is about a pid that might have been
+        reused. "The owner stopped responding" is about a process that was
+        demonstrably tending the run and went quiet. Collapsing them into one
+        sentence loses the only part that tells the reader what to look at.
+        """
+
+        from opaihub import journal_liveness
+
+        self._unfinished_run()
+
+        with mock.patch.object(
+            journal_liveness,
+            "owner_liveness",
+            return_value=journal_liveness.OWNER_STALE,
+        ):
+            _, output = self._run("pending")
+
+        self.assertIn("stopped responding", output)
+        self.assertNotIn("cannot verify", output)
+
+    def test_a_run_with_no_recorded_process_is_not_explained_as_pid_reuse(self):
+        """#818 review finding 14.
+
+        A run that never recorded its process has no pid to be reused. It was
+        told "a process id that is still in use may belong to something else",
+        which is the explanation for a different situation entirely.
+        """
+
+        from opaihub import journal_liveness
+
+        self._unfinished_run()
+
+        with mock.patch.object(
+            journal_liveness,
+            "owner_liveness",
+            return_value=journal_liveness.OWNER_UNKNOWN,
+        ):
+            _, output = self._run("pending")
+
+        self.assertIn("never recorded which process owned", output)
+        self.assertNotIn("may belong to something else", output)
+
+    def test_the_caveat_is_absent_when_every_owner_is_resolved(self):
+        """Printed only when it is true, so it keeps meaning something."""
+
+        self._unfinished_run()
+
+        _, output = self._run("pending")
+
+        self.assertNotIn("cannot verify", output)
 
     def test_pending_json_is_parseable(self):
         self._unfinished_run()
@@ -431,6 +516,35 @@ class PendingTests(_JournalCommandFixture):
         payload = json.loads(output)
         self.assertIn("runs", payload)
         self.assertIn("operations", payload)
+
+    def test_status_says_unknown_rather_than_zero_when_it_could_not_read(self):
+        """#818. An unreadable journal used to print "unfinished: 0", which is
+        what a healthy empty one prints. Nothing covered the rendering, so
+        deleting the branch that distinguishes them changed no test.
+        """
+
+        from opaihub import journal_runtime
+
+        self._unfinished_run()
+
+        with mock.patch.object(
+            journal_runtime,
+            "unterminated_summary",
+            return_value={
+                "available": False,
+                "unavailable_reason": "incompatible",
+                "unterminated": 0,
+                "lease_held": 0,
+                "abandoned": 0,
+                "by_owner": {},
+            },
+        ):
+            code, output = self._run("status")
+
+        self.assertEqual(code, 0)
+        self.assertIn("unknown", output)
+        self.assertIn("incompatible", output)
+        self.assertNotIn("unfinished:     0", output)
 
     def test_status_reports_the_unfinished_count(self):
         self._unfinished_run()

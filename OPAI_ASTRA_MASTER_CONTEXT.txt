@@ -2,7 +2,7 @@ OPAI / ASTRA MASTER PRODUCT + ENGINEERING CONTEXT
 ================================================
 Snapshot date: 2026-09-06
 Repository: MarcoLadeira/OPai
-Purpose: Canonical strategic and engineering orientation for coding agents working on OPai.
+Purpose: Canonical strategic and engineering orientation for coding agents working on Vesta.
 Audience: Codex, Astra, Claude Code, Copilot, other engineering agents, and human contributors.
 
 IMPORTANT STATUS RULE
@@ -21,40 +21,40 @@ current session.
 0. EXECUTIVE SUMMARY
 ====================
 
-OPai should not become "Cursor, but cheaper" and it should not spend years cloning the editor
+Vesta should not become "Cursor, but cheaper" and it should not spend years cloning the editor
 surface, Tab completion or proprietary autocomplete training loop that Cursor already owns.
 
-OPai's strongest product category is:
+Vesta's strongest product category is:
 
     A LOCAL-FIRST, PROVIDER-NEUTRAL AI SOFTWARE ENGINEERING CONTROL PLANE
     THAT OPTIMIZES FOR VERIFIED ENGINEERING OUTCOMES PER UNIT OF COST/QUOTA.
 
 The current market wedge is simpler and easier to explain:
 
-    OPai is the AI coding cost firewall.
+    Vesta is the AI coding cost firewall.
 
 Those statements are not contradictory. "Cost firewall" is the adoption wedge. The larger product
 is the engineering control plane behind it.
 
-The ideal OPai workflow is:
+The ideal Vesta workflow is:
 
 1. A developer opens any existing repository in the editor/terminal they already use.
-2. OPai understands the repository locally before an expensive model starts wandering through it.
+2. Vesta understands the repository locally before an expensive model starts wandering through it.
 3. The developer asks for an engineering outcome, not a provider-specific prompt.
-4. OPai decides what deterministic/local evidence can solve first and what model/provider is
+4. Vesta decides what deterministic/local evidence can solve first and what model/provider is
    actually required.
-5. If work can be parallelized safely, OPai decomposes it into bounded assignments, isolates them
+5. If work can be parallelized safely, Vesta decomposes it into bounded assignments, isolates them
    in worktrees, routes each assignment independently, and supervises them as an engineering team.
 6. Commands, edits, Git/GitHub side effects, cloud spend and dangerous operations obey explicit
    authority and repository-safety rules.
-7. OPai does not treat a model saying "done" as proof. Required tests/checks/browser evidence and
+7. Vesta does not treat a model saying "done" as proof. Required tests/checks/browser evidence and
    repository state determine the terminal verdict.
 8. The user gets one truthful result and receipt: what happened, what changed, what was verified,
    what remains uncertain, which model/provider was used, and what it cost/saved.
 9. The same task remains one task whether viewed from desktop, CLI, IDE bridge, background worker
    or future integration.
 
-If OPai reaches that experience while remaining easy to install and pleasant to use, it does not
+If Vesta reaches that experience while remaining easy to install and pleasant to use, it does not
 need to beat Cursor at Cursor Tab to become a genuinely better product for a substantial class of
 software engineers.
 
@@ -65,7 +65,7 @@ software engineers.
 Current package identity at this snapshot:
 - Python project name: opai
 - Version: 0.2.1a1
-- Release identity in README: OPai 0.2.1 Alpha.1
+- Release identity in README: Vesta 0.2.1 Alpha.1
 - Main CLI entry points: opai and op
 - Additional entry points: op-hub, legacy-compatible opcoding
 - Desktop entry points: opai-gui and OPai-Desktop
@@ -75,7 +75,7 @@ Current package identity at this snapshot:
 
 The README's current first-order promise is accurate:
 
-    OPai is the AI coding cost firewall.
+    Vesta is the AI coding cost firewall.
 
 It sits in front of AI coding providers/clients and tries to route work through the cheapest safe
 path that can genuinely complete the job. The intended order is approximately:
@@ -86,7 +86,7 @@ path that can genuinely complete the job. The intended order is approximately:
       -> confirmed cheap cloud capability
       -> stronger/expensive model only when evidence says it is justified
 
-That is more than a pricing trick. It changes what the product controls. OPai can observe the
+That is more than a pricing trick. It changes what the product controls. Vesta can observe the
 engineering process around the model: repository state, edits, commands, tests, verification,
 retries, Git/GitHub delivery and receipts. That makes it possible to optimize the total cost of a
 successful result instead of the nominal price of one inference.
@@ -109,7 +109,7 @@ Existing user-facing concepts include:
 - Background-run/schedule primitives.
 - Release/update/signing machinery.
 
-OPai is NOT a single giant agent. The OP AI Hub design is a registry/routing layer spanning tools,
+Vesta is NOT a single giant agent. The OP AI Hub design is a registry/routing layer spanning tools,
 agents, workflows, MCP servers and model tiers. OPcoding is the legacy-compatible lower-level
 system that contains existing project scans, tests, GitOps and related foundations. New work should
 prefer the current OPai/opaihub architecture and treat opcoding compatibility carefully rather than
@@ -145,7 +145,7 @@ A technically better engine still loses if a developer has to clone a Python rep
 special dependencies, understand internals and debug provider setup before the first useful task.
 Distribution and first-run UX are product strategy, not packaging trivia.
 
-OPai should own the combined answer:
+Vesta should own the combined answer:
 
     "Give me the engineering outcome. Use the best available combination of tools/models at the
      lowest sensible total cost, keep it safe, prove it, and show me what happened."
@@ -169,7 +169,7 @@ policy, cost and evidence rather than brand preference.
 3.3 LOCAL-FIRST WHERE TECHNICALLY PRACTICAL
 Repository understanding, policy, state, receipts and deterministic inspection should stay local
 by default. Cloud/provider calls occur because the task needs them and policy allows them, not
-because the architecture assumes a hosted OPai brain.
+because the architecture assumes a hosted Vesta brain.
 
 3.4 DETERMINISTIC EVIDENCE BEFORE MODEL TOKENS
 Use Git, parsing, tests, structured repository inspection, cache, symbol/index signals and bounded
@@ -194,7 +194,7 @@ checks, repository evidence, browser evidence and delivery evidence decide the r
 
 3.9 HONEST UNKNOWN / PARTIAL STATES
 Unknown cost is not zero. Missing evidence is not pass. A timeout is not success. A model response
-with no expected diff is not a completed edit. If OPai cannot prove something, it should say so.
+with no expected diff is not a completed edit. If Vesta cannot prove something, it should say so.
 
 3.10 COMPLETE COST PROVENANCE
 Routing economics must include failed attempts, retries, fallbacks, repair turns and verification,
@@ -205,7 +205,7 @@ The same task viewed in desktop, CLI, IDE bridge or worker must not become multi
 contradictory terminal state.
 
 3.12 NO HIDDEN-CHAIN-OF-THOUGHT DEPENDENCY
-OPai needs structured reasons, facts and evidence—not private model reasoning. Route explanations
+Vesta needs structured reasons, facts and evidence—not private model reasoning. Route explanations
 and receipts should be concise, inspectable and based on observable inputs.
 
 
@@ -257,7 +257,7 @@ Do not infer an exact module path from this document if it has moved. Search cur
 5. CURRENT ARCHITECTURAL REALITY: STRONG PRIMITIVES, SOME DUAL TRUTH
 ===================================================================
 
-A major strategic fact is that OPai already has many of the hard primitives. This project should
+A major strategic fact is that Vesta already has many of the hard primitives. This project should
 not be rewritten from scratch.
 
 The canonical-runtime epic (#818 at this snapshot) exists because durable state is not yet fully
@@ -282,7 +282,7 @@ Therefore:
 6. REPOSITORY SAFETY + MULTI-AGENT FOUNDATION ALREADY EXISTS
 ===========================================================
 
-OPai already has substantial parallel-agent machinery. In the current implementation:
+Vesta already has substantial parallel-agent machinery. In the current implementation:
 - assignments have durable IDs/owners/status;
 - intended-path overlap blocks unsafe parallelism;
 - unknown scope is treated conservatively as potentially overlapping everything;
@@ -354,7 +354,7 @@ North-star routing metric:
     VERIFIED ENGINEERING OUTCOMES PER EURO / UNIT OF SCARCE PLAN QUOTA
 
 That is much harder for an editor-centric router to copy than simple per-turn price routing because
-OPai controls verification and delivery around the model call.
+Vesta controls verification and delivery around the model call.
 
 
 8. SEMANTIC CODE INTELLIGENCE: CLOSE A REAL CURSOR ADVANTAGE
@@ -404,7 +404,7 @@ not ready. Ship the alpha honestly, then deepen the index behind a clean service
 9. MULTI-AGENT COMMAND CENTER: THE PRODUCT BEYOND CHAT
 ======================================================
 
-A long-term OPai should feel less like "chat with a model" and more like supervising a small
+A long-term Vesta should feel less like "chat with a model" and more like supervising a small
 engineering team.
 
 One objective may contain:
@@ -430,7 +430,7 @@ Each assignment should have:
 
 The UI must answer at a glance:
 - What is the overall objective?
-- What has OPai decomposed it into?
+- What has Vesta decomposed it into?
 - Which parts are actually safe to run in parallel?
 - Which agent/model owns each part?
 - What is active, blocked, complete or failed?
@@ -446,7 +446,7 @@ The final objective is complete only after integrated verification. Child-agent 
 10. ALWAYS-ON LOCAL WORKER
 ==========================
 
-Cursor is moving engineering work into always-on cloud agents and automations. OPai's structural
+Cursor is moving engineering work into always-on cloud agents and automations. Vesta's structural
 counter-position is a durable user-owned local worker, with optional self-hosting later, attached
 to the same canonical runtime.
 
@@ -470,12 +470,12 @@ idempotency matter more in an unattended system than in a chat window.
 ==========================================================
 
 Cursor's biggest structural advantage is that it owns the editor loop, especially inline
-completion and deeply integrated interaction. OPai should not burn years rebuilding VS Code.
+completion and deeply integrated interaction. Vesta should not burn years rebuilding VS Code.
 
 The high-leverage answer is thin VS Code and JetBrains bridges (#824):
 
     Editor supplies context and interaction.
-    OPai supplies intelligence, orchestration, policy, cost and truth.
+    Vesta supplies intelligence, orchestration, policy, cost and truth.
 
 Bridges should provide:
 - Ask/Implement/Review/Explain Selection actions;
@@ -483,15 +483,15 @@ Bridges should provide:
 - task launch and control;
 - status/blocked/approval/completion notifications;
 - native diff/file/range opening;
-- links into the full OPai desktop Agents workspace;
+- links into the full Vesta desktop Agents workspace;
 - receipt/verification inspection.
 
 The extension must NOT become another provider runtime or state authority. It should use one
-versioned authenticated local protocol to the canonical OPai runtime.
+versioned authenticated local protocol to the canonical Vesta runtime.
 
 Explicit strategic non-goals:
 - no VS Code fork;
-- no OPai editor;
+- no Vesta editor;
 - no giant bespoke autocomplete/Tab model program;
 - no duplicated repository index inside every editor plugin.
 
@@ -499,7 +499,7 @@ Explicit strategic non-goals:
 12. BROWSER ENGINEERING MODE
 ============================
 
-For frontend/UI work, source-only agents guess too much. OPai's browser mode (#825) should convert
+For frontend/UI work, source-only agents guess too much. Vesta's browser mode (#825) should convert
 browser observations into structured verification evidence.
 
 Use a mature boundary such as Playwright rather than inventing a browser driver.
@@ -536,7 +536,7 @@ A. MULTI-MODEL + ROUTING
 Cursor supports models across OpenAI, Anthropic, Google and others, plus its own Cursor models.
 Cursor Router/Auto routes requests by task/complexity and exposes Cost, Balance and Intelligence
 optimization modes. This means "we support many models" and "we auto-route by cost" are not, by
-themselves, durable OPai differentiation.
+themselves, durable Vesta differentiation.
 
 B. CLOUD AGENTS
 Cursor Cloud Agents run in isolated cloud VMs with repositories, dependencies, secrets, network,
@@ -544,32 +544,32 @@ testing and browser/computer control. They can operate in parallel and across mu
 
 C. MULTI-AGENT / WORKTREES
 Cursor's Agents Window supports parallel agents/subagents, worktrees and multi-root workspaces.
-OPai cannot claim multi-agent leadership merely because it can spawn two processes. It must win on
+Vesta cannot claim multi-agent leadership merely because it can spawn two processes. It must win on
 provider neutrality, safe isolation, verified integrated outcomes and complete economics.
 
 D. AUTOMATIONS
 Cursor Automations run Cloud Agents on schedules and source-control/Slack/Linear/PagerDuty/webhook
-triggers. OPai's local worker must therefore be excellent, not just a cron wrapper.
+triggers. Vesta's local worker must therefore be excellent, not just a cron wrapper.
 
 E. SEMANTIC INDEXING
 Cursor publicly describes semantic codebase indexing as a major agent-performance driver and has
-invested heavily in large-repo onboarding. OPai needs a credible local-first code intelligence
+invested heavily in large-repo onboarding. Vesta needs a credible local-first code intelligence
 story.
 
 F. BROWSER CONTROL
 Cursor Agent can navigate, click/type, inspect screenshots, read console/network state and run
-browser-based testing. OPai Browser Engineering Mode needs to differentiate through canonical,
+browser-based testing. Vesta Browser Engineering Mode needs to differentiate through canonical,
 verification-backed evidence and safety—not just "we can open Chromium."
 
 G. BUGBOT / CODE REVIEW
 Cursor has a mature dedicated code-review product and has publicly reported improvements in speed,
-cost and bugs found. OPai should not add a generic "review agent" checkbox and call parity achieved.
-A future OPai review loop should combine code intelligence, repository history, verification,
+cost and bugs found. Vesta should not add a generic "review agent" checkbox and call parity achieved.
+A future Vesta review loop should combine code intelligence, repository history, verification,
 provider routing and outcome feedback.
 
 H. DISTRIBUTION/POLISH
 Cursor's biggest practical advantage remains simple: normal developers can install it and get to
-value quickly. OPai loses before its moat is visible if setup is harder than the problem it solves.
+value quickly. Vesta loses before its moat is visible if setup is harder than the problem it solves.
 
 Current official source references reviewed for this snapshot:
 - Cursor Models & Pricing: https://cursor.com/docs/models-and-pricing
@@ -590,26 +590,26 @@ market already expects.
 =====================================
 
 "Destroy Cursor" should be interpreted as winning developer preference and engineering outcomes in
-areas where OPai has a structural right to win—not literally copying or harming a competitor.
+areas where Vesta has a structural right to win—not literally copying or harming a competitor.
 
 The winnable battles are:
 
 14.1 COST PER VERIFIED OUTCOME
-Cursor has routing, but OPai can own the entire outcome ledger: attempts, commands, tests, repair,
+Cursor has routing, but Vesta can own the entire outcome ledger: attempts, commands, tests, repair,
 verification, delivery and receipts. Optimize what it costs to finish correctly, not one model
 turn.
 
 14.2 PROVIDER + ACCOUNT NEUTRALITY
-Make the model market compete inside OPai. Users should be able to exploit their existing account
+Make the model market compete inside Vesta. Users should be able to exploit their existing account
 CLIs, APIs, free tiers and local models instead of repurchasing intelligence through one vendor
 where technically/legal-policy compatible.
 
 14.3 LOCAL-FIRST PRIVACY + INSPECTABILITY
 Repository understanding, state, receipts and learned calibration can remain local. Users can see
-why OPai routed, what it observed and what it proved.
+why Vesta routed, what it observed and what it proved.
 
 14.4 TRUTHFULNESS / RECOVERABILITY
-Make it difficult for OPai to lie by architecture. One journal, idempotent side effects, explicit
+Make it difficult for Vesta to lie by architecture. One journal, idempotent side effects, explicit
 unknowns, robust cancellation, worktree identity and verification-backed completion can become a
 trust moat.
 
@@ -618,7 +618,7 @@ An objective can use the best provider for each assignment instead of an ecosyst
 fleet. Combine that with per-agent economics and safe worktree reconciliation.
 
 14.6 EXISTING-TOOL CONTROL PLANE
-OPai can live beside VS Code, JetBrains, terminal and provider CLIs instead of demanding an editor
+Vesta can live beside VS Code, JetBrains, terminal and provider CLIs instead of demanding an editor
 migration. Thin bridges are a feature of neutrality, not a compromise.
 
 14.7 LOCAL UNATTENDED WORK
@@ -627,7 +627,7 @@ vendor cloud VM. Optional self-hosted/cloud paths may come later, but local-firs
 
 14.8 EVIDENCE AS A PRODUCT SURFACE
 For code, browser/UI and delivery tasks, show proof. "What actually happened?" should be easier to
-answer in OPai than in any competitor.
+answer in Vesta than in any competitor.
 
 
 15. WHAT OPAI SHOULD NOT TRY TO WIN RIGHT NOW
@@ -654,17 +654,17 @@ A small team wins by choosing the right battlefield.
 
 Near-term headline:
 
-    OPai — the AI coding cost firewall.
+    Vesta — the AI coding cost firewall.
 
 Suggested product explanation:
 
-    Stop spending frontier-model money on work cheaper tools can do. OPai routes software
+    Stop spending frontier-model money on work cheaper tools can do. Vesta routes software
     engineering tasks across local tools and AI providers, keeps risky/paid actions under explicit
     control, verifies the result, and shows you what the work actually cost.
 
 Longer-term category:
 
-    OPai is a provider-neutral AI engineering control plane.
+    Vesta is a provider-neutral AI engineering control plane.
 
 Avoid positioning that makes the product sound smaller than it is:
 - "free Cursor clone"
@@ -688,7 +688,7 @@ That would turn an alpha into a multi-quarter rewrite.
 
 The alpha must instead prove a narrower promise:
 
-    A normal developer can install OPai, connect/discover a supported provider, open a real
+    A normal developer can install Vesta, connect/discover a supported provider, open a real
     project, complete useful tasks safely, stop work reliably, understand what happened, and
     receive truthful cost/verification evidence—with a safe path to update or recover.
 
@@ -890,7 +890,7 @@ PHASE E — PUBLIC ALPHA
 - watch update/recovery/provider failures closely.
 
 If a September ship would require bypassing red CI or pretending an installer is qualified, ship in
-October instead. A few weeks of delay is cheaper than teaching early users that OPai is unsafe.
+October instead. A few weeks of delay is cheaper than teaching early users that Vesta is unsafe.
 
 
 22. ENGINEERING WORKING METHOD FOR ASTRA/CODEX
@@ -961,7 +961,7 @@ Never say "done" merely because code was written.
 ===========================================
 
 The managed AGENTS.md contract is important:
-- Do not recursively invoke the OPai CLI from inside an OPai-managed AI task; recursive self-
+- Do not recursively invoke the Vesta CLI from inside a Vesta-managed AI task; recursive self-
   invocation is blocked.
 - A direct fix/build/test/refactor/PR request authorizes the requested engineering steps without
   repeatedly asking for routine edit/branch/test/commit/push/PR confirmation.
@@ -1157,11 +1157,11 @@ Automations                  Strong cloud triggers        User-owned worker + ca
 Browser tools                Strong                       Evidence integrated into verification/receipt.
 Code review/Bugbot           Mature dedicated product     Outcome-learning + repo context + verification.
 Install/onboarding           Strong                       #823 is existential for adoption.
-Privacy/local operation      Mixed/cloud-centric features Structural OPai advantage if kept real.
+Privacy/local operation      Mixed/cloud-centric features Structural Vesta advantage if kept real.
 Cost transparency            Usage dashboards             End-to-end task cost + savings + failed attempts.
 Truth/recoverability         Mature product baseline      Make canonical journal/evidence a differentiator.
-Editor independence          Naturally weak               Structural OPai advantage.
-Provider independence        Partial                      Structural OPai advantage.
+Editor independence          Naturally weak               Structural Vesta advantage.
+Provider independence        Partial                      Structural Vesta advantage.
 
 
 30. DEFINITION OF "BEAT CURSOR"
@@ -1169,26 +1169,26 @@ Provider independence        Partial                      Structural OPai advant
 
 Do not define success as copying Cursor's screenshots or feature count.
 
-For OPai, "beat Cursor" means that a meaningful segment of developers can truthfully say:
+For Vesta, "beat Cursor" means that a meaningful segment of developers can truthfully say:
 
-- OPai completed the same engineering jobs for less total money/quota;
-- OPai let me use the provider/account/local model I wanted;
-- OPai gave me clearer proof that work actually passed;
-- OPai recovered/cancelled safely when something failed;
-- OPai coordinated multiple providers/agents without corrupting my checkout;
-- OPai fit into the editor/terminal I already use;
-- OPai kept more repository intelligence and state local;
-- OPai made cost, routing and verification inspectable;
+- Vesta completed the same engineering jobs for less total money/quota;
+- Vesta let me use the provider/account/local model I wanted;
+- Vesta gave me clearer proof that work actually passed;
+- Vesta recovered/cancelled safely when something failed;
+- Vesta coordinated multiple providers/agents without corrupting my checkout;
+- Vesta fit into the editor/terminal I already use;
+- Vesta kept more repository intelligence and state local;
+- Vesta made cost, routing and verification inspectable;
 - installing and using it was easy enough that those advantages were visible immediately.
 
-If OPai wins those criteria, it can coexist with or replace Cursor for those users without owning
+If Vesta wins those criteria, it can coexist with or replace Cursor for those users without owning
 Tab completion.
 
 
 31. FIRST READS FOR A NEW ASTRA/CODEX SESSION
 =============================================
 
-Before a broad "finish OPai" task, read in this order:
+Before a broad "finish Vesta" task, read in this order:
 
 1. AGENTS.md — session/authorization/safety contract.
 2. This file — product/engineering doctrine and snapshot.
@@ -1209,7 +1209,7 @@ while the epic remained open.
 32. HOW TO TURN THIS FILE INTO FAST PROGRESS
 ============================================
 
-Astra/Codex should not respond to "help finish OPai" by generating another 100-issue wishlist.
+Astra/Codex should not respond to "help finish Vesta" by generating another 100-issue wishlist.
 
 Use this loop:
 
@@ -1277,7 +1277,7 @@ actually matters next.
 34. FINAL PRODUCT DOCTRINE
 ==========================
 
-OPai should be ambitious, but its ambition must be architectural rather than performative.
+Vesta should be ambitious, but its ambition must be architectural rather than performative.
 
 Do not win by showing more agent animations.
 Do not win by listing more model logos.
@@ -1285,7 +1285,7 @@ Do not win by copying every Cursor panel.
 
 Win by making the following statement true in production:
 
-    OPai takes an engineering objective, understands the repository efficiently, chooses the best
+    Vesta takes an engineering objective, understands the repository efficiently, chooses the best
     available combination of tools and models, performs the work under explicit authority,
     isolates concurrent changes, verifies the integrated result, accounts for every attempt and
     leaves one truthful, recoverable record—all while remaining provider-neutral and local-first
@@ -1299,7 +1299,7 @@ Multi-agent orchestration is the scale layer.
 IDE/browser/worker surfaces make the control plane ubiquitous.
 Simple installation is what allows any of the above to matter.
 
-If a proposed change does not make OPai safer, easier to adopt, more truthful, more capable at
+If a proposed change does not make Vesta safer, easier to adopt, more truthful, more capable at
 verified outcomes, or materially more efficient, ask whether it should exist before spending the
 release window on it.
 

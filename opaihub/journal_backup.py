@@ -74,7 +74,7 @@ REFUSE_UNREADABLE = "backup_unreadable"
 REFUSE_INCOMPATIBLE = "backup_incompatible"
 #: The journal being replaced is open in another process. Distinct from
 #: REFUSE_UNREADABLE on purpose: the backup is fine, and telling someone
-#: their backup is unreadable when the real problem is that OPai is running
+#: their backup is unreadable when the real problem is that Vesta is running
 #: is how a good backup gets thrown away.
 REFUSE_IN_USE = "journal_in_use"
 
@@ -401,7 +401,7 @@ def restore_backup(
             status=RESTORE_REFUSED,
             reason=REFUSE_INCOMPATIBLE,
             detail=(
-                f"the backup was written by a newer OPai "
+                f"the backup was written by a newer Vesta "
                 f"(schema {report.schema_version} > {journal_store.SCHEMA_VERSION})"
             ),
         )
@@ -446,7 +446,7 @@ def restore_backup(
             status=RESTORE_REFUSED,
             reason=REFUSE_IN_USE if in_use else REFUSE_UNREADABLE,
             detail=(
-                "the runtime journal is open in another process; close OPai and "
+                "the runtime journal is open in another process; close Vesta and "
                 "try again (the backup is intact)"
                 if in_use
                 else redact(str(exc))[:200]

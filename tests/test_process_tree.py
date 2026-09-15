@@ -238,7 +238,7 @@ class AdoptionTests(unittest.TestCase):
 
     @unittest.skipIf(sys.platform == "win32", "process groups are POSIX")
     def test_our_own_process_group_is_never_signalled(self):
-        # Killing our own group would take OPai down with the run it is
+        # Killing our own group would take Vesta down with the run it is
         # cleaning up — the one mistake here that is unrecoverable.
         import os
 

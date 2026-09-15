@@ -36,7 +36,7 @@ def _ensure_local_git_ignore(root: Path) -> str:
     exclude.write_text(
         existing
         + suffix
-        + "# OPai local status and proof files\n"
+        + "# Vesta local status and proof files\n"
         + "\n".join(missing)
         + "\n",
         encoding="utf-8",
@@ -51,9 +51,9 @@ def render_visibility_markdown(payload: dict[str, Any]) -> str:
     benchmark = payload["benchmark"]
     status_text = "active" if payload["status"] == "on" else "needs attention"
     lines = [
-        "# OPai Status",
+        "# Vesta Status",
         "",
-        f"OPai is {status_text} for this project.",
+        f"Vesta is {status_text} for this project.",
         "",
         f"`{compact_statusline(payload)}`",
         "",
@@ -76,10 +76,10 @@ def render_visibility_markdown(payload: dict[str, Any]) -> str:
         "",
         "## Commands",
         "",
-        "- `opai cockpit` - obvious ON/OFF control panel",
-        "- `opai doctor` - detailed client readiness",
-        '- `opai route "<task>" --record` - record real savings',
-        "- `opai dashboard --html` - write the local dashboard",
+        "- `vesta cockpit` - obvious ON/OFF control panel",
+        "- `vesta doctor` - detailed client readiness",
+        '- `vesta route "<task>" --record` - record real savings',
+        "- `vesta dashboard --html` - write the local dashboard",
         "",
         "_Local only: no raw prompts, secrets, or telemetry are stored here._",
         "",

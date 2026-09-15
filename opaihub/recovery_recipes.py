@@ -482,7 +482,7 @@ RECIPES: tuple[RecoveryRecipe, ...] = (
         family=RecipeFamily.TOOL_DRIFT,
         action=RecoveryAction(
             action="opai_github_connector",
-            rationale="The external tool changed; use OPai's own connector instead.",
+            rationale="The external tool changed; use Vesta's own connector instead.",
         ),
         trigger_evidence=("tool reported an unsupported argument or schema",),
         requirements=RecipeRequirements(
@@ -816,7 +816,7 @@ RECIPES: tuple[RecoveryRecipe, ...] = (
             action="report_budget_exhausted",
             rationale=(
                 "The budget ceiling stopped this run. Report it with what was "
-                "spent; raising a cap is the user's decision, never OPai's."
+                "spent; raising a cap is the user's decision, never Vesta's."
             ),
         ),
         caps=RecipeCaps(max_attempts=1, max_elapsed_seconds=10.0),

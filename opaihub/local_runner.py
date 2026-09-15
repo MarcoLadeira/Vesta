@@ -1,12 +1,12 @@
-"""Real local-model execution for OPai (open issue #13).
+"""Real local-model execution for Vesta (open issue #13).
 
-OPai's whole promise is "do the cheap work locally instead of paying a cloud
+Vesta's whole promise is "do the cheap work locally instead of paying a cloud
 model." Until now the router only *planned* that. This actually runs a local,
-OpenAI-compatible or Ollama endpoint so OPai can answer L0/L1 tasks (summaries,
+OpenAI-compatible or Ollama endpoint so Vesta can answer L0/L1 tasks (summaries,
 classification, first-pass) for $0 and a genuinely avoided cloud call.
 
 Safety: only loopback/private endpoints are used by default (reuses the #19
-endpoint classifier), so OPai never silently sends a prompt to a public host.
+endpoint classifier), so Vesta never silently sends a prompt to a public host.
 No third-party dependencies - just stdlib urllib. Tests inject a fake runner;
 nothing here calls the network unless a real local server is present.
 """
@@ -304,7 +304,7 @@ def _stream_chat(
 
     Returns ``(full_text, usage)``. Cancellation closes the socket between lines
     and raises :class:`LocalRunCancelled`. Any transport/HTTP error raises so the
-    caller can fall back to the blocking path — OPai never fakes progress.
+    caller can fall back to the blocking path — Vesta never fakes progress.
     """
     decode = decode or _sse_delta
     parsed = urllib.parse.urlsplit(url)
@@ -560,7 +560,7 @@ class OpenAICompatibleRunner(LocalRunner):
 # Bare prose is still accepted, but is only reported COMPLETED when real progress
 # backs it — reading alone never fakes success.
 _TOOL_LOOP_PROTOCOL = (
-    "You are running in OPai's continuous tool loop. Use the provided tools to "
+    "You are running in Vesta's continuous tool loop. Use the provided tools to "
     "make real progress on the task. When — and only when — the task is genuinely "
     "finished, reply with a single JSON object and nothing else:\n"
     '{"opai_decision_version": 1, "state": "completed", "summary": "<what you '
@@ -601,7 +601,7 @@ class FreeAPIRunner(OpenAICompatibleRunner):
     Unlike local runners these reach public endpoints and require an API key
     stored in an env var.  ``available()`` checks key presence only — no
     network ping — to avoid latency in the model picker enumeration.  All
-    calls go through OPai's policy confirmation gate because they hit a
+    calls go through Vesta's policy confirmation gate because they hit a
     public host. Provider quotas and billing configuration remain authoritative.
     """
 
@@ -1041,7 +1041,7 @@ class ThinkingControl:
       field enabled, continuity handled by the tool loop (#674).
     - ``"auto"`` — currently identical to ``"off"``. A5's own text says
       "thinking mode should follow task policy rather than always enabling
-      expensive reasoning", but OPai has no task-policy signal to drive that
+      expensive reasoning", but Vesta has no task-policy signal to drive that
       decision yet; wiring one is future work, not silently guessed at here.
       ``"auto"`` exists as a distinct value now so that future work has
       somewhere to attach without a call-site migration, not because it
@@ -1124,6 +1124,14 @@ class PaidAPIRunner(FreeAPIRunner):
     """
 
     name = "paid-api"
+
+    def _auth_headers(self) -> dict[str, str]:
+        from .execution_scope import managed_budget_gate
+
+        gate = managed_budget_gate(Path.cwd(), next_cost_usd=None)
+        if gate["denied"]:
+            raise RuntimeError("; ".join(gate["reasons"]))
+        return super()._auth_headers()
 
     def __init__(
         self,
@@ -1367,7 +1375,7 @@ def list_local_models(
     Returns entries like ``{"id": "ollama:llama3.2", "provider": "ollama",
     "model": "llama3.2", "endpoint": "..."}``. Used to populate the GUI model
     picker. Network failures are swallowed - an empty list just means "no local
-    model connected", and OPai's Auto route still works.
+    model connected", and Vesta's Auto route still works.
     """
     models: list[dict[str, Any]] = []
     for url, runner in _candidate_runners():

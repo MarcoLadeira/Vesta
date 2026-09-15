@@ -5,7 +5,7 @@ import { finishRequest, openApp, openSettings, sendPrompt } from "./helpers/app.
 // QA retest round 2 (2026-07-24). Two findings, both about the UI telling the
 // user something that was not true:
 //
-//   1. OPai kept instructing users to click "Enable pushes & PRs" in Settings ->
+//   1. Vesta kept instructing users to click "Enable pushes & PRs" in Settings ->
 //      Providers & Connections. The control existed, but it sat below the
 //      free-provider key list, and once consent was granted its only label read
 //      "Disable pushes & PRs" — so the phrase the user was told to look for was

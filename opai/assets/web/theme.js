@@ -1,5 +1,5 @@
 /**
- * Theme: Light, Viber Coder (OPai's original night sky, and the default), Dark
+ * Theme: Light, Viber Coder (Vesta's original night sky, and the default), Dark
  * (midnight: black and grey, no colour), Vesta (the Vesta logo's cream, dusty
  * rose and sky blue), or whatever the operating system is using.
  *

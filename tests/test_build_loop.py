@@ -1,4 +1,4 @@
-"""The OPai Build customization loop (#276): scaffold → cheap targeted edits.
+"""The Vesta Build customization loop (#276): scaffold → cheap targeted edits.
 
 Hermetic end to end: the model is a fake runner returning canned ``file:``
 blocks, the pipeline is the real ``handle_gui_message``, and every write is
@@ -463,7 +463,7 @@ class _EditingRunner(FakeStreamingRunner):
     """A fake provider that answers with a canned file: block.
 
     Implements both paths: ``stream`` (callbacks supplied) and ``complete``
-    (blocking, what ``opai build`` uses without callbacks).
+    (blocking, what ``vesta build`` uses without callbacks).
     """
 
     def __init__(self, answer: str):

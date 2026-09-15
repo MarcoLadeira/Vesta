@@ -1,8 +1,8 @@
-/* OPai web visual contract (#388). Component CSS consumes these tokens.
+/* Vesta web visual contract (#388). Component CSS consumes these tokens.
  *
  * Themes. The file has a palette block per theme and one block of scales:
  *
- *   1. Viber Coder -- OPai's original night sky and the default, on :root and
+ *   1. Viber Coder -- Vesta's original night sky and the default, on :root and
  *      on [data-theme="viber-coder"];
  *   2. Light -- [data-theme="light"];
  *   3. Dark -- [data-theme="dark"], midnight: black and grey, no colour at all;
@@ -100,6 +100,18 @@
   --provider-local: #34d399;
   /* The initial inside a provider-coloured avatar. */
   --avatar-ink: #06160f;
+  --team-avatar-1-background: #bde9f6;
+  --team-avatar-1-skin: #b87850;
+  --team-avatar-1-hair: #242e43;
+  --team-avatar-2-background: #dacdf8;
+  --team-avatar-2-skin: #f0c39c;
+  --team-avatar-2-hair: #2e243b;
+  --team-avatar-3-background: #c8e6e5;
+  --team-avatar-3-skin: #e0a77c;
+  --team-avatar-3-hair: #32333b;
+  --team-avatar-4-background: #ffe1b2;
+  --team-avatar-4-skin: #9d613f;
+  --team-avatar-4-hair: #29242d;
 
   /* Tint channels. A tint is chosen at the use site as
      rgba(var(--tint-*-rgb), alpha): the hue belongs to the theme, the
@@ -228,6 +240,18 @@
   --provider-auto: #626c84;
   --provider-local: #0f7b58;
   --avatar-ink: #ffffff;
+  --team-avatar-1-background: #bde9f6;
+  --team-avatar-1-skin: #b87850;
+  --team-avatar-1-hair: #242e43;
+  --team-avatar-2-background: #dacdf8;
+  --team-avatar-2-skin: #f0c39c;
+  --team-avatar-2-hair: #2e243b;
+  --team-avatar-3-background: #c8e6e5;
+  --team-avatar-3-skin: #e0a77c;
+  --team-avatar-3-hair: #32333b;
+  --team-avatar-4-background: #ffe1b2;
+  --team-avatar-4-skin: #9d613f;
+  --team-avatar-4-hair: #29242d;
 
   --tint-accent-rgb: 16, 150, 110;
   --tint-success-rgb: 16, 150, 110;
@@ -339,6 +363,18 @@
   --provider-auto: #9e9e9e;
   --provider-local: #e0e0e0;
   --avatar-ink: #0a0a0a;
+  --team-avatar-1-background: #e0e0e0;
+  --team-avatar-1-skin: #909090;
+  --team-avatar-1-hair: #2c2c2c;
+  --team-avatar-2-background: #d8d8d8;
+  --team-avatar-2-skin: #c8c8c8;
+  --team-avatar-2-hair: #282828;
+  --team-avatar-3-background: #dddddd;
+  --team-avatar-3-skin: #b0b0b0;
+  --team-avatar-3-hair: #333333;
+  --team-avatar-4-background: #e5e5e5;
+  --team-avatar-4-skin: #767676;
+  --team-avatar-4-hair: #262626;
 
   --tint-accent-rgb: 255, 255, 255;
   --tint-success-rgb: 240, 240, 240;
@@ -447,6 +483,18 @@
   --provider-auto: #6d5f5d;
   --provider-local: #4b7355;
   --avatar-ink: #ffffff;
+  --team-avatar-1-background: #bde9f6;
+  --team-avatar-1-skin: #b87850;
+  --team-avatar-1-hair: #242e43;
+  --team-avatar-2-background: #dacdf8;
+  --team-avatar-2-skin: #f0c39c;
+  --team-avatar-2-hair: #2e243b;
+  --team-avatar-3-background: #c8e6e5;
+  --team-avatar-3-skin: #e0a77c;
+  --team-avatar-3-hair: #32333b;
+  --team-avatar-4-background: #ffe1b2;
+  --team-avatar-4-skin: #9d613f;
+  --team-avatar-4-hair: #29242d;
 
   --tint-accent-rgb: 184, 128, 118;
   --tint-success-rgb: 84, 132, 96;

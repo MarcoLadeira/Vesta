@@ -1,7 +1,7 @@
 """Tests for per-provider account-usage windows (Settings → Model Usage).
 
 Covers the window models, rate-limit header parsing (durations, seconds,
-timestamps), observed-quota extraction from the ledger, OPai-tracked window
+timestamps), observed-quota extraction from the ledger, Vesta-tracked window
 counts, staleness, the balance-backed credit path, the live header probe, and
 the overview assembly — the full path from "a real call returned rate-limit
 headers" to "the Model Usage page shows honest, provider-reported usage".
@@ -234,11 +234,11 @@ class SnapshotTests(unittest.TestCase):
 
     def test_account_provider_tracked_count_is_all_time_not_window_bound(self):
         # Regression: Claude's rolling 5-hour window almost never has any
-        # OPai-routed activity in it (most usage goes through the bare CLI,
-        # which never touches OPai's ledger) — so bounding the *tracked*
+        # Vesta-routed activity in it (most usage goes through the bare CLI,
+        # which never touches Vesta's ledger) — so bounding the *tracked*
         # count to that same narrow window made it read as "no activity"
         # for real users with real historical activity. Account providers
-        # now count all-time instead, since OPai can't verify the real
+        # now count all-time instead, since Vesta can't verify the real
         # window boundaries for them anyway.
         now = 1_784_800_000.0
         eighteen_days_ago = now - 18 * 24 * 3600
@@ -255,7 +255,7 @@ class SnapshotTests(unittest.TestCase):
         tracked = snap["opaiTracked"]
         self.assertEqual(tracked["calls"], 2)
         self.assertEqual(tracked["tasks"], 2)
-        self.assertEqual(tracked["windowLabel"], "All time via OPai")
+        self.assertEqual(tracked["windowLabel"], "All time via Vesta")
         self.assertAlmostEqual(tracked["lastUsedAt"], eighteen_days_ago + 3600, delta=1)
 
     def test_account_provider_note_clarifies_opai_only_counts_its_own_routing(self):

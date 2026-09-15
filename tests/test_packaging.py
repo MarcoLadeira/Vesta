@@ -51,7 +51,7 @@ class PackagedHubTests(unittest.TestCase):
         self.assertIn("--shell-aliases", text)
         self.assertIn("--no-shell-aliases", text)
         self.assertIn("--no-superpowers", text)
-        self.assertIn('opai install --project "$OPAI_PROJECT_ROOT"', text)
+        self.assertIn('-m opai install --project "$OPAI_PROJECT_ROOT"', text)
 
 
 if __name__ == "__main__":

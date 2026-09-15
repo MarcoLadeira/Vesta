@@ -8,7 +8,7 @@ test.beforeEach(async ({ page }) => {
   await page.waitForSelector("#input");
 });
 
-test("empty state speaks OPai, not the generic prompt", async ({ page }) => {
+test("empty state speaks Vesta, not the generic prompt", async ({ page }) => {
   await expect(page.locator("#empty h1")).toHaveText("Better. Faster. Cheaper.");
   // The claim stands on its own: no second sentence describing the product
   // to someone already looking at it.
@@ -25,7 +25,7 @@ test("composer placeholder carries the brand voice", async ({ page }) => {
 
 test("inspector shows the CLI mirror and it tracks the mode", async ({ page }) => {
   const cmd = page.locator("#cliMirrorCmd");
-  await expect(cmd).toContainText("opai ask --model claude:opus");
+  await expect(cmd).toContainText("vesta ask --model claude:opus");
   await expect(cmd).toContainText("<your task>");
   // Switching run mode updates the terminal twin.
   await page.selectOption("#modeSel", "safe-auto");

@@ -44,22 +44,22 @@ def build_dashboard_html(project_root: Path) -> Path:
     )
     savings_empty = (
         '<p class="empty">No real routed tasks recorded yet. '
-        'Run <code>opai route "&lt;task&gt;" --record</code> or '
-        "<code>opai quickstart</code>.</p>"
+        'Run <code>vesta route "&lt;task&gt;" --record</code> or '
+        "<code>vesta quickstart</code>.</p>"
         if not savings["has_data"]
         else ""
     )
     benchmark_status = (
         f"Latest run: <code>{escape(str(benchmark.get('run_id')))}</code>"
         if benchmark
-        else "No benchmark history yet. Run <code>opai benchmark run --suite max --mode both</code>."
+        else "No benchmark history yet. Run <code>vesta benchmark run --suite max --mode both</code>."
     )
     html = f"""<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>OPai Dashboard</title>
+  <title>Vesta Dashboard</title>
   <style>
     body {{ font-family: "Nunito", "Segoe UI", system-ui, sans-serif; margin: 0; color: #1b2430; background: #f7f8f5; }}
     header {{ background: #173b35; color: white; padding: 28px 32px; }}
@@ -81,14 +81,14 @@ def build_dashboard_html(project_root: Path) -> Path:
 </head>
 <body>
   <header>
-    <h1>OPai Control Center</h1>
-    <p>OPai is <strong>{escape(cockpit["status"].upper())}</strong> for <code>{escape(root.name)}</code>.</p>
+    <h1>Vesta Control Center</h1>
+    <p>Vesta is <strong>{escape(cockpit["status"].upper())}</strong> for <code>{escape(root.name)}</code>.</p>
   </header>
   <main>
     <section class="grid">
       <div class="panel">
         <h2>Activation</h2>
-        <p class="{"ok" if cockpit["status"] == "on" else "warn"}">OPai {escape(cockpit["status"].upper())}</p>
+        <p class="{"ok" if cockpit["status"] == "on" else "warn"}">Vesta {escape(cockpit["status"].upper())}</p>
         <p>Version <code>{escape(cockpit["version"])}</code> {escape(cockpit["release_stage"])}</p>
         <p class="muted">{escape(cockpit["project"]["root"])}</p>
       </div>
@@ -114,7 +114,7 @@ def build_dashboard_html(project_root: Path) -> Path:
         <h2>Context Waste</h2>
         <p>{context["waste_bytes"]:,} bytes removable ({context["waste_share"] * 100:.1f}%)</p>
         <p>Estimated wasted tokens: {context["estimated_tokens_wasted"]:,}</p>
-        <p><code>opai context profile --markdown</code></p>
+        <p><code>vesta context profile --markdown</code></p>
       </div>
       <div class="panel">
         <h2>Benchmark Proof</h2>
@@ -124,12 +124,12 @@ def build_dashboard_html(project_root: Path) -> Path:
       <div class="panel">
         <h2>Proof Bundle</h2>
         <p>Local signed bundle for alpha users and teams.</p>
-        <p><code>opai proof bundle --markdown</code></p>
+        <p><code>vesta proof bundle --markdown</code></p>
       </div>
       <div class="panel">
         <h2>Local Model / Ask</h2>
         <p class="{"ok" if local["available"] else "warn"}">{"Local model available" if local["available"] else "No local model running"}</p>
-        <p><code>opai ask "summarize my changes"</code></p>
+        <p><code>vesta ask "summarize my changes"</code></p>
       </div>
       <div class="panel">
         <h2>Launch Readiness</h2>

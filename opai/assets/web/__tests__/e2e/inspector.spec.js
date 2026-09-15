@@ -53,7 +53,7 @@ test("Inspector returns to idle after completion", async ({ page }) => {
 test("CLI mirror tracks focus and output selections safely", async ({ page }) => {
   await page.selectOption("#focusSel", "general");
   await page.selectOption("#fmtSel", "normal");
-  await expect(page.locator("#cliMirrorCmd")).toContainText("opai ask");
+  await expect(page.locator("#cliMirrorCmd")).toContainText("vesta ask");
   expect(await page.evaluate(() => window.__mock.savedPrefs)).toEqual(expect.arrayContaining([
     ["default_task_mode", "general"],
     ["default_output_format", "normal"],

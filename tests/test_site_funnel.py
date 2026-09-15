@@ -33,7 +33,7 @@ class SiteFunnelTests(unittest.TestCase):
             "data-checkout-provider",
         ]:
             self.assertNotIn(token, self.html)
-        self.assertIn("opai savings --markdown", self.html)
+        self.assertIn("vesta savings --markdown", self.html)
 
     def test_page_uses_no_third_party_trackers(self):
         # The current page ships zero analytics; privacy-safe means none at all.

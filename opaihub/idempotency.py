@@ -5,7 +5,7 @@ Nothing enforced it. `create_pull_request` POSTs straight to GitHub, and
 `comment_pr` straight to the issue thread — so a turn that was retried, resumed
 after a crash, or re-sent after a reconnect opened a second pull request or
 posted the same comment twice. Those are outward, visible to other people, and
-not undoable by OPai.
+not undoable by Vesta.
 
 **The three-state model, and why two is not enough.** The tempting design is a
 set of completed keys: if the key is present, skip. That is wrong at exactly the
@@ -249,7 +249,7 @@ def _mirror_operation(project_root: Path, action: str, key: str, **extra) -> Non
     """#613 Stage 6: mirror this external effect into the transactional journal.
 
     Hooked here rather than at each caller because every exact-once effect in
-    OPai already funnels through this module -- provider calls, tool runs, Git
+    Vesta already funnels through this module -- provider calls, tool runs, Git
     and GitHub actions, approvals. One hook covers all of them, and covers the
     ones nobody has written yet.
 

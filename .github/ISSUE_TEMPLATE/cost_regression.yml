@@ -14,7 +14,7 @@ body:
     id: expected
     attributes:
       label: Expected low-cost route
-      description: What should OPai have used first?
+      description: What should Vesta have used first?
       placeholder: local tests, diff summary, cached context, local model, etc.
     validations:
       required: true

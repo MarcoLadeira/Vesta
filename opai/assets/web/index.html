@@ -7,9 +7,11 @@
        blocked entirely, so rendered model output cannot exfiltrate anything. -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file: qrc:; style-src 'self' file: 'unsafe-inline'; img-src 'self' file: data:; font-src 'self' file:; base-uri 'none'; form-action 'none'" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>OPai</title>
+  <title>Vesta</title>
   <link rel="stylesheet" href="design-tokens.css" />
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="agents-workspace.css" />
+  <link rel="stylesheet" href="agents-team.css" />
   <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
 </head>
 <body>
@@ -19,9 +21,9 @@
         <button class="topbar-icon sidebar-toggle" id="sidebarToggle" aria-label="Toggle sidebar" aria-expanded="true" title="Toggle sidebar">
           <span class="tb-icon" data-icon="menu" aria-hidden="true"></span>
         </button>
-        <div class="header-brand" aria-label="OPai">
-          <span class="header-logo"><img src="../opai-icon.png" alt="OPai" /></span>
-          <span class="header-brand-name">OPai</span>
+        <div class="header-brand" aria-label="Vesta">
+          <span class="header-logo"><img src="../opai-icon.png" alt="Vesta" /></span>
+          <span class="header-brand-name">Vesta</span>
           <span class="header-on-dot" id="brandDot" aria-hidden="true"></span>
         </div>
         <span class="header-divider" aria-hidden="true"></span>
@@ -42,6 +44,9 @@
 
       <div class="header-actions">
         <div class="status-line" id="statusLine"></div>
+        <button class="topbar-action" id="headerAgents" aria-label="Agents workspace" title="Agents workspace">
+          <span class="action-icon" data-icon="workspace" aria-hidden="true"></span><span class="action-label">Agents</span>
+        </button>
         <button class="topbar-action" id="headerNewChat" aria-label="New chat" title="New chat">
           <span class="action-icon" data-icon="plus" aria-hidden="true"></span><span class="action-label">New chat</span>
         </button>
@@ -69,9 +74,9 @@
             <span class="update-control-copy" id="updateBannerText">Update available</span>
             <span aria-hidden="true">›</span>
           </button>
-          <section class="update-sheet" id="updateSheet" aria-label="OPai update" aria-live="polite" hidden>
+          <section class="update-sheet" id="updateSheet" aria-label="Vesta update" aria-live="polite" hidden>
             <div class="update-sheet-head">
-              <strong id="updateSheetTitle">OPai update</strong>
+              <strong id="updateSheetTitle">Vesta update</strong>
               <button class="update-sheet-close" id="updateSheetClose" type="button" aria-label="Close update details">×</button>
             </div>
             <p id="updateSheetDescription"></p>
@@ -106,13 +111,14 @@
           <div class="scroll" id="chatScroll">
             <div class="thread" id="thread">
               <div class="empty" id="empty">
-                <div class="empty-mark" aria-hidden="true"><img src="../opai-mascot.png" alt="OPai" /></div>
+                <div class="empty-mark" aria-hidden="true"><img src="../opai-mascot.png" alt="Vesta" /></div>
                 <h1>Better. Faster. Cheaper.</h1>
                 <p id="emptySub" hidden></p>
                 <div class="chips" id="chips"></div>
               </div>
             </div>
           </div>
+          <section class="team-map" id="teamMap" aria-label="Team map" hidden></section>
           <div class="composer-wrap">
             <button class="jump-latest" id="jumpLatest" type="button" aria-label="Jump to latest response" hidden>
               <span aria-hidden="true">↓</span> Jump to latest
@@ -132,7 +138,8 @@
               <div class="context-hints" id="contextHints" aria-label="Context references"></div>
 
               <!-- The prompt -->
-              <textarea id="input" rows="1" placeholder="Ask OPai to build, fix, or explain…" aria-label="Prompt"></textarea>
+              <select id="teamRecipient" aria-label="Message recipient" title="Team starts a new objective. Agent messages queue a follow-up task." hidden></select>
+              <textarea id="input" rows="1" placeholder="Ask Vesta to build, fix, or explain…" aria-label="Prompt"></textarea>
 
               <!-- Command-bar token accelerators (command style only) -->
               <div class="composer-tokens" id="composerTokens" hidden>
@@ -152,7 +159,8 @@
                 </button>
                 <div class="ctool-spacer"></div>
                 <button class="build-pill" id="buildToggle" aria-pressed="true" hidden><span data-icon="sparkles" aria-hidden="true"></span> Build</button>
-                <button class="ctool ctool-mode" id="modeBtn" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Mode" title="How OPai handles changes">
+                <button class="ctool team-enable" id="teamModeBtn" type="button" aria-label="Enable AI Team" aria-pressed="false" title="Use an AI team for your objective"><span aria-hidden="true">◉</span><span id="teamModeLabel">Team</span><span aria-hidden="true">⌄</span></button>
+                <button class="ctool ctool-mode" id="modeBtn" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Mode" title="How Vesta handles changes">
                   <span class="mode-dot" id="modeDot" aria-hidden="true"></span><span class="ctool-txt" id="modeBtnLabel">Ask before edits</span><span class="chev" data-icon="chevronDown" aria-hidden="true"></span>
                 </button>
                 <button class="ctool ctool-model" id="modelBtn" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Model" title="Model and routing">
@@ -165,6 +173,7 @@
               <div class="cpop" id="ctxPop" role="menu" hidden></div>
               <div class="cpop" id="modePop" role="menu" hidden></div>
               <div class="cpop" id="modelPop" role="menu" hidden></div>
+              <div class="cpop" id="teamPop" role="menu" hidden></div>
               <div class="cpop" id="morePop" role="menu" hidden></div>
 
               <!-- Drag overlay -->
@@ -231,6 +240,8 @@
 
     <!-- inspector -->
     <aside class="inspector" id="inspector"></aside>
+    <aside class="agents-team-strip" id="agentsTeamStrip" aria-label="AI Team shortcuts" hidden></aside>
+    <aside class="agents-team" id="agentsTeam" aria-label="AI Team" hidden></aside>
     <button class="sidebar-backdrop" id="sidebarBackdrop" aria-label="Close sidebar"></button>
   </div>
 
@@ -264,6 +275,10 @@
   <script src="starfield.js"></script>
   <script src="settings.js"></script>
   <script src="onboarding.js"></script>
+  <script src="agents-workspace.js"></script>
+  <script src="chat-time.js"></script>
+  <script src="agents-team.js"></script>
+  <script src="team-map.js"></script>
   <script src="app.js"></script>
   <script src="composer.js"></script>
 </body>

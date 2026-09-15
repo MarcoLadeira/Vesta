@@ -246,7 +246,7 @@ def timeout_event(
 ) -> dict[str, Any]:
     """Build a bounded, deterministic, JSON-safe timeout record.
 
-    A timeout is a cause, not a boolean. In particular, an OPai task deadline
+    A timeout is a cause, not a boolean. In particular, a Vesta task deadline
     expiring while a provider is active must not be rendered as provider
     silence or declared retry-safe before the prior operation is reconciled.
     """

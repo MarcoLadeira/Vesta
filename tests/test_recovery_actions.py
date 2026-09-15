@@ -3,7 +3,7 @@
 The issue opens with a captured run:
 
     a timeline row saying the no-progress guard stopped the run; another row
-    saying OPai stopped without finishing; **a terminal card blaming the
+    saying Vesta stopped without finishing; **a terminal card blaming the
     provider**; a single Retry button with unclear semantics.
 
 Three separate failures in one card. The provider had produced no evidence of

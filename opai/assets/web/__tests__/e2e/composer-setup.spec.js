@@ -103,7 +103,7 @@ test("the buttons are the summary; nothing restates them underneath", async ({ p
   await expect(page.locator("#modelBtnLabel")).toHaveText("Local");
 });
 
-test("the mode menu is Claude Code's, in OPai's rows", async ({ page }) => {
+test("the mode menu is Claude Code's, in Vesta's rows", async ({ page }) => {
   await openApp(page);
   await page.locator("#modeBtn").click();
   const menu = page.locator("#modePop");
@@ -114,18 +114,22 @@ test("the mode menu is Claude Code's, in OPai's rows", async ({ page }) => {
     "Accept edits",
     "Plan",
     "Bypass permissions",
+    "Allow multiple agents mode",
   ]);
   await expect(menu.locator(".cpop-desc")).toHaveText([
-    "OPai handles permission decisions",
+    "Vesta handles permission decisions",
     "Always ask before making changes",
     "Automatically accept all file edits",
     "Create a plan before making changes",
     "Run everything, including pushes, without asking",
+    "Coordinate independent assignments within your current permissions",
   ]);
   // The four graded modes are numbered; Bypass is not, and sits below a
   // separator — it is not the next rung on the ladder.
   await expect(menu.locator(".cpop-meta")).toHaveText(["1", "2", "3", "4"]);
-  await expect(menu.locator(".cpop-sep")).toHaveCount(1);
+  await expect(menu.locator(".cpop-sep")).toHaveCount(2);
+  await expect(menu.locator('[data-bypass]')).toHaveAttribute("aria-checked", "false");
+  await expect(menu.locator('[data-multi-agent]')).toHaveAttribute("aria-checked", "false");
 });
 
 test("the number keys pick a mode, and Bypass has none", async ({ page }) => {
@@ -200,12 +204,12 @@ test("model popover shows working models, balances, and explains removals", asyn
   await openApp(page, {
     boot: {
       models: [
-        { id: "account:claude:opus", label: "OPai · Powerful mode", kind: "account", group: "claude", provider: "claude", available: true, healthy: true, balance: { provider: "claude", displayName: "Claude", status: "ok", amount: 85, currency: "EUR", percent: 100, source: "manual" } },
-        { id: "free:gemini:gemini-3.1-flash-lite", label: "Gemini · 3.1 Flash-Lite (free tier)", kind: "free", group: "free", provider: "gemini", available: true, healthy: false, health_reason: "Recently unavailable — OPai will retry it automatically." },
+        { id: "account:claude:opus", label: "Vesta · Powerful mode", kind: "account", group: "claude", provider: "claude", available: true, healthy: true, balance: { provider: "claude", displayName: "Claude", status: "ok", amount: 85, currency: "EUR", percent: 100, source: "manual" } },
+        { id: "free:gemini:gemini-3.1-flash-lite", label: "Gemini · 3.1 Flash-Lite (free tier)", kind: "free", group: "free", provider: "gemini", available: true, healthy: false, health_reason: "Recently unavailable — Vesta will retry it automatically." },
         { id: "free:groq:openai/gpt-oss-120b", label: "Groq · GPT-OSS 120B (free tier)", kind: "free", group: "free", provider: "groq", available: false, disabled_reason: "Set GROQ_API_KEY to enable Groq" },
         { id: "free:kimi:kimi-k2.6", label: "Kimi · K2.6 (free tier)", kind: "free", group: "free", provider: "kimi", available: false, out_of_credit: true, disabled_reason: "Kimi (Moonshot) is out of credit.", balance: { provider: "kimi", displayName: "Kimi (Moonshot)", status: "out", amount: 0, currency: "USD", percent: 0, source: "provider" } },
         { id: "ollama:qwen2.5-coder", label: "Qwen 2.5 Coder · local", kind: "local", group: "local", provider: "ollama", available: true, healthy: true },
-        { id: "auto", label: "OPai · Auto mode", kind: "auto", group: "routing" },
+        { id: "auto", label: "Vesta · Auto mode", kind: "auto", group: "routing" },
       ],
       selectedModel: "auto",
     },

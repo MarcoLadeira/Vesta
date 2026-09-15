@@ -160,7 +160,7 @@ class DerivedTablesStayInSyncTests(unittest.TestCase):
 
 
 class DoctorWiringTests(unittest.TestCase):
-    """`opai doctor` surfaces the one true catalog and flags a stale default."""
+    """`vesta doctor` surfaces the one true catalog and flags a stale default."""
 
     def test_model_check_passes_for_a_registry_model(self):
         from unittest import mock

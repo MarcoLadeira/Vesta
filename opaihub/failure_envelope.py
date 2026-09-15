@@ -209,26 +209,26 @@ class FailureEnvelope:
 
 _USER_MESSAGES: dict[FailureCategory, str] = {
     FailureCategory.TOOL_COMPATIBILITY: (
-        "A tool OPai used has changed and no longer supports that command."
+        "A tool Vesta used has changed and no longer supports that command."
     ),
-    FailureCategory.AUTHENTICATION: "OPai could not authenticate with the provider.",
+    FailureCategory.AUTHENTICATION: "Vesta could not authenticate with the provider.",
     FailureCategory.QUOTA_OR_RATE_LIMIT: (
         "The provider refused the request because a rate limit or quota was reached."
     ),
-    FailureCategory.NETWORK: "OPai could not reach the provider.",
+    FailureCategory.NETWORK: "Vesta could not reach the provider.",
     FailureCategory.PERMISSION_DENIED: (
-        "OPai was not permitted to perform that action."
+        "Vesta was not permitted to perform that action."
     ),
     FailureCategory.NO_PROGRESS: (
-        "OPai stopped because it was no longer making progress on the task."
+        "Vesta stopped because it was no longer making progress on the task."
     ),
     FailureCategory.REPEATED_FAILURE: (
-        "OPai stopped because the same action kept failing the same way."
+        "Vesta stopped because the same action kept failing the same way."
     ),
     FailureCategory.PROVIDER_ERROR: "The provider returned an error.",
     FailureCategory.CANCELLED: "Stopped by you.",
     FailureCategory.UNKNOWN: (
-        "OPai stopped for a reason it could not identify. The evidence below is "
+        "Vesta stopped for a reason it could not identify. The evidence below is "
         "what it observed."
     ),
 }

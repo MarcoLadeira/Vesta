@@ -1,12 +1,12 @@
-"""Signed, screenshot-able savings receipts — OPai's shareable proof artifact.
+"""Signed, screenshot-able savings receipts — Vesta's shareable proof artifact.
 
 A receipt is a compact, signed snapshot of the local savings ledger that a
 developer can screenshot and share, and that an eng lead can independently
-verify (see ``verify_receipt`` / the ``opai receipt verify`` command, #88). It
+verify (see ``verify_receipt`` / the ``vesta receipt verify`` command, #88). It
 is the hero artifact behind Epic B (#84): one object that serves both the
 solo-dev growth loop and the enterprise audit wedge.
 
-Privacy (matches the rest of OPai): only the project *name* is included, never
+Privacy (matches the rest of Vesta): only the project *name* is included, never
 an absolute path; every string field is redacted before signing; and nothing is
 read but the local ledger aggregate (no raw prompts, no network).
 """
@@ -74,6 +74,81 @@ def build_receipt(project_root: Path, *, sign: bool = True) -> dict[str, Any]:
     if sign:
         return sign_payload(root, body)
     return body
+
+
+def build_objective_receipts(snapshot: dict[str, Any]) -> tuple[dict, dict[str, dict]]:
+    from decimal import Decimal, localcontext
+
+    children = {}
+    for item in snapshot.get("assignments", []):
+        body = {
+            "report": "opai-agent-receipt",
+            "schema_version": 1,
+            "objective_id": snapshot["objective_id"],
+            "assignment_id": item["assignment_id"],
+            "task_id": item["task_id"],
+            "run_id": item["run_id"],
+            "status": item["status"],
+            "provisional": bool(item["owner"]) or item["status"] == "pending",
+            "owner": item["owner"] or item.get("last_owner", ""),
+            "role": item["role"],
+            "model": item.get("observed_model") or item["model"],
+            "provider": item.get("observed_provider") or item["provider"],
+            "cost_usd": item["cost_usd"],
+            "cost_complete": item["cost_complete"],
+            "budget_usd": item["budget_usd"],
+            "changed_files": item["changed_files"],
+            "verification": item["verification"],
+            "branch": item["branch"],
+            "base_sha": item["base_sha"],
+            "head_sha": (item.get("result", {}).get("git_evidence") or {}).get(
+                "head_sha"
+            ),
+            "evidence_hash": _content_hash({"evidence": item.get("result", {})}),
+            "cost_evidence_hash": item.get("cost_evidence_hash"),
+        }
+        body["receipt_hash"] = _content_hash(body)
+        children[item["assignment_id"]] = body
+    integration = snapshot.get("integration") or {}
+    with localcontext() as context:
+        context.prec = 256
+        child_cost = sum(
+            (Decimal(item["cost_usd"]) for item in children.values()), Decimal(0)
+        )
+        coordinator_cost = Decimal(snapshot["cost_usd"]) - child_cost
+    body = {
+        "report": "opai-objective-receipt",
+        "schema_version": 1,
+        "objective_id": snapshot["objective_id"],
+        "task_id": snapshot["task_id"],
+        "run_id": snapshot["run_id"],
+        "revision": snapshot["revision"],
+        "status": snapshot["status"],
+        "provisional": snapshot["status"]
+        not in {"completed", "cancelled", "failed", "needs-attention"}
+        or bool(integration.get("owner"))
+        or bool(snapshot.get("planning", {}).get("owner"))
+        or any(item["owner"] for item in snapshot.get("assignments", [])),
+        "cost_usd": snapshot["cost_usd"],
+        "cost_complete": snapshot["cost_complete"],
+        "cost_evidence_hash": snapshot.get("cost_evidence_hash"),
+        "cost_components": {
+            "coordinator_usd": str(coordinator_cost),
+            "agents_usd": str(child_cost),
+        },
+        "budget_usd": snapshot["budget_usd"],
+        "verification": integration.get("verification", {}),
+        "integration": {
+            "branch": integration.get("branch", ""),
+            "head_sha": (integration.get("result") or {}).get("head_sha"),
+            "changed_files": (integration.get("result") or {}).get("changed_files", []),
+            "conflicts": integration.get("conflicts", []),
+        },
+        "agents": list(children.values()),
+        "privacy": "Local execution evidence; no raw prompts or provider responses.",
+    }
+    body["receipt_hash"] = _content_hash(body)
+    return body, children
 
 
 def verify_receipt(project_root: Path, receipt: dict[str, Any]) -> dict[str, Any]:
@@ -187,7 +262,7 @@ def render_receipt_svg(receipt: dict[str, Any]) -> str:
         ]
     else:
         hero = "No data yet"
-        sub = 'Run a task first:  opai route "<task>" --record'
+        sub = 'Run a task first:  vesta route "<task>" --record'
         chips = [("0", "routed tasks"), ("0", "paid calls avoided"), ("$0.00", "spent")]
 
     chip_svg = []
@@ -214,12 +289,12 @@ def render_receipt_svg(receipt: dict[str, Any]) -> str:
     return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" width="640" height="360">
   <rect width="640" height="360" fill="{bg}"/>
   <rect x="20" y="20" width="600" height="320" rx="16" fill="{card}" stroke="#30363d"/>
-  <text x="40" y="50" fill="{fg}" font-size="20" font-weight="800" font-family="Nunito,Segoe UI,sans-serif">OPai — Savings Receipt</text>
+  <text x="40" y="50" fill="{fg}" font-size="20" font-weight="800" font-family="Nunito,Segoe UI,sans-serif">Vesta — Savings Receipt</text>
   {badge}
   <text x="40" y="68" fill="{muted}" font-size="13" font-family="Nunito,Segoe UI,sans-serif">{project}</text>
   <text x="40" y="135" fill="{accent}" font-size="52" font-weight="800" font-family="Nunito,Segoe UI,sans-serif">{hero}</text>
   <text x="42" y="158" fill="{muted}" font-size="14" font-family="Nunito,Segoe UI,sans-serif">{_esc(sub)}</text>
   {"".join(chip_svg)}
-  <text x="40" y="285" fill="{muted}" font-size="12" font-family="Nunito,Segoe UI,sans-serif">hash {short_hash}  ·  verify:  opai receipt verify &lt;file&gt;</text>
+  <text x="40" y="285" fill="{muted}" font-size="12" font-family="Nunito,Segoe UI,sans-serif">hash {short_hash}  ·  verify:  vesta receipt verify &lt;file&gt;</text>
   <text x="40" y="318" fill="{muted}" font-size="11" font-family="Nunito,Segoe UI,sans-serif">{_esc(receipt.get("privacy", ""))}</text>
 </svg>"""

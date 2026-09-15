@@ -5,14 +5,14 @@ body:
     id: idea
     attributes:
       label: Idea
-      description: What should OPai do?
+      description: What should Vesta do?
     validations:
       required: true
   - type: textarea
     id: local_first
     attributes:
       label: Local-first path
-      description: How could OPai do this with local tools or cheap routing first?
+      description: How could Vesta do this with local tools or cheap routing first?
   - type: textarea
     id: risk
     attributes:

@@ -67,7 +67,7 @@ def detect_image_mode() -> str:
 def render_ascii_mascot(color: bool = True) -> str:
     lines = [
         "        .-=========-.",
-        "     .-'   OPai      '-.",
+        "     .-'   Vesta     '-.",
         "    /   .----------.   \\",
         "   |   |   > _ <    |   |",
         "   |   '------------'   |",
@@ -161,7 +161,7 @@ def render_graphic(
 
 
 def render_badge(width: int | None = None, color: bool = True) -> str:
-    text = "Using OPai"
+    text = "Using Vesta"
     columns = width or terminal_width()
     padding = max(0, columns - len(text))
     return " " * padding + colorize(text, BLUE, color)
@@ -195,7 +195,7 @@ def build_welcome(
         return "\n".join(parts)
 
     rules = colorize("-" * min(columns, 72), DIM, color)
-    commands = "opai doctor  |  opai scan  |  opai hub analytics status"
+    commands = "vesta doctor  |  vesta scan  |  vesta hub analytics status"
     lines = [badge, graphic, rules, f"{title}  {subtitle}", commands, rules]
     return "\n".join(line for line in lines if line)
 

@@ -30,9 +30,9 @@
   "tools": [
     {
       "id": "opai-cli",
-      "name": "OPai CLI",
+      "name": "Vesta CLI",
       "category": "automation",
-      "description": "Branded 0.2.0 alpha.1 CLI for one-command local OPai installation, hub access, dashboards, benchmarks, governance, and low-cost workflow entry points.",
+      "description": "Branded 0.2.0 alpha.1 CLI for one-command local Vesta installation, hub access, dashboards, benchmarks, governance, and low-cost workflow entry points.",
       "status": "installed",
       "type": "local",
       "cost_level": "free",
@@ -42,9 +42,9 @@
       "requires_api_key": false,
       "env_vars": [],
       "install_command": "pip install -e .",
-      "run_command": "python -m opai --help",
+      "run_command": "python -m vesta --help",
       "health_check": {
-        "command": "python -m opai --help"
+        "command": "python -m vesta --help"
       },
       "inputs": [
         "project path",
@@ -534,7 +534,7 @@
         "evals"
       ],
       "docs_url": "https://github.com/lm-sys/RouteLLM",
-      "notes": "Disabled by default because most useful modes require model API keys; evaluate on OPai prompt traces before enabling.",
+      "notes": "Disabled by default because most useful modes require model API keys; evaluate on Vesta prompt traces before enabling.",
       "enabled_by_default": false
     },
     {
@@ -572,14 +572,14 @@
         "budget"
       ],
       "docs_url": "https://docs.litellm.ai/",
-      "notes": "Use as an optional gateway after OPai deterministic routing; never store provider keys in repo files.",
+      "notes": "Use as an optional gateway after Vesta deterministic routing; never store provider keys in repo files.",
       "enabled_by_default": false
     },
     {
       "id": "promptfoo",
       "name": "Promptfoo",
       "category": "testing",
-      "description": "Optional prompt and model evaluation CLI for comparing model quality on OPai task fixtures before routing changes.",
+      "description": "Optional prompt and model evaluation CLI for comparing model quality on Vesta task fixtures before routing changes.",
       "status": "optional",
       "type": "local-open-source",
       "cost_level": "low",
@@ -644,7 +644,7 @@
         "compression"
       ],
       "docs_url": "https://repomix.com/guide/",
-      "notes": "Use with OPai diff/context policies; avoid packing secrets, build outputs, or large generated files.",
+      "notes": "Use with Vesta diff/context policies; avoid packing secrets, build outputs, or large generated files.",
       "enabled_by_default": false
     },
     {
@@ -753,7 +753,7 @@
         "terminal"
       ],
       "docs_url": "https://aider.chat/docs/",
-      "notes": "Disabled by default because it can edit files and spend model credits; OPai should route and summarize before launching it.",
+      "notes": "Disabled by default because it can edit files and spend model credits; Vesta should route and summarize before launching it.",
       "enabled_by_default": false
     },
     {
@@ -821,7 +821,7 @@
         "cheap-model"
       ],
       "docs_url": "https://docs.ollama.com/",
-      "notes": "OPai should detect installed models before recommending downloads; model pulls require confirmation.",
+      "notes": "Vesta should detect installed models before recommending downloads; model pulls require confirmation.",
       "enabled_by_default": false
     },
     {
@@ -854,7 +854,7 @@
         "openai-compatible"
       ],
       "docs_url": "https://lmstudio.ai/docs",
-      "notes": "Useful for non-terminal local model management; OPai should never assume it is installed.",
+      "notes": "Useful for non-terminal local model management; Vesta should never assume it is installed.",
       "enabled_by_default": false
     },
     {

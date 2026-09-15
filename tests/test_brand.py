@@ -1,4 +1,4 @@
-"""OPai brand module — one canonical voice for every surface."""
+"""Vesta brand module — one canonical voice for every surface."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ class BrandConstantsTests(unittest.TestCase):
         brand = boot_brand()
         for key in ("name", "tagline", "emptyTitle", "composerPlaceholder"):
             self.assertTrue(brand.get(key), key)
-        self.assertEqual(brand["name"], "OPai")
+        self.assertEqual(brand["name"], "Vesta")
 
     def test_the_empty_state_carries_no_second_sentence(self):
         """The body and the keyboard hint were removed, not renamed.
@@ -59,7 +59,7 @@ class CliMirrorTests(unittest.TestCase):
     def test_account_model_uses_shorthand(self):
         cmd = cli_mirror("account:claude:opus", "plan", "fix the tests")
         self.assertEqual(
-            cmd, 'opai ask --model claude:opus --mode plan "fix the tests"'
+            cmd, 'vesta ask --model claude:opus --mode plan "fix the tests"'
         )
 
     def test_default_ask_mode_is_omitted(self):
@@ -77,7 +77,7 @@ class CliMirrorTests(unittest.TestCase):
     def test_header_is_branded(self):
         self.assertEqual(
             cli_header("plan", "account:claude:opus"),
-            "OPai · plan · account:claude:opus",
+            "Vesta · plan · account:claude:opus",
         )
 
 
@@ -88,7 +88,7 @@ class BootPayloadBrandTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
             payload = boot_payload(root)
-        self.assertEqual(payload["brand"]["name"], "OPai")
+        self.assertEqual(payload["brand"]["name"], "Vesta")
         self.assertTrue(payload["brand"]["emptyTitle"])
 
 

@@ -1,6 +1,6 @@
 """10x Context Engine: profile context waste and slim every client (#51).
 
-Context waste is the easiest money OPai saves. This profiles a repo into ranked
+Context waste is the easiest money Vesta saves. This profiles a repo into ranked
 waste sources (generated files, dependency folders, caches, logs, build output,
 large binaries), shows a before/after bytes/tokens/cost report, and generates
 per-client ignore files (.cursorignore, .claudeignore, .copilotignore,
@@ -94,8 +94,13 @@ CLIENT_IGNORE_FILES = {
     "opai": ".opaiignore",
 }
 
-_MANAGED_START = "# OPai context-slimming rules (managed)"
-_MANAGED_END = "# end OPai rules"
+_MANAGED_START = "# Vesta context-slimming rules (managed)"
+_MANAGED_END = "# end Vesta rules"
+# The same block as written before the rebrand; upgraded in place when found.
+_LEGACY_MANAGED = (
+    ("# OPai context-slimming rules (managed)", _MANAGED_START),
+    ("# end OPai rules", _MANAGED_END),
+)
 # An ignore file belongs to the user; never hold its lock longer than a UI call.
 _IGNORE_LOCK_TIMEOUT_SECONDS = 30.0
 # Re-merge this many times when an outside editor beats us to the publish.
@@ -234,7 +239,7 @@ def profile_context(
         "estimated_cost_wasted_usd": tier_cost(baseline_tier, waste_tokens, cost_model),
         "before_after": _before_after(total_bytes, waste_bytes, cost_model),
         "notes": [
-            "Deterministic scan; no model used. Generate ignores with: opai context ignores",
+            "Deterministic scan; no model used. Generate ignores with: vesta context ignores",
         ],
     }
 
@@ -305,7 +310,7 @@ def _read_ignore(path: Path) -> tuple[str | None, int | None]:
 
 
 def _ignore_lock_path(root: Path, name: str) -> Path:
-    """Lock beside OPai state, not beside the user's file, so no stray lock is left in the repo."""
+    """Lock beside Vesta state, not beside the user's file, so no stray lock is left in the repo."""
     return state_dir(root) / "locks" / f"ignore-{name}"
 
 
@@ -329,6 +334,13 @@ def _apply_client_ignore(root: Path, client: str, name: str) -> dict[str, Any]:
     ):
         for _ in range(_PUBLISH_ATTEMPTS):
             existing, mode = _read_ignore(path)
+            if existing is not None and _LEGACY_MANAGED[0][0] in existing:
+                upgraded = existing
+                for legacy, current in _LEGACY_MANAGED:
+                    upgraded = upgraded.replace(legacy, current)
+                if not _publish_ignore(path, existing, upgraded, mode):
+                    continue
+                return {"client": client, "file": name, "status": "already_managed"}
             if existing is not None and _MANAGED_START in existing:
                 return {"client": client, "file": name, "status": "already_managed"}
             base = existing or ""
@@ -386,14 +398,14 @@ def generate_client_ignores(
         "report": "opai-context-ignores",
         "project": str(root),
         "results": results,
-        "notes": ["User-authored rules are preserved; OPai appends a managed block."],
+        "notes": ["User-authored rules are preserved; Vesta appends a managed block."],
     }
 
 
 def render_profile_markdown(profile: dict[str, Any]) -> str:
     ba = profile["before_after"]
     lines = [
-        "# OPai Context Profile",
+        "# Vesta Context Profile",
         "",
         f"- Total: {profile['total_bytes']:,} bytes across {profile['total_files']:,} files",
         f"- Waste: {profile['waste_bytes']:,} bytes ({profile['waste_share'] * 100:.1f}%)",

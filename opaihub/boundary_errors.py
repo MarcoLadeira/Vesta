@@ -125,7 +125,7 @@ class BoundaryError:
                 code="UNKNOWN",
                 source=source,
                 detail=safe_detail,
-                user_message="OPai could not safely prepare the provider diagnostic.",
+                user_message="Vesta could not safely prepare the provider diagnostic.",
                 operation_id=operation_id,
                 operation_kind=operation_kind,
             )
@@ -144,7 +144,7 @@ class BoundaryError:
                 code="UNKNOWN",
                 source=source,
                 detail="[NORMALIZATION_FAILED]",
-                user_message="OPai could not safely classify the provider failure.",
+                user_message="Vesta could not safely classify the provider failure.",
                 operation_id=operation_id,
                 operation_kind=operation_kind,
             )

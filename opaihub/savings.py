@@ -58,11 +58,11 @@ def build_savings_report(project_root: Path) -> dict[str, Any]:
 
     has_data = summary["route_count"] > 0
     headline = (
-        f"OPai estimates ${savings:.4f} saved across "
+        f"Vesta estimates ${savings:.4f} saved across "
         f"{summary['route_count']} routed task(s) "
         f"({pct:.1f}% vs un-routed {summary.get('estimated_baseline_usd') and cost_model.get('baseline_tier', 'L3')} baseline)."
         if has_data
-        else 'No routed tasks recorded yet. Run: opai route "<task>" --record'
+        else 'No routed tasks recorded yet. Run: vesta route "<task>" --record'
     )
     if has_data and not reconciled:
         headline = (
@@ -117,7 +117,7 @@ def build_savings_report(project_root: Path) -> dict[str, Any]:
         ),
         "privacy": summary["privacy"],
         "next_steps": [
-            'Record more routes with: opai route "<task>" --record',
+            'Record more routes with: vesta route "<task>" --record',
             "Inspect raw events under .opaihub/ledger/usage.jsonl (local only).",
             "See per-tier cost meaning in tier_cost_model above.",
         ],
@@ -138,7 +138,7 @@ def render_savings_markdown(report: dict[str, Any]) -> str:
     totals = report["totals"]
     reconciliation = report.get("reconciliation") or {}
     lines = [
-        "# OPai Savings Report",
+        "# Vesta Savings Report",
         "",
         f"**{report['headline']}**",
         "",

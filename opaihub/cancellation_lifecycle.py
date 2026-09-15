@@ -3,7 +3,7 @@
 `RunState.CANCEL_REQUESTED` (#295/#379) is the canonical, cross-surface truth
 that a run is stopping — every surface already speaks that one word. What it
 does not capture is *how far the stop has actually gotten*: whether anything
-has even noticed yet, whether OPai is waiting for in-flight work to exit on
+has even noticed yet, whether Vesta is waiting for in-flight work to exit on
 its own, or whether it had to be killed outright. Collapsing all of that into
 one boolean is exactly how "cancel requested" stops meaning "cancelled" — a
 provider call or a child process can keep running for an arbitrary time after
@@ -174,10 +174,24 @@ class CancellationTracker:
     a phase backward — they converge on whichever phase is already reached.
     """
 
-    def __init__(self, project_root: Path, scope_id: str) -> None:
+    def __init__(
+        self,
+        project_root: Path,
+        scope_id: str,
+        *,
+        journal_run_id: str = "",
+    ) -> None:
         self.project_root = project_root.expanduser().resolve()
         self.scope_id = _safe_scope_id(scope_id)
         self._path = cancellation_journal_path(self.project_root, self.scope_id)
+        # #818: which run in the canonical journal this scope is cancelling, if
+        # any. Passed explicitly rather than derived from `scope_id`, because
+        # scope ids are namespaced per caller ("background-<run>",
+        # "account-<operation>", "aci-<uuid>") and only some of them name a
+        # journalled run at all. Guessing would either write events under a
+        # foreign key that does not exist or, worse, under one that does and
+        # belongs to something else.
+        self.journal_run_id = str(journal_run_id or "").strip()
 
     def phase(self) -> CancelPhase | None:
         projection = run_journal.load(
@@ -223,7 +237,33 @@ class CancellationTracker:
                 raise RuntimeError("cancellation phase decline with no recorded phase")
             return current
         _record, projection = result
-        return CancelPhase(projection["phase"])
+        phase = CancelPhase(projection["phase"])
+        self._mirror(phase, reason_code)
+        return phase
+
+    def _mirror(self, phase: CancelPhase, reason_code: str) -> None:
+        """Copy an accepted phase into the canonical journal. Never raises.
+
+        Deliberately outside ``append_if``'s lock. The decision is already made
+        and durable by the time this runs, so holding the cancellation lock
+        across a second store's write would add latency to a stop -- the one
+        operation where latency is the whole complaint (#380 measures it).
+        """
+
+        if not self.journal_run_id:
+            return
+        try:
+            from . import journal_runtime
+
+            journal_runtime.record_cancellation_phase(
+                self.project_root,
+                run_id=self.journal_run_id,
+                phase=phase.value,
+                reason_code=reason_code,
+                now=_now_iso(),
+            )
+        except Exception:  # noqa: BLE001 - a mirror never fails a real stop
+            return
 
     def request(self, *, reason_code: str = "user_requested") -> CancelPhase:
         """Record that a stop was asked for. Safe to call more than once."""
@@ -291,3 +331,75 @@ class CancellationTracker:
             "history": list(self.history()),
             "metrics": self.metrics().to_dict(),
         }
+
+
+def cancellation_contradiction_report(
+    project_root: Path,
+    scope_id: str,
+    *,
+    journal_run_id: str,
+) -> dict[str, Any] | None:
+    """``None`` when this scope's phase log and its canonical mirror agree.
+
+    #613 Stage 2 asks every module that owns runtime truth for a *dual read*:
+    a way to ask whether the record it owns and the journal it is migrating
+    into still say the same thing. Without one, a mirror is just a second
+    place for the answer to drift, and the drift is found in Stage 4 -- long
+    after both records started being trusted.
+
+    This module is an unusual case and the shape reflects it. It has no legacy
+    JSON snapshot to compare against a shadow: its authority is already an
+    append-only sequenced log (``run_journal``), and its mirror is the
+    cancellation-phase events in the canonical SQLite journal. So the two
+    sides compared here are those two phase sequences.
+
+    A scope with no ``journal_run_id`` was never mirrored anywhere -- scope
+    ids are namespaced per caller and only some name a journalled run -- so
+    there is nothing to disagree with and that is reported as agreement. A
+    journal that cannot be *read*, though, is not agreement: it comes back as
+    a report saying so, because "I could not look" and "they match" are
+    different answers and only one of them is reassuring.
+    """
+
+    tracker = CancellationTracker(project_root, scope_id, journal_run_id=journal_run_id)
+    authoritative = [str(entry["phase"]) for entry in tracker.history()]
+    run_id = str(journal_run_id or "").strip()
+    if not run_id:
+        return None
+
+    try:
+        from . import journal_runtime, journal_store
+
+        store = journal_store.open_store(project_root)
+        try:
+            mirrored = [
+                str((event.get("payload") or {}).get("phase") or "")
+                for event in journal_store.read_events(store, run_id=run_id)
+                if event.get("event_type") == journal_runtime.EVENT_CANCEL_PHASE
+            ]
+        finally:
+            store.close()
+    except Exception as exc:  # noqa: BLE001 - an unreadable journal is a finding
+        return {
+            "scope_id": tracker.scope_id,
+            "run_id": run_id,
+            "comparable": False,
+            "reason": type(exc).__name__,
+            "authoritative": authoritative,
+            "mirrored": [],
+        }
+
+    if authoritative == mirrored:
+        return None
+    return {
+        "scope_id": tracker.scope_id,
+        "run_id": run_id,
+        "comparable": True,
+        "authoritative": authoritative,
+        "mirrored": mirrored,
+        # The mirror is best-effort by design -- a cancellation must never be
+        # refused by its own bookkeeping -- so "the journal is behind" is the
+        # expected shape of a disagreement, and naming it separately keeps a
+        # dropped event from reading like a reordering.
+        "mirror_is_behind": mirrored == authoritative[: len(mirrored)],
+    }

@@ -1,18 +1,18 @@
 """ "Stopped" must not be claimed before teardown is observed (#614).
 
 #614's protocol is ``active -> cancel_requested -> cancelled``. ``cancelled``
-means OPai-owned work has been *seen* to stop; ``cancel_requested`` means the
+means Vesta-owned work has been *seen* to stop; ``cancel_requested`` means the
 stop was asked for and is still being reconciled. Collapsing the two lets the
 UI report "Stopped" while a provider call is still spending money or a child
 process is still writing files.
 
 The schema used to permit the shortcut from every active state. It is now
-refused where OPai can own live external work:
+refused where Vesta can own live external work:
 
 ``running``    a provider call is in flight
 ``verifying``  verification subprocesses are executing
 
-and still permitted where nothing of OPai's is executing:
+and still permitted where nothing of Vesta's is executing:
 
 ``queued``          never dispatched (``cancelled_before_start``)
 ``preparing``       assembling context; nothing external has been started

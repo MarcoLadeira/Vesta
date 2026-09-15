@@ -1,15 +1,15 @@
-# OPai Self-Healing Convergence & Recovery Intelligence
+# Vesta Self-Healing Convergence & Recovery Intelligence
 
 ## Status
 
 Canonical GitHub epic: [#569](https://github.com/MarcoLadeira/OPai/issues/569)  
 Parent programme: [#561](https://github.com/MarcoLadeira/OPai/issues/561)
 
-This document is the repository-level architecture and delivery index for OPai's self-healing convergence programme. GitHub issues remain the authoritative work backlog; this file records stable ownership, invariants, sequence and evidence expectations for maintainers and coding agents.
+This document is the repository-level architecture and delivery index for Vesta's self-healing convergence programme. GitHub issues remain the authoritative work backlog; this file records stable ownership, invariants, sequence and evidence expectations for maintainers and coding agents.
 
 ## Product outcome
 
-OPai should notice that an agent is getting stuck before the user does, preserve everything useful, diagnose the earliest evidence-backed divergence, try a bounded low-cost recovery and only then stop with an honest explanation.
+Vesta should notice that an agent is getting stuck before the user does, preserve everything useful, diagnose the earliest evidence-backed divergence, try a bounded low-cost recovery and only then stop with an honest explanation.
 
 The programme exists because the current no-progress behavior can:
 

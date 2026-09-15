@@ -324,8 +324,8 @@ jobs:
               "native_feed_suffix": tag,
               "feed_redirect_origins": trust.get("feed_redirect_origins") or [],
               "release_id": tag,
-              "release_title": f"OPai {os.environ['PACKAGE_VERSION']}",
-              "release_notes": "Signed packaged update qualified by the OPai release pipeline.",
+              "release_title": f"Vesta {os.environ['PACKAGE_VERSION']}",
+              "release_notes": "Signed packaged update qualified by the Vesta release pipeline.",
               "release_notes_url": f"https://github.com/{repository}/releases/tag/{tag}",
               "signature_threshold": trust["threshold"],
               "metadata_public_keys": trust_keys,
@@ -414,7 +414,7 @@ jobs:
           fi
           gh release create "$RELEASE_TAG" \
             --verify-tag --prerelease \
-            --title "OPai $PACKAGE_VERSION" \
+            --title "Vesta $PACKAGE_VERSION" \
             --notes "Signed candidate pending native update qualification." \
             "$WINDOWS_MSIX" "$MACOS_ARCHIVE" \
             "$FEED_STAGING/OPai-${RELEASE_TAG}.appinstaller" \
@@ -739,7 +739,7 @@ jobs:
           FEED_TAG="opai-update-$UPDATE_CHANNEL"
           if ! gh release view "$FEED_TAG" >/dev/null 2>&1; then
             gh release create "$FEED_TAG" --target "$GITHUB_SHA" \
-              --title "OPai $UPDATE_CHANNEL update feed" \
+              --title "Vesta $UPDATE_CHANNEL update feed" \
               --notes "Machine-consumed signed update metadata. Product releases remain immutable."
           fi
           # Native feeds and packages are immutable, versioned assets. Replacing

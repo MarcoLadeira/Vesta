@@ -1,4 +1,4 @@
-"""Deterministic integrity identity for OPai's packaged desktop assets."""
+"""Deterministic integrity identity for Vesta's packaged desktop assets."""
 
 from __future__ import annotations
 
@@ -16,6 +16,8 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _RUNTIME_INDEX = ".runtime-index.html"
 REQUIRED_WEB_ASSETS = (
     "activity.js",
+    "agents-workspace.js",
+    "agents-workspace.css",
     "app.js",
     "chat-components.js",
     "composer.js",
@@ -107,7 +109,7 @@ def asset_manifest(asset_root: Path) -> dict[str, object]:
         raise AssetIntegrityError(
             "package_integrity_failure",
             "assets",
-            "packaged assets are unreadable; reinstall OPai",
+            "packaged assets are unreadable; reinstall Vesta",
         ) from exc
     digest = hashlib.sha256()
     for path in files:
@@ -193,7 +195,7 @@ def verify_asset_binding(
             raise AssetIntegrityError(
                 "package_integrity_failure",
                 "asset-identity",
-                "packaged asset identity is missing; reinstall OPai",
+                "packaged asset identity is missing; reinstall Vesta",
             )
         return actual
     expected_value = dict(expected)
@@ -224,6 +226,6 @@ def verify_asset_binding(
             "assets",
             "packaged asset fingerprint mismatch: "
             f"expected {fingerprint}, actual {actual['fingerprint_sha256']}; "
-            "reinstall OPai",
+            "reinstall Vesta",
         )
     return actual

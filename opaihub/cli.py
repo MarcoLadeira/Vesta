@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -387,7 +388,24 @@ def cmd_automation(args: argparse.Namespace) -> int:
         elif args.automation_command == "schedules":
             print_json(list_automation_schedules(root))
         elif args.automation_command == "recover":
-            print_json([run.to_dict() for run in recover_interrupted_runs(root)])
+            left_alone: list[str] = []
+            recovered = recover_interrupted_runs(root, left_alone=left_alone)
+            # stdout keeps the shape it has always had -- a JSON list of the
+            # runs this sweep reconciled -- because scripts parse it. An object
+            # here broke every one of them (#818 review finding 11).
+            print_json([run.to_dict() for run in recovered])
+            if left_alone:
+                # The other half, because an empty list is ambiguous: "all was
+                # well" and "someone is still running all of it" look the same
+                # and call for opposite reactions. On stderr, so it cannot
+                # break a parser -- and only the runs this sweep skipped, where
+                # the first version listed every live journal run, chat turns
+                # included.
+                print(
+                    f"left {len(left_alone)} running run(s) to the process still"
+                    f" running them: {', '.join(sorted(left_alone))}",
+                    file=sys.stderr,
+                )
     except (ValueError, FileExistsError, FileNotFoundError, RuntimeError) as exc:
         print_json({"status": "error", "message": safe_detail(exc)})
         return 2
@@ -488,10 +506,10 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             "known_tool_health": known_tools,
             "local_models": discover_local_models(root),
             "safe_next_steps": [
-                "Run opai doctor for the branded readiness check.",
+                "Run vesta doctor for the branded readiness check.",
                 "Review hub/registry/tools.yaml before enabling cloud tools.",
-                "Use opai hub tool health --id <tool> for targeted checks.",
-                "Use opai hub project attach to create a project overlay.",
+                "Use vesta hub tool health --id <tool> for targeted checks.",
+                "Use vesta hub project attach to create a project overlay.",
             ],
         }
     )
@@ -500,7 +518,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="op-hub", description="OPai / OP AI Hub registry CLI"
+        prog="op-hub", description="Vesta / OP AI Hub registry CLI"
     )
     parser.add_argument("--project", default=".", help="Project root")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -725,7 +743,7 @@ def build_parser() -> argparse.ArgumentParser:
     ob.add_argument("--limit", type=int, default=10)
     ob.set_defaults(func=cmd_opaibench)
     ob = opaibench_sub.add_parser(
-        "parity", help="Run real coding fixtures through the offline OPai pipeline"
+        "parity", help="Run real coding fixtures through the offline Vesta pipeline"
     )
     ob.add_argument("--baseline", help="Versioned offline baseline JSON")
     ob.add_argument("--task", action="append", help="Run one task id (repeatable)")

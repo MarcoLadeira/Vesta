@@ -1,11 +1,11 @@
 # Discovery, Analytics, And Sandbox
 
-OPai 0.1.1 pre-alpha includes low-risk foundations for operating a larger hub.
+Vesta 0.1.1 pre-alpha includes low-risk foundations for operating a larger hub.
 
 ## Discovery
 
 ```sh
-opai hub discover tools
+vesta hub discover tools
 ```
 
 Discovery reads `hub/registry/tools.yaml`, checks whether referenced command names exist on PATH, and reports whether required environment variables are present. It does not install packages, call APIs, or start services.
@@ -13,7 +13,7 @@ Discovery reads `hub/registry/tools.yaml`, checks whether referenced command nam
 ## Analytics
 
 ```sh
-opai hub analytics status
+vesta hub analytics status
 ```
 
 Analytics are local only. The summary includes registry counts, enabled tools, enabled MCP servers, latest health failures, and an estimated spend placeholder. No telemetry leaves the machine.
@@ -21,7 +21,7 @@ Analytics are local only. The summary includes registry counts, enabled tools, e
 ## Sandbox Classification
 
 ```sh
-opai hub sandbox check --command "git reset --hard"
+vesta hub sandbox check --command "git reset --hard"
 ```
 
 The sandbox classifier reads `hub/security/risky_commands.yaml` and returns one of:

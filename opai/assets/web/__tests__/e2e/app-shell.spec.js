@@ -3,7 +3,7 @@ import { test, expect } from "@playwright/test";
 import { openApp, openNav, expectNoFatalErrors } from "./helpers/app.js";
 
 
-test("loads the complete OPai workspace shell", async ({ page }) => {
+test("loads the complete Vesta workspace shell", async ({ page }) => {
   const diagnostics = await openApp(page);
 
   await expect(page.locator(".sidebar")).toBeVisible();

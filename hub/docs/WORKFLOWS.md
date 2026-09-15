@@ -22,13 +22,13 @@ Starter workflows live in `hub/registry/workflows.yaml`:
 Inspect a workflow:
 
 ```powershell
-opai hub workflow run feature_plan
+vesta hub workflow run feature_plan
 ```
 
 By default, workflows display plans only. Passing `--execute` runs only steps that have explicit safe local command mappings.
 
 ```powershell
-opai hub workflow run new_project_onboarding --execute
+vesta hub workflow run new_project_onboarding --execute
 ```
 
 Unmapped or risky steps are skipped rather than guessed.
@@ -36,7 +36,7 @@ Unmapped or risky steps are skipped rather than guessed.
 Create a local schedule intent:
 
 ```powershell
-opai hub schedule create daily_hub_check --cadence daily
+vesta hub schedule create daily_hub_check --cadence daily
 ```
 
 This writes `.opaihub/schedules.json`; it does not start a daemon.

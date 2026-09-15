@@ -1,6 +1,6 @@
 """Central intent and authorization policy for coding-agent requests.
 
-This module decides what the user asked OPai to do. Provider transports and UI
+This module decides what the user asked Vesta to do. Provider transports and UI
 run modes consume the decision; they do not independently reinterpret it.
 """
 
@@ -61,7 +61,7 @@ _SHIP_PROHIBITION_SIGNAL = re.compile(
 # accepted only "a pr", so the equally common "make **the** pr" (natural once a
 # specific PR is under discussion), "open my pr", "raise a pr", and "send the
 # PR" all scored as *no write intent at all* and fell through to the read-only
-# fallback. The user then watched OPai refuse a request that plainly said to
+# fallback. The user then watched Vesta refuse a request that plainly said to
 # open a PR. Determiners and the everyday publish verbs are enumerated once,
 # here, so both patterns stay in step.
 _DET = r"(?:(?:a|an|the|my|our|this|that|another|one)\s+)?"
@@ -140,7 +140,7 @@ _SMALLTALK_UNIT = (
 _SMALLTALK_SIGNAL = re.compile(rf"^(?:{_SMALLTALK_UNIT}[\s!.,?~]*)+$", re.IGNORECASE)
 
 
-# "try again" / "continue" / "do it": the user is telling OPai to carry on with
+# "try again" / "continue" / "do it": the user is telling Vesta to carry on with
 # the work already under discussion. Such a message carries no write verb of its
 # own, so it used to score as *no signal whatsoever* and fall through to the
 # focus hint -- where a stale read-only focus turned "try again" into a refusal.
@@ -288,7 +288,7 @@ def resolve_agent_policy(
     ``run_mode_hint`` is the composer's Run mode (e.g. ``"full-auto"``,
     i.e. Auto-apply). It is consulted only as the last resort, when neither
     the message nor the focus hint says anything — Auto-apply's documented
-    promise is that OPai "edits files and runs commands without asking
+    promise is that Vesta "edits files and runs commands without asking
     first", so a message with no explicit read-only wording must not
     silently fall back to a read-only contract just because it didn't match
     a write-verb regex. An explicit read-only signal (in the message, or a
@@ -457,7 +457,7 @@ def build_capability_contract(
     repo = redact(str(active_repo or "active workspace"))
     allowed = ", ".join(sorted(policy.capabilities))
     lines = [
-        "OPai capability contract for this turn:",
+        "Vesta capability contract for this turn:",
         f"- Effective mode: {policy.mode.value.title()}",
         f"- Active repository: {repo}",
         f"- Authorized capabilities: {allowed}",
