@@ -105,7 +105,7 @@
       const separator = group !== previousGroup ? '<span class="team-shortcut-group" role="separator" aria-label="' + esc(agent.group || o.objective) + '" title="' + esc(agent.group || o.objective) + '">' + esc((agent.group || 'Team').slice(0, 3)) + '</span>' : '';
       previousGroup = group;
       return separator + '<button type="button" class="team-shortcut" data-team-shortcut="' + esc(agent.assignment_id) + '" data-team-objective="' + esc(o.objective_id) + '" aria-label="' + esc('Open ' + label + "’s agent chat") + '" aria-pressed="' + (selectedId === agent.assignment_id && objective?.objective_id === o.objective_id) + '" title="' + esc(label + ' · ' + status + '\n' + (agent.title || agent.objective) + '\n' + (agent.group ? agent.group + ' · ' : '') + o.objective) + '">' + avatar(profileIndex(agent, index)) + '<span class="team-shortcut-status" aria-hidden="true">' + symbol + '</span></button>';
-    }).join('') + '</nav>';
+    }).join('') + '</nav><button type="button" class="team-strip-collapse" data-team-strip-collapse aria-label="Hide agents sidebar" title="Hide agents sidebar"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>';
   }
   function attentionHtml(agent) {
     if (!agent.pending_approval && !['blocked', 'failed', 'needs-attention'].includes(agent.status)) return '';
