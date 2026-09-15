@@ -38,6 +38,7 @@ from vesta.terminal_ui import build_welcome, play_animation
 from vestahub.cli import main as hub_main
 from vestahub.model_intelligence import recommend_model
 from vestahub.proc import AGENT_SESSION_ENV
+from vesta.legacy import env_flag as legacy_env_flag
 from vestahub.router import compact_decision, route_task
 from vestahub.skills import skill_items, skill_status
 from vestahub.boundary_errors import safe_detail
@@ -1768,7 +1769,9 @@ _NESTED_SESSION_REFUSAL = (
 
 
 def _nested_agent_session_active() -> bool:
-    return bool(os.environ.get(AGENT_SESSION_ENV))
+    # The legacy name counts too: an agent spawned by a pre-rename parent
+    # carries only OPAI_AGENT_SESSION when it runs this build directly.
+    return bool(legacy_env_flag(AGENT_SESSION_ENV))
 
 
 def _refuse_if_nested_agent_session() -> int | None:
@@ -2076,7 +2079,12 @@ def claude_pre_tool_decision(
     # push, an account run could never finish "push and open a pull request".
     # Bypass means the user asked for no prompts; honouring that here is what
     # makes the mode mean the same thing on the account path as in-process.
-    from vestahub.command_policy import BLOCK, BYPASS, decide_command, normalize_autonomy
+    from vestahub.command_policy import (
+        BLOCK,
+        BYPASS,
+        decide_command,
+        normalize_autonomy,
+    )
 
     autonomy = normalize_autonomy(os.environ.get("VESTA_AUTONOMY"))
     if autonomy == BYPASS:

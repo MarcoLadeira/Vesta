@@ -665,9 +665,34 @@ def run_desktop(
     )
 
 
+def _upgrade_legacy_install(*, home: Path | None = None) -> dict[str, object]:
+    """Carry an install from before the OPai -> Vesta rename forward. Never raises.
+
+    Runs only from the real application entry points (``vesta``/``op``,
+    ``python -m vesta`` and the desktop launcher), never from ``run_cli`` or
+    ``run_desktop``, so tests driving those cannot touch a real home folder.
+    Environment adoption and the home-folder move live in :mod:`vesta.legacy`
+    (standard library only); integrations are re-rendered only when old
+    wrappers or instructions were actually found.
+    """
+
+    from . import legacy
+
+    report = legacy.run_startup_migrations(home=home)
+    if report.get("legacy_integrations") and not legacy.env_flag("VESTA_AGENT_SESSION"):
+        try:
+            integrations = importlib.import_module("vesta.integrations")
+            report["integrations"] = integrations.upgrade_legacy_global_install(home)
+        except Exception:  # noqa: BLE001 - retried on the next start
+            report["integrations"] = {"status": "failed"}
+    return report
+
+
 def cli_main() -> int:
+    _upgrade_legacy_install()
     return run_cli()
 
 
 def desktop_main() -> int:
+    _upgrade_legacy_install()
     return run_desktop(failure_handler=_desktop_failure_dialog)

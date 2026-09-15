@@ -183,7 +183,10 @@ def detect_stale_paths(project_root: Path, home: Path | None = None) -> dict[str
                 }
             )
 
-    source = vesta_home(user_home) / "source"
+    # A pre-rename install may still run from ~/.opai/source (never moved).
+    from vesta.legacy import home_item
+
+    source = home_item(user_home, "source")
     source_present = source.exists()
 
     return {

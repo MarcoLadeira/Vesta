@@ -30,6 +30,7 @@ from typing import Any, Callable, Sequence
 
 from . import __version__ as CURRENT_VERSION
 from vestahub.boundary_errors import safe_detail
+from vesta.legacy import home_item
 
 # An hour: opening Settings repeatedly (or the startup check) should not
 # re-hit the network every time. The button (`force=True`) always re-checks.
@@ -69,7 +70,7 @@ def install_root() -> Path:
 
 
 def _default_state_path() -> Path:
-    return Path.home() / ".vesta" / "update_check.json"
+    return home_item(Path.home(), "update_check.json")
 
 
 def _default_git(root: Path, args: Sequence[str]) -> "subprocess.CompletedProcess[str]":

@@ -25,6 +25,7 @@ from typing import Any, Callable
 
 from . import shadow_journal
 from .atomic_io import atomic_write_text
+from vesta.legacy import home_item
 
 
 # Session states. Only ``running`` sessions are "active"; the rest are terminal.
@@ -471,10 +472,8 @@ def durable_session_root(home: Path | None = None) -> Path:
     override = os.environ.get("VESTA_ACTIVE_SESSION_ROOT")
     if override:
         return Path(override).expanduser().resolve(strict=False)
-    return (
-        (home or Path.home()).expanduser().resolve(strict=False)
-        / ".vesta"
-        / "active-sessions"
+    return home_item(
+        (home or Path.home()).expanduser().resolve(strict=False), "active-sessions"
     )
 
 

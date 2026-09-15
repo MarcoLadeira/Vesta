@@ -15,6 +15,7 @@ from vestahub.owner_lease import acquire as acquire_lease
 from vestahub.owner_lease import is_current as lease_is_current
 
 from .models import UpdateOperation, UpdatePolicy
+from vesta.legacy import home_item
 
 
 @dataclass(frozen=True)
@@ -31,7 +32,7 @@ class UpdaterPaths:
 
     @classmethod
     def for_home(cls, home: Path) -> "UpdaterPaths":
-        base = home.expanduser().resolve(strict=False) / ".vesta" / "updater"
+        base = home_item(home.expanduser().resolve(strict=False), "updater")
         return cls(
             root=base,
             policy=base / "policy.json",

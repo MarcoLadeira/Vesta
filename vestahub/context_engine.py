@@ -15,6 +15,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from vesta.legacy import LEGACY_CONTEXT_RULES_END, LEGACY_CONTEXT_RULES_START
+
 from .atomic_io import atomic_write_text, interprocess_transaction
 from .command_runner import redact
 from .cost_model import estimate_tokens_for_chars, load_cost_model, tier_cost
@@ -98,8 +100,8 @@ _MANAGED_START = "# Vesta context-slimming rules (managed)"
 _MANAGED_END = "# end Vesta rules"
 # The same block as written before the rebrand; upgraded in place when found.
 _LEGACY_MANAGED = (
-    ("# OPai context-slimming rules (managed)", _MANAGED_START),
-    ("# end OPai rules", _MANAGED_END),
+    (LEGACY_CONTEXT_RULES_START, _MANAGED_START),
+    (LEGACY_CONTEXT_RULES_END, _MANAGED_END),
 )
 # An ignore file belongs to the user; never hold its lock longer than a UI call.
 _IGNORE_LOCK_TIMEOUT_SECONDS = 30.0
@@ -134,6 +136,11 @@ _MANAGED_PATTERNS = [
     "htmlcov/",
     "*.log",
 ]
+
+
+def managed_ignore_lines() -> list[str]:
+    """Every line of the managed client-ignore block, markers included."""
+    return [_MANAGED_START, *_MANAGED_PATTERNS, _MANAGED_END]
 
 
 def _classify_dir(name: str) -> str | None:

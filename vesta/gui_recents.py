@@ -28,6 +28,7 @@ from vestahub.owner_lease import touch as touch_lease
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, BinaryIO, Iterator
+from vesta.legacy import home_item
 
 MAX_RECENTS = 12
 #: How many finished conversations the sidebar keeps per workspace. Bounded for
@@ -105,7 +106,7 @@ def _workspace_key(workspace_root: str | Path) -> str:
 
 
 def recents_path(workspace_root: str | Path) -> Path:
-    return Path.home() / ".vesta" / "recents" / f"{_workspace_key(workspace_root)}.json"
+    return home_item(Path.home(), "recents", f"{_workspace_key(workspace_root)}.json")
 
 
 def _thread_target(workspace_root: str | Path) -> tuple[Path, Path]:

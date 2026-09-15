@@ -140,7 +140,7 @@ class LegacyIgnoreRulesTests(unittest.TestCase):
         self.assertEqual(result["results"][0]["status"], "already_managed")
         self.assertEqual(text.count("# Vesta context-slimming rules (managed)"), 1)
         self.assertEqual(text.count("# end Vesta rules"), 1)
-        self.assertNotIn("Vesta", text)
+        self.assertNotIn("OPai", text)
         self.assertIn("secrets/", text)
 
     def test_ai_ignore_files_rename_the_old_header(self):
@@ -155,7 +155,7 @@ class LegacyIgnoreRulesTests(unittest.TestCase):
             text = (root / ".claudeignore").read_text(encoding="utf-8")
 
         self.assertEqual(text.count("# Vesta context-slimming rules"), 1)
-        self.assertNotIn("Vesta", text)
+        self.assertNotIn("OPai", text)
         self.assertIn("custom-cache/", text)
         self.assertEqual(text.count(".git/"), 1)
 

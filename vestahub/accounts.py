@@ -52,6 +52,7 @@ from .proc import provider_child_env
 from .progress_evidence import ProgressLedger
 from .process_tree import adopt, isolated_group_kwargs, terminate_tree
 from .boundary_errors import safe_detail
+from vesta.legacy import home_item
 
 _CONNECTION_CACHE: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
 _CONNECTION_CACHE_LOCK = threading.RLock()
@@ -104,7 +105,7 @@ def _connection_key(account_id: str, home: Path | None = None) -> tuple[str, str
 def _connection_history_path(home: Path | None = None) -> Path:
     """The user-wide, workspace-independent local verification store."""
 
-    return (home or Path.home()).expanduser() / ".vesta" / "connection_history.json"
+    return home_item((home or Path.home()).expanduser(), "connection_history.json")
 
 
 def _safe_auth_evidence(account_id: str, home: Path) -> dict[str, list[str]]:
@@ -1091,7 +1092,7 @@ def _with_connection_history(
 
 
 def _cli_probe_store_path(home: Path | None = None) -> Path:
-    return (home or Path.home()).expanduser() / ".vesta" / "cli_capability.json"
+    return home_item((home or Path.home()).expanduser(), "cli_capability.json")
 
 
 def _cli_fingerprint(cli_path: str) -> str:

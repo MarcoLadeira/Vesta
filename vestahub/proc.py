@@ -20,6 +20,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from vesta.legacy import legacy_env_name, strip_legacy_environment
+
 
 _WINDOWED_PREFIX = "pythonw"
 _CONSOLE_PREFIX = "python"
@@ -184,7 +186,14 @@ def provider_child_env(
             removed.append(name)
             continue
         env[name] = value
-    env[AGENT_SESSION_ENV] = session_id or source.get(AGENT_SESSION_ENV) or "1"
+    # Children use VESTA_* only. A pre-rename OPAI_* name left in the source
+    # would be adopted again by a Vesta child -- reviving, say, an autonomy
+    # level or run id this function deliberately drops below.
+    inherited_session = source.get(AGENT_SESSION_ENV) or source.get(
+        legacy_env_name(AGENT_SESSION_ENV)
+    )
+    strip_legacy_environment(env)
+    env[AGENT_SESSION_ENV] = session_id or inherited_session or "1"
     env[COMMAND_CONSENT_DIR_ENV] = str(consent_dir())
     # Which run this child is working for, so the hook it launches can prove a
     # one-shot approval was issued to *this* run before spending it (#818 AC8).

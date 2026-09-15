@@ -8,6 +8,16 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# Vesta was called OPai. Old CI and shells still export OPAI_*: adopt each one
+# whose VESTA_* counterpart is unset (see vesta/legacy.py for the full list of
+# legacy names).
+Get-ChildItem env: | Where-Object { $_.Name -like "OPAI_*" } | ForEach-Object {
+    $CurrentName = "VESTA_" + $_.Name.Substring(5)
+    if (-not (Test-Path "env:$CurrentName")) {
+        Set-Item -Path "env:$CurrentName" -Value $_.Value
+    }
+}
+
 $RepoUrl = if ($env:VESTA_REPO_URL) { $env:VESTA_REPO_URL } else { "https://github.com/MarcoLadeira/OPai.git" }
 $Branch = if ($env:VESTA_BRANCH) { $env:VESTA_BRANCH } else { "main" }
 $InstallTools = $WithTools -or $env:VESTA_WITH_TOOLS -eq "1"
@@ -25,7 +35,16 @@ if (-not $InstallRoot) {
     $InstallRoot = if ($env:VESTA_INSTALL_ROOT) {
         $env:VESTA_INSTALL_ROOT
     } else {
-        Join-Path $env:USERPROFILE ".vesta\source"
+        $CurrentSource = Join-Path $env:USERPROFILE ".vesta\source"
+        $LegacySource = Join-Path $env:USERPROFILE ".opai\source"
+        # An install from before the rename lives in ~/.opai/source and the
+        # desktop app may be running from it: update it where it is rather
+        # than cloning a second copy (Vesta never moves a running install).
+        if (-not (Test-Path $CurrentSource) -and (Test-Path (Join-Path $LegacySource ".git"))) {
+            $LegacySource
+        } else {
+            $CurrentSource
+        }
     }
 }
 

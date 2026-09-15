@@ -1,6 +1,21 @@
 #!/usr/bin/env sh
 set -eu
 
+# Vesta was called OPai. Adopt old OPAI_* installer settings whose VESTA_*
+# counterpart is unset (see vesta/legacy.py for the full list of legacy names).
+for name in REPO_URL BRANCH INSTALL_ROOT PROJECT_ROOT PYTHON WITH_TOOLS NO_SUPERPOWERS; do
+  eval "legacy_value=\${OPAI_$name:-}"
+  eval "current_set=\${VESTA_$name+x}"
+  if [ -n "$legacy_value" ] && [ -z "$current_set" ]; then
+    eval "VESTA_$name=\$legacy_value"
+  fi
+done
+# An install from before the rename lives in ~/.opai/source and the desktop app
+# may be running from it: update it in place rather than cloning a second copy.
+if [ -z "${VESTA_INSTALL_ROOT:-}" ] && [ ! -e "$HOME/.vesta/source" ] && [ -d "$HOME/.opai/source/.git" ]; then
+  VESTA_INSTALL_ROOT="$HOME/.opai/source"
+fi
+
 VESTA_REPO_URL="${VESTA_REPO_URL:-https://github.com/MarcoLadeira/OPai.git}"
 VESTA_BRANCH="${VESTA_BRANCH:-main}"
 VESTA_INSTALL_ROOT="${VESTA_INSTALL_ROOT:-$HOME/.vesta/source}"
