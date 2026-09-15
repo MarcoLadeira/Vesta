@@ -123,12 +123,27 @@ describe("section registry (#236)", () => {
   it("exposes the target taxonomy in order", () => {
     expect(OPaiSettings.sections.map((s) => s.id)).toEqual([
       "general",
-      "models",
-      "connections",
-      "usage",
-      "safety",
       "appearance",
+      "models",
+      "agents",
+      "plugins",
+      "usage",
+      "workspace",
+      "connections",
+      "safety",
       "advanced",
+    ]);
+    expect(OPaiSettings.sections.map((s) => s.group)).toEqual([
+      "OPai",
+      "OPai",
+      "AI",
+      "AI",
+      "AI",
+      "AI",
+      "Development",
+      "Development",
+      "Trust",
+      "System",
     ]);
   });
 

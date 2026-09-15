@@ -217,7 +217,14 @@
 
         <!-- settings -->
         <section class="view" id="view-settings">
-          <div class="scroll"><div class="page" id="settingsPage"></div></div>
+          <div class="scroll" id="settingsScroll"><div class="page" id="settingsPage"></div></div>
+          <div class="settings-page-scrollbar" id="settingsPageScrollbar" hidden>
+            <button class="settings-scroll-step up" id="settingsScrollUp" type="button" aria-label="Scroll settings up" aria-controls="settingsScroll"></button>
+            <div class="settings-scroll-track" id="settingsPageScrollbarTrack">
+              <div class="settings-scroll-thumb" id="settingsPageScrollbarThumb" role="scrollbar" tabindex="0" aria-label="Settings page position" aria-controls="settingsScroll" aria-orientation="vertical" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"></div>
+            </div>
+            <button class="settings-scroll-step down" id="settingsScrollDown" type="button" aria-label="Scroll settings down" aria-controls="settingsScroll"></button>
+          </div>
         </section>
       </div>
     </main>

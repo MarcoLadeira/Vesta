@@ -1745,9 +1745,131 @@ function renderStatus(st) {
 }
 
 /* ---------- views ---------- */
+let refreshSettingsPageScrollbar = () => {};
+
+function wireSettingsPageScrollbar() {
+  const scroller = $("#settingsScroll");
+  const page = $("#settingsPage");
+  const scrollbar = $("#settingsPageScrollbar");
+  const track = $("#settingsPageScrollbarTrack");
+  const thumb = $("#settingsPageScrollbarThumb");
+  const up = $("#settingsScrollUp");
+  const down = $("#settingsScrollDown");
+  if (!scroller || !page || !scrollbar || !track || !thumb || !up || !down) return;
+
+  let frame = 0;
+  let drag = null;
+
+  const paint = () => {
+    frame = 0;
+    const maximum = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+    const overflowing = maximum > 2;
+    scrollbar.hidden = !overflowing;
+    if (!overflowing) {
+      scroller.scrollTop = 0;
+      thumb.setAttribute("aria-valuemax", "0");
+      thumb.setAttribute("aria-valuenow", "0");
+      return;
+    }
+
+    const trackHeight = track.clientHeight;
+    const thumbHeight = Math.max(58, Math.round(trackHeight * scroller.clientHeight / scroller.scrollHeight));
+    const travel = Math.max(0, trackHeight - thumbHeight);
+    const thumbTop = maximum ? Math.round((scroller.scrollTop / maximum) * travel) : 0;
+    thumb.style.height = `${Math.min(trackHeight, thumbHeight)}px`;
+    thumb.style.transform = `translateY(${thumbTop}px)`;
+    thumb.setAttribute("aria-valuemax", String(Math.round(maximum)));
+    thumb.setAttribute("aria-valuenow", String(Math.round(scroller.scrollTop)));
+  };
+
+  const schedulePaint = () => {
+    if (frame) return;
+    frame = requestAnimationFrame(paint);
+  };
+  refreshSettingsPageScrollbar = schedulePaint;
+
+  const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const moveBy = (amount) => {
+    scroller.scrollBy({ top: amount, behavior: reducedMotion() ? "auto" : "smooth" });
+  };
+  const pageAmount = () => Math.max(160, Math.round(scroller.clientHeight * 0.72));
+
+  up.addEventListener("click", () => moveBy(-pageAmount()));
+  down.addEventListener("click", () => moveBy(pageAmount()));
+  track.addEventListener("pointerdown", (event) => {
+    if (event.target === thumb) return;
+    const rect = thumb.getBoundingClientRect();
+    moveBy(event.clientY < rect.top ? -pageAmount() : pageAmount());
+  });
+  thumb.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const maximum = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+    const travel = Math.max(1, track.clientHeight - thumb.offsetHeight);
+    drag = {
+      id: event.pointerId,
+      startY: event.clientY,
+      startScroll: scroller.scrollTop,
+      maximum,
+      travel,
+    };
+    thumb.classList.add("dragging");
+    thumb.setPointerCapture(event.pointerId);
+  });
+  thumb.addEventListener("pointermove", (event) => {
+    if (!drag || event.pointerId !== drag.id) return;
+    const delta = (event.clientY - drag.startY) / drag.travel;
+    scroller.scrollTop = drag.startScroll + delta * drag.maximum;
+  });
+  const finishDrag = (event) => {
+    if (!drag || event.pointerId !== drag.id) return;
+    drag = null;
+    thumb.classList.remove("dragging");
+    if (thumb.hasPointerCapture(event.pointerId)) thumb.releasePointerCapture(event.pointerId);
+  };
+  thumb.addEventListener("pointerup", finishDrag);
+  thumb.addEventListener("pointercancel", finishDrag);
+  thumb.addEventListener("keydown", (event) => {
+    const keyMoves = {
+      ArrowUp: -56,
+      ArrowDown: 56,
+      PageUp: -pageAmount(),
+      PageDown: pageAmount(),
+    };
+    if (Object.prototype.hasOwnProperty.call(keyMoves, event.key)) {
+      event.preventDefault();
+      moveBy(keyMoves[event.key]);
+    } else if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      scroller.scrollTo({
+        top: event.key === "Home" ? 0 : scroller.scrollHeight,
+        behavior: reducedMotion() ? "auto" : "smooth",
+      });
+    }
+  });
+
+  scroller.addEventListener("scroll", schedulePaint, { passive: true });
+  window.addEventListener("resize", schedulePaint);
+  if (typeof ResizeObserver === "function") {
+    const resizeObserver = new ResizeObserver(schedulePaint);
+    resizeObserver.observe(scroller);
+    resizeObserver.observe(page);
+  }
+  const mutationObserver = new MutationObserver(schedulePaint);
+  mutationObserver.observe(page, {
+    attributes: true,
+    childList: true,
+    subtree: true,
+    attributeFilter: ["class", "hidden", "style"],
+  });
+  schedulePaint();
+}
+
 function switchView(id) {
   state.view = id;
   closeMobileSidebar();
+  const app = $("#app");
+  if (app) app.classList.toggle("settings-active", id === "settings");
   // If the destination lives inside a folded group, unfold it so the active
   // item is visible (e.g. jumping to an Insights page from the palette).
   const navBtn = $(`.nav-item[data-id="${id}"]`);
@@ -1767,6 +1889,7 @@ function switchView(id) {
   else if (id === "prompts") loadPrompts();
   else if (id === "settings") renderSettings();
   else $("#input").focus();
+  refreshSettingsPageScrollbar();
 }
 
 /* ---------- chat ---------- */
@@ -4706,6 +4829,7 @@ function historyReset() {
 }
 
 function wire() {
+  wireSettingsPageScrollbar();
   if (isCompactShell()) $("#sidebarToggle").setAttribute("aria-expanded", "false");
   const chatScroll = $("#chatScroll");
   chatScroll.addEventListener("scroll", () => {

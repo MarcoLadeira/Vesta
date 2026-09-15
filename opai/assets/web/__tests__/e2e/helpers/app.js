@@ -175,6 +175,17 @@ export async function openSettings(page, id) {
   }
 }
 
+const SETTINGS_TOOL_ROUTES = {
+  "Prompt Library": ["plugins", "prompts"],
+  Agents: ["agents", "agents"],
+  Workflows: ["agents", "workflows"],
+  "Proof Bundle": ["agents", "proof"],
+  "Money Saved": ["advanced", "home"],
+  "Cost Firewall": ["advanced", "firewall"],
+  "Context Waste": ["advanced", "context"],
+  Benchmark: ["advanced", "benchmark"],
+};
+
 export async function openNav(page, label) {
   // Do what a user does. The sidebar is the chat list now, so most destinations
   // are reached from the header or from Settings -> Tools & Insights rather
@@ -189,6 +200,10 @@ export async function openNav(page, label) {
     }
     return;
   }
+  if (await page.locator("#view-settings").isVisible().catch(() => false)) {
+    await page.locator("#settingsBack").click();
+    await expect(page.locator("#view-chat")).toBeVisible();
+  }
   if (label === "Chat") {
     await page.locator("#headerNewChat").click();
     return;
@@ -198,10 +213,14 @@ export async function openNav(page, label) {
     await target.click();
     return;
   }
-  // Prompt Library and the Insights dashboards live under Advanced.
+  // Secondary destinations live in their related Settings category.
+  const route = SETTINGS_TOOL_ROUTES[label] || ["advanced", null];
   await openNav(page, "Settings");
-  await page.locator('.settings-rail-item[data-rail-target="advanced"]').click();
-  await page.locator(`[data-go-view] >> text=${label}`).first().click();
+  await page.locator(`.settings-rail-item[data-rail-target="${route[0]}"]`).click();
+  const destination = route[1]
+    ? page.locator(`[data-go-view="${route[1]}"]`)
+    : page.locator(`[data-go-view]:visible`).filter({ hasText: label }).first();
+  await destination.click();
 }
 
 export function expectNoFatalErrors(diagnostics) {

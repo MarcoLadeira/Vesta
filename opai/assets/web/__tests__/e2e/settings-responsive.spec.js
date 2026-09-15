@@ -5,11 +5,14 @@ import { openApp, openNav } from "./helpers/app.js";
 
 const DESTINATIONS = [
   ["general", "General"],
-  ["models", "Models & Routing"],
-  ["connections", "Connections"],
-  ["usage", "Usage & Budgets"],
-  ["safety", "Safety & Privacy"],
   ["appearance", "Appearance"],
+  ["models", "Models & Routing"],
+  ["agents", "Agents"],
+  ["plugins", "Plugins"],
+  ["usage", "Usage & Budgets"],
+  ["workspace", "Workspace"],
+  ["connections", "Connections"],
+  ["safety", "Safety & Privacy"],
   ["advanced", "Advanced"],
 ];
 
@@ -28,7 +31,7 @@ async function expectNoHorizontalOverflow(page) {
   expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth);
 }
 
-test("desktop uses seven calm destinations and a persistent detail pane", async ({ page }) => {
+test("desktop uses grouped destinations and a persistent detail pane", async ({ page }) => {
   await openSettings(page, { width: 1440, height: 900 });
   await expect(page.locator(".settings-sidebar")).toBeVisible();
   await expect(page.locator(".settings-content")).toBeVisible();
@@ -43,7 +46,7 @@ test("desktop uses seven calm destinations and a persistent detail pane", async 
   await expectNoHorizontalOverflow(page);
 });
 
-test("tablet keeps the seven-page rail discoverable without hiding content", async ({ page }) => {
+test("tablet keeps every destination discoverable without hiding content", async ({ page }) => {
   await openSettings(page, { width: 768, height: 1024 });
   const rail = page.locator(".settings-rail");
   await expect(rail).toBeVisible();
@@ -60,6 +63,13 @@ test("phone starts at a Settings index and uses an explicit back path", async ({
   await expect(page.locator(".settings-sidebar")).toBeVisible();
   await expect(page.locator(".settings-content")).toBeHidden();
   await expect(page.locator(".settings-rail-item")).toHaveCount(DESTINATIONS.length);
+  await expect(page.locator(".settings-rail-group")).toHaveText([
+    "OPai",
+    "AI",
+    "Development",
+    "Trust",
+    "System",
+  ]);
 
   await page.locator('.settings-rail-item[data-rail-target="safety"]').click();
   await expect(layout).toHaveClass(/mobile-detail/);

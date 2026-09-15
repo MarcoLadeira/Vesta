@@ -2,14 +2,18 @@ import { test, expect } from "@playwright/test";
 
 import { openApp, openNav } from "./helpers/app.js";
 
+test.describe.configure({ timeout: 60_000 });
 
 const DESTINATIONS = [
   ["general", "general"],
-  ["models", "models-routing"],
-  ["connections", "connections"],
-  ["usage", "usage-budgets"],
-  ["safety", "safety-privacy"],
   ["appearance", "appearance"],
+  ["models", "models-routing"],
+  ["agents", "agents"],
+  ["plugins", "plugins"],
+  ["usage", "usage-budgets"],
+  ["workspace", "workspace"],
+  ["connections", "connections"],
+  ["safety", "safety-privacy"],
   ["advanced", "advanced"],
 ];
 
@@ -50,7 +54,7 @@ test("desktop Settings destination gallery", async ({ page }) => {
 test("tablet Settings adaptive gallery", async ({ page }) => {
   await bootSettings(page, { width: 768, height: 1024 });
   for (const [id, name] of DESTINATIONS.filter(([id]) =>
-    ["general", "models", "connections", "usage"].includes(id)
+    ["general", "models", "workspace", "connections", "usage"].includes(id)
   )) {
     await choose(page, id);
     await capture(page, `settings-tablet-${name}.png`);
@@ -68,7 +72,7 @@ test("phone Settings index, search, and destination gallery", async ({ page }) =
   await page.locator("#settingsSearchClear").click();
 
   for (const [id, name] of DESTINATIONS.filter(([id]) =>
-    ["models", "connections", "usage", "safety", "appearance"].includes(id)
+    ["models", "workspace", "connections", "usage", "safety", "appearance"].includes(id)
   )) {
     await choose(page, id);
     await capture(page, `settings-phone-${name}.png`);

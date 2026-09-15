@@ -1199,12 +1199,12 @@
     return h;
   }
 
-  // Prompt Library and the seven Insights dashboards used to sit in the
-  // sidebar, above the user's own chat history. They are places you visit
-  // occasionally, not while you work, so they live here now -- still one click
-  // away, and still routable from the command palette and deep links.
+  // Prompt Library and the seven Insights dashboards used to sit in the app
+  // sidebar. They now live in the related Plugins, Agents, or Advanced
+  // destination while remaining routable from search and deep links.
   function toolsHtml(d, ctx) {
     var esc = ctx.esc;
+    var settingsPart = ctx.settingsPart || "all";
     var h = ctx.settingsBodyOnly
       ? ""
       : heroHtml(
@@ -1234,10 +1234,21 @@
       },
     ];
     groups.forEach(function (group) {
+      var items = group.items.filter(function (item) {
+        if (settingsPart === "agents") {
+          return ["agents", "workflows", "proof"].indexOf(item.go) >= 0;
+        }
+        if (settingsPart === "plugins") return item.go === "prompts";
+        if (settingsPart === "advanced") {
+          return ["agents", "workflows", "proof", "prompts"].indexOf(item.go) < 0;
+        }
+        return true;
+      });
+      if (!items.length) return;
       h += '<div class="set-head">' + esc(group.head) + "</div>";
       h +=
         '<div class="quick-grid">' +
-        group.items
+        items
           .map(function (tile) {
             return (
               '<button class="quick-tile" type="button" data-go-view="' +
@@ -1750,6 +1761,194 @@
     );
   }
 
+  function agentsHtml(d, ctx) {
+    return (
+      heroHtml(
+        ctx.esc,
+        "Agents",
+        "Review agent work and the repeatable workflows that coordinate it.",
+        ["project", "local"]
+      ) +
+      settingsSubsection(
+        ctx.esc,
+        "agent-tools",
+        "Agent tools",
+        toolsHtml(
+          d,
+          settingsContext(ctx, { settingsBodyOnly: true, settingsPart: "agents" })
+        )
+      )
+    );
+  }
+
+  function pluginsHtml(d, ctx) {
+    var esc = ctx.esc;
+    return (
+      heroHtml(
+        esc,
+        "Plugins",
+        "Keep reusable tools and connected capabilities in one place.",
+        ["app", "local"]
+      ) +
+      settingsSubsection(
+        esc,
+        "built-in-tools",
+        "Built-in tools",
+        toolsHtml(
+          d,
+          settingsContext(ctx, { settingsBodyOnly: true, settingsPart: "plugins" })
+        )
+      ) +
+      settingsSubsection(
+        esc,
+        "plugin-connections",
+        "Plugin connections",
+        '<div class="set-head">Connected capabilities</div>' +
+          '<div class="set-note">Installable plugin management is not available in this build. Provider and GitHub integrations remain available in Connections.</div>' +
+          '<div class="actions"><button class="btn" type="button" data-settings-target="connections">Open Connections</button></div>'
+      )
+    );
+  }
+
+  function workspaceHtml(d, ctx) {
+    var esc = ctx.esc;
+    var state = ctx.state || {};
+    var boot = state.boot || {};
+    var workspace = boot.workspace || {};
+    var prefs = d.prefs || {};
+    var github = d.github || {};
+    var accounts = d.accounts || boot.accounts || [];
+    var connectedCount = accounts.filter(function (account) {
+      return !!account.connected;
+    }).length;
+    var activeMode = (boot.modes || []).find(function (mode) {
+      return mode.id === (prefs.default_mode || boot.selectedMode || "safe-auto");
+    });
+    var projectName = workspace.label || workspace.name || "Current project";
+    var projectRoot = workspace.root || "No project selected";
+    var branch = workspace.branch || "Not reported";
+    var fileCount = Number(workspace.file_count || workspace.fileCount || 0);
+    var modeLabel = modePresentationLabel(
+      activeMode && activeMode.id,
+      activeMode && activeMode.label
+    );
+    var githubValue = github.connected
+      ? github.login
+        ? "Connected as " + github.login
+        : "Connected"
+      : "Not connected";
+
+    function workspaceRow(label, hint, value, action) {
+      return (
+        '<div class="workspace-setting-row"><div class="workspace-setting-copy"><span class="k">' +
+        esc(label) +
+        '</span><span class="hint">' +
+        esc(hint) +
+        '</span></div><div class="workspace-setting-control"><span class="v">' +
+        esc(value) +
+        "</span>" +
+        (action || "") +
+        "</div></div>"
+      );
+    }
+
+    var tabs = [
+      ["projects", "general", "Projects"],
+      ["terminal", "advanced", "Terminal"],
+      ["git", "models", "Git & GitHub"],
+      ["rules", "safety", "Rules"],
+      ["environment", "plugins", "Environment"],
+    ];
+    var tabHtml =
+      '<nav class="workspace-tabs" id="workspaceTabs" aria-label="Workspace settings">' +
+      tabs
+        .map(function (tab, index) {
+          return (
+            '<button class="workspace-tab' +
+            (index === 0 ? " active" : "") +
+            '" type="button" data-workspace-tab="' +
+            esc(tab[0]) +
+            '" aria-pressed="' +
+            (index === 0 ? "true" : "false") +
+            '"><span class="workspace-tab-icon" aria-hidden="true">' +
+            (ICONS[tab[1]] || "") +
+            "</span>" +
+            esc(tab[2]) +
+            "</button>"
+          );
+        })
+        .join("") +
+      "</nav>";
+
+    return (
+      heroHtml(
+        esc,
+        "Workspace",
+        "Configure your development environment and how OPai works with your code."
+      ) +
+      tabHtml +
+      settingsSubsection(
+        esc,
+        "projects",
+        "Projects",
+        '<div class="set-head">Projects</div><div class="set-note">Set up how OPai opens and identifies your projects.</div>' +
+          workspaceRow(
+            "Current project",
+            projectName,
+            projectRoot,
+            '<button class="btn" id="settingsOpenWorkspace" type="button">Browse</button>'
+          ) +
+          workspaceRow("Current branch", "Reported by Git", branch, "")
+      ) +
+      settingsSubsection(
+        esc,
+        "terminal",
+        "Terminal",
+        '<div class="set-head">Terminal</div><div class="set-note">Choose how OPai approaches command-line work.</div>' +
+          workspaceRow("Default shell", "Inherited from this device", "System default", "") +
+          workspaceRow(
+            "Command approval mode",
+            "Controls when OPai pauses before running commands.",
+            modeLabel || "Auto",
+            '<button class="btn ghost" type="button" data-settings-target="safety">Review rules</button>'
+          )
+      ) +
+      settingsSubsection(
+        esc,
+        "git",
+        "Git & GitHub",
+        '<div class="set-head">Git &amp; GitHub</div><div class="set-note">Repository identity and remote collaboration.</div>' +
+          workspaceRow("Repository branch", "Current checkout", branch, "") +
+          workspaceRow(
+            "GitHub",
+            "Push and pull request access is managed as a connection.",
+            githubValue,
+            '<button class="btn ghost" type="button" data-settings-target="connections">Manage</button>'
+          )
+      ) +
+      settingsSubsection(
+        esc,
+        "rules",
+        "Rules",
+        '<div class="set-head">Rules</div><div class="set-note">Project permissions remain explicit and reviewable.</div>' +
+          workspaceRow(
+            "Active run mode",
+            "Applied to new tasks in this project.",
+            modeLabel || "Auto",
+            '<button class="btn ghost" type="button" data-settings-target="safety">Open Safety &amp; Privacy</button>'
+          )
+      ) +
+      settingsSubsection(
+        esc,
+        "environment",
+        "Environment",
+        '<div class="set-head">Environment</div><div class="set-note">A concise view of the local project context OPai can use.</div>' +
+          workspaceRow("Indexed files", "Available project context", fileCount ? String(fileCount) : "Not indexed", "") +
+          workspaceRow("AI connections", "Available provider accounts", String(connectedCount), "")
+      )
+    );
+  }
+
   function advancedHtml(d, ctx) {
     return (
       heroHtml(
@@ -1762,7 +1961,10 @@
         ctx.esc,
         "tools",
         "Tools & Insights",
-        toolsHtml(d, settingsContext(ctx, { settingsBodyOnly: true }))
+        toolsHtml(
+          d,
+          settingsContext(ctx, { settingsBodyOnly: true, settingsPart: "advanced" })
+        )
       ) +
       settingsSubsection(
         ctx.esc,
@@ -1786,6 +1988,22 @@
       { label: "Add a custom model", group: "Models", selector: "[data-add-custom-model]", keywords: "custom model id capability" },
       { label: "Reset model picker", group: "Models", selector: "[data-reset-model-overrides]", keywords: "restore models defaults" },
       { label: "Route order", group: "Routing", subsectionId: "models", keywords: "local first fallback provider priority" },
+    ],
+    agents: [
+      { label: "Agents", group: "Agent tools", selector: '[data-go-view="agents"]', keywords: "background runs outcomes delegation" },
+      { label: "Workflows", group: "Agent tools", selector: '[data-go-view="workflows"]', keywords: "repeatable multi step tasks automation" },
+      { label: "Proof Bundle", group: "Agent tools", selector: '[data-go-view="proof"]', keywords: "evidence handoff results" },
+    ],
+    plugins: [
+      { label: "Prompt Library", group: "Built-in tools", selector: '[data-go-view="prompts"]', keywords: "saved prompt template reusable" },
+      { label: "Connections", group: "Plugin connections", selector: '[data-settings-target="connections"]', keywords: "integration provider github capability" },
+    ],
+    workspace: [
+      { label: "Current project", group: "Projects", subsectionId: "projects", keywords: "workspace folder directory browse files" },
+      { label: "Terminal", group: "Terminal", subsectionId: "terminal", keywords: "shell command approval" },
+      { label: "Git & GitHub", group: "Git & GitHub", subsectionId: "git", keywords: "repository branch push pull request" },
+      { label: "Rules", group: "Rules", subsectionId: "rules", keywords: "permission run mode project" },
+      { label: "Environment", group: "Environment", subsectionId: "environment", keywords: "indexed files providers local context" },
     ],
     connections: [
       { label: "Provider connections", group: "Connections", subsectionId: "connections", keywords: "provider account api key credential sign in connect subscription" },
@@ -1821,8 +2039,7 @@
       { label: "Copy activity", group: "Appearance", selector: '[data-appearance-key="activity_copy"]', keywords: "select log work" },
     ],
     advanced: [
-      { label: "Prompt Library", group: "Tools & Insights", selector: '[data-go-view="prompts"]', keywords: "saved prompt template" },
-      { label: "Insights", group: "Tools & Insights", subsectionId: "tools", keywords: "money saved context benchmark agents proof workflows dashboard" },
+      { label: "Insights", group: "Tools & Insights", subsectionId: "tools", keywords: "money saved context benchmark dashboard" },
       { label: "Update status", group: "About & updates", selector: "#settingsUpdateCard", keywords: "update version latest check restart" },
       { label: "Automatic downloads", group: "About & updates", selector: '[data-update-policy="automatic_downloads"]', keywords: "update download policy" },
       { label: "Install on quit", group: "About & updates", selector: '[data-update-policy="automatic_install_on_quit"]', keywords: "update restart policy" },
@@ -1850,7 +2067,18 @@
         subsectionId: SECTION_ALIASES[clean].subsectionId,
       };
     }
-    var known = ["general", "models", "connections", "usage", "safety", "appearance", "advanced"];
+    var known = [
+      "general",
+      "appearance",
+      "models",
+      "agents",
+      "plugins",
+      "usage",
+      "workspace",
+      "connections",
+      "safety",
+      "advanced",
+    ];
     return {
       sectionId: known.indexOf(clean) >= 0 ? clean : "general",
       subsectionId: null,
@@ -1866,8 +2094,12 @@
     );
   };
   var ICONS = {
+    back: svg('<path d="m15 18-6-6 6-6"/><path d="M9 12h10"/>'),
     general: svg('<rect x="3.5" y="3.5" width="17" height="17" rx="2.5"/><path d="M3.5 9h17M9 9v11.5"/>'),
     models: svg('<circle cx="6" cy="6" r="2.2"/><circle cx="18" cy="18" r="2.2"/><path d="M8.2 6H14a4 4 0 0 1 0 8H9.8"/>'),
+    agents: svg('<circle cx="8" cy="9" r="3"/><circle cx="17" cy="8" r="2.5"/><path d="M3.5 19c.5-3.2 2.3-5 4.5-5s4 1.8 4.5 5M13 15c1-.9 2.2-1.3 3.5-1.3 2.1 0 3.5 1.7 4 4.3"/>'),
+    plugins: svg('<path d="M8 3h3v4h2V3h3v4h1.5A2.5 2.5 0 0 1 20 9.5V12h-4v2h4v.5a2.5 2.5 0 0 1-2.5 2.5H14v4h-4v-4H6.5A2.5 2.5 0 0 1 4 14.5V11h4V9H4A2 2 0 0 1 6 7h2V3Z"/>'),
+    workspace: svg('<path d="M3.5 6.5A2.5 2.5 0 0 1 6 4h4l2 2h6A2.5 2.5 0 0 1 20.5 8.5v8A2.5 2.5 0 0 1 18 19H6a2.5 2.5 0 0 1-2.5-2.5v-10Z"/>'),
     connections: svg('<rect x="3.5" y="4" width="17" height="7" rx="2"/><rect x="3.5" y="13" width="17" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>'),
     usage: svg('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>'),
     safety: svg('<path d="M12 3 5 6v5c0 4 3 7 7 8 4-1 7-4 7-8V6l-7-3Z"/><path d="m9 12 2 2 4-4"/>'),
@@ -1880,6 +2112,7 @@
   var sections = [
     {
       id: "general",
+      group: "OPai",
       title: "General",
       summary: "Defaults for new tasks",
       keywords: "general defaults task mode focus output format overview",
@@ -1887,39 +2120,8 @@
       render: generalHtml,
     },
     {
-      id: "models",
-      title: "Models & Routing",
-      summary: "Models, routing, and fallback order",
-      keywords: "model default routing focus profile provider priority fallback local first",
-      searchItems: SEARCH_ITEMS.models,
-      render: modelsRoutingHtml,
-    },
-    {
-      id: "connections",
-      title: "Connections",
-      summary: "Provider accounts, keys, and health",
-      keywords: "provider connection account api key credential sign in github doctor codex",
-      searchItems: SEARCH_ITEMS.connections,
-      render: connectionsHtml,
-    },
-    {
-      id: "usage",
-      title: "Usage & Budgets",
-      summary: "Consumption, balances, and limits",
-      keywords: "usage balance credit cost firewall budget spend cap quota rate limit remaining requests tokens daily monthly",
-      searchItems: SEARCH_ITEMS.usage,
-      render: usageBudgetsHtml,
-    },
-    {
-      id: "safety",
-      title: "Safety & Privacy",
-      summary: "Approvals, cloud access, and local data",
-      keywords: "permission permissions safety privacy data telemetry local cloud firewall panic approval",
-      searchItems: SEARCH_ITEMS.safety,
-      render: safetyPrivacyHtml,
-    },
-    {
       id: "appearance",
+      group: "OPai",
       title: "Appearance",
       summary: "Layout, density, and motion",
       keywords: "theme density response compact balanced detailed motion animation reduced dark",
@@ -1927,10 +2129,74 @@
       render: appearanceHtml,
     },
     {
+      id: "models",
+      group: "AI",
+      title: "Models & Routing",
+      summary: "Models, routing, and fallback order",
+      keywords: "model default routing focus profile provider priority fallback local first",
+      searchItems: SEARCH_ITEMS.models,
+      render: modelsRoutingHtml,
+    },
+    {
+      id: "agents",
+      group: "AI",
+      title: "Agents",
+      summary: "Agent work, workflows, and evidence",
+      keywords: "agents background work workflows proof outcomes",
+      searchItems: SEARCH_ITEMS.agents,
+      render: agentsHtml,
+    },
+    {
+      id: "plugins",
+      group: "AI",
+      title: "Plugins",
+      summary: "Reusable tools and integrations",
+      keywords: "plugins extensions prompts integrations connected capabilities",
+      searchItems: SEARCH_ITEMS.plugins,
+      render: pluginsHtml,
+    },
+    {
+      id: "usage",
+      group: "AI",
+      title: "Usage & Budgets",
+      summary: "Consumption, balances, and limits",
+      keywords: "usage balance credit cost firewall budget spend cap quota rate limit remaining requests tokens daily monthly",
+      searchItems: SEARCH_ITEMS.usage,
+      render: usageBudgetsHtml,
+    },
+    {
+      id: "workspace",
+      group: "Development",
+      title: "Workspace",
+      summary: "Projects, terminal, Git, and environment",
+      keywords: "workspace project terminal shell git github rules environment directory folder",
+      searchItems: SEARCH_ITEMS.workspace,
+      render: workspaceHtml,
+    },
+    {
+      id: "connections",
+      group: "Development",
+      title: "Connections",
+      summary: "Provider accounts, keys, and health",
+      keywords: "provider connection account api key credential sign in github doctor codex",
+      searchItems: SEARCH_ITEMS.connections,
+      render: connectionsHtml,
+    },
+    {
+      id: "safety",
+      group: "Trust",
+      title: "Safety & Privacy",
+      summary: "Approvals, cloud access, and local data",
+      keywords: "permission permissions safety privacy data telemetry local cloud firewall panic approval",
+      searchItems: SEARCH_ITEMS.safety,
+      render: safetyPrivacyHtml,
+    },
+    {
       id: "advanced",
+      group: "System",
       title: "Advanced",
       summary: "Tools, updates, and build details",
-      keywords: "advanced tools prompt library insights update about version release asset build diagnostics",
+      keywords: "advanced tools insights update about version release asset build diagnostics",
       searchItems: SEARCH_ITEMS.advanced,
       render: advancedHtml,
     },
@@ -1945,8 +2211,11 @@
       return !!html;
     });
     var sidebarHeader =
-      '<div class="settings-sidebar-head"><div class="settings-sidebar-title">Settings</div>' +
-      '<div class="settings-toolbar"><div class="settings-search-field">' +
+      '<div class="settings-sidebar-head"><div class="settings-sidebar-brand"><button class="settings-back" id="settingsBack" type="button" aria-label="Back to Chat" title="Back to Chat"><span aria-hidden="true">' +
+      ICONS.back +
+      '</span></button><div class="settings-sidebar-brand-copy"><div class="settings-sidebar-title">OPai</div>' +
+      '<div class="settings-sidebar-tagline">Code faster together.</div><span class="settings-a11y-label">Settings</span></div>' +
+      '</div><div class="settings-toolbar"><div class="settings-search-field">' +
       '<input id="settingsSearch" type="search" placeholder="Search settings…" aria-label="Search settings" autocomplete="off" spellcheck="false" aria-controls="settingsSearchResults">' +
       '<button id="settingsSearchClear" class="settings-search-clear" type="button" aria-label="Clear settings search" title="Clear search" hidden>×</button>' +
       "</div></div></div>";
@@ -1967,22 +2236,39 @@
         );
       })
       .join("");
+    var groupOrder = ["OPai", "AI", "Development", "Trust", "System"];
     var rail =
       '<nav class="settings-rail" aria-label="Settings pages">' +
-      present
-        .map(function (section) {
+      groupOrder
+        .map(function (group) {
+          var grouped = present.filter(function (section) {
+            return section.group === group;
+          });
+          if (!grouped.length) return "";
           return (
-            '<button class="settings-rail-item" type="button" data-rail-target="' +
-            esc(section.id) +
-            '" aria-controls="set-sec-' +
-            esc(section.id) +
-            '"><span class="settings-rail-icon" aria-hidden="true">' +
-            (ICONS[section.id] || "") +
-            '</span><span class="settings-rail-copy"><span class="settings-rail-label">' +
-            esc(section.title) +
-            '</span><span class="settings-rail-summary">' +
-            esc(section.summary || "") +
-            "</span></span></button>"
+            '<section class="settings-rail-section" aria-label="' +
+            esc(group) +
+            '"><div class="settings-rail-group">' +
+            esc(group) +
+            "</div>" +
+            grouped
+              .map(function (section) {
+                return (
+                  '<button class="settings-rail-item" type="button" data-rail-target="' +
+                  esc(section.id) +
+                  '" aria-controls="set-sec-' +
+                  esc(section.id) +
+                  '"><span class="settings-rail-icon" aria-hidden="true">' +
+                  (ICONS[section.id] || "") +
+                  '</span><span class="settings-rail-copy"><span class="settings-rail-label">' +
+                  esc(section.title) +
+                  '</span><span class="settings-rail-summary">' +
+                  esc(section.summary || "") +
+                  "</span></span></button>"
+                );
+              })
+              .join("") +
+            "</section>"
           );
         })
         .join("") +
@@ -2016,6 +2302,7 @@
     var noResults = page.querySelector("#settingsNoResults");
     var mobileTitle = page.querySelector("#settingsMobileTitle");
     var mobileBack = page.querySelector("#settingsMobileBack");
+    var settingsBack = page.querySelector("#settingsBack");
     var activeId = "general";
     wire(content, ctx);
 
@@ -2168,6 +2455,34 @@
         activate(link.dataset.railTarget, true, { showDetail: true, focus: true });
       });
     });
+    page.querySelectorAll("[data-settings-target]").forEach(function (link) {
+      link.addEventListener("click", function () {
+        activate(link.dataset.settingsTarget, true, { showDetail: true, focus: true });
+      });
+    });
+    page.querySelectorAll("[data-workspace-tab]").forEach(function (tab) {
+      tab.addEventListener("click", function () {
+        var target = content.querySelector(
+          '[data-pane="workspace"] [data-settings-subsection="' +
+            tab.dataset.workspaceTab +
+            '"]'
+        );
+        page.querySelectorAll("[data-workspace-tab]").forEach(function (item) {
+          var selected = item === tab;
+          item.classList.toggle("active", selected);
+          item.setAttribute("aria-pressed", selected ? "true" : "false");
+        });
+        if (target && typeof target.scrollIntoView === "function") {
+          target.scrollIntoView({ block: "start", inline: "nearest" });
+        }
+      });
+    });
+    var openWorkspace = page.querySelector("#settingsOpenWorkspace");
+    if (openWorkspace && ctx.bridge && ctx.bridge.openWorkspace) {
+      openWorkspace.addEventListener("click", function () {
+        ctx.bridge.openWorkspace();
+      });
+    }
     if (search) {
       search.addEventListener("input", function () {
         applySearch(search.value);
@@ -2185,6 +2500,11 @@
     if (clearButton) {
       clearButton.addEventListener("click", function () {
         clearSearch(true);
+      });
+    }
+    if (settingsBack) {
+      settingsBack.addEventListener("click", function () {
+        if (typeof ctx.switchView === "function") ctx.switchView("chat");
       });
     }
     if (mobileBack) {

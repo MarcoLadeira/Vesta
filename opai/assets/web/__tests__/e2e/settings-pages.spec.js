@@ -11,20 +11,107 @@ test.beforeEach(async ({ page }) => {
 const railItem = (page, id) => page.locator(`.settings-rail-item[data-rail-target="${id}"]`);
 const seen = { useInnerText: true };
 
-test("the rail presents seven task-oriented destinations with General first", async ({ page }) => {
+test("the rail groups related destinations like the desktop settings reference", async ({ page }) => {
+  await expect(page.locator(".settings-rail-group")).toHaveText([
+    "OPai",
+    "AI",
+    "Development",
+    "Trust",
+    "System",
+  ]);
   await expect(page.locator(".settings-rail-item .settings-rail-label")).toHaveText([
     "General",
-    "Models & Routing",
-    "Connections",
-    "Usage & Budgets",
-    "Safety & Privacy",
     "Appearance",
+    "Models & Routing",
+    "Agents",
+    "Plugins",
+    "Usage & Budgets",
+    "Workspace",
+    "Connections",
+    "Safety & Privacy",
     "Advanced",
   ]);
   await expect(railItem(page, "general")).toHaveAttribute("aria-current", "page");
   await expect(page.locator("#settingsPage")).toContainText("Defaults for new tasks", seen);
   await expect(page.locator("#settingsPage")).not.toContainText("Connection Doctor", seen);
   await expect(page.locator("#settingsPage")).not.toContainText("Daily cap", seen);
+});
+
+test("Settings owns the workspace until the back arrow returns to Chat", async ({ page }) => {
+  const app = page.locator("#app");
+
+  await expect(app).toHaveClass(/settings-active/);
+  await expect(page.locator(".app > .sidebar")).toBeHidden();
+  await expect(page.locator(".app > .inspector")).toBeHidden();
+  await expect(page.locator("#recents")).toBeHidden();
+
+  const back = page.locator("#settingsBack");
+  await expect(back).toBeVisible();
+  await expect(back).toHaveAttribute("aria-label", "Back to Chat");
+  await back.click();
+
+  await expect(page.locator("#view-chat")).toBeVisible();
+  await expect(app).not.toHaveClass(/settings-active/);
+  await expect(page.locator(".app > .sidebar")).toBeVisible();
+});
+
+test("every overflowing Settings page uses the custom right-hand scroll rail", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 640 });
+  const scroller = page.locator("#view-settings > .scroll");
+  const rail = page.locator("#settingsPageScrollbar");
+  const thumb = page.locator("#settingsPageScrollbarThumb");
+  const down = page.getByRole("button", { name: "Scroll settings down" });
+
+  for (const id of ["models", "workspace", "connections", "usage", "advanced"]) {
+    await railItem(page, id).click();
+    await expect(rail).toBeVisible();
+    expect(await scroller.evaluate((node) => node.scrollHeight > node.clientHeight)).toBe(true);
+  }
+
+  const visuals = await rail.evaluate((node) => {
+    const railStyle = getComputedStyle(node);
+    const thumbStyle = getComputedStyle(node.querySelector("#settingsPageScrollbarThumb"));
+    return {
+      width: railStyle.width,
+      track: railStyle.backgroundColor,
+      thumb: thumbStyle.backgroundImage,
+    };
+  });
+  expect(parseFloat(visuals.width)).toBeGreaterThanOrEqual(18);
+  expect(visuals.track).not.toBe("rgba(0, 0, 0, 0)");
+  expect(visuals.thumb).not.toBe("none");
+
+  await scroller.evaluate((node) => { node.scrollTop = 0; });
+  await down.click();
+  await expect.poll(() => scroller.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+  await expect(thumb).toHaveAttribute("aria-valuenow", /[1-9]\d*/);
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await railItem(page, "general").click();
+  await expect(rail).toBeHidden();
+});
+
+test("Workspace mirrors the development-focused reference layout", async ({ page }) => {
+  await railItem(page, "workspace").click();
+
+  await expect(page.locator("#set-sec-workspace .pane-title")).toHaveText("Workspace");
+  await expect(page.locator("#workspaceTabs [data-workspace-tab]")).toHaveText([
+    "Projects",
+    "Terminal",
+    "Git & GitHub",
+    "Rules",
+    "Environment",
+  ]);
+  await expect(page.locator("#set-sec-workspace .set-head")).toContainText([
+    "Projects",
+    "Terminal",
+    "Git & GitHub",
+    "Rules",
+    "Environment",
+  ]);
+
+  await page.locator("#settingsOpenWorkspace").click();
+  expect(await page.evaluate(() => window.__mock.openWorkspaceCount)).toBe(1);
 });
 
 test("choosing a destination replaces the detail pane and writes a canonical link", async ({ page }) => {

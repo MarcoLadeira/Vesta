@@ -44,6 +44,24 @@ test("a search result navigates to its canonical setting and clears search", asy
   await expect(page.locator('[data-settings-subsection="budgets"]')).toBeVisible();
 });
 
+for (const [query, label, destination] of [
+  ["prompt library", "Prompt Library", "plugins"],
+  ["workflows", "Workflows", "agents"],
+]) {
+  test(`${label} search opens its grouped destination`, async ({ page }) => {
+    await page.locator("#settingsSearch").fill(query);
+    const result = page
+      .locator("[data-settings-search-result]")
+      .filter({ hasText: label })
+      .first();
+    await result.click();
+    await expect(page.locator(`#set-sec-${destination}`)).toBeVisible();
+    await expect(
+      page.locator(`#set-sec-${destination} [data-go-view]`).filter({ hasText: label })
+    ).toBeFocused();
+  });
+}
+
 test("search supports ArrowDown, Enter, Escape, and a visible clear action", async ({ page }) => {
   const search = page.locator("#settingsSearch");
   await search.fill("reduced motion");

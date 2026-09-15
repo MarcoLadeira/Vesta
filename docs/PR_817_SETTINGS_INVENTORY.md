@@ -4,15 +4,13 @@ This document is the implementation inventory for the second-pass Settings infor
 
 ## Information architecture
 
-The Settings rail has seven task-oriented destinations:
+The Settings rail has ten task-oriented destinations grouped by similarity:
 
-1. General
-2. Models & Routing
-3. Connections
-4. Usage & Budgets
-5. Safety & Privacy
-6. Appearance
-7. Advanced
+1. OPai: General, Appearance
+2. AI: Models & Routing, Agents, Plugins, Usage & Budgets
+3. Development: Workspace, Connections
+4. Trust: Safety & Privacy
+5. System: Advanced
 
 The former Overview dashboard is intentionally removed. Settings now opens at General, while cross-cutting status remains next to the control it describes.
 
@@ -29,7 +27,10 @@ The former Overview dashboard is intentionally removed. Settings now opens at Ge
 | Permissions & Safety | Safety & Privacy | Agent permissions | `#settings/permissions` -> `#settings/safety` |
 | Privacy & Data | Safety & Privacy | Data & privacy | `#settings/privacy` -> `#settings/safety` |
 | Appearance | Appearance | Appearance | `#settings/appearance` |
-| Tools & Insights | Advanced | Tools & Insights | `#settings/tools` -> `#settings/advanced` |
+| Tools & Insights | Agents | Agents, Workflows, and Proof Bundle | `#settings/agents` |
+| Tools & Insights | Plugins | Prompt Library and integration guidance | `#settings/plugins` |
+| Tools & Insights | Advanced | Remaining tools and insights | `#settings/tools` -> `#settings/advanced` |
+| Workspace | Workspace | Projects, Terminal, Git & GitHub, Rules, and Environment | `#settings/workspace` |
 | About | Advanced | About & updates | `#settings/about` -> `#settings/advanced` |
 
 Legacy routes remain aliases only. New navigation writes canonical hashes.
@@ -120,12 +121,34 @@ Legacy routes remain aliases only. New navigation writes canonical hashes.
 
 Every segmented control is exposed as a radio group with one checked, tabbable option. Left/right and up/down arrow keys move and select within the group. The theme picker is the same radio group drawn as five preview tiles; each tile renders with the real tokens of the palette it names, stars included.
 
+### Agents
+
+| Surface | Control or status | Existing owner | Disposition |
+| --- | --- | --- | --- |
+| Agent tools | Agents, Workflows, and Proof Bundle | Existing top-level views | Grouped into a dedicated AI destination; navigation retained |
+
+### Plugins
+
+| Surface | Control or status | Existing owner | Disposition |
+| --- | --- | --- | --- |
+| Plugin tools | Prompt Library | Existing top-level view | Moved into the Plugins destination; navigation retained |
+| Integrations | Provider and GitHub setup guidance | Connections destination | Cross-link retained without introducing unsupported plugin persistence |
+
+### Workspace
+
+| Surface | Control or status | Existing owner | Disposition |
+| --- | --- | --- | --- |
+| Projects | Current project and working directory | Boot workspace payload; `openWorkspace` | Read-only context retained; Browse opens the existing workspace picker |
+| Terminal | Default shell and command approval mode | Device defaults; permission payload | Current behavior summarized with a link to Safety & Privacy |
+| Git & GitHub | Current branch and GitHub connection | Boot workspace and connection payloads | Read-only status with a link to Connections |
+| Rules | Active run mode | Preference and permission payloads | Read-only status with a link to Safety & Privacy |
+| Environment | Indexed files and connected accounts | Boot workspace and account payloads | Read-only local environment summary |
+
 ### Advanced
 
 | Surface | Control or status | Existing owner | Disposition |
 | --- | --- | --- | --- |
-| Tools & Insights | Prompt Library | Existing top-level view | Moved from its former Settings page; navigation retained |
-| Tools & Insights | Money Saved, Cost Firewall, Context Waste, Benchmark, Agents, Proof Bundle, and Workflows | Existing top-level views | Moved together; navigation retained |
+| Tools & Insights | Money Saved, Cost Firewall, Context Waste, and Benchmark | Existing top-level views | Remaining system-level insights stay together; navigation retained |
 | About & updates | Version and release stage | About payload | Merged from About |
 | About & updates | Build identity, artifact, asset fingerprint, file count, and runtime source | About payload | Retained |
 | About & updates | Update status | Canonical updater payload | Retained as a read-only projection of updater state |
@@ -158,17 +181,21 @@ The inspected Playwright baselines live in [`settings-gallery.spec.js-snapshots`
 ### Desktop, 1440x900
 
 - `settings-desktop-general.png`
-- `settings-desktop-models-routing.png`
-- `settings-desktop-connections.png`
-- `settings-desktop-usage-budgets.png`
-- `settings-desktop-safety-privacy.png`
 - `settings-desktop-appearance.png`
+- `settings-desktop-models-routing.png`
+- `settings-desktop-agents.png`
+- `settings-desktop-plugins.png`
+- `settings-desktop-usage-budgets.png`
+- `settings-desktop-workspace.png`
+- `settings-desktop-connections.png`
+- `settings-desktop-safety-privacy.png`
 - `settings-desktop-advanced.png`
 
 ### Tablet, 768x1024
 
 - `settings-tablet-general.png`
 - `settings-tablet-models-routing.png`
+- `settings-tablet-workspace.png`
 - `settings-tablet-connections.png`
 - `settings-tablet-usage-budgets.png`
 
@@ -178,6 +205,7 @@ The inspected Playwright baselines live in [`settings-gallery.spec.js-snapshots`
 - `settings-phone-search-results.png`
 - `settings-phone-search-no-results.png`
 - `settings-phone-models-routing.png`
+- `settings-phone-workspace.png`
 - `settings-phone-connections.png`
 - `settings-phone-usage-budgets.png`
 - `settings-phone-safety-privacy.png`
