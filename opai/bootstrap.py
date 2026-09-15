@@ -111,7 +111,7 @@ def _packaged_runtime() -> bool:
 
 
 def _runtime_executable() -> str:
-    """Resolve the executable which understands OPai's internal entry points."""
+    """Resolve the executable which understands Vesta's internal entry points."""
     # Nuitka standalone sets sys.executable to an unshipped python.exe unless
     # its multiprocessing plugin changes it. Its argv[0] is the native entry.
     # Normal Python and PyInstaller retain their interpreter/bootloader path.

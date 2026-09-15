@@ -600,7 +600,7 @@
     var api = global.__opai || {};
     pop.innerHTML = '<div class="cpop-head">Team</div>' +
       ['automatic', '2', '3', '4'].map(function (size) {
-        return menuRow({ role: 'menuitemradio', title: size === 'automatic' ? 'Automatic' : 'Up to ' + size + ' agents at once', desc: size === 'automatic' ? 'OPai assigns roles and coordinates the work.' : '', active: (st.agentsSizing || 'automatic') === size }).replace('class="cpop-row', 'data-team-size="' + size + '" class="cpop-row');
+        return menuRow({ role: 'menuitemradio', title: size === 'automatic' ? 'Automatic' : 'Up to ' + size + ' agents at once', desc: size === 'automatic' ? 'Vesta assigns roles and coordinates the work.' : '', active: (st.agentsSizing || 'automatic') === size }).replace('class="cpop-row', 'data-team-size="' + size + '" class="cpop-row');
       }).join('') + '<div class="cpop-sep"></div>' +
       menuRow({ role: 'menuitemcheckbox', title: 'Allow cloud providers for this objective', desc: 'Sends code and context to cloud providers and may use paid or account quota. Applies to the next objective only.', active: st.agentsAllowCloud === true }).replace('class="cpop-row', 'data-team-cloud class="cpop-row') +
       '<button type="button" class="cpop-row" role="menuitem" data-team-show>Show team</button>' +

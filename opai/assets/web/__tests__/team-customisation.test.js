@@ -35,7 +35,7 @@ describe('team customisation projections', () => {
     const hostile = map.graphHtml(objective, { a: { x: '0px"><img onerror="bad()">', y: 0 } }).html;
     expect(hostile).not.toContain('<img');
     expect(hostile).not.toContain('onerror');
-    expect(team.state({ held: true, status: 'pending', depends_on: ['a'] }, [{ assignment_id: 'a', status: 'running' }])).not.toContain('OPai will continue');
+    expect(team.state({ held: true, status: 'pending', depends_on: ['a'] }, [{ assignment_id: 'a', status: 'running' }])).not.toContain('Vesta will continue');
   });
 });
 
