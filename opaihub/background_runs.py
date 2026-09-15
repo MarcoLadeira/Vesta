@@ -1124,7 +1124,7 @@ def recover_interrupted_runs(
     and the message this used to write -- "the owning session ended before it
     finished" -- was simply untrue when the owning session was still there.
     Runs whose owner the journal says may be alive are left exactly as they
-    are; ``opai journal pending`` reports them, and they recover on a later
+    are; ``vesta journal pending`` reports them, and they recover on a later
     sweep once their owner is genuinely gone. Their ids are appended to
     ``left_alone`` when the caller passes a list -- exactly the runs this
     sweep skipped, and nothing else the journal happens to know about.

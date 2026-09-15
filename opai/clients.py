@@ -10,10 +10,15 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from opai.integrations import END_MARKER, START_MARKER, opai_home
+from opai.integrations import (
+    END_MARKER,
+    START_MARKER,
+    opai_home,
+    upgrade_legacy_markers,
+)
 
 
-REPAIR_COMMAND = "opai activate --repair"
+REPAIR_COMMAND = "vesta activate --repair"
 
 
 def _client_specs(project_root: Path, home: Path) -> list[dict[str, Any]]:
@@ -65,7 +70,9 @@ def _has_opai_block(path: Path) -> bool:
     if not path.exists():
         return False
     try:
-        text = path.read_text(encoding="utf-8", errors="replace")
+        text = upgrade_legacy_markers(
+            path.read_text(encoding="utf-8", errors="replace")
+        )
     except OSError:
         return False
     return START_MARKER in text and END_MARKER in text
@@ -81,10 +88,10 @@ def _client_status(spec: dict[str, Any]) -> dict[str, Any]:
 
     if project_managed:
         status = "active"
-        reason = "OPai managed block present."
+        reason = "Vesta managed block present."
     elif project_present:
         status = "broken"
-        reason = "Instruction file exists but is missing the OPai managed block."
+        reason = "Instruction file exists but is missing the Vesta managed block."
     else:
         status = "missing"
         reason = "No Vesta instruction file for this client."
@@ -172,7 +179,7 @@ def detect_stale_paths(project_root: Path, home: Path | None = None) -> dict[str
                     "kind": "missing_global_files",
                     "missing": missing_written[:10],
                     "missing_count": len(missing_written),
-                    "repair": "opai integrate install",
+                    "repair": "vesta integrate install",
                 }
             )
 

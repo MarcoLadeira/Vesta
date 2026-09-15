@@ -50,7 +50,7 @@ def build_savings_card(project_root: Path) -> dict[str, Any]:
         f"Vesta saved an estimated {value} across {routes} routed tasks "
         f"and avoided {avoided} cloud calls on this project."
         if routes
-        else 'No routed tasks recorded yet - run: opai route "<task>" --record'
+        else 'No routed tasks recorded yet - run: vesta route "<task>" --record'
     )
 
     return {

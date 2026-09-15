@@ -188,7 +188,7 @@ test('timeline retains work in order and the collapsed team gives space back', a
   await expect(page.locator('.agents-chat-card h3')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Open in Agents', exact: true })).toHaveCount(0);
   await page.evaluate(({ id, o }) => window.__mock.emitObjective({ requestId: id, workspaceRoot: '/demo', objective: { ...o, revision: 2, assignments: o.assignments.map((a) => a.assignment_id === 'sam' ? { ...a, status: 'pending' } : a) } }), { id, o: objective });
-  await expect(page.locator('.team-roster')).toContainText('Waiting for Alex · OPai will continue');
+  await expect(page.locator('.team-roster')).toContainText('Waiting for Alex · Vesta will continue');
   const before = await page.locator('#view-chat').boundingBox();
   await page.getByRole('button', { name: 'Collapse AI Team' }).click();
   await expect.poll(async () => (await page.locator('#view-chat').boundingBox()).width).toBeGreaterThan(before.width + 200);

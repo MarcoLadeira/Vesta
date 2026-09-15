@@ -333,7 +333,7 @@ def validate(provider: str, model_id: str | None) -> dict[str, object]:
 
 
 def catalog() -> dict[str, list[dict[str, str]]]:
-    """The account-provider registry as plain data — for ``opai doctor`` and
+    """The account-provider registry as plain data — for ``vesta doctor`` and
     the GUI Connection Doctor to render the one true account model list.
 
     Free API providers are registered in ``_REGISTRY`` as well (F2) but are

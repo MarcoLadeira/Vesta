@@ -881,7 +881,7 @@ def export_promptfoo_config(
         [
             "metadata:",
             "  opai_privacy: raw prompts are not exported",
-            "  recommended_command: opai benchmark run --suite local --mode both",
+            "  recommended_command: vesta benchmark run --suite local --mode both",
         ]
     )
     target.write_text("\n".join(lines) + "\n", encoding="utf-8")

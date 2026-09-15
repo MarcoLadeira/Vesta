@@ -463,7 +463,7 @@ class _EditingRunner(FakeStreamingRunner):
     """A fake provider that answers with a canned file: block.
 
     Implements both paths: ``stream`` (callbacks supplied) and ``complete``
-    (blocking, what ``opai build`` uses without callbacks).
+    (blocking, what ``vesta build`` uses without callbacks).
     """
 
     def __init__(self, answer: str):

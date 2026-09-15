@@ -43,11 +43,11 @@ agents:
 The strongest next product move is a benchmark proof loop:
 
 ```sh
-opai benchmark run --suite local --mode both
-opai benchmark run --suite max --mode both
-opai benchmark gate --min-context-reduction 10 --require-risk-blocks
-opai benchmark compare --format markdown
-opai benchmark export --harness promptfoo
+vesta benchmark run --suite local --mode both
+vesta benchmark run --suite max --mode both
+vesta benchmark gate --min-context-reduction 10 --require-risk-blocks
+vesta benchmark compare --format markdown
+vesta benchmark export --harness promptfoo
 ```
 
 This makes Vesta defensible even when underlying coding agents improve, because

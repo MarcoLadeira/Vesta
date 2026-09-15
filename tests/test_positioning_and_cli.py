@@ -31,7 +31,7 @@ class PositioningConsistencyTests(unittest.TestCase):
 
     def test_proof_numbers_are_reproducible_claims(self):
         text = (REPO / "docs" / "PROOF.md").read_text(encoding="utf-8")
-        self.assertIn("opai savings", text)
+        self.assertIn("vesta savings", text)
         self.assertIn("Reproduce it yourself", text)
 
 

@@ -506,10 +506,10 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             "known_tool_health": known_tools,
             "local_models": discover_local_models(root),
             "safe_next_steps": [
-                "Run opai doctor for the branded readiness check.",
+                "Run vesta doctor for the branded readiness check.",
                 "Review hub/registry/tools.yaml before enabling cloud tools.",
-                "Use opai hub tool health --id <tool> for targeted checks.",
-                "Use opai hub project attach to create a project overlay.",
+                "Use vesta hub tool health --id <tool> for targeted checks.",
+                "Use vesta hub project attach to create a project overlay.",
             ],
         }
     )

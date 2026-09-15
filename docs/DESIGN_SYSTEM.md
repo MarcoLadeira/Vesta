@@ -1,6 +1,6 @@
 # Vesta — Design System
 
-The shipped Vesta GUI (`opai gui`) renders with **Chromium (QtWebEngine) + CSS**,
+The shipped Vesta GUI (`vesta gui`) renders with **Chromium (QtWebEngine) + CSS**,
 not Qt/QSS. Tokens are CSS custom properties in
 `opai/assets/web/design-tokens.css`; components are DOM elements styled by class
 in `styles.css`. This doc is the contract so the surface stays consistent as it
@@ -8,7 +8,7 @@ grows. See [`WEB_UI.md`](WEB_UI.md) for the architecture (bridge, boot payload,
 module layout).
 
 > The classic Qt/QSS window in `opai/gui_desktop.py` is a **fallback** only
-> (`opai gui --classic`, or machines without QtWebEngine). Its tokens live as
+> (`vesta gui --classic`, or machines without QtWebEngine). Its tokens live as
 > Python constants in that module and mirror the palette below; the web surface
 > is the product.
 

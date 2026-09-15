@@ -12,9 +12,9 @@ Security defaults:
 Use:
 
 ```powershell
-opai hub tool health --id detect-secrets
+vesta hub tool health --id detect-secrets
 python -m opcoding tools . run detect-secrets
-opai hub sandbox check --command "git reset --hard"
+vesta hub sandbox check --command "git reset --hard"
 ```
 
 Risky commands are listed in `hub/security/risky_commands.yaml`.

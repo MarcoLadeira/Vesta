@@ -106,7 +106,7 @@ class IgnoreGenerationTests(unittest.TestCase):
             generate_client_ignores(root, ["cursor"])
             text = (root / ".cursorignore").read_text(encoding="utf-8")
         self.assertIn("secrets/", text)
-        self.assertIn("OPai context-slimming", text)
+        self.assertIn("Vesta context-slimming", text)
 
     def test_idempotent_does_not_duplicate_block(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -115,7 +115,7 @@ class IgnoreGenerationTests(unittest.TestCase):
             second = generate_client_ignores(root, ["cursor"])
             text = (root / ".cursorignore").read_text(encoding="utf-8")
         self.assertEqual(second["results"][0]["status"], "already_managed")
-        self.assertEqual(text.count("OPai context-slimming rules (managed)"), 1)
+        self.assertEqual(text.count("Vesta context-slimming rules (managed)"), 1)
 
 
 class ConcurrentEditorTests(unittest.TestCase):

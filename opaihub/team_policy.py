@@ -21,8 +21,8 @@ from .state import effective_mcp_servers
 TEAM_POLICY_FILE = "opai-team-policy.yaml"
 
 _TEMPLATE = """# Vesta team policy (committed and shared via git).
-# Apply with:   opai team apply
-# Check in CI:  opai policy check
+# Apply with:   vesta team apply
+# Check in CI:  vesta policy check
 schema_version: 1
 team: {team}
 profile: {profile}
@@ -95,7 +95,7 @@ def validate_against_team_policy(project_root: Path) -> dict[str, Any]:
     if not policy:
         return {
             "ok": False,
-            "reason": f"no {TEAM_POLICY_FILE} found; run 'opai team init'",
+            "reason": f"no {TEAM_POLICY_FILE} found; run 'vesta team init'",
             "violations": ["team_policy_missing"],
         }
 
@@ -110,7 +110,7 @@ def validate_against_team_policy(project_root: Path) -> dict[str, Any]:
                 "check": "profile",
                 "expected": expected_profile,
                 "actual": resolved["profile"],
-                "fix": "opai team apply",
+                "fix": "vesta team apply",
             }
         )
 
@@ -141,7 +141,7 @@ def validate_against_team_policy(project_root: Path) -> dict[str, Any]:
                 "check": "allow_paid",
                 "expected": False,
                 "actual": True,
-                "fix": "opai team apply",
+                "fix": "vesta team apply",
             }
         )
 
@@ -161,7 +161,7 @@ def validate_against_team_policy(project_root: Path) -> dict[str, Any]:
                     "check": f"budget:{key}",
                     "team_cap": team_cap,
                     "local": local_cap,
-                    "fix": "opai team apply",
+                    "fix": "vesta team apply",
                 }
             )
 

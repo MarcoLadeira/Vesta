@@ -26,10 +26,10 @@ $29-39/user/month.
 Use the same proof loop everywhere:
 
 ```sh
-opai doctor
-opai benchmark run --suite max --mode both
-opai benchmark gate --min-effectiveness-index 95 --require-risk-blocks
-opai savings --markdown
+vesta doctor
+vesta benchmark run --suite max --mode both
+vesta benchmark gate --min-effectiveness-index 95 --require-risk-blocks
+vesta savings --markdown
 ```
 
 Public wording:
@@ -97,12 +97,12 @@ and governance for Claude, Codex, Copilot, Gemini, Cursor, and Cline.
 - For each pilot, run:
 
 ```sh
-opai doctor
-opai benchmark run --suite max --mode both
-opai benchmark gate --min-effectiveness-index 95 --require-risk-blocks
-opai savings --markdown
-opai policy check
-opai team report
+vesta doctor
+vesta benchmark run --suite max --mode both
+vesta benchmark gate --min-effectiveness-index 95 --require-risk-blocks
+vesta savings --markdown
+vesta policy check
+vesta team report
 ```
 
 Only ship blockers that affect install, benchmark trust, payment conversion, or

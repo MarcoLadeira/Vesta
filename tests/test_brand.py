@@ -59,7 +59,7 @@ class CliMirrorTests(unittest.TestCase):
     def test_account_model_uses_shorthand(self):
         cmd = cli_mirror("account:claude:opus", "plan", "fix the tests")
         self.assertEqual(
-            cmd, 'opai ask --model claude:opus --mode plan "fix the tests"'
+            cmd, 'vesta ask --model claude:opus --mode plan "fix the tests"'
         )
 
     def test_default_ask_mode_is_omitted(self):

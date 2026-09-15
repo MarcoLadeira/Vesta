@@ -260,10 +260,7 @@ code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas
   border-radius: 8px;
   display: grid;
   place-items: center;
-  background: var(--brand-gradient);
-  box-shadow: 0 3px 16px var(--accent-glow), var(--inset-hi);
   overflow: hidden;
-  padding: var(--space-1);
 }
 .header-logo img {
   width: 100%;
@@ -542,12 +539,6 @@ code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas
   object-fit: contain;
   display: block;
 }
-.empty-mark::after {
-  content: ""; position: absolute; inset: -10px; border-radius: 50%;
-  border: 1px solid rgba(52, 211, 153, 0.22);
-  animation: markRing 3.2s var(--ease) infinite;
-}
-@keyframes markRing { 0% { opacity: 0.9; transform: scale(0.92); } 70%, 100% { opacity: 0; transform: scale(1.14); } }
 .empty h1 {
   font-size: clamp(var(--type-title), 4.4vw, var(--type-display)); font-weight: 760; letter-spacing: -0.035em; line-height: 1.08;
   background: linear-gradient(180deg, #ffffff 20%, #aeb9c8 100%);
@@ -2141,7 +2132,7 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
   .header-drag-space { min-width: 0; }
   .header-brand-name, .header-on-dot, .header-divider, #headerSettings { display: none; }
   .header-brand { padding: 0; }
-  .header-logo { width: 26px; height: 26px; padding: var(--space-1); }
+  .header-logo { width: 26px; height: 26px; }
   .topbar-icon { width: 34px; flex-basis: 34px; }
   .topbar-action { width: 34px; padding: 0; }
   .topbar-action .action-label { display: none; }

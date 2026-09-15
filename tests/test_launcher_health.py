@@ -10,7 +10,7 @@ is already ``pythonw.exe``.
 
 A Windows launcher whose interpreter is missing exits 1 with no window, no
 dialog, no stderr and no log. Every other surface kept working, so
-``opai doctor`` reported ``ready`` while the icon the user actually clicks did
+``vesta doctor`` reported ``ready`` while the icon the user actually clicks did
 nothing whatsoever.
 
 These tests pin both halves: the interpreter Vesta hands to pip, and doctor's

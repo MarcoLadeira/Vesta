@@ -44,15 +44,15 @@ def build_dashboard_html(project_root: Path) -> Path:
     )
     savings_empty = (
         '<p class="empty">No real routed tasks recorded yet. '
-        'Run <code>opai route "&lt;task&gt;" --record</code> or '
-        "<code>opai quickstart</code>.</p>"
+        'Run <code>vesta route "&lt;task&gt;" --record</code> or '
+        "<code>vesta quickstart</code>.</p>"
         if not savings["has_data"]
         else ""
     )
     benchmark_status = (
         f"Latest run: <code>{escape(str(benchmark.get('run_id')))}</code>"
         if benchmark
-        else "No benchmark history yet. Run <code>opai benchmark run --suite max --mode both</code>."
+        else "No benchmark history yet. Run <code>vesta benchmark run --suite max --mode both</code>."
     )
     html = f"""<!doctype html>
 <html lang="en">
@@ -114,7 +114,7 @@ def build_dashboard_html(project_root: Path) -> Path:
         <h2>Context Waste</h2>
         <p>{context["waste_bytes"]:,} bytes removable ({context["waste_share"] * 100:.1f}%)</p>
         <p>Estimated wasted tokens: {context["estimated_tokens_wasted"]:,}</p>
-        <p><code>opai context profile --markdown</code></p>
+        <p><code>vesta context profile --markdown</code></p>
       </div>
       <div class="panel">
         <h2>Benchmark Proof</h2>
@@ -124,12 +124,12 @@ def build_dashboard_html(project_root: Path) -> Path:
       <div class="panel">
         <h2>Proof Bundle</h2>
         <p>Local signed bundle for alpha users and teams.</p>
-        <p><code>opai proof bundle --markdown</code></p>
+        <p><code>vesta proof bundle --markdown</code></p>
       </div>
       <div class="panel">
         <h2>Local Model / Ask</h2>
         <p class="{"ok" if local["available"] else "warn"}">{"Local model available" if local["available"] else "No local model running"}</p>
-        <p><code>opai ask "summarize my changes"</code></p>
+        <p><code>vesta ask "summarize my changes"</code></p>
       </div>
       <div class="panel">
         <h2>Launch Readiness</h2>

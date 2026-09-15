@@ -6,13 +6,13 @@ Static single-file site for Vesta — the AI coding cost firewall — built arou
 ## The Funnel
 
 ```text
-visit -> pip install opai -> opai doctor -> opai savings -> share
+visit -> pip install opai -> vesta doctor -> vesta savings -> share
 ```
 
 The page has exactly one goal: **install**. The single CTA is the install
 command itself (`pip install opai`, copy-to-clipboard). Secondary links go to
-GitHub and Discussions. After install, `opai doctor` verifies the setup and
-`opai savings` proves the value in numbers.
+GitHub and Discussions. After install, `vesta doctor` verifies the setup and
+`vesta savings` proves the value in numbers.
 
 Hard rule: **no paid-tier or gated-access CTAs on this page.** No pricing
 sections, no checkout links, no invite walls, no "apply" forms. Vesta is free

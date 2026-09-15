@@ -131,7 +131,7 @@ class AnApprovalIsRefusedOnlyOnEvidenceTests(unittest.TestCase):
 
 
 class ReadinessIsAReportNotAGateTests(unittest.TestCase):
-    """`opai doctor` saying "attention" must not stop anything running.
+    """`vesta doctor` saying "attention" must not stop anything running.
 
     The launcher check added in this epic can flip that verdict, and a dead
     desktop icon is worth reporting -- but a report that silently became a
@@ -139,7 +139,7 @@ class ReadinessIsAReportNotAGateTests(unittest.TestCase):
     """
 
     def test_a_broken_launcher_does_not_fail_the_command(self):
-        """A dead desktop icon must not make `opai doctor` exit non-zero.
+        """A dead desktop icon must not make `vesta doctor` exit non-zero.
 
         The launcher check added in this epic can flip the verdict to
         "attention". If that also flipped the exit code, a cosmetic problem
@@ -207,7 +207,7 @@ class ReadinessIsAReportNotAGateTests(unittest.TestCase):
 
 
 class TheExitCodeComesFromTheRunNotTheJournalTests(unittest.TestCase):
-    """A script driving `opai ask` must not see its exit code move.
+    """A script driving `vesta ask` must not see its exit code move.
 
     The terminal verdicts this epic corrected are journal records. If the CLI
     derived its exit code from them instead of from the run's own result, the
@@ -231,7 +231,7 @@ class TheExitCodeComesFromTheRunNotTheJournalTests(unittest.TestCase):
 
 #: The reports this epic added. Every one is expensive by design -- they read
 #: the whole event log, fold projections, compare populations -- and every one
-#: belongs to `opai doctor`, which a person runs when they want an answer.
+#: belongs to `vesta doctor`, which a person runs when they want an answer.
 DIAGNOSTIC_ONLY = (
     "run_table_parity",
     "turn_parity",

@@ -48,7 +48,7 @@ class CockpitTests(unittest.TestCase):
         self.assertIn("Clients: 6/6 active", text)
         self.assertIn("Savings:", text)
         self.assertIn("Budget:", text)
-        self.assertIn("Run `opai route", text)
+        self.assertIn("Run `vesta route", text)
 
     def test_status_human_aliases_cockpit(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -124,7 +124,7 @@ class VisibilityTests(unittest.TestCase):
         self.assertEqual(result["status"], "installed")
         self.assertEqual(payload["status"], "on")
         self.assertIn("Vesta is active", markdown)
-        self.assertIn("opai cockpit", markdown)
+        self.assertIn("vesta cockpit", markdown)
         self.assertNotIn("sk-", markdown)
         self.assertNotIn("raw_prompt", markdown.lower())
 

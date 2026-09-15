@@ -142,5 +142,5 @@ def build_run_summary(record: Mapping[str, Any] | None) -> str:
     if cost_lines:
         lines += ["", "## Cost", *cost_lines]
 
-    lines += ["", "See the full ledger with: opai savings"]
+    lines += ["", "See the full ledger with: vesta savings"]
     return "\n".join(lines).strip() + "\n"

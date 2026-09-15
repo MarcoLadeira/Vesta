@@ -5,7 +5,7 @@ Vesta treats [graphify](https://github.com/Graphify-Labs/graphify) (MIT License,
 ## Why it fits Vesta
 
 - **Free code maps.** Code is parsed with tree-sitter AST — deterministic, fully local, zero model credits. Exactly Vesta's L0 posture.
-- **Smaller prompts.** `graphify query` returns a scoped subgraph; agents read only the files the graph points to, which shows up directly as context reduction in `opai metrics`.
+- **Smaller prompts.** `graphify query` returns a scoped subgraph; agents read only the files the graph points to, which shows up directly as context reduction in `vesta metrics`.
 - **No vendoring.** Vesta never copies graphify code into this repo. Users install the `graphifyy` package themselves; its MIT copyright notice travels with the package.
 
 ## Install and register

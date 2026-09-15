@@ -34,7 +34,7 @@ test("benchmark command can be copied without starting a run", async ({ page }) 
   await openApp(page);
   await openNav(page, "Benchmark");
   await page.getByRole("button", { name: "Copy benchmark command" }).click();
-  await expect(page.locator("#toast")).toContainText("opai benchmark run --suite max --mode both");
+  await expect(page.locator("#toast")).toContainText("vesta benchmark run --suite max --mode both");
   expect(await page.evaluate(() => window.__mock.sendCount)).toBe(0);
 });
 

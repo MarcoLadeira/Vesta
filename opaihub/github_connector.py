@@ -8,7 +8,7 @@ implement flow. Three rules keep it inside Vesta's safety contract:
   keychain (via :mod:`opaihub.credentials`) or the ``GITHUB_TOKEN``/``GH_TOKEN``
   environment, and every error path is redacted.
 - **Outward actions are opt-in.** ``git push`` and PR creation stay disabled
-  until the user runs ``opai github allow-push on`` (persisted consent,
+  until the user runs ``vesta github allow-push on`` (persisted consent,
   revocable), even after a token is connected.
 - **Network calls are explicit and injectable.** Only ``api.github.com`` is
   contacted, only when the user connects or a run pushes/opens a PR; tests
@@ -207,7 +207,7 @@ def _load_config() -> dict[str, Any]:
 #: consent flags in ``github.json`` -- see :func:`connect_github`. This guard
 #: exists so that stays true. A journal is an append-only file that nothing
 #: prunes; a secret written into one survives disconnects, token rotations and
-#: `opai github disconnect` alike. If a later change ever starts persisting a
+#: `vesta github disconnect` alike. If a later change ever starts persisting a
 #: credential in the config, the mirror must refuse the record rather than
 #: quietly duplicate the secret into a second file with its own permissions.
 _CREDENTIAL_KEY_MARKERS = ("token", "secret", "password", "credential", "key")
@@ -345,7 +345,7 @@ def connect_github(token: str, *, http: HttpFn = _default_http) -> dict[str, Any
         "stored": stored,
         "allow_push": bool(config["allow_push"]),
         "next_step": (
-            "Pushes and PRs stay off until you run: opai github allow-push on"
+            "Pushes and PRs stay off until you run: vesta github allow-push on"
         ),
     }
 
@@ -447,18 +447,20 @@ def github_readiness() -> dict[str, Any]:
     elif not connected and not allow:
         reason = "no_token_and_consent_off"
         next_step = (
-            "Connect a token (opai github connect --token <PAT>, or set "
-            "GITHUB_TOKEN), then run: opai github allow-push on"
+            "Connect a token (vesta github connect --token <PAT>, or set "
+            "GITHUB_TOKEN), then run: vesta github allow-push on"
         )
     elif not connected:
         reason = "no_token"
         next_step = (
             "Consent is on, but no GitHub token is connected. Connect one: "
-            "opai github connect --token <PAT> (or set GITHUB_TOKEN)."
+            "vesta github connect --token <PAT> (or set GITHUB_TOKEN)."
         )
     else:
         reason = "consent_off"
-        next_step = "A token is connected. Enable pushes/PRs: opai github allow-push on"
+        next_step = (
+            "A token is connected. Enable pushes/PRs: vesta github allow-push on"
+        )
     # What a *check* found, carried alongside what is merely present. `ready`
     # deliberately still means "a token is stored and pushes are allowed":
     # refusing to run because nobody has verified a token that works would
@@ -808,7 +810,7 @@ def _read_context(
     if not token:
         return None, {
             "ok": False,
-            "error": "No GitHub token. Connect with: opai github connect",
+            "error": "No GitHub token. Connect with: vesta github connect",
         }
     slug = repo_slug(project_root)
     if not slug:

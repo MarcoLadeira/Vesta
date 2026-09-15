@@ -1439,7 +1439,7 @@ def provider_connection_doctor(
             executable = str(account.get("cli") or provider)
             safe_diagnostic = (
                 f"The {executable} provider executable was not found on PATH. "
-                "Install it, then run `opai doctor` again."
+                "Install it, then run `vesta doctor` again."
             )
         entry = {
             "providerId": provider,
@@ -2215,7 +2215,7 @@ def account_models(
 # (``gh issue close``, ``git push --force``, ``rm -rf``) ran with zero
 # confirmation. Full Auto now pairs that flag with a generated ``--settings``
 # file registering a PreToolUse hook for the Bash tool; the hook is the
-# ``opai hooks claude-pre-tool`` subcommand, which re-classifies every shell
+# ``vesta hooks claude-pre-tool`` subcommand, which re-classifies every shell
 # command through opaihub.sandbox + opaihub.safety_gates and denies anything
 # that needs explicit user confirmation. Net posture: auto-approve EXCEPT
 # classified-destructive, which the hook denies.

@@ -42,9 +42,9 @@
       "requires_api_key": false,
       "env_vars": [],
       "install_command": "pip install -e .",
-      "run_command": "python -m opai --help",
+      "run_command": "python -m vesta --help",
       "health_check": {
-        "command": "python -m opai --help"
+        "command": "python -m vesta --help"
       },
       "inputs": [
         "project path",

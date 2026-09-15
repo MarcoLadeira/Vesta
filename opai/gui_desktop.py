@@ -1,6 +1,6 @@
 """Vesta desktop app — a premium, user-controlled AI workspace.
 
-`opai gui` opens one window with four zones: a grouped left sidebar (new chat,
+`vesta gui` opens one window with four zones: a grouped left sidebar (new chat,
 workspace views, dashboards, prompt library, settings), a header with a real
 workspace switcher and live status, a stacked main area (chat + data-backed
 dashboard pages + prompt library + settings), and a toggleable right control
@@ -2022,7 +2022,7 @@ def _run_gui(
 
     apply_window_identity(app, window)
     if initial_task:
-        # CLI companion: `opai gui "fix the login bug"` opens pre-loaded.
+        # CLI companion: `vesta gui "fix the login bug"` opens pre-loaded.
         window.input.setPlainText(initial_task)
         window.input.setFocus()
     if screenshot_path is not None:

@@ -262,12 +262,12 @@ the same lifecycle and proves no legal phase move implies an illegal canonical
 transition.
 
 The CLI now maps terminal states to **distinct** exit codes from the same
-canonical source (`run_state.exit_code_for`), so `opai ask` and the streaming
+canonical source (`run_state.exit_code_for`), so `vesta ask` and the streaming
 path cannot drift from each other or from the engine:
 
 | ending | code | why |
 | --- | --- | --- |
-| completed | 0 | success; keeps `if ! opai ask …` working unchanged |
+| completed | 0 | success; keeps `if ! vesta ask …` working unchanged |
 | failed | 2 | the code it already meant |
 | partial | 3 | work landed but is unverified — not the same as failure |
 | blocked | 4 | a refusal; retrying hits it again |

@@ -86,7 +86,7 @@ def _read_run_document(path: Path) -> dict[str, Any] | None:
     ``background_runs.load_run`` locks each file it reads, which is right for a
     caller about to act on that run and wrong for a census: assembling a corpus
     of 300 runs took 300 lock acquisitions and about four seconds, inside
-    ``opai doctor``. The comparison itself took forty milliseconds.
+    ``vesta doctor``. The comparison itself took forty milliseconds.
 
     Reading unlocked is safe *here* specifically because run documents are
     written with ``atomic_write_text``. A concurrent write is a rename, so a

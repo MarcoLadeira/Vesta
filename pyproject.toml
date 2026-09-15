@@ -19,6 +19,9 @@ terminal-ui = ["Pillow>=10"]
 test = ["hypothesis==6.160.0", "pytest==9.0.3"]
 
 [project.scripts]
+vesta = "opai.bootstrap:cli_main"
+# `opai` is the name before the rebrand to Vesta, kept so existing scripts,
+# hooks and muscle memory keep working.
 opai = "opai.bootstrap:cli_main"
 op = "opai.bootstrap:cli_main"
 op-hub = "opaihub.cli:main"
@@ -26,11 +29,11 @@ opcoding = "opcoding.cli:main"
 
 # Windowed launcher: on Windows, pip builds a GUI (pythonw-backed) executable
 # from a gui_scripts entry point, so a Start-menu/taskbar shortcut opens the app
-# with no attached console window (#148). `opai gui` from a terminal still works.
+# with no attached console window (#148). `vesta gui` from a terminal still works.
 #
 # The name is what Task Manager shows -- for the launcher, and only for the
 # launcher. That distinction is written out because this comment used to claim
-# more than was true. Measured: OPai-Desktop.exe starts and *stays* as the
+# more than was true. Measured: Vesta-Desktop.exe starts and *stays* as the
 # parent, spawns C:\Python313\pythonw.exe as a child, and the child owns the
 # window -- so Task Manager still describes the window's process as "Python"
 # (pythonw.exe carries FileDescription "Python"). What the entry point does buy
@@ -38,9 +41,10 @@ opcoding = "opcoding.cli:main"
 # set in opai/gui_identity.py -- the Vesta icon in the taskbar and Alt-Tab.
 # Renaming the window's own process needs a bundled launcher Vesta does not ship.
 #
-# It cannot be plain `OPai`: Windows filenames are case-insensitive, so
-# `OPai.exe` and the `opai` console script's `opai.exe` are the same file and
-# one would overwrite the other.
+# It cannot be plain `Vesta`: Windows filenames are case-insensitive, so
+# `Vesta.exe` and the `vesta` console script's `vesta.exe` are the same file and
+# one would overwrite the other. `opai-gui` and `OPai-Desktop` are the names
+# before the rebrand, kept so existing shortcuts keep launching the app.
 #
 # Installing Vesta must use a *console* interpreter. pip derives a gui_scripts
 # launcher from sys.executable by replacing "python" with "pythonw", so an
@@ -48,6 +52,8 @@ opcoding = "opcoding.cli:main"
 # launchers and the desktop icon silently stops working. See
 # opaihub.proc.console_interpreter, which is what the updater now installs with.
 [project.gui-scripts]
+vesta-gui = "opai.bootstrap:desktop_main"
+Vesta-Desktop = "opai.bootstrap:desktop_main"
 opai-gui = "opai.bootstrap:desktop_main"
 OPai-Desktop = "opai.bootstrap:desktop_main"
 

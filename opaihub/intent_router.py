@@ -266,7 +266,7 @@ def route_intents(
     if any(word in text for word in ["doctor", "status", "client", "claude", "codex"]):
         actions.append(
             _safe_action(
-                "doctor", "Checked Vesta readiness", {"command": "opai doctor"}
+                "doctor", "Checked Vesta readiness", {"command": "vesta doctor"}
             )
         )
 

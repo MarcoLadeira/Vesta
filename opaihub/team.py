@@ -74,7 +74,7 @@ def team_report(project_root: Path) -> dict[str, Any]:
         },
         "notes": [
             "All figures are local and private; nothing is transmitted.",
-            "Run 'opai policy check' in CI to enforce the team policy.",
+            "Run 'vesta policy check' in CI to enforce the team policy.",
         ],
     }
 

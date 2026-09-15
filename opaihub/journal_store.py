@@ -154,7 +154,7 @@ def reading_only() -> Iterator[None]:
     #818 review finding 16: running doctor silently migrated the journal. The
     first fix made ``store_health`` ask without migrating, and the finding
     stayed true -- the migration report doctor prints next opened the store
-    the ordinary way, and a pending journal came out of ``opai doctor``
+    the ordinary way, and a pending journal came out of ``vesta doctor``
     upgraded. Inside this block ``open_store`` refuses instead: a journal that
     needs a migration raises :class:`MigrationPendingError`, which reports
     describe as "migration pending", and one that does not exist is not
@@ -800,7 +800,7 @@ def migrate(connection: sqlite3.Connection) -> int:
     on a journal that was structurally fine.
 
     Measured before the fix: 2 of 25 rounds of six concurrent processes, and
-    1 of 20 with two real `opai ask` turns on a fresh project. Only fresh
+    1 of 20 with two real `vesta ask` turns on a fresh project. Only fresh
     creation races -- upgrading an existing journal was never affected --
     which is exactly the new-install and new-workspace case.
 

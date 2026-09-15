@@ -593,7 +593,7 @@ function renderUpdateBanner(update) {
   shell.dataset.tone = config[2];
   // Plain copy, from the backend. The internal diagnostic -- "cannot update
   // transactionally", "4 commits behind origin/main" -- is true, useful in
-  // `opai update doctor`, and not what someone wanting the new version needs
+  // `vesta update doctor`, and not what someone wanting the new version needs
   // to read.
   const summary = ((state.update || {}).discovery || {}).summary || {};
   const title = String(summary.title || config[0]);

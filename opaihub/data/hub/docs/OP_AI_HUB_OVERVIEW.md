@@ -16,8 +16,8 @@ Phase 3 adds the public Vesta brand CLI, local install scripts, tool discovery, 
 Start with:
 
 ```sh
-opai install
-opai doctor
-opai dashboard --html
-opai hub discover tools
+vesta install
+vesta doctor
+vesta dashboard --html
+vesta hub discover tools
 ```

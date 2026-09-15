@@ -3,7 +3,7 @@
 4.  ``turn_parity`` matched a whole conversation against each run, so any chat
     with one complete and one partial turn was "2 of 2 runs disagree". Turns
     now carry their run id and are compared one to one.
-5.  ``opai journal status`` printed "unfinished: 0" over a real unfinished run
+5.  ``vesta journal status`` printed "unfinished: 0" over a real unfinished run
     when the journal had been written by a newer Vesta: every report shared one
     suppress block, and the CLI filled the gaps with reassuring defaults.
 10. Every surface recorded the GUI's open conversation as its own.
@@ -404,7 +404,7 @@ class DoctorAsAWholeDoesNotMigrateTests(_Root):
     """#16's second half: every report doctor prints, not only store_health.
 
     The first fix made ``store_health`` ask without migrating and pinned only
-    that. `opai doctor` still upgraded the journal, through the migration report
+    that. `vesta doctor` still upgraded the journal, through the migration report
     it prints straight after -- parity, unfinished runs and the rest each open
     the store the ordinary way. A test of one function could not see it.
     """

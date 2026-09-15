@@ -1250,7 +1250,7 @@ class ReportTests(unittest.TestCase):
 
 
 class CliTests(unittest.TestCase):
-    """The `opai release` CLI is the one documented command (#32 AC)."""
+    """The `vesta release` CLI is the one documented command (#32 AC)."""
 
     def _run(self, argv):
         import contextlib

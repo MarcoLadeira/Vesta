@@ -23,7 +23,7 @@ firewall, honest savings accounting, and signed proof.
    focus, output format, budget, and *exactly what the AI may do* — derived from
    the run mode the engine actually enforces, not a decorative toggle.
 3. **Cost truth, not vibes.** The header and dashboards show real spend and
-   real, signed savings (`opai receipt`), not invented numbers.
+   real, signed savings (`vesta receipt`), not invented numbers.
 4. **Honest safety.** Read-only modes are read-only; edits ask first; only Full
    Auto edits outright; panic mode blocks paid/cloud — all visible.
 5. **Calm by default.** Power lives in a palette, shortcuts, and a toggleable

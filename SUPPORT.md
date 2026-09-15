@@ -16,7 +16,7 @@ Before opening a new report, run:
 
 ```sh
 op status
-opai doctor
-opai skills doctor
-opai models recommend "your task"
+vesta doctor
+vesta skills doctor
+vesta models recommend "your task"
 ```

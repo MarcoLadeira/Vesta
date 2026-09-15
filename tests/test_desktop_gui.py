@@ -42,7 +42,7 @@ class AppStateReadTests(unittest.TestCase):
         self.assertIn("estimated_savings_usd", o["savings"])
         # No routed tasks -> honest zero state.
         self.assertIsNotNone(o["savings"]["zero_state"])
-        self.assertIn("opai route", o["savings"]["zero_state"])
+        self.assertIn("vesta route", o["savings"]["zero_state"])
         self.assertIn("Local max benchmark proof", o["benchmark_claim"])
         self.assertNotIn("50x", o["benchmark_claim"])
 
@@ -70,7 +70,7 @@ class AppStateReadTests(unittest.TestCase):
                 {"id": "cursor", "label": "Cursor", "status": "active", **client}
             ],
             "summary": {},
-            "repair_command": "opai activate --repair",
+            "repair_command": "vesta activate --repair",
         }
         status = {"global": {"wrappers": {"cursor": wrapper}}}
         with tempfile.TemporaryDirectory() as tmp:
@@ -180,7 +180,7 @@ class AppStateReadTests(unittest.TestCase):
         setup_ids = [item["id"] for item in models["setup"]["recommended"]]
         self.assertIn("ollama-qwen2.5-coder", setup_ids)
         self.assertIn("lm-studio-local-server", setup_ids)
-        self.assertIn("opai models discover-local", models["setup"]["verify_command"])
+        self.assertIn("vesta models discover-local", models["setup"]["verify_command"])
 
 
 class LaunchReadinessTests(unittest.TestCase):
@@ -429,7 +429,7 @@ class RunOnceTests(unittest.TestCase):
                 result = run_ask(root, "summarize this project", record=False)
 
         self.assertEqual(result["status"], "no_local_model")
-        self.assertEqual(result["next_command"], "opai models discover-local")
+        self.assertEqual(result["next_command"], "vesta models discover-local")
 
 
 class PremiumGuiContractTests(unittest.TestCase):
@@ -491,7 +491,7 @@ class PremiumGuiContractTests(unittest.TestCase):
         )
         workflow_action = workflows["actions"][0]
         self.assertEqual(workflow_action["label"], "Copy workflow list command")
-        self.assertEqual(workflow_action["command"], "opai guard list")
+        self.assertEqual(workflow_action["command"], "vesta guard list")
         home = next(section for section in vm["sections"] if section["id"] == "home")
         benchmark_kpi = next(
             kpi for kpi in home["kpis"] if kpi["label"] == "Benchmark proof"

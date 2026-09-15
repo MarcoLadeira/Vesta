@@ -31,7 +31,7 @@
     let label = agent.held ? "Ready when you are" : agent.pending_approval ? "Needs you" : waiting ? "Waiting for " + upstream.map((a) => name(a, assignments.indexOf(a))).join(", ") : agent.blocked_reason || agent.admission?.reason || ({ running: "Working", completed: "Done", failed: "Failed", pending: "Queued", blocked: "Needs you" })[agent.status] || String(agent.status || "Queued").replace(/[-_]/g, " ");
     const tone = agent.pending_approval ? "attention" : waiting ? "waiting" : agent.status === "running" ? "active" : agent.status === "completed" ? "done" : agent.status === "failed" ? "failed" : ["needs-attention", "blocked"].includes(agent.status) ? "attention" : "waiting";
     const automatic = !agent.held && waiting && upstream.every((a) => a.status === "running" && !a.pending_approval);
-    if (automatic) label += " · OPai will continue";
+    if (automatic) label += " · Vesta will continue";
     return '<span class="team-state team-state-' + tone + '"><i aria-hidden="true"></i>' + esc(label) + '</span>';
   }
   function activities(agent) {

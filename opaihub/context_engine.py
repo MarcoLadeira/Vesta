@@ -94,8 +94,13 @@ CLIENT_IGNORE_FILES = {
     "opai": ".opaiignore",
 }
 
-_MANAGED_START = "# OPai context-slimming rules (managed)"
-_MANAGED_END = "# end OPai rules"
+_MANAGED_START = "# Vesta context-slimming rules (managed)"
+_MANAGED_END = "# end Vesta rules"
+# The same block as written before the rebrand; upgraded in place when found.
+_LEGACY_MANAGED = (
+    ("# OPai context-slimming rules (managed)", _MANAGED_START),
+    ("# end OPai rules", _MANAGED_END),
+)
 # An ignore file belongs to the user; never hold its lock longer than a UI call.
 _IGNORE_LOCK_TIMEOUT_SECONDS = 30.0
 # Re-merge this many times when an outside editor beats us to the publish.
@@ -234,7 +239,7 @@ def profile_context(
         "estimated_cost_wasted_usd": tier_cost(baseline_tier, waste_tokens, cost_model),
         "before_after": _before_after(total_bytes, waste_bytes, cost_model),
         "notes": [
-            "Deterministic scan; no model used. Generate ignores with: opai context ignores",
+            "Deterministic scan; no model used. Generate ignores with: vesta context ignores",
         ],
     }
 
@@ -329,6 +334,13 @@ def _apply_client_ignore(root: Path, client: str, name: str) -> dict[str, Any]:
     ):
         for _ in range(_PUBLISH_ATTEMPTS):
             existing, mode = _read_ignore(path)
+            if existing is not None and _LEGACY_MANAGED[0][0] in existing:
+                upgraded = existing
+                for legacy, current in _LEGACY_MANAGED:
+                    upgraded = upgraded.replace(legacy, current)
+                if not _publish_ignore(path, existing, upgraded, mode):
+                    continue
+                return {"client": client, "file": name, "status": "already_managed"}
             if existing is not None and _MANAGED_START in existing:
                 return {"client": client, "file": name, "status": "already_managed"}
             base = existing or ""

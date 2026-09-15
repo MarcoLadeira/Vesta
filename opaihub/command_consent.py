@@ -8,7 +8,7 @@ could ask:
 * Its own tool executor ran ``git_push``/``open_pr`` the moment consent existed
   in Settings, with no per-turn confirmation.
 * A provider CLI (Claude Code) runs git in *its own* shell, gated only by the
-  ``opai hooks claude-pre-tool`` PreToolUse hook. A hook can allow or deny — it
+  ``vesta hooks claude-pre-tool`` PreToolUse hook. A hook can allow or deny — it
   has no interactive channel — so a "confirm" verdict was a dead end. Round 2/3
   fixed the dead end by auto-allowing a consented plain push, which is exactly
   what broke the promise.
@@ -26,7 +26,7 @@ a command:
    calls :func:`begin_turn` with that grant, and the gate consumes it with
    :func:`consume_grant` — once.
 
-Settings consent (``opai github allow-push on`` + a connected token) still
+Settings consent (``vesta github allow-push on`` + a connected token) still
 decides whether pushing is possible *at all*; this decides whether *this* push
 happens now. Both are required, which is what the dialog copy claims.
 """

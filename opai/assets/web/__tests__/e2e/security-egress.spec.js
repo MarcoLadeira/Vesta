@@ -77,5 +77,5 @@ test("copy buttons use the write-only bridge clipboard", async ({ page }) => {
   await page.click("#cliMirror");
   const copied = await page.evaluate(() => window.__mock.copiedTexts);
   expect(copied.length).toBe(1);
-  expect(copied[0]).toContain("opai");
+  expect(copied[0]).toContain("vesta ask");
 });

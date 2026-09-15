@@ -1,6 +1,6 @@
 # Vesta Desktop — Web-Rendered UI
 
-`opai gui` now renders its surface with **Chromium (QtWebEngine)** instead of Qt
+`vesta gui` now renders its surface with **Chromium (QtWebEngine)** instead of Qt
 widgets/QSS. Qt's styling and text engine couldn't match the polish of
 Cursor/Claude (no real font smoothing, weak shadows/blur, no transitions);
 Chromium gives real CSS, `@font-face` Inter with antialiasing, depth, and
@@ -9,7 +9,7 @@ animation — at **zero new dependency** (QtWebEngine ships with PySide6 here).
 ## Architecture
 
 ```
-opai gui  ─▶  cmd_gui (cli.py)
+vesta gui  ─▶  cmd_gui (cli.py)
                  │  web_available()?  ── yes ─▶ opai/gui_web.py  (QWebEngineView)
                  │                                   │
                  │                                   ├─ QWebChannel ──▶ Bridge (QObject)
@@ -30,7 +30,7 @@ opai gui  ─▶  cmd_gui (cli.py)
   `-webkit-font-smoothing: antialiased`. New JS modules must be added to
   `REQUIRED_WEB_ASSETS` in `opaihub/desktop_artifacts.py` (and the smoke check)
   so they ship in the packaged desktop app.
-- **Fallback** — `opai gui --classic` (or any machine without QtWebEngine) uses
+- **Fallback** — `vesta gui --classic` (or any machine without QtWebEngine) uses
   the classic Qt window in `gui_desktop.py`, which stays fully tested.
 
 ### Settings surface (`settings.js`, #217)

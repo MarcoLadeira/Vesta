@@ -24,7 +24,7 @@ but mutually contradictory" state #613 opens by describing -- inside the store
 that is supposed to be canonical.
 
 **It only reads.** Nothing here persists a projection. The check runs from
-``opai doctor``, and a diagnostic that writes to the store it is diagnosing is
+``vesta doctor``, and a diagnostic that writes to the store it is diagnosing is
 one more thing that can go wrong while something already has.
 """
 

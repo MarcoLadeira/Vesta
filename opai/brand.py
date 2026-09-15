@@ -91,7 +91,7 @@ def cli_mirror(model: str | None, mode: str | None, task: str = "") -> str:
     terminal twin. The mirror shows it, ready to copy.
     """
     shorthand = _shorthand(model)
-    parts = ["opai", "ask"]
+    parts = ["vesta", "ask"]
     if shorthand and shorthand != "auto":
         parts += ["--model", shorthand]
     elif shorthand == "auto":

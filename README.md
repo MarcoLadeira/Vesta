@@ -28,17 +28,17 @@ commands below apply after a verified free artifact is published on
 have installed this source checkout for contributor development.
 
 ```sh
-opai gui                                        # simple desktop chat app: type a task, pick your model, run it local-first
-opai ask "summarize my changes"                # answer a cheap task locally for $0 (no cloud)
-opai quickstart                                # guided first run: activate, route, savings
-opai doctor                                    # which clients are active/broken/missing
-opai route "fix the failing test" --record     # cheapest safe route + ledger entry
-opai why "fix the failing test"                # explain the route and its savings
-opai savings --markdown                        # estimated AI spend saved on this project
-opai benchmark run --suite local --mode both   # compare normal AI vs Vesta-routed use
-opai benchmark run --suite max --mode both     # leaderboard-aligned local max suite
-opai benchmark gate --min-context-reduction 10 # CI gate for benchmark proof
-opai share --markdown                          # a shareable savings badge for your README
+vesta gui                                        # simple desktop chat app: type a task, pick your model, run it local-first
+vesta ask "summarize my changes"                # answer a cheap task locally for $0 (no cloud)
+vesta quickstart                                # guided first run: activate, route, savings
+vesta doctor                                    # which clients are active/broken/missing
+vesta route "fix the failing test" --record     # cheapest safe route + ledger entry
+vesta why "fix the failing test"                # explain the route and its savings
+vesta savings --markdown                        # estimated AI spend saved on this project
+vesta benchmark run --suite local --mode both   # compare normal AI vs Vesta-routed use
+vesta benchmark run --suite max --mode both     # leaderboard-aligned local max suite
+vesta benchmark gate --min-context-reduction 10 # CI gate for benchmark proof
+vesta share --markdown                          # a shareable savings badge for your README
 ```
 
 ## Desktop app (GUI)
@@ -64,7 +64,7 @@ python -m pip install -e ".[desktop-gui]"
 Verify it can start without opening a window:
 
 ```sh
-opai gui --once        # prints the control-center state as JSON, exits 0 if ready
+vesta gui --once        # prints the control-center state as JSON, exits 0 if ready
 ```
 
 If you see `{"status": "gui_unavailable", ...}`, install the contributor extra
@@ -73,22 +73,22 @@ above or wait for the verified public artifact (that is the only requirement).
 ### 2. Launch it
 
 ```sh
-opai gui                          # open the desktop window for the current project
-opai gui --project /path/to/repo  # open it for a specific project
-opai gui "summarize my changes"   # open with a task pre-filled in the composer
-opai gui --classic                # force the classic Qt window (no Chromium)
+vesta gui                          # open the desktop window for the current project
+vesta gui --project /path/to/repo  # open it for a specific project
+vesta gui "summarize my changes"   # open with a task pre-filled in the composer
+vesta gui --classic                # force the classic Qt window (no Chromium)
 ```
 
 On Windows you can also run `python -m opai gui` if `opai` is not yet on your
 `PATH`.
 
 **Windowed launcher (no console).** Installing Vesta also adds an `opai-gui`
-launcher. Unlike `opai gui`, it opens the app **without a background console
+launcher. Unlike `vesta gui`, it opens the app **without a background console
 window**, so it's what you want for a desktop/Start-menu/taskbar shortcut:
 
 ```sh
 opai-gui                          # open the desktop app, no console window
-opai-gui --project /path/to/repo  # same options as `opai gui`
+opai-gui --project /path/to/repo  # same options as `vesta gui`
 ```
 
 To pin it on Windows, create a shortcut to the `opai-gui.exe` in your Python
@@ -120,7 +120,7 @@ and drag it to the Start menu or taskbar.
 - **Settings** (sidebar) connects accounts, sets per-model usage limits, and
   manages privacy — chat history is redacted, kept per workspace, and clearable.
 - **Money Saved / receipts** show the estimated spend avoided; export a signed,
-  verifiable savings receipt and check it with `opai receipt verify <file>`.
+  verifiable savings receipt and check it with `vesta receipt verify <file>`.
 - **Command palette**: press `Ctrl`+`K`.
 
 ### Let runs commit, push, and open PRs (GitHub connector)
@@ -130,11 +130,11 @@ Auto). To let them also push branches and open pull requests on your GitHub
 repositories, connect your account once and grant push consent explicitly:
 
 ```sh
-opai github connect --token <PAT>   # validates, then stores in the OS keychain
-opai github status                  # connection + consent at a glance
-opai github allow-push on           # explicit consent for push/PR (revocable)
-opai github allow-push off          # turn it back off any time
-opai github disconnect              # remove the token and revoke consent
+vesta github connect --token <PAT>   # validates, then stores in the OS keychain
+vesta github status                  # connection + consent at a glance
+vesta github allow-push on           # explicit consent for push/PR (revocable)
+vesta github allow-push off          # turn it back off any time
+vesta github disconnect              # remove the token and revoke consent
 ```
 
 Create the token at github.com/settings/tokens with `repo` scope (classic) or
@@ -157,9 +157,9 @@ task must proceed alongside existing work.
 Inspect the same status shown by the GUI from the terminal:
 
 ```sh
-opai repo inspect --project /path/to/repo --json
-opai repo worktrees --project /path/to/repo --json
-opai repo worktrees --project /path/to/repo --recover --json
+vesta repo inspect --project /path/to/repo --json
+vesta repo worktrees --project /path/to/repo --json
+vesta repo worktrees --project /path/to/repo --recover --json
 ```
 
 `--recover` only reconciles lease records and recommends `resume` or `inspect`;
@@ -181,7 +181,7 @@ Inspect exactly the same policy decision in a terminal or CI job without
 executing repository commands:
 
 ```sh
-opai verify policy --project /path/to/repo --task "Fix the parser" --mode implement --json
+vesta verify policy --project /path/to/repo --task "Fix the parser" --mode implement --json
 ```
 
 This is a policy-only dry run. Structured command execution, evidence bundles,
@@ -192,7 +192,7 @@ To execute only the explicit argv declared by that policy and write a local,
 redacted evidence manifest, use:
 
 ```sh
-opai verify run --project /path/to/repo --task "Fix the parser" --json
+vesta verify run --project /path/to/repo --task "Fix the parser" --json
 ```
 
 `verified` means every required check has intact structured evidence. A model's
@@ -212,9 +212,9 @@ damaged required evidence remains visibly non-verified.
 ### Headless / CI use
 
 ```sh
-opai gui --once                       # JSON readiness smoke test (no window)
-opai gui --screenshot out.png         # render a screenshot for visual QA and exit
-opai gui --screenshot out.png --width 1440 --height 900
+vesta gui --once                       # JSON readiness smoke test (no window)
+vesta gui --screenshot out.png         # render a screenshot for visual QA and exit
+vesta gui --screenshot out.png --width 1440 --height 900
 ```
 
 **New to Vesta?** The one-page install funnel lives in [`site/index.html`](site/index.html).
@@ -239,11 +239,11 @@ See also the [Quickstart](docs/QUICKSTART.md), the grounded
 ### More efficiency & adoption commands
 
 ```sh
-opai context pack --changed   # tiny, redacted context (changed files + adjacent tests)
-opai test --changed           # run only the tests likely to cover your changes
-opai metrics                  # local product metrics: tokens/escalations avoided, cache rate
-opai benchmark report         # latest local Vesta Efficiency Score
-opai edition show             # Free Public Alpha availability (legacy-compatible)
+vesta context pack --changed   # tiny, redacted context (changed files + adjacent tests)
+vesta test --changed           # run only the tests likely to cover your changes
+vesta metrics                  # local product metrics: tokens/escalations avoided, cache rate
+vesta benchmark report         # latest local Vesta Efficiency Score
+vesta edition show             # Free Public Alpha availability (legacy-compatible)
 ```
 
 ### Team & enterprise governance
@@ -251,13 +251,13 @@ opai edition show             # Free Public Alpha availability (legacy-compatibl
 Vesta is also the control plane for teams ([GOVERNANCE.md](hub/docs/GOVERNANCE.md)):
 
 ```sh
-opai team init                # committable opai-team-policy.yaml (shared policy)
-opai team apply               # apply the team policy locally
-opai policy check             # fail-closed CI gate (exits non-zero on violation)
-opai policy check --require-team-policy  # strict team CI: policy file required
-opai guard evidence <wf> --sign   # signed, tamper-evident evidence packet
-opai audit log                # tamper-evident governance audit trail
-opai team report              # who routed what, did it follow policy, spend avoided
+vesta team init                # committable opai-team-policy.yaml (shared policy)
+vesta team apply               # apply the team policy locally
+vesta policy check             # fail-closed CI gate (exits non-zero on violation)
+vesta policy check --require-team-policy  # strict team CI: policy file required
+vesta guard evidence <wf> --sign   # signed, tamper-evident evidence packet
+vesta audit log                # tamper-evident governance audit trail
+vesta team report              # who routed what, did it follow policy, spend avoided
 ```
 
 Default posture:
@@ -366,15 +366,15 @@ After the first install, restart terminal sessions and AI coding clients so nati
 
 This Vesta alpha is tuned to spend less than normal AI coding by default:
 
-- `opai route` returns compact local evidence instead of large logs and full diffs.
-- `opai slim` writes AI-client ignore files and reports generated context bloat.
+- `vesta route` returns compact local evidence instead of large logs and full diffs.
+- `vesta slim` writes AI-client ignore files and reports generated context bloat.
 - Release, deploy, security, and publish tasks start at local preflight, not strong AI.
 - Model prompts are not stored in cache unless `OPAI_STORE_PROMPTS=1`.
 - Default generated project budgets are `$0.50/day`, `$5/month`, and `$0.10` soft limit per task.
 - Context is capped to a compact 6,000 characters by default, with a hard 12,000-character guard.
 - Cloud model use, paid tools, deploys, destructive commands, and large contexts require confirmation.
 
-Use `opai route "<task>" --full-evidence` only when you need the larger diagnostic payload.
+Use `vesta route "<task>" --full-evidence` only when you need the larger diagnostic payload.
 
 ## Use Vesta In Any Project
 
@@ -412,56 +412,56 @@ Vesta writes compact managed instruction blocks to the top of `AGENTS.md`, `CLAU
 ## Vesta Commands
 
 ```text
-opai version          show canonical app version, stage, and exact build identity
-op version            same as opai version
+vesta version          show canonical app version, stage, and exact build identity
+op version            same as vesta version
 op activate           attach current project and ensure Superpowers/AI instructions
 op status             show activation, Superpowers, wrappers, and project state
 op slim               write AI ignore files and report generated context bloat
 op slim --clean       remove generated caches that waste AI context
 op publish status     show git/publish readiness
-opai install          create local .opaihub state and dashboards
-opai statusline       print the right-aligned "Using Vesta" badge
-opai welcome          print the Vesta mascot, badge, and quick commands
-opai welcome --animate animate the Vesta mascot in place
-opai integrate install install global AI-client discovery files
-opai launch codex     print one Vesta badge line, then run codex
-opai route "<task>"   print compact local-first routing decision
-opai route --full-evidence "<task>" print full evidence only when needed
-opai benchmark list    list local benchmark suites and optional harnesses
-opai benchmark run     compare normal AI use with Vesta-routed use
-opai benchmark run --suite max run the leaderboard-aligned local max suite
-opai benchmark gate    fail CI if proof metrics regress below thresholds
-opai benchmark compare compare latest two benchmark runs
-opai benchmark export  write optional promptfoo handoff config
-opai benchmark report  render the latest Vesta Efficiency Score
-opai models recommend "<task>" choose the cheapest capable model tier
-opai skills list      list Vesta-managed skills exposed to Codex discovery
-opai skills doctor    verify Vesta skill files and registry paths
-opai scan             summarize hub registries
-opai doctor           validate registries and tool health
-opai tools            list registered tools
-opai agents           list registered agents
-opai workflows        list registered workflows
-opai dashboard --html write a local HTML dashboard
-opai hub <command>    pass through to the full hub CLI
+vesta install          create local .opaihub state and dashboards
+vesta statusline       print the right-aligned "Using Vesta" badge
+vesta welcome          print the Vesta mascot, badge, and quick commands
+vesta welcome --animate animate the Vesta mascot in place
+vesta integrate install install global AI-client discovery files
+vesta launch codex     print one Vesta badge line, then run codex
+vesta route "<task>"   print compact local-first routing decision
+vesta route --full-evidence "<task>" print full evidence only when needed
+vesta benchmark list    list local benchmark suites and optional harnesses
+vesta benchmark run     compare normal AI use with Vesta-routed use
+vesta benchmark run --suite max run the leaderboard-aligned local max suite
+vesta benchmark gate    fail CI if proof metrics regress below thresholds
+vesta benchmark compare compare latest two benchmark runs
+vesta benchmark export  write optional promptfoo handoff config
+vesta benchmark report  render the latest Vesta Efficiency Score
+vesta models recommend "<task>" choose the cheapest capable model tier
+vesta skills list      list Vesta-managed skills exposed to Codex discovery
+vesta skills doctor    verify Vesta skill files and registry paths
+vesta scan             summarize hub registries
+vesta doctor           validate registries and tool health
+vesta tools            list registered tools
+vesta agents           list registered agents
+vesta workflows        list registered workflows
+vesta dashboard --html write a local HTML dashboard
+vesta hub <command>    pass through to the full hub CLI
 ```
 
 Examples:
 
 ```powershell
-opai welcome
-opai welcome --animate
-opai welcome --compact --animate --frames 7
-opai welcome --image ansi
-opai welcome --image ascii
-opai welcome --image kitty
-opai models recommend "fix failing tests cheaply"
-opai skills doctor
-opai hub discover tools
-opai hub sandbox check --command "git reset --hard"
-opai hub schedule create daily_hub_check --cadence daily
-opai hub analytics status
-opai hub team init --mode solo
+vesta welcome
+vesta welcome --animate
+vesta welcome --compact --animate --frames 7
+vesta welcome --image ansi
+vesta welcome --image ascii
+vesta welcome --image kitty
+vesta models recommend "fix failing tests cheaply"
+vesta skills doctor
+vesta hub discover tools
+vesta hub sandbox check --command "git reset --hard"
+vesta hub schedule create daily_hub_check --cadence daily
+vesta hub analytics status
+vesta hub team init --mode solo
 ```
 
 Global integration files are written under `~/.opai/`, `~/.agents/skills/opai/`, and managed client-specific instruction files where supported. Closed desktop apps may not expose a UI surface that Vesta can draw into directly; Vesta provides the blue statusline command, mascot welcome screen, CLI wrappers, and discovery/instruction files for clients that support them. The ANSI image renderer uses Pillow when available and falls back cleanly to ASCII.

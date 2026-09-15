@@ -178,7 +178,7 @@
   function cliMirror(model, mode, task) {
     var short = String(model || "auto");
     if (short.indexOf("account:") === 0) short = short.slice(8);
-    var parts = ["opai", "ask"];
+    var parts = ["vesta", "ask"];
     if (short) parts.push("--model", short);
     if (mode && mode !== "ask") parts.push("--mode", String(mode));
     var prompt = String(task || "").trim().replace(/"/g, "'");

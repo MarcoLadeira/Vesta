@@ -5,13 +5,13 @@ Vesta 0.2.0 alpha.1 has a small model-intelligence layer and a Vesta skill libra
 ## Commands
 
 ```sh
-opai skills list
-opai skills doctor
-opai models recommend "fix failing tests cheaply"
-opai hub models recommend "prepare a production security release"
+vesta skills list
+vesta skills doctor
+vesta models recommend "fix failing tests cheaply"
+vesta hub models recommend "prepare a production security release"
 ```
 
-`opai skills doctor` verifies the skill registry and every `SKILL.md` path. `opai models recommend` classifies a task, scores available model tiers, and reports whether confirmation is required before using a cloud or stronger model.
+`vesta skills doctor` verifies the skill registry and every `SKILL.md` path. `vesta models recommend` classifies a task, scores available model tiers, and reports whether confirmation is required before using a cloud or stronger model.
 
 ## Installed Skill Surface
 
@@ -65,7 +65,7 @@ Vesta should recommend these tools only when the task benefits from them. Tool i
 
 ## Next Build Steps
 
-1. Add an `opai models eval` command that runs cached prompt fixtures across local model providers.
+1. Add an `vesta models eval` command that runs cached prompt fixtures across local model providers.
 2. Add per-project `model_routing.yaml` overrides in `.opaihub/`.
 3. Record anonymized local routing outcomes in `.opaihub/analytics/` without secrets.
 4. Add a `tool enable --profile local-models` setup path for Ollama/LM Studio detection.

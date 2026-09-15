@@ -45,7 +45,7 @@ def _wrapper_status(status: dict[str, Any]) -> dict[str, Any]:
             name: {
                 "exists": bool(data.get("exists")),
                 "path": data.get("path"),
-                "launch_command": f"opai launch {name}",
+                "launch_command": f"vesta launch {name}",
             }
             for name, data in wrappers.items()
         },
@@ -58,7 +58,7 @@ def _benchmark_status(project_root: Path) -> dict[str, Any]:
         return {
             "present": False,
             "claim": "No benchmark run recorded yet.",
-            "next_command": "opai benchmark run --suite max --mode both",
+            "next_command": "vesta benchmark run --suite max --mode both",
         }
     claim = report.get("claim_readiness", {})
     score = report.get("efficiency_score", {})
@@ -120,7 +120,7 @@ def build_cockpit(project_root: Path) -> dict[str, Any]:
         "local_models": {
             "available": local_models["available"],
             "commands": sorted(local_models.get("commands", {}).keys()),
-            "next_command": "opai models discover-local",
+            "next_command": "vesta models discover-local",
         },
         "next_actions": _next_actions(status, savings, budget),
         "privacy": "Local only. No telemetry, raw prompts, or secrets are transmitted.",
@@ -133,7 +133,9 @@ def _next_actions(
     actions: list[str] = []
     summary = status["client_integrations"]["summary"]
     if summary["broken"] or summary["missing"] or not status["stale_paths"]["ok"]:
-        actions.append("Run `opai activate --repair` to restore Vesta client coverage.")
+        actions.append(
+            "Run `vesta activate --repair` to restore Vesta client coverage."
+        )
     wrappers = _wrapper_status(status)
     if wrappers["shell_aliases_installed"] and not wrappers["bin_on_path"]:
         actions.append(
@@ -141,15 +143,15 @@ def _next_actions(
         )
     if not savings["has_data"]:
         actions.append(
-            'Run `opai route "<task>" --record` or `opai quickstart` to prove real savings.'
+            'Run `vesta route "<task>" --record` or `vesta quickstart` to prove real savings.'
         )
     if budget["panic"]:
         actions.append(
-            "Panic mode is ON; disable with `opai budget panic --off` when ready."
+            "Panic mode is ON; disable with `vesta budget panic --off` when ready."
         )
     if not actions:
         actions.append(
-            "Vesta is active. Launch agents through `opai launch <client>` or your Vesta shell aliases."
+            "Vesta is active. Launch agents through `vesta launch <client>` or your Vesta shell aliases."
         )
     return actions
 

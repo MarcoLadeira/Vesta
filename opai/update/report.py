@@ -6,7 +6,7 @@ sentences; nothing recomputes a fact, reaches for a clock, or asks the update
 source anything. Two places that both decide what "last checked" means is how
 the first one stops being trusted, so this one cannot decide it at all.
 
-The vocabulary is shared so the desktop, `opai update status` and `opai doctor`
+The vocabulary is shared so the desktop, `vesta update status` and `vesta doctor`
 describe the same installation the same way. In particular a cached answer says
 so, always, and never borrows the words a fresh one uses.
 """
@@ -110,7 +110,7 @@ def freshness_phrase(discovery: dict, *, now: datetime | None = None) -> str:
 # update, and what to press.
 #
 # Timings, cache provenance, install types, sources and commands stay in
-# `opai update doctor`, which is where someone debugging the updater looks.
+# `vesta update doctor`, which is where someone debugging the updater looks.
 _USER_MESSAGES = {
     "available": "A new version of Vesta is ready.",
     "downloading": "Downloading the update.",

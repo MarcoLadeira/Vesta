@@ -14,7 +14,7 @@ from typing import Any
 # The exact, approved public claim. Must stay limited to the local benchmark.
 LAUNCH_CLAIM = (
     "Local max benchmark proof: publish only results reproduced with "
-    "`opai benchmark run --suite max --mode both`."
+    "`vesta benchmark run --suite max --mode both`."
 )
 LAUNCH_CAVEAT = (
     "Local Vesta benchmark suite result. Not an official SWE-bench, "
@@ -136,7 +136,7 @@ def build_launch_readiness(project_root: Path) -> dict[str, Any]:
                 "benchmark_gate",
                 False,
                 "No benchmark run recorded.",
-                "Run `opai benchmark run --suite max --mode both`.",
+                "Run `vesta benchmark run --suite max --mode both`.",
             )
         )
     else:
@@ -150,7 +150,7 @@ def build_launch_readiness(project_root: Path) -> dict[str, Any]:
                 "Benchmark gate passes (effectiveness >= 95, risk blocks present)."
                 if gate["ok"]
                 else "Benchmark gate fails the launch thresholds.",
-                "Improve routing/coverage until `opai benchmark gate` passes.",
+                "Improve routing/coverage until `vesta benchmark gate` passes.",
             )
         )
 

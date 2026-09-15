@@ -22,10 +22,10 @@ Vesta is the new brand for the OPcoding and OP AI Hub work. In 0.1.0 pre-alpha, 
 ## Current Brand Commands
 
 ```sh
-opai install
-opai doctor
-opai dashboard --html
-opai hub discover tools
-opai hub analytics status
-opai hub sandbox check --command "git status"
+vesta install
+vesta doctor
+vesta dashboard --html
+vesta hub discover tools
+vesta hub analytics status
+vesta hub sandbox check --command "git status"
 ```

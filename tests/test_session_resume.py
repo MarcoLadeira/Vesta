@@ -1269,7 +1269,7 @@ class BootResumeContractTests(_ThreadAPI):
 
 
 class CliResumeParityTests(_ThreadAPI):
-    """`opai resume` reports exactly what the GUI boot offers (#313 parity)."""
+    """`vesta resume` reports exactly what the GUI boot offers (#313 parity)."""
 
     def _run_cli(self, root: Path, *flags: str):
         import contextlib as _ctx
@@ -1306,7 +1306,7 @@ class CliResumeParityTests(_ThreadAPI):
 
     def test_cli_markdown_shows_this_process_as_owner_for_a_running_thread(self):
         # #545: the addendum's "ownership/lease view" -- a second terminal
-        # running `opai resume` while a turn is active (from either surface)
+        # running `vesta resume` while a turn is active (from either surface)
         # can tell "still running, owned right here" from an abandoned one.
         # begin_thread_turn is what actually claims a live lease (#295
         # invariant 4); save_thread always persists an empty one.

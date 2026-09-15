@@ -1,6 +1,6 @@
 """CLI streaming ask — the terminal front-end over the same core as the GUI.
 
-``opai ask --model claude:opus "task"`` runs through
+``vesta ask --model claude:opus "task"`` runs through
 ``opaihub.gui_pipeline.handle_gui_message`` — the exact pipeline the desktop GUI
 uses — with live activity lines, streamed answer text, a real Ctrl+C cancel
 (sets the cancel Event, which kills the provider subprocess), and an honest
@@ -191,7 +191,7 @@ def stream_ask(
 
     # #545: register this turn in the same durable thread store + owner lease
     # the GUI already writes, so a CLI-started task is discoverable from the
-    # GUI (and `opai resume`, from a second terminal) instead of vanishing
+    # GUI (and `vesta resume`, from a second terminal) instead of vanishing
     # the moment this process exits. Best-effort throughout -- a durability
     # write must never break the actual request it is describing.
     request_id = uuid.uuid4().hex[:12]
@@ -278,8 +278,8 @@ def stream_ask(
                     on_text=on_text,
                     cancel=cancel,
                     # This is the terminal, not the desktop. Without it the
-                    # canonical journal recorded every `opai ask` and
-                    # `opai route` as a GUI run, because the pipeline they
+                    # canonical journal recorded every `vesta ask` and
+                    # `vesta route` as a GUI run, because the pipeline they
                     # share admits with a hardcoded surface (#818 AC2).
                     surface="cli",
                     # The CLI records its turns in the workspace thread too,

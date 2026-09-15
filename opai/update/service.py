@@ -1747,7 +1747,7 @@ class UpdateService:
         # was touched -- which is the failure this whole epic is about.
         # What the surface may say. Timings, cache provenance and commands are
         # not in here on purpose -- they are diagnostics, and they belong to
-        # `opai update doctor`, not to someone who just wants the new version.
+        # `vesta update doctor`, not to someone who just wants the new version.
         diagnostics["summary"] = user_facing(
             {"operation": operation.to_public_dict(), "discovery": diagnostics}
         )

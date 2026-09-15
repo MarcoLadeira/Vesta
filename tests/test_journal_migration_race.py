@@ -14,7 +14,7 @@ migration had never been applied. Every subsequent `open_store` raised, on a
 database that was structurally perfect.
 
 Measured before the fix: 2 of 25 rounds of six concurrent processes, and 1 of
-20 with two real `opai ask` turns on a fresh project. Only *creation* races;
+20 with two real `vesta ask` turns on a fresh project. Only *creation* races;
 upgrading an existing journal was never affected.
 
 Worse, `store_health` called the result `complete` and doctor called the

@@ -24,11 +24,28 @@ from opaihub.boundary_errors import safe_detail
 
 
 STATUS_TEXT = "Using Vesta"
-START_MARKER = "<!-- OPai managed block: start -->"
-END_MARKER = "<!-- OPai managed block: end -->"
-PS_START_MARKER = "# OPai managed block: start"
-PS_END_MARKER = "# OPai managed block: end"
+START_MARKER = "<!-- Vesta managed block: start -->"
+END_MARKER = "<!-- Vesta managed block: end -->"
+PS_START_MARKER = "# Vesta managed block: start"
+PS_END_MARKER = "# Vesta managed block: end"
+# The markers blocks were written with before the rebrand to Vesta. Every read
+# upgrades them to the markers above first, so an existing block is still found,
+# replaced in place and uninstalled -- never left behind with a second block
+# appended after it.
+LEGACY_MARKERS = {
+    START_MARKER: "<!-- OPai managed block: start -->",
+    END_MARKER: "<!-- OPai managed block: end -->",
+    PS_START_MARKER: "# OPai managed block: start",
+    PS_END_MARKER: "# OPai managed block: end",
+}
 SUPERPOWERS_REPO = "https://github.com/obra/superpowers.git"
+
+
+def upgrade_legacy_markers(text: str) -> str:
+    """Rewrite managed-block markers from before the rebrand to the current ones."""
+    for current, legacy in LEGACY_MARKERS.items():
+        text = text.replace(legacy, current)
+    return text
 
 
 def now_iso() -> str:
@@ -66,7 +83,7 @@ def _python_executable() -> str:
 def instruction_text(project_root: Path | None = None) -> str:
     project_line = f"Root: `{project_root}`.\n" if project_root else "Root: cwd.\n"
     return f"""# Vesta Active
-{STATUS_TEXT}. {release_version_text()}. {project_line}Vesta manages routing, cost controls, and safety policy for this session. Never run `opai` CLI commands from inside an AI task — recursive self-invocation is blocked by Vesta (F12). The latest explicit request controls: fix/build/test/refactor/PR authorizes repo edits, a branch, tests, commit, push, and opening a pull request; do not ask again for those requested steps. Explain/review stays read-only. Ask before paid/cloud, destructive or irreversible actions, secret exposure, production credentials, or force-push. Protect unrelated changes. No generated dirs in context: `.git`, `.opcoding*`, `.opaihub/cache|logs|generated|install-test-*`, `node_modules`, venvs, `build`, `dist`. Use Superpowers if available.
+{STATUS_TEXT}. {release_version_text()}. {project_line}Vesta manages routing, cost controls, and safety policy for this session. Never run `vesta`/`opai` CLI commands inside an AI task — recursive self-invocation is blocked by Vesta (F12). The latest explicit request controls: fix/build/test/refactor/PR authorizes repo edits, a branch, tests, commit, push, and opening a pull request; do not ask again for those requested steps. Explain/review stays read-only. Ask before paid/cloud, destructive or irreversible actions, secret exposure, production credentials, or force-push. Protect unrelated changes. No generated dirs in context: `.git`, `.opcoding*`, `.opaihub/cache|logs|generated|install-test-*`, `node_modules`, venvs, `build`, `dist`. Use Superpowers if available.
 """
 
 
@@ -146,7 +163,7 @@ def project_instruction_text(project_root: Path) -> str:
     return f"""{START_MARKER}
 # Vesta Active
 {STATUS_TEXT}. Root: current repository.
-Vesta is active and manages this session's routing and safety. Never run `opai` CLI commands from inside an AI task — recursive self-invocation is blocked by Vesta.
+Vesta is active and manages this session's routing and safety. Never run `vesta`/`opai` CLI commands inside an AI task — recursive self-invocation is blocked by Vesta.
 The latest explicit request controls. A fix/build/test/refactor/PR request allows Vesta to edit files, create a branch, test, commit, push, and open a pull request; do not ask again for those requested steps. Explain/review is read-only. Ask before paid/cloud, destructive or irreversible actions, secret exposure, production credentials, or force-push. Protect unrelated changes. No generated dirs in context: `.git`, `.opcoding*`, `.opaihub/cache|logs|generated|install-test-*`, `node_modules`, venvs, `build`, `dist`.
 Use Superpowers when available.
 {END_MARKER}"""
@@ -183,6 +200,7 @@ def _write(path: Path, text: str, executable: bool = False) -> Path:
 def _replace_block(
     existing: str, block: str, start_marker: str, end_marker: str
 ) -> str:
+    existing = upgrade_legacy_markers(existing)
     start = existing.find(start_marker)
     end = existing.find(end_marker)
     if start != -1 and end != -1 and end > start:
@@ -203,6 +221,7 @@ def _replace_managed_block(existing: str, block: str) -> str:
 
 
 def _replace_managed_block_at_top(existing: str, block: str) -> str:
+    existing = upgrade_legacy_markers(existing)
     start = existing.find(START_MARKER)
     end = existing.find(END_MARKER)
     if start != -1 and end != -1 and end > start:
@@ -349,7 +368,7 @@ def ensure_superpowers_bridge(
     if not source.exists():
         return {
             **result,
-            "reason": "Superpowers source not found. Install or clone Superpowers, then run opai activate.",
+            "reason": "Superpowers source not found. Install or clone Superpowers, then run vesta activate.",
         }
 
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -417,8 +436,8 @@ def activate_project(
         "next_steps": [
             "Restart Codex/Claude/Copilot/Gemini sessions after first activation so instructions are rediscovered.",
             "Launch AI CLIs through Vesta wrappers so this activation runs in every project.",
-            'Run opai route "<task>" to collect local evidence before model use.',
-            "Run opai slim --clean to remove generated caches from this project.",
+            'Run vesta route "<task>" to collect local evidence before model use.',
+            "Run vesta slim --clean to remove generated caches from this project.",
         ],
     }
     _write(
@@ -478,7 +497,11 @@ def project_status(project_root: Path, home: Path | None = None) -> dict[str, An
     global_status = load_global_status(user_home)
     instruction_status = {}
     for name, path in instruction_files.items():
-        text = path.read_text(encoding="utf-8") if path.exists() else ""
+        text = (
+            upgrade_legacy_markers(path.read_text(encoding="utf-8"))
+            if path.exists()
+            else ""
+        )
         instruction_status[name] = {
             "path": str(path),
             "exists": path.exists(),
@@ -538,7 +561,7 @@ def project_status(project_root: Path, home: Path | None = None) -> dict[str, An
         "client_integrations": client_status,
         "stale_paths": stale,
         "next_steps": [
-            "Run opai activate --repair if any activation field is false.",
+            "Run vesta activate --repair if any activation field is false.",
             "Restart AI clients after global skill changes.",
             "Use op or opai; both launch Vesta.",
         ],
@@ -705,6 +728,7 @@ def _write_shell_aliases(home: Path) -> list[Path]:
     python_ps = _ps_quote(_python_executable())
     powershell_block = f"""{PS_START_MARKER}
 function op {{ & {python_ps} -m opai @args }}
+function vesta {{ & {python_ps} -m opai @args }}
 function opai {{ & {python_ps} -m opai @args }}
 function codex {{ & "{bin_dir / "opai-codex.ps1"}" @args }}
 function claude {{ & "{bin_dir / "opai-claude.ps1"}" @args }}
@@ -722,6 +746,7 @@ function gemini {{ & "{bin_dir / "opai-gemini.ps1"}" @args }}
     python_sh = shlex.quote(_python_executable())
     posix_block = f"""{PS_START_MARKER}
 op() {{ {python_sh} -m opai "$@"; }}
+vesta() {{ {python_sh} -m opai "$@"; }}
 opai() {{ {python_sh} -m opai "$@"; }}
 codex() {{ "{posix_bin / "opai-codex"}" "$@"; }}
 claude() {{ "{posix_bin / "opai-claude"}" "$@"; }}
@@ -916,6 +941,7 @@ def shell_environment() -> dict[str, str]:
 
 
 def _strip_block(text: str, start_marker: str, end_marker: str) -> str:
+    text = upgrade_legacy_markers(text)
     start = text.find(start_marker)
     end = text.find(end_marker)
     if start != -1 and end != -1 and end > start:
@@ -932,7 +958,7 @@ def update_opai_source(home: Path | None = None, timeout: int = 120) -> dict[str
     dev clone instead points the editable install straight at that clone.
     With no explicit ``home``, this resolves the real running location
     (``opai.updater.install_root()``) rather than assuming the former, so
-    ``opai update`` fixes the checkout that is actually in use. Passing
+    ``vesta update`` fixes the checkout that is actually in use. Passing
     ``home`` explicitly (as tests do) keeps the exact ``home/.opai/source``
     behavior.
     """
@@ -1052,7 +1078,9 @@ def uninstall_opai(
     planned_block_strips = [
         str(path)
         for path, start, end in block_files
-        if path.exists() and start in path.read_text(encoding="utf-8", errors="replace")
+        if path.exists()
+        and start
+        in upgrade_legacy_markers(path.read_text(encoding="utf-8", errors="replace"))
     ]
 
     removed: list[str] = []
@@ -1072,7 +1100,9 @@ def uninstall_opai(
         for path, start, end in block_files:
             if not path.exists():
                 continue
-            text = path.read_text(encoding="utf-8", errors="replace")
+            text = upgrade_legacy_markers(
+                path.read_text(encoding="utf-8", errors="replace")
+            )
             if start not in text:
                 continue
             cleaned = _strip_block(text, start, end)

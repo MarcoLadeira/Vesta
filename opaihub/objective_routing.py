@@ -133,7 +133,7 @@ def select_worker_route(
     each assignment and uses the canonical cheapest-first/reliability ordering.
     Local discovery lists models only on local/private endpoints. Usage reads
     never probe a provider. Unknown quota stays unknown and is not invented from
-    OPai-only activity counts; fresh observed exhaustion excludes the provider.
+    Vesta-only activity counts; fresh observed exhaustion excludes the provider.
 
     Dispatch the returned concrete model, rather than an unrestricted Auto
     sentinel that could fall back outside these capability/consent constraints.

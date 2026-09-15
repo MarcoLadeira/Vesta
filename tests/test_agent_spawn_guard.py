@@ -1,7 +1,7 @@
 """Spawn guards for provider CLI runs (F23 enforcement + F12 recursion).
 
 Covers:
-- ``opai hooks claude-pre-tool``: safe shell commands approve; gh mutations,
+- ``vesta hooks claude-pre-tool``: safe shell commands approve; gh mutations,
   git push, rm -rf & friends block with a "needs explicit user confirmation /
   do not retry" message; uninspectable payloads fail closed; the hook keeps
   working inside an agent session (the recursion guard must never block it).
@@ -12,7 +12,7 @@ Covers:
 - Recursion guard: OPAI_AGENT_SESSION is injected into every provider child
   env; inside such a session, route/ask/build/proxy refuse non-zero while
   hooks/version still work.
-- Instruction texts no longer leak the agent-actionable `opai route` recipe.
+- Instruction texts no longer leak the agent-actionable `vesta route` recipe.
 """
 
 from __future__ import annotations
@@ -1154,7 +1154,7 @@ class InstructionTextTests(unittest.TestCase):
         }
         for name, text in texts.items():
             with self.subTest(text=name):
-                for recipe in ("opai route", "opai slim", "opai cockpit"):
+                for recipe in ("vesta route", "vesta slim", "vesta cockpit"):
                     self.assertNotIn(recipe, text)
                 # ...replaced by an explicit non-invocation note.
                 self.assertIn("recursive self-invocation", text)
