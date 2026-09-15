@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import unittest
 
-from opaihub.sandbox import (
+from vestahub.sandbox import (
     _candidates,
     _matches_one,
     _normalize,

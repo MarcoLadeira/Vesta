@@ -31,16 +31,16 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub import command_consent
+from vestahub import command_consent
 
 ROOT = Path(__file__).resolve().parents[1]
 
 #: The modules a live turn actually runs through.
 LIVE_SURFACES = (
-    "opaihub/gui_pipeline.py",
-    "opai/gui_web.py",
-    "opai/gui_desktop.py",
-    "opai/cli_stream.py",
+    "vestahub/gui_pipeline.py",
+    "vesta/gui_web.py",
+    "vesta/gui_desktop.py",
+    "vesta/cli_stream.py",
 )
 
 #: Journal calls a live surface may make. All of them write; none decide.
@@ -108,7 +108,7 @@ class AnApprovalIsRefusedOnlyOnEvidenceTests(unittest.TestCase):
     """The Approve button must never quietly do nothing.
 
     The process that spends a grant is the PreToolUse hook, and Vesta does not
-    launch it -- the provider's CLI does. Whether OPAI_RUN_ID survives that hop
+    launch it -- the provider's CLI does. Whether VESTA_RUN_ID survives that hop
     is a third party's decision, so "I cannot say which run I am" has to be
     allowed. Refusing it would silently break every approved push on any
     provider that sanitises its hook environment.
@@ -153,13 +153,13 @@ class ReadinessIsAReportNotAGateTests(unittest.TestCase):
         from contextlib import redirect_stdout
         from unittest import mock
 
-        from opai import cli
+        from vesta import cli
 
         broken = {
             "available": True,
             "healthy": False,
             "checked": 1,
-            "broken": ["OPai-Desktop"],
+            "broken": ["Vesta-Desktop"],
             "unreadable": [],
             "launchers": [],
         }
@@ -184,8 +184,8 @@ class ReadinessIsAReportNotAGateTests(unittest.TestCase):
         """
 
         callers = []
-        for path in sorted((ROOT / "opai").rglob("*.py")) + sorted(
-            (ROOT / "opaihub").rglob("*.py")
+        for path in sorted((ROOT / "vesta").rglob("*.py")) + sorted(
+            (ROOT / "vestahub").rglob("*.py")
         ):
             if path.name == "cli.py":
                 continue
@@ -215,7 +215,7 @@ class TheExitCodeComesFromTheRunNotTheJournalTests(unittest.TestCase):
     """
 
     def test_the_cli_reads_the_result_dict(self):
-        source = (ROOT / "opai" / "cli_stream.py").read_text(encoding="utf-8")
+        source = (ROOT / "vesta" / "cli_stream.py").read_text(encoding="utf-8")
 
         self.assertIn(
             "def _terminal_verdict(result: dict[str, Any])",
@@ -243,11 +243,11 @@ DIAGNOSTIC_ONLY = (
 
 #: Where a turn and a boot actually happen. None of the above may appear here.
 HOT_PATHS = (
-    "opaihub/gui_pipeline.py",
-    "opai/gui_web.py",
-    "opai/gui_desktop.py",
-    "opai/cli_stream.py",
-    "opai/bootstrap.py",
+    "vestahub/gui_pipeline.py",
+    "vesta/gui_web.py",
+    "vesta/gui_desktop.py",
+    "vesta/cli_stream.py",
+    "vesta/bootstrap.py",
 )
 
 
@@ -293,7 +293,7 @@ class TheInspectorDidNotGetSlowerTests(unittest.TestCase):
     def test_reading_the_stored_verdict_is_a_small_part_of_readiness(self):
         import time
 
-        from opaihub import github_connector
+        from vestahub import github_connector
 
         def one_round(fn, samples=30):
             started = time.perf_counter()

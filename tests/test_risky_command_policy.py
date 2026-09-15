@@ -28,13 +28,13 @@ from pathlib import Path
 import pytest
 import yaml
 
-from opaihub.command_policy import Capability, classify_command_capability
-from opaihub.sandbox import classify_command
+from vestahub.command_policy import Capability, classify_command_capability
+from vestahub.sandbox import classify_command
 
 
 _REPO = Path(__file__).resolve().parents[1]
 _LIVE = _REPO / "hub" / "security" / "risky_commands.yaml"
-_PACKAGED = _REPO / "opaihub" / "data" / "hub" / "security" / "risky_commands.yaml"
+_PACKAGED = _REPO / "vestahub" / "data" / "hub" / "security" / "risky_commands.yaml"
 
 
 def _confirm_patterns() -> list[str]:

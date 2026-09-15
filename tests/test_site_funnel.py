@@ -3,8 +3,8 @@
 import unittest
 from pathlib import Path
 
-from opai.cli import build_parser
-from opai.release_identity import read_project_release
+from vesta.cli import build_parser
+from vesta.release_identity import read_project_release
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -22,9 +22,9 @@ class SiteFunnelTests(unittest.TestCase):
         self.assertNotIn("raw.githubusercontent.com/MarcoLadeira/OPai", self.html)
         self.assertNotIn("install.ps1", self.html)
         self.assertNotIn("install.sh", self.html)
-        self.assertNotIn('python -m pip install "opai[desktop-gui]"', self.html)
+        self.assertNotIn('python -m pip install "vesta[desktop-gui]"', self.html)
         self.assertIn("Free public alpha", self.html)
-        self.assertIn("pip install opai", self.html)
+        self.assertIn("pip install vesta", self.html)
         for token in [
             "PRIVATE_FOUNDING_PRO_CHECKOUT_URL",
             "PRIVATE_TEAM_PILOT_APPLY_URL",

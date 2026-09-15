@@ -10,11 +10,11 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
-from opai.app_state import available_models
-from opai.cli import main
-from opai.gui_web import _models, boot_payload
-from opaihub.accounts import provider_connection_doctor
-from opaihub.provider_capabilities import all_provider_profiles
+from vesta.app_state import available_models
+from vesta.cli import main
+from vesta.gui_web import _models, boot_payload
+from vestahub.accounts import provider_connection_doctor
+from vestahub.provider_capabilities import all_provider_profiles
 
 
 class ProviderContractSurfaceTests(unittest.TestCase):
@@ -23,10 +23,10 @@ class ProviderContractSurfaceTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             with (
-                mock.patch("opaihub.accounts.list_connected_accounts", return_value=[]),
-                mock.patch("opaihub.local_runner.cached_local_models", return_value=[]),
-                mock.patch("opaihub.credentials.credential_statuses", return_value=[]),
-                mock.patch("opaihub.free_models.list_free_models", return_value=[]),
+                mock.patch("vestahub.accounts.list_connected_accounts", return_value=[]),
+                mock.patch("vestahub.local_runner.cached_local_models", return_value=[]),
+                mock.patch("vestahub.credentials.credential_statuses", return_value=[]),
+                mock.patch("vestahub.free_models.list_free_models", return_value=[]),
             ):
                 picker = available_models(Path(tmp), discover_local=False)
                 doctor = provider_connection_doctor(
@@ -90,7 +90,7 @@ class ProviderContractSurfaceTests(unittest.TestCase):
     def test_incompatible_observed_protocol_is_actionable_degraded_not_fallback(self):
         """A stale adapter version is reported, never replaced with legacy truth."""
 
-        from opaihub.accounts import provider_contract_payload
+        from vestahub.accounts import provider_contract_payload
 
         contract = provider_contract_payload(
             "claude", observation={"adapterProtocolVersion": 999}
@@ -123,13 +123,13 @@ class ProviderContractSurfaceTests(unittest.TestCase):
                 "[project]\nname = 'surface-test'\n", encoding="utf-8"
             )
             with (
-                mock.patch("opai.app_state.available_models", return_value=source),
+                mock.patch("vesta.app_state.available_models", return_value=source),
                 mock.patch(
-                    "opai.gui_web._cached_update_check",
+                    "vesta.gui_web._cached_update_check",
                     return_value={"checked": False, "reason": "test"},
                 ) as cached_update_check,
-                mock.patch("opai.gui_web._workspace", return_value={}) as workspace,
-                mock.patch("opai.gui_web._status", return_value={}) as status,
+                mock.patch("vesta.gui_web._workspace", return_value={}) as workspace,
+                mock.patch("vesta.gui_web._status", return_value={}) as status,
             ):
                 output = io.StringIO()
                 with redirect_stdout(output):
@@ -178,26 +178,26 @@ class ProviderContractSurfaceTests(unittest.TestCase):
                 "[project]\nname = 'surface-test'\n", encoding="utf-8"
             )
             with (
-                mock.patch("opaihub.accounts.list_connected_accounts", return_value=[]),
+                mock.patch("vestahub.accounts.list_connected_accounts", return_value=[]),
                 mock.patch(
-                    "opaihub.credentials.credential_statuses",
+                    "vestahub.credentials.credential_statuses",
                     return_value=[credential],
                 ),
                 mock.patch(
-                    "opaihub.free_models.list_free_models", return_value=[]
+                    "vestahub.free_models.list_free_models", return_value=[]
                 ) as free_models,
                 mock.patch(
-                    "opaihub.local_runner.list_local_models", return_value=[]
+                    "vestahub.local_runner.list_local_models", return_value=[]
                 ) as live_local_models,
                 mock.patch(
-                    "opaihub.local_runner.cached_local_models", return_value=[]
+                    "vestahub.local_runner.cached_local_models", return_value=[]
                 ) as cached_local_models,
                 mock.patch(
-                    "opai.gui_web._cached_update_check",
+                    "vesta.gui_web._cached_update_check",
                     return_value={"checked": False, "reason": "test"},
                 ) as cached_update_check,
-                mock.patch("opai.gui_web._workspace", return_value={}) as workspace,
-                mock.patch("opai.gui_web._status", return_value={}) as status,
+                mock.patch("vesta.gui_web._workspace", return_value={}) as workspace,
+                mock.patch("vesta.gui_web._status", return_value={}) as status,
             ):
                 doctor = provider_connection_doctor(
                     accounts=[],

@@ -23,8 +23,8 @@ from unittest import mock
 
 from _helpers import make_repo
 
-from opaihub.gui_pipeline import handle_gui_message
-from opaihub.run_state import (
+from vestahub.gui_pipeline import handle_gui_message
+from vestahub.run_state import (
     AWAITING_INPUT_STATUSES,
     NON_TERMINAL_STATES,
     TERMINAL_STATES,
@@ -179,7 +179,7 @@ class HumanLanguageTests(unittest.TestCase):
     )
 
     def test_no_awaiting_question_leaks_internal_vocabulary(self) -> None:
-        from opaihub.gui_pipeline import _AWAITING_ASKS
+        from vestahub.gui_pipeline import _AWAITING_ASKS
 
         for status, (_kind, question) in _AWAITING_ASKS.items():
             with self.subTest(status=status):
@@ -187,8 +187,8 @@ class HumanLanguageTests(unittest.TestCase):
                 for word in self.INTERNAL_WORDS:
                     self.assertNotIn(word, lowered, f"{status} leaks {word!r}")
 
-    def test_every_ask_reads_as_opai_speaking(self) -> None:
-        from opaihub.gui_pipeline import _AWAITING_ASKS
+    def test_every_ask_reads_as_vesta_speaking(self) -> None:
+        from vestahub.gui_pipeline import _AWAITING_ASKS
 
         for status, (_kind, question) in _AWAITING_ASKS.items():
             with self.subTest(status=status):
@@ -204,7 +204,7 @@ class HumanLanguageTests(unittest.TestCase):
                 self.assertNotEqual(rendered.lower(), state.value)
 
     def test_the_machine_readable_kind_stays_a_closed_vocabulary(self) -> None:
-        from opaihub.gui_pipeline import _AWAITING_ASKS
+        from vestahub.gui_pipeline import _AWAITING_ASKS
 
         kinds = {kind for kind, _q in _AWAITING_ASKS.values()}
         self.assertTrue(kinds <= {"approval", "consent", "choice", "confirmation"})
@@ -238,10 +238,10 @@ class PipelineTests(unittest.TestCase):
         }
         with (
             mock.patch(
-                "opaihub.ask.run_ask",
+                "vestahub.ask.run_ask",
                 return_value={"status": "confirmation_required", "message": "send?"},
             ),
-            mock.patch("opai.app_state.available_models", return_value=catalog),
+            mock.patch("vesta.app_state.available_models", return_value=catalog),
         ):
             result = handle_gui_message(
                 self.root, "explain this repo", model_id="auto", mode="ask"
@@ -256,7 +256,7 @@ class PipelineTests(unittest.TestCase):
             "answer": "",
             "command_approval": {"command": "pytest -q", "reason": "confirm-class"},
         }
-        with mock.patch("opai.app_state.ask", return_value=approval):
+        with mock.patch("vesta.app_state.ask", return_value=approval):
             result = handle_gui_message(
                 self.root,
                 "fix the failing test",
@@ -273,7 +273,7 @@ class PipelineTests(unittest.TestCase):
             "answer": "",
             "command_approval": {"command": "pytest -q", "reason": "confirm-class"},
         }
-        with mock.patch("opai.app_state.ask", return_value=approval):
+        with mock.patch("vesta.app_state.ask", return_value=approval):
             result = handle_gui_message(
                 self.root,
                 "fix the failing test",
@@ -291,7 +291,7 @@ class PipelineTests(unittest.TestCase):
 
     def test_a_finished_run_carries_no_awaiting_payload(self) -> None:
         with mock.patch(
-            "opaihub.ask.run_ask",
+            "vestahub.ask.run_ask",
             return_value={"status": "answered_locally", "answer": "Here you go."},
         ):
             result = handle_gui_message(
@@ -305,10 +305,10 @@ class PipelineTests(unittest.TestCase):
         # with nothing runnable ends `needs_model`, which stays terminal.
         with (
             mock.patch(
-                "opaihub.ask.run_ask",
+                "vestahub.ask.run_ask",
                 return_value={"status": "runner_error", "error": "boom"},
             ),
-            mock.patch("opai.app_state.available_models", return_value={"models": []}),
+            mock.patch("vesta.app_state.available_models", return_value={"models": []}),
         ):
             result = handle_gui_message(
                 self.root, "explain this repo", model_id="auto", mode="ask"

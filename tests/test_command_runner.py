@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub.command_runner import run_policy_command, split_command
+from vestahub.command_runner import run_policy_command, split_command
 
 
 class CommandRunnerTests(unittest.TestCase):

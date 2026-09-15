@@ -43,8 +43,8 @@ Expected: failures show missing parser `error` data and current error text being
 ### Task 2: Implement structured failure reconciliation
 
 **Files:**
-- Modify: `opai/activity.py`
-- Modify: `opaihub/accounts.py`
+- Modify: `vesta/activity.py`
+- Modify: `vestahub/accounts.py`
 - Test: `tests/test_activity.py`
 - Test: `tests/test_ai_model_bugfixes.py`
 
@@ -75,7 +75,7 @@ Expected: all focused tests pass.
 **Files:**
 - Modify: `tests/test_provider_connections.py`
 - Modify: `tests/test_ai_model_bugfixes.py`
-- Modify: `opaihub/accounts.py`
+- Modify: `vestahub/accounts.py`
 - Test: `tests/test_provider_connections.py`
 - Test: `tests/test_ai_model_bugfixes.py`
 
@@ -110,7 +110,7 @@ Expected: all focused tests pass.
 **Files:**
 - Modify: `tests/test_streaming.py`
 - Modify: `tests/test_message_contract.py`
-- Modify: `opai/assets/web/__tests__/e2e/chat.spec.js` only if an existing fixture cannot express the failure
+- Modify: `vesta/assets/web/__tests__/e2e/chat.spec.js` only if an existing fixture cannot express the failure
 - Test: `tests/test_streaming.py`
 - Test: `tests/test_message_contract.py`
 

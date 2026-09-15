@@ -40,7 +40,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent.parent
-PACKAGES = ("opai", "opaihub", "opcoding")
+PACKAGES = ("vesta", "vestahub", "opcoding")
 
 #: Calls that put bytes on disk durably enough to outlive the process.
 DURABLE_WRITE_CALLS = frozenset(
@@ -65,64 +65,64 @@ JOURNAL_OWNED = {
     # Not a record with a legacy counterpart to disagree with: it is the
     # transactional history the other entries are migrating *into*, so it is
     # machinery in the same sense run_journal and shadow_journal are.
-    "opaihub/journal_store.py": "events — the SQLite WAL journal every other entry migrates into",
+    "vestahub/journal_store.py": "events — the SQLite WAL journal every other entry migrates into",
     # Stage 3's adapter. Originates canonical events into the journal from the
     # live run path; like shadow_journal it is a writer with no legacy record
     # of its own to disagree with, so it is machinery rather than a migration
     # target.
-    "opaihub/journal_runtime.py": "runs — Stage 3 journal-backed run lifecycle",
+    "vestahub/journal_runtime.py": "runs — Stage 3 journal-backed run lifecycle",
     # Stage 6's bridge. Mirrors every exact-once external effect into the
     # operations table by hooking idempotency, the choke point they all share.
-    "opaihub/journal_operations.py": "operations — Stage 6 external-effect transactions",
-    "opaihub/journal_retention.py": (
+    "vestahub/journal_operations.py": "operations — Stage 6 external-effect transactions",
+    "vestahub/journal_retention.py": (
         "events — requirement 5 retention: deletes presentation events only"
     ),
-    "opaihub/journal_backup.py": (
+    "vestahub/journal_backup.py": (
         "events — requirement 12 backup/recovery: verified copies of the journal"
     ),
     # Writes admission, lifecycle, cost and verification from the live turn
     # path. Not a migration target itself -- it originates records rather than
     # owning a legacy file -- so it is machinery, like the other writers.
-    "opaihub/gui_pipeline.py": "runs — the live turn path that originates journal records",
+    "vestahub/gui_pipeline.py": "runs — the live turn path that originates journal records",
     # runs / events / leases
-    "opaihub/run_journal.py": "events — append-only journal this issue generalises",
+    "vestahub/run_journal.py": "events — append-only journal this issue generalises",
     # Not a durable writer in its own right: it mirrors a record another
     # module has already decided and already persisted, into that module's own
     # journal. Classified here rather than as a projection because what it
     # writes *is* Stage 2's canonical event — it simply never originates one.
-    "opaihub/shadow_journal.py": "events — Stage 2 shadow mirror shared by every JOURNAL_OWNED record",
-    "opaihub/workflow_runner.py": "runs — run/step transitions",
-    "opaihub/background_runs.py": "runs — background run records and notifications",
-    "opaihub/agent_runtime.py": "runs — agent process state",
+    "vestahub/shadow_journal.py": "events — Stage 2 shadow mirror shared by every JOURNAL_OWNED record",
+    "vestahub/workflow_runner.py": "runs — run/step transitions",
+    "vestahub/background_runs.py": "runs — background run records and notifications",
+    "vestahub/agent_runtime.py": "runs — agent process state",
     # Owns the cancellation phase ladder -- "cancellation and teardown
     # evidence" in #818's canonical-record list. Its authority is already a
     # sequenced run_journal rather than a snapshot file, so its dual read
     # compares that phase log against the cancel-phase events mirrored into
     # the canonical journal, which is the pair that can actually disagree.
-    "opaihub/cancellation_lifecycle.py": (
+    "vestahub/cancellation_lifecycle.py": (
         "events — cancellation phase evidence (requested -> terminated)"
     ),
-    "opaihub/owner_lease.py": "leases — ownership and fencing",
-    "opaihub/worktree_leases.py": "leases — worktree ownership",
-    "opaihub/session_registry.py": "leases — cross-process active provider sessions",
-    "opaihub/parallel_agents.py": "runs — concurrent agent slots",
-    "opaihub/scheduler.py": "runs — scheduled work",
+    "vestahub/owner_lease.py": "leases — ownership and fencing",
+    "vestahub/worktree_leases.py": "leases — worktree ownership",
+    "vestahub/session_registry.py": "leases — cross-process active provider sessions",
+    "vestahub/parallel_agents.py": "runs — concurrent agent slots",
+    "vestahub/scheduler.py": "runs — scheduled work",
     # operations / approvals
-    "opaihub/idempotency.py": "operations -- exact-once external-effect claims",
-    "opaihub/checkpoints.py": "operations — run checkpoints",
-    "opaihub/audit.py": "approvals — audit trail",
-    "opaihub/github_connector.py": "operations — GitHub delivery",
-    "opaihub/repository_safety.py": "operations — repository mutation guards",
-    "opai/integrations.py": "approvals — connected-service consent",
-    "opai/update/storage.py": "operations — packaged update state and fencing",
+    "vestahub/idempotency.py": "operations -- exact-once external-effect claims",
+    "vestahub/checkpoints.py": "operations — run checkpoints",
+    "vestahub/audit.py": "approvals — audit trail",
+    "vestahub/github_connector.py": "operations — GitHub delivery",
+    "vestahub/repository_safety.py": "operations — repository mutation guards",
+    "vesta/integrations.py": "approvals — connected-service consent",
+    "vesta/update/storage.py": "operations — packaged update state and fencing",
     # cost
-    "opaihub/ledger.py": "cost_events — usage and spend",
-    "opaihub/budget.py": "cost_events — budget ceilings and spend",
+    "vestahub/ledger.py": "cost_events — usage and spend",
+    "vestahub/budget.py": "cost_events — budget ceilings and spend",
     # verification / artifacts
-    "opaihub/verification_execution.py": "artifacts — verification runs",
-    "opaihub/verification_policy.py": "artifacts — verification policy state",
+    "vestahub/verification_execution.py": "artifacts — verification runs",
+    "vestahub/verification_policy.py": "artifacts — verification policy state",
     # history
-    "opai/gui_recents.py": "events — conversation/thread history",
+    "vesta/gui_recents.py": "events — conversation/thread history",
 }
 
 #: Modules that *are* the journal rather than records migrating into it. They
@@ -134,22 +134,22 @@ JOURNAL_OWNED = {
 #: the other.
 JOURNAL_MACHINERY = frozenset(
     {
-        "opaihub/gui_pipeline.py",
+        "vestahub/gui_pipeline.py",
         # Deletes *from* the journal rather than writing a record that
         # migrates into it. There is no legacy counterpart to disagree with,
         # and what it may delete is itself constrained by a default-deny list
         # with its own suite.
-        "opaihub/journal_retention.py",
+        "vestahub/journal_retention.py",
         # Writes backups *of* the journal. Its durable output is a copy of the
         # record itself, so there is no legacy counterpart it could disagree
         # with -- comparing a backup against a legacy projection would be
         # comparing the journal to itself.
-        "opaihub/journal_backup.py",
-        "opaihub/journal_operations.py",
-        "opaihub/journal_runtime.py",
-        "opaihub/journal_store.py",
-        "opaihub/run_journal.py",
-        "opaihub/shadow_journal.py",
+        "vestahub/journal_backup.py",
+        "vestahub/journal_operations.py",
+        "vestahub/journal_runtime.py",
+        "vestahub/journal_store.py",
+        "vestahub/run_journal.py",
+        "vestahub/shadow_journal.py",
     }
 )
 
@@ -164,10 +164,10 @@ JOURNAL_MACHINERY = frozenset(
 #: exemption, so a module cannot be excused by assertion alone.
 ALREADY_APPEND_ONLY = {
     # Hash-chained, fsync'd audit trail; tamper-evident by construction.
-    "opaihub/audit.py",
+    "vestahub/audit.py",
     # Sequenced + digest-chained event log with a persisted head, torn-line
     # repair and a rebuildable SQLite index.
-    "opaihub/ledger.py",
+    "vestahub/ledger.py",
 }
 
 #: Derived views and support output. Rebuildable, never sole authority.
@@ -176,37 +176,37 @@ PROJECTION_OR_EXPORT = {
     # writes nothing; flagged by the open_store signal, which is the scan
     # working -- it cannot tell a reader from a writer, and triaging one
     # module is cheaper than a scan that misses the next real writer.
-    "opaihub/journal_qualification.py",
+    "vestahub/journal_qualification.py",
     # Stage 5's read path. Opens the journal to serve run state and writes
     # nothing; the open_store signal cannot tell a reader from a writer, which
     # is the correct trade -- triaging a reader is cheaper than a scan that
     # misses the next real writer.
-    "opaihub/journal_reader.py",
+    "vestahub/journal_reader.py",
     # Stage 7's retirement gate. Reads telemetry to answer one question --
     # may the legacy writes go? -- and writes nothing itself.
-    "opaihub/journal_retirement.py",
+    "vestahub/journal_retirement.py",
     # #818's parity checks. Both open the journal to *read* it: one replays
     # the event log against the `runs` table, the other compares the journal
     # with the saved conversations. Neither persists anything -- rebuild_runs
     # had a persist=True default no caller used, removed so a doctor run can
     # never write to the store it is diagnosing.
-    "opaihub/journal_projections.py",
-    "opaihub/journal_conversations.py",
+    "vestahub/journal_projections.py",
+    "vestahub/journal_conversations.py",
     # Build-only generated identity written into wheel/sdist staging trees.
-    "opai/build_metadata.py",
-    "opaihub/dashboard.py",
-    "opaihub/dashboard_html.py",
-    "opaihub/desktop_artifacts.py",
-    "opaihub/registry_writer.py",
-    "opaihub/release_preflight.py",
-    "opaihub/signing.py",
-    "opaihub/evidence_cache.py",
-    "opai/gui_web.py",
-    "opai/publish.py",
-    "opai/update/native.py",
-    "opai/update/packaging.py",
-    "opai/update/release.py",
-    "opai/visibility.py",
+    "vesta/build_metadata.py",
+    "vestahub/dashboard.py",
+    "vestahub/dashboard_html.py",
+    "vestahub/desktop_artifacts.py",
+    "vestahub/registry_writer.py",
+    "vestahub/release_preflight.py",
+    "vestahub/signing.py",
+    "vestahub/evidence_cache.py",
+    "vesta/gui_web.py",
+    "vesta/publish.py",
+    "vesta/update/native.py",
+    "vesta/update/packaging.py",
+    "vesta/update/release.py",
+    "vesta/visibility.py",
     "opcoding/dashboard.py",
     "opcoding/doctor.py",
     "opcoding/ci.py",
@@ -214,7 +214,7 @@ PROJECTION_OR_EXPORT = {
 
 #: Caches, preferences, scaffolding, benchmarks, docs. Explicit #613 non-goal.
 NOT_RUNTIME_STATE = {
-    "opai/app_state.py",
+    "vesta/app_state.py",
     # User-authored notes and decisions, not execution truth. Surfaced only
     # once the scan learned to see SQLite writers -- it had persisted to its
     # own database, untriaged, the whole time. Classified here rather than
@@ -222,14 +222,14 @@ NOT_RUNTIME_STATE = {
     # would be bad, but no crash-recovery replay would rebuild them, and the
     # issue's non-goals rule out absorbing every durable store.
     "opcoding/memory.py",
-    "opai/cli.py",
-    "opai/context_slim.py",
-    "opai/gui_workspace.py",
-    "opai/installer.py",
-    "opai/model_overrides.py",
-    "opai/updater.py",
-    "opaihub/accounts.py",
-    "opaihub/app_scaffold.py",
+    "vesta/cli.py",
+    "vesta/context_slim.py",
+    "vesta/gui_workspace.py",
+    "vesta/installer.py",
+    "vesta/model_overrides.py",
+    "vesta/updater.py",
+    "vestahub/accounts.py",
+    "vestahub/app_scaffold.py",
     # Bytes a person pasted or dropped into the composer, written to disk so a
     # prompt has a path to point at. Not runtime truth: no replay reconstructs
     # a clipboard, and nothing about a run's verdict, cost or approval depends
@@ -237,22 +237,22 @@ NOT_RUNTIME_STATE = {
     # it sits here for the same reason `opcoding/memory.py` does. Losing it
     # would be bad and would still not make Vesta lie about what happened, which
     # is the line these three classes actually draw.
-    "opaihub/attachments.py",
-    "opaihub/benchmark.py",
-    "opaihub/build_loop.py",
-    "opaihub/context_engine.py",
-    "opaihub/context_pack.py",
-    "opaihub/eval_harness.py",
-    "opaihub/guarded.py",
-    "opaihub/gui_preferences.py",
-    "opaihub/local_fallback.py",
-    "opaihub/mcp.py",
-    "opaihub/opaibench.py",
-    "opaihub/provider_tools.py",
-    "opaihub/repo_context.py",
-    "opaihub/semantic_index.py",
-    "opaihub/team.py",
-    "opaihub/team_policy.py",
+    "vestahub/attachments.py",
+    "vestahub/benchmark.py",
+    "vestahub/build_loop.py",
+    "vestahub/context_engine.py",
+    "vestahub/context_pack.py",
+    "vestahub/eval_harness.py",
+    "vestahub/guarded.py",
+    "vestahub/gui_preferences.py",
+    "vestahub/local_fallback.py",
+    "vestahub/mcp.py",
+    "vestahub/vestabench.py",
+    "vestahub/provider_tools.py",
+    "vestahub/repo_context.py",
+    "vestahub/semantic_index.py",
+    "vestahub/team.py",
+    "vestahub/team_policy.py",
     "opcoding/cache.py",
     "opcoding/cli.py",
     "opcoding/context_manager.py",
@@ -310,7 +310,7 @@ def _imports_the_journal(tree: ast.AST) -> bool:
             module = node.module or ""
             if module.endswith(("journal_store", "journal_runtime")):
                 return True
-            if module in {".", ""} or module.startswith("opaihub"):
+            if module in {".", ""} or module.startswith("vestahub"):
                 for alias in node.names:
                     if alias.name in {
                         "journal_store",
@@ -452,7 +452,7 @@ class DurableWriteInventoryTests(unittest.TestCase):
 class AdoptedJournalTests(unittest.TestCase):
     """The existing journal is live, and #613 builds on it rather than beside it.
 
-    `opaihub/run_journal.py` (#517) already provides append-only records with a
+    `vestahub/run_journal.py` (#517) already provides append-only records with a
     monotonic sequence, quarantine of mid-file corruption and replayable
     recovery. It has real production callers, so #613 is a migration onto a
     working mechanism -- not another primitive built next to one.
@@ -463,7 +463,7 @@ class AdoptedJournalTests(unittest.TestCase):
         for package in PACKAGES:
             for path in sorted((ROOT / package).rglob("*.py")):
                 relative = path.relative_to(ROOT).as_posix()
-                if relative == "opaihub/run_journal.py" or "__pycache__" in relative:
+                if relative == "vestahub/run_journal.py" or "__pycache__" in relative:
                     continue
                 source = path.read_text(encoding="utf-8")
                 if "run_journal" in source and "import" in source:

@@ -5,8 +5,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opai import gui_web
-from opaihub import ledger, provider_usage, usage
+from vesta import gui_web
+from vestahub import ledger, provider_usage, usage
 
 
 class SettingsPerformanceTests(unittest.TestCase):
@@ -29,10 +29,10 @@ class SettingsPerformanceTests(unittest.TestCase):
                 ),
                 mock.patch.object(gui_web, "asset_build_identity", return_value={}),
                 mock.patch(
-                    "opaihub.accounts.provider_connection_doctor", return_value=[]
+                    "vestahub.accounts.provider_connection_doctor", return_value=[]
                 ),
-                mock.patch("opaihub.credentials.credential_statuses", return_value=[]),
-                mock.patch("opaihub.github_connector.github_status", return_value={}),
+                mock.patch("vestahub.credentials.credential_statuses", return_value=[]),
+                mock.patch("vestahub.github_connector.github_status", return_value={}),
                 mock.patch.object(
                     usage, "read_events", wraps=usage.read_events
                 ) as model_reads,

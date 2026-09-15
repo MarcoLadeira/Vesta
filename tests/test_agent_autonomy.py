@@ -8,12 +8,12 @@ import tempfile
 from pathlib import Path
 from unittest import mock
 
-from opaihub.agent_policy import (
+from vestahub.agent_policy import (
     AgentMode,
     build_capability_contract,
     resolve_agent_policy,
 )
-from opaihub.repo_context import (
+from vestahub.repo_context import (
     active_repo_context,
     DirtyConflictError,
     classify_dirty_paths,
@@ -22,14 +22,14 @@ from opaihub.repo_context import (
     resolve_repo_context,
     save_active_repo,
 )
-from opaihub.github_workflow import (
+from vestahub.github_workflow import (
     CodingWorkflow,
     GitHubAdapter,
     ShipChecks,
     rank_issues,
     select_small_important_issue,
 )
-from opaihub.workflow_state import (
+from vestahub.workflow_state import (
     WorkflowState,
     load_workflow_state,
     save_workflow_state,
@@ -523,7 +523,7 @@ class IssueSolveIntentTests(unittest.TestCase):
                 self.assertFalse(policy.allows("edit_files"))
 
     def test_solve_issue_is_not_a_discovery_request(self):
-        from opaihub.agent_policy import is_discovery_request
+        from vestahub.agent_policy import is_discovery_request
 
         self.assertFalse(
             is_discovery_request("Solve GitHub issue #219 in this repo for me.")
@@ -577,7 +577,7 @@ class RepoContextTests(unittest.TestCase):
             context.to_dict()["safety"]["assessment"]["rule_id"], "unknown_scope"
         )
         self.assertFalse(
-            any(path.startswith(".opaihub/") for path in refreshed.dirty_paths)
+            any(path.startswith(".vestahub/") for path in refreshed.dirty_paths)
         )
 
     def test_remote_credentials_are_never_persisted_or_exposed(self):
@@ -597,7 +597,7 @@ class RepoContextTests(unittest.TestCase):
             )
             context = resolve_repo_context(root)
             save_active_repo(root, context)
-            raw = (root / ".opaihub" / "gui" / "active_repo.json").read_text(
+            raw = (root / ".vestahub" / "gui" / "active_repo.json").read_text(
                 encoding="utf-8"
             )
 
@@ -606,7 +606,7 @@ class RepoContextTests(unittest.TestCase):
 
     def test_unrelated_dirty_files_do_not_block_requested_change(self):
         assessment = classify_dirty_paths(
-            ["docs/notes.md", "styles.css"], ["opai/agent_policy.py"]
+            ["docs/notes.md", "styles.css"], ["vesta/agent_policy.py"]
         )
 
         self.assertEqual(assessment.status, "unrelated")
@@ -615,13 +615,13 @@ class RepoContextTests(unittest.TestCase):
 
     def test_conflicting_dirty_files_require_clarification(self):
         assessment = classify_dirty_paths(
-            ["opai/agent_policy.py", "docs/notes.md"],
-            ["opai/agent_policy.py", "tests/test_agent_policy.py"],
+            ["vesta/agent_policy.py", "docs/notes.md"],
+            ["vesta/agent_policy.py", "tests/test_agent_policy.py"],
         )
 
         self.assertEqual(assessment.status, "conflicting")
         self.assertFalse(assessment.can_proceed)
-        self.assertEqual(assessment.conflicting_paths, ("opai/agent_policy.py",))
+        self.assertEqual(assessment.conflicting_paths, ("vesta/agent_policy.py",))
 
     def test_unknown_dirty_scope_cannot_authorize_mutation(self):
         assessment = classify_dirty_paths(["docs/notes.md"], None)
@@ -647,7 +647,7 @@ class RepoContextTests(unittest.TestCase):
                 branch="codex/autonomy",
                 base="main",
                 dirty_paths=["docs/user.md"],
-                intended_paths=["opai/agent_policy.py"],
+                intended_paths=["vesta/agent_policy.py"],
                 run=fake_run,
             )
 
@@ -663,8 +663,8 @@ class RepoContextTests(unittest.TestCase):
                     root,
                     root.parent / "blocked-worktree",
                     branch="codex/autonomy",
-                    dirty_paths=["opai/agent_policy.py"],
-                    intended_paths=["opai/agent_policy.py"],
+                    dirty_paths=["vesta/agent_policy.py"],
+                    intended_paths=["vesta/agent_policy.py"],
                 )
 
 
@@ -841,7 +841,7 @@ class WorkflowPipelineTests(unittest.TestCase):
             )
             save_workflow_state(root, state)
             loaded = load_workflow_state(root)
-            raw = (root / ".opaihub" / "gui" / "workflow.json").read_text(
+            raw = (root / ".vestahub" / "gui" / "workflow.json").read_text(
                 encoding="utf-8"
             )
 
@@ -850,7 +850,7 @@ class WorkflowPipelineTests(unittest.TestCase):
         self.assertNotIn("secret", raw.lower())
 
     def test_pipeline_current_fix_request_overrides_stale_read_only_focus(self):
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         runner = FakeAccountRunner(text="Implemented and tested.")
         with tempfile.TemporaryDirectory() as tmp:
@@ -884,7 +884,7 @@ class WorkflowPipelineTests(unittest.TestCase):
     def test_pipeline_solve_github_issue_is_implement_despite_explain_focus(self):
         # F5/F10/F18 end-to-end: the exact QA prompt, with a stale Explain task
         # focus, must resolve to an edit-capable run — not a read-only ask.
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         runner = FakeAccountRunner(text="Implemented and tested.")
         with tempfile.TemporaryDirectory() as tmp:
@@ -907,7 +907,7 @@ class WorkflowPipelineTests(unittest.TestCase):
     def test_pipeline_solve_issue_preserves_pinned_full_auto(self):
         # F18: a stale read-only focus may not silently force read-only when
         # Full Auto is pinned and the message is an explicit write request.
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         runner = FakeAccountRunner(text="Implemented and tested.")
         prefs = {
@@ -917,7 +917,7 @@ class WorkflowPipelineTests(unittest.TestCase):
         }
         with (
             tempfile.TemporaryDirectory() as tmp,
-            mock.patch("opaihub.gui_pipeline.load_gui_preferences", return_value=prefs),
+            mock.patch("vestahub.gui_pipeline.load_gui_preferences", return_value=prefs),
         ):
             root = make_repo(Path(tmp), commit=True)
             result = handle_gui_message(
@@ -934,7 +934,7 @@ class WorkflowPipelineTests(unittest.TestCase):
         self.assertTrue(runner.calls[0]["allow_edits"])
 
     def test_pipeline_preserves_pinned_full_auto_for_implementation(self):
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         runner = FakeAccountRunner(text="Implemented and tested.")
         prefs = {
@@ -944,7 +944,7 @@ class WorkflowPipelineTests(unittest.TestCase):
         }
         with (
             tempfile.TemporaryDirectory() as tmp,
-            mock.patch("opaihub.gui_pipeline.load_gui_preferences", return_value=prefs),
+            mock.patch("vestahub.gui_pipeline.load_gui_preferences", return_value=prefs),
         ):
             root = make_repo(Path(tmp), commit=True)
             result = handle_gui_message(
@@ -960,7 +960,7 @@ class WorkflowPipelineTests(unittest.TestCase):
         self.assertTrue(runner.calls[0]["allow_edits"])
 
     def test_pipeline_explain_request_remains_read_only_even_from_safe_auto(self):
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         runner = FakeAccountRunner(text="Here is how it works.")
         with tempfile.TemporaryDirectory() as tmp:
@@ -980,7 +980,7 @@ class WorkflowPipelineTests(unittest.TestCase):
         self.assertEqual(result["workflow"]["phase"], "completed")
 
     def test_output_format_instruction_cannot_override_raw_user_intent(self):
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         runner = FakeAccountRunner(text="Explanation")
         with tempfile.TemporaryDirectory() as tmp:
@@ -1002,7 +1002,7 @@ class WorkflowPipelineTests(unittest.TestCase):
 
 class GuiAutonomySurfaceTests(unittest.TestCase):
     def test_desktop_workflow_summary_names_mode_tests_pr_and_merge(self):
-        from opai.gui_controls import workflow_summary
+        from vesta.gui_controls import workflow_summary
 
         summary = workflow_summary(
             {
@@ -1028,7 +1028,7 @@ class GuiAutonomySurfaceTests(unittest.TestCase):
         )
 
     def test_boot_payload_surfaces_active_repo_and_workflow_truth(self):
-        from opai.gui_web import boot_payload
+        from vesta.gui_web import boot_payload
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"app.py": "print('ok')\n"}, commit=True)
@@ -1052,7 +1052,7 @@ class GuiAutonomySurfaceTests(unittest.TestCase):
             payload = boot_payload(root)
             # Inspector is deferred at boot (#246); fetch it via the same path
             # the panel uses to assert the workflow rows are surfaced.
-            from opai.gui_web import _inspector
+            from vesta.gui_web import _inspector
 
             inspector = _inspector(
                 root,
@@ -1083,7 +1083,7 @@ class GuiAutonomySurfaceTests(unittest.TestCase):
 
 class InstructionContractTests(unittest.TestCase):
     def test_managed_instruction_grants_normal_coding_workflow_once_requested(self):
-        from opai.integrations import project_instruction_text
+        from vesta.integrations import project_instruction_text
 
         text = project_instruction_text(Path("C:/repo"))
 
@@ -1095,7 +1095,7 @@ class InstructionContractTests(unittest.TestCase):
         self.assertIn("do not ask again", text.lower())
 
     def test_gitops_prompt_treats_current_pr_or_merge_request_as_authorization(self):
-        prompt = Path("opaihub/data/hub/prompts/gitops.md").read_text(encoding="utf-8")
+        prompt = Path("vestahub/data/hub/prompts/gitops.md").read_text(encoding="utf-8")
 
         self.assertIn("current request authorizes", prompt.lower())
         self.assertNotIn("do not suggest push/merge", prompt.lower())
@@ -1108,7 +1108,7 @@ class InstructionContractTests(unittest.TestCase):
         self.assertIn("git push --force", config)
 
     def test_read_only_focus_is_advisory_when_current_request_is_to_fix(self):
-        from opai.gui_modes import compose_prompt
+        from vesta.gui_modes import compose_prompt
 
         prompt = compose_prompt("Fix the bug and make a PR.", task_mode_id="explain")
 

@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: opai-provider-canary-${{ github.sha }}
+  group: vesta-provider-canary-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
@@ -34,19 +34,19 @@ jobs:
     needs: dispatch-guard
     if: github.ref == 'refs/heads/main'
     environment:
-      name: opai-provider-canary
+      name: vesta-provider-canary
       deployment: false
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
       contents: read
     env:
-      OPAI_LIVE_PROVIDER_SMOKE: "1"
-      OPAI_CONFIRM_CLOUD_TESTS: "YES"
-      OPAI_PROVIDER_CANARY_NON_PRODUCTION: "YES"
-      OPAI_LIVE_PROVIDER_SMOKE_PROVIDERS: ${{ vars.OPAI_PROVIDER_CANARY_PROVIDERS }}
-      OPAI_LIVE_MODELS: ${{ vars.OPAI_PROVIDER_CANARY_MODELS }}
-      OPAI_PROVIDER_CANARY_MAX_USD: ${{ vars.OPAI_PROVIDER_CANARY_MAX_USD }}
+      VESTA_LIVE_PROVIDER_SMOKE: "1"
+      VESTA_CONFIRM_CLOUD_TESTS: "YES"
+      VESTA_PROVIDER_CANARY_NON_PRODUCTION: "YES"
+      VESTA_LIVE_PROVIDER_SMOKE_PROVIDERS: ${{ vars.VESTA_PROVIDER_CANARY_PROVIDERS }}
+      VESTA_LIVE_MODELS: ${{ vars.VESTA_PROVIDER_CANARY_MODELS }}
+      VESTA_PROVIDER_CANARY_MAX_USD: ${{ vars.VESTA_PROVIDER_CANARY_MAX_USD }}
     steps:
       - name: Checkout exact trusted candidate
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683

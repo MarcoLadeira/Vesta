@@ -11,23 +11,23 @@ exact tag's Python, hostile-environment, supply-chain, and web contracts. A
 production dispatch from `main` additionally proves the tag commit is reachable
 from that reviewed main revision and runs the protected provider canary. The
 signing job depends on all source, web, native-build, and provider jobs, then
-pauses at `opai-production-signing` before it can read any certificate or
+pauses at `vesta-production-signing` before it can read any certificate or
 notarisation value. It signs, verifies, finalizes, and archives the bundle, but
 never executes it.
 
 Before production use, a repository owner must configure that environment with:
 
-1. The `OPAI_WINDOWS_PFX_BASE64`, `OPAI_WINDOWS_PFX_PASSWORD`,
-   `OPAI_APPLE_DEVELOPER_ID`, `OPAI_APPLE_SIGNING_CERTIFICATE_BASE64`,
-   `OPAI_APPLE_SIGNING_CERTIFICATE_PASSWORD`, `OPAI_APPLE_NOTARY_APPLE_ID`,
-   `OPAI_APPLE_NOTARY_TEAM_ID`, and `OPAI_APPLE_NOTARY_APP_SPECIFIC_PASSWORD`
+1. The `VESTA_WINDOWS_PFX_BASE64`, `VESTA_WINDOWS_PFX_PASSWORD`,
+   `VESTA_APPLE_DEVELOPER_ID`, `VESTA_APPLE_SIGNING_CERTIFICATE_BASE64`,
+   `VESTA_APPLE_SIGNING_CERTIFICATE_PASSWORD`, `VESTA_APPLE_NOTARY_APPLE_ID`,
+   `VESTA_APPLE_NOTARY_TEAM_ID`, and `VESTA_APPLE_NOTARY_APP_SPECIFIC_PASSWORD`
    values as **environment secrets only**. Remove same-named repository or
    organisation secrets so an unprotected job cannot read them. The workflow
    creates a unique, temporary notarization profile in a temporary keychain; it
    never assumes a pre-existing profile on a hosted runner.
 2. The non-secret, environment-scoped variables
-   `OPAI_WINDOWS_SIGNER_THUMBPRINT` (the exact 40-hex Authenticode signer
-   thumbprint) and `OPAI_MACOS_TEAM_ID` (the exact ten-character Developer ID
+   `VESTA_WINDOWS_SIGNER_THUMBPRINT` (the exact 40-hex Authenticode signer
+   thumbprint) and `VESTA_MACOS_TEAM_ID` (the exact ten-character Developer ID
    Team ID). The macOS notarization team must match the protected Team ID.
 3. A required release reviewer, with self-review prevention enabled, and no
    administrator bypass for the signing environment.
@@ -39,10 +39,10 @@ Before production use, a repository owner must configure that environment with:
    remote annotated-tag object immediately before attestation, but a protected
    immutable tag is still the long-lived release-name boundary.
 
-Configure the separate `opai-provider-canary` environment with main-only
+Configure the separate `vesta-provider-canary` environment with main-only
 deployment policy, a required reviewer, non-production provider credentials,
-`OPAI_PROVIDER_CANARY_PROVIDERS`, `OPAI_PROVIDER_CANARY_MODELS`, and
-`OPAI_PROVIDER_CANARY_MAX_USD` (greater than zero and no more than `1.00`). The
+`VESTA_PROVIDER_CANARY_PROVIDERS`, `VESTA_PROVIDER_CANARY_MODELS`, and
+`VESTA_PROVIDER_CANARY_MAX_USD` (greater than zero and no more than `1.00`). The
 runner accepts only one fixed remote call whose exact provider/model and
 provider-observed usage are bound to a known cost in the sandbox ledger; its
 cumulative observed cost must remain within that threshold. Missing,
@@ -182,7 +182,7 @@ timestamp, notarization credential, failed notarization, absent verification
 log, or failed archive attestation is a hard stop.
 
 Windows production verifies every shipped `.exe`, `.dll`, and `.pyd`; macOS
-production signs and verifies both `gui/OPai.app` and `cli/opai`, then submits
+production signs and verifies both `gui/Vesta.app` and `cli/vesta`, then submits
 the portable bundle for notarization. A current native verifier rejects a
 signature from an unexpected publisher; it does not merely accept any trusted
 certificate. The GitHub artifact attestation binds the complete ZIP outside the
@@ -197,7 +197,7 @@ bundle and is the final public-release authenticity gate.
    bootstrap lock, that platform's full lock, and Vesta with `--no-deps` and
    `--no-build-isolation`. Do not use an ambient `pyside6-deploy` or `nuitka`
    executable.
-3. Confirm `pyproject.toml`, `opai/__init__.py`, and `opaihub/__init__.py` declare
+3. Confirm `pyproject.toml`, `vesta/__init__.py`, and `vestahub/__init__.py` declare
    the same PEP 440 version, then push its canonical reviewed annotated
    `v<package-version>` tag. The `v*` push automatically
    runs the unsigned rehearsal and all credential-free source/web/native gates.
@@ -240,8 +240,8 @@ The alpha artifact is a **portable** application, not an installer.
    accidental corruption; the external attestation and expected publisher
    identity provide the authenticity boundary.
 2. Extract the archive into a user-controlled application directory such as
-   `C:\Apps\Vesta` or `/Applications/OPai Alpha`. Start `Vesta` for the desktop
-   UI or `opai` for the command line; neither requires a source checkout.
+   `C:\Apps\Vesta` or `/Applications/Vesta Alpha`. Start `Vesta` for the desktop
+   UI or `vesta` for the command line; neither requires a source checkout.
 3. For an upgrade, close Vesta, keep the previous extracted directory intact,
    extract the new portable bundle into a sibling directory, run the smoke
    journey, and then switch shortcuts to the new directory.
@@ -257,7 +257,7 @@ The alpha artifact is a **portable** application, not an installer.
 
 The workflow runs `scripts/smoke_desktop_artifacts.py`, which starts from a
 disposable home and fixture project; uses a strict environment allowlist rather
-than inheriting credentials, `PYTHONPATH`, `OPAI_HUB_ROOT`, local-model
+than inheriting credentials, `PYTHONPATH`, `VESTA_HUB_ROOT`, local-model
 overrides, or source-working-tree influence;
 checks checksums and inventory; scans artifact/log text for secret-shaped
 values, private URLs, and development overrides; runs the current platform

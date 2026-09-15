@@ -19,10 +19,10 @@ from __future__ import annotations
 import subprocess
 import unittest
 
-from opai.authorship import (
+from vesta.authorship import (
     COAUTHOR_TRAILER,
-    OPAI_EMAIL,
-    has_opai_trailer,
+    VESTA_EMAIL,
+    has_vesta_trailer,
     with_coauthor,
 )
 
@@ -46,15 +46,15 @@ class TrailerIsRealTests(unittest.TestCase):
         # The regression. "fix: ..." looks exactly like a trailer, and treating
         # it as one produced a credit git could not read.
         parsed = _git_parsed_trailers(with_coauthor("fix: parser crash"))
-        self.assertIn(OPAI_EMAIL, parsed)
+        self.assertIn(VESTA_EMAIL, parsed)
 
     def test_a_plain_subject_yields_a_parsed_trailer(self) -> None:
         parsed = _git_parsed_trailers(with_coauthor("Fix the parser"))
-        self.assertIn(OPAI_EMAIL, parsed)
+        self.assertIn(VESTA_EMAIL, parsed)
 
     def test_a_subject_and_body_yields_a_parsed_trailer(self) -> None:
         parsed = _git_parsed_trailers(with_coauthor("feat: thing\n\nWhy it matters."))
-        self.assertIn(OPAI_EMAIL, parsed)
+        self.assertIn(VESTA_EMAIL, parsed)
 
     def test_an_existing_trailer_block_is_joined_not_restarted(self) -> None:
         # Git only parses the *last* trailer block, so starting a second one
@@ -62,28 +62,28 @@ class TrailerIsRealTests(unittest.TestCase):
         message = with_coauthor("feat: thing\n\nSigned-off-by: Marco <m@example.dev>")
         parsed = _git_parsed_trailers(message)
         self.assertIn("Signed-off-by: Marco <m@example.dev>", parsed)
-        self.assertIn(OPAI_EMAIL, parsed)
+        self.assertIn(VESTA_EMAIL, parsed)
 
 
 class TrailerHygieneTests(unittest.TestCase):
     def test_it_is_not_appended_twice(self) -> None:
         once = with_coauthor("fix: thing")
         twice = with_coauthor(once)
-        self.assertEqual(twice.count(OPAI_EMAIL), 1)
+        self.assertEqual(twice.count(VESTA_EMAIL), 1)
 
     def test_a_differently_capitalised_trailer_still_counts_as_present(self) -> None:
         # Git and GitHub treat these as the same trailer; a naive string
         # comparison does not, and would duplicate the credit.
-        existing = f"fix: thing\n\nco-authored-by: Vesta <{OPAI_EMAIL}>"
-        self.assertTrue(has_opai_trailer(existing))
-        self.assertEqual(with_coauthor(existing).count(OPAI_EMAIL), 1)
+        existing = f"fix: thing\n\nco-authored-by: Vesta <{VESTA_EMAIL}>"
+        self.assertTrue(has_vesta_trailer(existing))
+        self.assertEqual(with_coauthor(existing).count(VESTA_EMAIL), 1)
 
     def test_an_empty_message_is_left_alone(self) -> None:
         # A bare trailer with no subject is not a commit message. Manufacturing
         # one would hide the caller's real problem.
         for empty in ("", "   ", "\n\n"):
             with self.subTest(message=repr(empty)):
-                self.assertNotIn(OPAI_EMAIL, with_coauthor(empty))
+                self.assertNotIn(VESTA_EMAIL, with_coauthor(empty))
 
     def test_the_user_remains_the_author(self) -> None:
         # Co-authorship adds; it must never rewrite whose commit this is.
@@ -101,7 +101,7 @@ class RealCommitTests(unittest.TestCase):
 
         from _helpers import make_repo
 
-        from opaihub.provider_tools import RepositoryToolExecutor
+        from vestahub.provider_tools import RepositoryToolExecutor
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "repo"
@@ -125,34 +125,34 @@ class RealCommitTests(unittest.TestCase):
             ).stdout
 
         self.assertIn(COAUTHOR_TRAILER, body)
-        self.assertIn(OPAI_EMAIL, _git_parsed_trailers(body))
+        self.assertIn(VESTA_EMAIL, _git_parsed_trailers(body))
 
 
 class PullRequestAttributionTests(unittest.TestCase):
     """A reviewer should not have to read `git log` to learn who wrote this."""
 
     def test_the_attribution_is_appended(self) -> None:
-        from opai.authorship import PR_ATTRIBUTION, with_pr_attribution
+        from vesta.authorship import PR_ATTRIBUTION, with_pr_attribution
 
         body = with_pr_attribution("Fixes the parser crash.")
         self.assertIn("Fixes the parser crash.", body)
         self.assertIn(PR_ATTRIBUTION, body)
 
     def test_it_is_not_appended_twice(self) -> None:
-        from opai.authorship import PR_ATTRIBUTION, with_pr_attribution
+        from vesta.authorship import PR_ATTRIBUTION, with_pr_attribution
 
         once = with_pr_attribution("body")
         self.assertEqual(with_pr_attribution(once).count(PR_ATTRIBUTION), 1)
 
     def test_an_empty_body_still_gets_attribution(self) -> None:
-        from opai.authorship import PR_ATTRIBUTION, with_pr_attribution
+        from vesta.authorship import PR_ATTRIBUTION, with_pr_attribution
 
         self.assertIn(PR_ATTRIBUTION, with_pr_attribution(""))
 
     def test_the_attribution_is_ascii_only(self) -> None:
         # It reaches Windows consoles and log files on a cp1252 default
         # encoding, where a decorative emoji raises UnicodeEncodeError.
-        from opai.authorship import PR_ATTRIBUTION
+        from vesta.authorship import PR_ATTRIBUTION
 
         PR_ATTRIBUTION.encode("cp1252")  # must not raise
 
@@ -161,8 +161,8 @@ class PullRequestAttributionTests(unittest.TestCase):
         from pathlib import Path
         from unittest import mock
 
-        from opai.authorship import PR_ATTRIBUTION
-        from opaihub import github_connector
+        from vesta.authorship import PR_ATTRIBUTION
+        from vestahub import github_connector
 
         sent: dict = {}
 

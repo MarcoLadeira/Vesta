@@ -27,10 +27,10 @@ ROOT = Path(__file__).resolve().parent.parent
 #: Surfaces that report what a finished run meant. Each must consult the
 #: canonical result rather than reach its own verdict.
 RESULT_SURFACES = {
-    "opai/gui_recents.py": "history / recents",
-    "opai/gui_web.py": "GUI",
-    "opai/cli_stream.py": "CLI",
-    "opaihub/background_runs.py": "background runs",
+    "vesta/gui_recents.py": "history / recents",
+    "vesta/gui_web.py": "GUI",
+    "vesta/cli_stream.py": "CLI",
+    "vestahub/background_runs.py": "background runs",
 }
 
 #: The legacy vocabulary that used to mean "this run succeeded".
@@ -67,9 +67,9 @@ FORBIDDEN_RESULTS = frozenset({"complete", "completed", "verified", "success"})
 #: converting between the two vocabularies is precisely their job.
 COMPATIBILITY_MODULES = frozenset(
     {
-        "opaihub/legacy_status.py",
-        "opaihub/legacy_alias_telemetry.py",
-        "opaihub/generated_lifecycle.py",
+        "vestahub/legacy_status.py",
+        "vestahub/legacy_alias_telemetry.py",
+        "vestahub/generated_lifecycle.py",
     }
 )
 
@@ -230,7 +230,7 @@ class NoSecondRetryStateListTests(unittest.TestCase):
 
     def test_no_module_hand_writes_a_retry_state_set(self) -> None:
         offenders: list[str] = []
-        for package in ("opai", "opaihub", "opcoding"):
+        for package in ("vesta", "vestahub", "opcoding"):
             for path in sorted((ROOT / package).rglob("*.py")):
                 relative = path.relative_to(ROOT).as_posix()
                 if "__pycache__" in relative or relative in COMPATIBILITY_MODULES:

@@ -20,7 +20,7 @@
 ### Task 1: Capture a safe Codex account type
 
 **Files:**
-- Modify: `opaihub/accounts.py:55-105, 330-560, 997-1110`
+- Modify: `vestahub/accounts.py:55-105, 330-560, 997-1110`
 - Test: `tests/test_provider_connections.py`
 
 **Interfaces:**
@@ -55,8 +55,8 @@ Run: `python -m pytest tests/test_provider_connections.py -k codex -q`
 ### Task 2: Filter the picker by verified account type
 
 **Files:**
-- Modify: `opaihub/accounts.py:997-1110`
-- Modify: `opai/app_state.py:529-650`
+- Modify: `vestahub/accounts.py:997-1110`
+- Modify: `vesta/app_state.py:529-650`
 - Test: `tests/test_provider_connections.py`
 
 **Interfaces:**
@@ -82,7 +82,7 @@ account_models(accounts=detected_accounts, account_types=account_types)
 
 - [x] **Step 4: Re-run focused picker tests and coverage**
 
-Run: `python -m pytest tests/test_provider_connections.py --cov=opai.app_state --cov=opaihub.accounts --cov-fail-under=85 -q`
+Run: `python -m pytest tests/test_provider_connections.py --cov=vesta.app_state --cov=vestahub.accounts --cov-fail-under=85 -q`
 
 ### Task 3: Regression verification and review
 
@@ -93,7 +93,7 @@ Run: `python -m pytest tests/test_provider_connections.py --cov=opai.app_state -
 
 - [x] **Step 1: Run changed-module coverage at or above 85% (100% changed executable lines)**
 
-Run: `python -m pytest tests/test_provider_connections.py tests/test_gui2_control_plane.py tests/test_reliable_ai_controls.py --cov=opai.app_state --cov=opaihub.accounts --cov-fail-under=85 -q`
+Run: `python -m pytest tests/test_provider_connections.py tests/test_gui2_control_plane.py tests/test_reliable_ai_controls.py --cov=vesta.app_state --cov=vestahub.accounts --cov-fail-under=85 -q`
 
 - [x] **Step 2: Run broader account and GUI contracts without coverage filtering**
 

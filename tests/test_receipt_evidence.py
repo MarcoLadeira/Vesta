@@ -17,8 +17,8 @@ from pathlib import Path
 
 from _helpers import FakeStreamingRunner, make_repo
 
-from opaihub import gui_pipeline
-from opaihub.gui_pipeline import _authority_record
+from vestahub import gui_pipeline
+from vestahub.gui_pipeline import _authority_record
 
 
 class AuthorityRecordTests(unittest.TestCase):

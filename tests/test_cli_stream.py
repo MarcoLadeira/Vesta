@@ -17,9 +17,9 @@ from unittest import mock
 
 from _helpers import FakeStreamingRunner, make_repo
 
-from opai.cli_stream import _terminal_verdict, normalize_model_choice, stream_ask
-from opaihub.run_result import RunResult
-from opaihub.run_state import exit_code_for
+from vesta.cli_stream import _terminal_verdict, normalize_model_choice, stream_ask
+from vestahub.run_result import RunResult
+from vestahub.run_state import exit_code_for
 
 
 class NormalizeModelTests(unittest.TestCase):
@@ -300,7 +300,7 @@ class StreamAskTests(unittest.TestCase):
         # #227: a real session emits many {rid}:stream "Streaming response"
         # updates (one per chunk). The CLI must collapse them to one start line
         # and one finish line, not print one per chunk.
-        from opai.activity import derived_id, make_event
+        from vesta.activity import derived_id, make_event
 
         class StreamySessionRunner(FakeStreamingRunner):
             def stream(self, prompt, **kwargs):
@@ -361,12 +361,12 @@ class StreamAskTests(unittest.TestCase):
 
 class CmdAskWiringTests(unittest.TestCase):
     def test_default_path_unchanged_without_model(self):
-        from opai.cli import main
+        from vesta.cli import main
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
             buf = io.StringIO()
-            with mock.patch("opaihub.ask.detect_local_runner", return_value=None):
+            with mock.patch("vestahub.ask.detect_local_runner", return_value=None):
                 with redirect_stdout(buf):
                     code = main(["ask", "hello", "--project", str(root), "--json"])
         data = json.loads(buf.getvalue())
@@ -374,7 +374,7 @@ class CmdAskWiringTests(unittest.TestCase):
         self.assertEqual(data["status"], "no_local_model")
 
     def test_model_flag_routes_through_stream_ask(self):
-        from opai.cli import main
+        from vesta.cli import main
 
         captured: dict = {}
 
@@ -384,7 +384,7 @@ class CmdAskWiringTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
-            with mock.patch("opai.cli_stream.stream_ask", fake_stream_ask):
+            with mock.patch("vesta.cli_stream.stream_ask", fake_stream_ask):
                 code = main(
                     [
                         "ask",
@@ -414,7 +414,7 @@ class CrossSurfaceDiscoverabilityTests(unittest.TestCase):
     def test_a_completed_cli_turn_is_discoverable_via_the_shared_thread_store(
         self,
     ) -> None:
-        from opai.gui_recents import load_thread
+        from vesta.gui_recents import load_thread
 
         buf = io.StringIO()
         with tempfile.TemporaryDirectory() as tmp:
@@ -441,8 +441,8 @@ class CrossSurfaceDiscoverabilityTests(unittest.TestCase):
         # it is still running -- a second terminal's `vesta resume` (or the
         # GUI's own boot/resume view, reading this same thread store) must be
         # able to see it and know who owns it, not just its final result.
-        from opai.gui_recents import load_thread
-        from opaihub.owner_lease import describe as describe_lease
+        from vesta.gui_recents import load_thread
+        from vestahub.owner_lease import describe as describe_lease
 
         runner = FakeStreamingRunner(chunks=["partial "], block=True)
         with tempfile.TemporaryDirectory() as tmp:
@@ -494,7 +494,7 @@ class CrossSurfaceDiscoverabilityTests(unittest.TestCase):
     def test_an_unconfirmed_cancel_persists_as_needs_attention(
         self,
     ) -> None:
-        from opai.gui_recents import load_thread
+        from vesta.gui_recents import load_thread
 
         class InstantCancel(FakeStreamingRunner):
             def stream(self, prompt, **kwargs):

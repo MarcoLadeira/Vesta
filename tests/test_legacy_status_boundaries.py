@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import unittest
 
-from opaihub.completion import (
+from vestahub.completion import (
     CompletionState,
     completion_state_from_legacy,
     legacy_status_for_completion,
 )
-from opaihub.legacy_status import (
+from vestahub.legacy_status import (
     legacy_status_for_completion_state,
     legacy_status_to_result,
     legacy_status_usage,

@@ -18,11 +18,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from opai._generated_release import APPLICATION_VERSION, RELEASE_CHANNEL  # noqa: E402
-from opai.asset_identity import asset_manifest  # noqa: E402
-from opai.update.models import InstallType  # noqa: E402
-from opai.update.packaging import runtime_identity  # noqa: E402
-from opaihub.desktop_artifacts import (  # noqa: E402
+from vesta._generated_release import APPLICATION_VERSION, RELEASE_CHANNEL  # noqa: E402
+from vesta.asset_identity import asset_manifest  # noqa: E402
+from vesta.update.models import InstallType  # noqa: E402
+from vesta.update.packaging import runtime_identity  # noqa: E402
+from vestahub.desktop_artifacts import (  # noqa: E402
     ArtifactReleaseError,
     DeploymentSpecs,
     build_commands,
@@ -32,8 +32,8 @@ from opaihub.desktop_artifacts import (  # noqa: E402
     render_pyside_deploy_spec,
     write_bundle_evidence,
 )
-from opaihub.proc import no_window_kwargs  # noqa: E402
-from opaihub.process_tree import adopt, isolated_group_kwargs, terminate_tree  # noqa: E402
+from vestahub.proc import no_window_kwargs  # noqa: E402
+from vestahub.process_tree import adopt, isolated_group_kwargs, terminate_tree  # noqa: E402
 
 
 def _run(command: list[str], *, cwd: Path, timeout: int = 1800) -> None:
@@ -198,7 +198,7 @@ def _with_native_args(
 def _native_icon(build_python: Path, work: Path) -> Path | None:
     if sys.platform != "win32":
         return None
-    destination = work / "OPai.ico"
+    destination = work / "Vesta.ico"
     # Qt is already pinned in the build environment. Convert through Qt rather
     # than relying on Nuitka's optional, unpinned imageio/Pillow toolchain.
     _run(
@@ -213,7 +213,7 @@ def _native_icon(build_python: Path, work: Path) -> Path | None:
                 "assert image.scaled(256, 256, Qt.KeepAspectRatio, "
                 "Qt.SmoothTransformation).save(sys.argv[2]), 'cannot save desktop icon'"
             ),
-            str(ROOT / "opai" / "assets" / "opai-icon.png"),
+            str(ROOT / "vesta" / "assets" / "vesta-icon.png"),
             str(destination),
         ],
         cwd=ROOT,
@@ -268,7 +268,7 @@ def _copy_component(source: Path, destination: Path) -> None:
 
 def _default_bundle_path(tag: str, channel: str) -> Path:
     platform_name = platform.system().lower()
-    return ROOT / "dist" / "desktop" / f"OPai-{tag}-{platform_name}-{channel}"
+    return ROOT / "dist" / "desktop" / f"Vesta-{tag}-{platform_name}-{channel}"
 
 
 def main() -> int:
@@ -326,7 +326,7 @@ def main() -> int:
         if lock_file is not None and not lock_file.is_file():
             raise ArtifactReleaseError(f"native build lock is missing: {lock_file}")
         deploy_script = _deploy_script(build_python)
-        raw_output = Path(tempfile.gettempdir()) / "opai-artifact-dry-run" / "raw"
+        raw_output = Path(tempfile.gettempdir()) / "vesta-artifact-dry-run" / "raw"
         specs = _with_native_args(
             deployment_specs(ROOT, raw_output), tuple(args.nuitka_extra_arg)
         )
@@ -358,7 +358,7 @@ def main() -> int:
         _verify_build_environment(build_python)
         build_metadata = _build_metadata(build_python, lock_file=lock_file)
         destination.mkdir(parents=True, exist_ok=False)
-        with tempfile.TemporaryDirectory(prefix="opai-artifact-build-") as temporary:
+        with tempfile.TemporaryDirectory(prefix="vesta-artifact-build-") as temporary:
             work = Path(temporary)
             raw_specs = _with_native_args(
                 deployment_specs(ROOT, work / "raw"), tuple(args.nuitka_extra_arg)
@@ -409,7 +409,7 @@ def main() -> int:
             install_type=InstallType.PORTABLE,
             package_identity="",
             publisher_identity="",
-            assets=asset_manifest(ROOT / "opai" / "assets"),
+            assets=asset_manifest(ROOT / "vesta" / "assets"),
         )
         (destination / "release-identity.json").write_text(
             json.dumps(artifact_identity, indent=2, sort_keys=True) + "\n",

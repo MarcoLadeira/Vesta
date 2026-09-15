@@ -6,9 +6,9 @@ import unittest
 
 from hypothesis import given, strategies as st
 
-from opaihub.completion import CompletionState
-from opaihub.provider_catalog import provider_record
-from opaihub.provider_protocol import (
+from vestahub.completion import CompletionState
+from vestahub.provider_catalog import provider_record
+from vestahub.provider_protocol import (
     MAX_EVENTS,
     MAX_PAYLOAD_DEPTH,
     MAX_PAYLOAD_ITEMS,

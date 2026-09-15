@@ -15,10 +15,10 @@ import warnings
 from pathlib import Path
 from unittest import mock
 
-from opaihub.aci import AgentComputerInterface
-from opaihub.build_loop import build_edit_prompt, select_context
-from opaihub.semantic_index import INDEX_VERSION, LocalSemanticIndex
-from opaihub.state import state_dir
+from vestahub.aci import AgentComputerInterface
+from vestahub.build_loop import build_edit_prompt, select_context
+from vestahub.semantic_index import INDEX_VERSION, LocalSemanticIndex
+from vestahub.state import state_dir
 
 
 def _repo(root: Path, files: dict[str, str]) -> Path:
@@ -504,7 +504,7 @@ class IncrementalIndexTests(unittest.TestCase):
             root.mkdir()
             outside.mkdir()
             try:
-                os.symlink(outside, root / ".opaihub", target_is_directory=True)
+                os.symlink(outside, root / ".vestahub", target_is_directory=True)
             except OSError as exc:
                 self.skipTest(f"directory symlinks unavailable: {exc}")
 
@@ -520,12 +520,12 @@ class IncrementalIndexTests(unittest.TestCase):
             base = Path(tmp)
             root = base / "repo"
             outside = base / "outside-agent"
-            (root / ".opaihub").mkdir(parents=True)
+            (root / ".vestahub").mkdir(parents=True)
             outside.mkdir()
             try:
                 os.symlink(
                     outside,
-                    root / ".opaihub" / "agent",
+                    root / ".vestahub" / "agent",
                     target_is_directory=True,
                 )
             except OSError as exc:
@@ -566,7 +566,7 @@ class IncrementalIndexTests(unittest.TestCase):
                 (
                     "import sys, time",
                     "from pathlib import Path",
-                    "from opaihub.semantic_index import LocalSemanticIndex",
+                    "from vestahub.semantic_index import LocalSemanticIndex",
                     "index = LocalSemanticIndex(Path(sys.argv[1]))",
                     "original = index._repo_files",
                     "def slow_inventory():",
@@ -671,7 +671,7 @@ class IncrementalIndexTests(unittest.TestCase):
         self.assertTrue(found.ok)
 
     def test_cache_paths_cannot_bypass_private_file_exclusions(self) -> None:
-        private_paths = (".env.local", ".opaihub/secret.py", "nested/id_rsa")
+        private_paths = (".env.local", ".vestahub/secret.py", "nested/id_rsa")
         for private_path in private_paths:
             with self.subTest(path=private_path), tempfile.TemporaryDirectory() as tmp:
                 root = _repo(Path(tmp), {"app.py": "value = 1\n"})
@@ -999,7 +999,7 @@ class IncrementalIndexTests(unittest.TestCase):
                 json.dumps(
                     {
                         "schema_version": INDEX_VERSION - 1,
-                        "model": "opai-local-hash-v1",
+                        "model": "vesta-local-hash-v1",
                         "files": {},
                         "chunks": [],
                     }

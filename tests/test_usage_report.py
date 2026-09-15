@@ -6,7 +6,7 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from opaihub.usage_report import ProviderTurnUsage, UsageReport, UsageValue
+from vestahub.usage_report import ProviderTurnUsage, UsageReport, UsageValue
 
 
 MODEL = "account:claude:opus-4.8"

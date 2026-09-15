@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import unittest
 
-from opaihub.completion import (
+from vestahub.completion import (
     MEASURED_EVIDENCE_KEYS,
     CompletionVerdict,
     evaluate_completion,
@@ -96,7 +96,7 @@ class SelfReportCannotCompleteTests(unittest.TestCase):
 class ObservedEvidenceStillCompletesTests(unittest.TestCase):
     """The guard must not break real verification, or it will be removed."""
 
-    def test_opais_own_tool_trace_completes_the_run(self) -> None:
+    def test_vestas_own_tool_trace_completes_the_run(self) -> None:
         # A tool_trace entry records something Vesta actually executed.
         verdict = evaluate_completion(
             _edit_objective(),
@@ -120,7 +120,7 @@ class ObservedEvidenceStillCompletesTests(unittest.TestCase):
                 "changed_files": ["parser.py"],
                 "verification": {
                     "checks": [
-                        {"kind": "tests", "exit_status": 0, "observed_by": "opai"}
+                        {"kind": "tests", "exit_status": 0, "observed_by": "vesta"}
                     ]
                 },
             },
@@ -136,7 +136,7 @@ class ObservedEvidenceStillCompletesTests(unittest.TestCase):
                 "changed_files": ["parser.py"],
                 "verification": {
                     "checks": [
-                        {"kind": "tests", "exit_status": 1, "observed_by": "opai"}
+                        {"kind": "tests", "exit_status": 1, "observed_by": "vesta"}
                     ]
                 },
             },
@@ -233,7 +233,7 @@ class PipelineWiringTests(unittest.TestCase):
         from pathlib import Path
 
         source = (
-            Path(__file__).resolve().parents[1] / "opaihub" / "gui_pipeline.py"
+            Path(__file__).resolve().parents[1] / "vestahub" / "gui_pipeline.py"
         ).read_text(encoding="utf-8")
         self.assertIn("build_evidence_payload(", source)
         self.assertNotIn("evidence_payload = {\n            **payload,", source)

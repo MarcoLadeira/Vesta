@@ -20,8 +20,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub import auto_router
-from opaihub.gui_pipeline import handle_gui_message
+from vestahub import auto_router
+from vestahub.gui_pipeline import handle_gui_message
 
 from tests._helpers import FakeAccountRunner, make_repo
 
@@ -115,7 +115,7 @@ class FreeRetryStillWorksTests(unittest.TestCase):
             calls.append(str(model_choice))
             return results[min(len(calls) - 1, len(results) - 1)]
 
-        with mock.patch("opai.app_state.ask", side_effect=fake_ask):
+        with mock.patch("vesta.app_state.ask", side_effect=fake_ask):
             result = handle_gui_message(
                 self.root,
                 "explain this repo",

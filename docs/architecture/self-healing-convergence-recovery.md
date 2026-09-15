@@ -117,7 +117,7 @@ Production recovery begins with reviewed, versioned recipes. Learned skills and 
 | #654 | Verified recovery-skill admission |
 | #655 | Cost-aware shadow recovery policy |
 | #656 | Recovery UX and CLI parity |
-| #657 | 240-scenario Self-Healing OPaiBench |
+| #657 | 240-scenario Self-Healing VestaBench |
 
 ## Implementation order
 

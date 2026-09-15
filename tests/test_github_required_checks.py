@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 from typing import Any
 
-from opaihub.github_workflow import GitHubAdapter
+from vestahub.github_workflow import GitHubAdapter
 
 
 HEAD = "a" * 40

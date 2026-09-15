@@ -21,10 +21,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
-from opai.compatibility import runtime_compatibility_payload
-from opai.update.storage import UpdaterPaths
-from opaihub.atomic_io import atomic_write_text, interprocess_transaction
-from opaihub.owner_lease import new_lease
+from vesta.compatibility import runtime_compatibility_payload
+from vesta.update.storage import UpdaterPaths
+from vestahub.atomic_io import atomic_write_text, interprocess_transaction
+from vestahub.owner_lease import new_lease
 
 
 class QualificationError(RuntimeError):
@@ -151,7 +151,7 @@ class WindowsHost(NativeHost):
     def policy_path(self) -> Path:
         return (
             Path(os.environ.get("ProgramData") or "C:/ProgramData")
-            / "OPai"
+            / "Vesta"
             / "update-policy.json"
         )
 
@@ -179,8 +179,8 @@ class WindowsHost(NativeHost):
         )
         root = Path(result.stdout.strip()) if result.returncode == 0 else Path()
         paths = NativePaths(
-            root / "cli" / "opai.exe",
-            root / "gui" / "OPai.exe",
+            root / "cli" / "vesta.exe",
+            root / "gui" / "Vesta.exe",
             root / "release-identity.json",
         )
         if not all(path.is_file() for path in (paths.cli, paths.gui, paths.identity)):
@@ -227,10 +227,10 @@ class MacOSHost(NativeHost):
 
     @property
     def policy_path(self) -> Path:
-        return Path("/Library/Managed Preferences/com.opai.desktop.update.json")
+        return Path("/Library/Managed Preferences/com.vesta.desktop.update.json")
 
     def install_baseline(self, package: Path) -> None:
-        with tempfile.TemporaryDirectory(prefix="opai-baseline-") as temporary:
+        with tempfile.TemporaryDirectory(prefix="vesta-baseline-") as temporary:
             root = Path(temporary)
             result = _run(["/usr/bin/ditto", "-x", "-k", str(package), str(root)])
             apps = [item for item in root.rglob("*.app") if item.is_dir()]
@@ -247,16 +247,16 @@ class MacOSHost(NativeHost):
 
     def paths(self) -> NativePaths:
         resources = self.application / "Contents" / "Resources"
-        executable = self.application / "Contents" / "MacOS" / "OPai"
+        executable = self.application / "Contents" / "MacOS" / "Vesta"
         paths = NativePaths(
-            resources / "opai", executable, resources / "release-identity.json"
+            resources / "vesta", executable, resources / "release-identity.json"
         )
         if not all(path.is_file() for path in (paths.cli, paths.gui, paths.identity)):
             raise QualificationError("installed macOS application layout is incomplete")
         return paths
 
     def verify_native(self, package: Path) -> None:
-        with tempfile.TemporaryDirectory(prefix="opai-native-verify-") as temporary:
+        with tempfile.TemporaryDirectory(prefix="vesta-native-verify-") as temporary:
             root = Path(temporary)
             if (
                 _run(["/usr/bin/ditto", "-x", "-k", str(package), str(root)]).returncode
@@ -308,7 +308,7 @@ class MacOSHost(NativeHost):
             self.application
             / "Contents"
             / "Resources"
-            / "OPaiUpdater"
+            / "VestaUpdater"
             / "sparkle.app"
             / "Contents"
             / "MacOS"
@@ -338,7 +338,7 @@ class MacOSHost(NativeHost):
             raise QualificationError("Sparkle downgrade rejection failed")
 
     def stop_gui(self) -> None:
-        _run(["/usr/bin/pkill", "-TERM", "-x", "OPai"], timeout=30)
+        _run(["/usr/bin/pkill", "-TERM", "-x", "Vesta"], timeout=30)
 
 
 @contextmanager
@@ -509,7 +509,7 @@ def qualify(
         report=report,
         artifact_identity=candidate_identity,
     )
-    workspace = Path(tempfile.mkdtemp(prefix="opai-native-qualification-workspace-"))
+    workspace = Path(tempfile.mkdtemp(prefix="vesta-native-qualification-workspace-"))
     qualification.prove(
         "baseline-package-is-present",
         lambda: (
@@ -597,7 +597,7 @@ def qualify(
             ),
         )
         baseline_identity = _embedded_identity(baseline)
-        thread_path = workspace / ".opaihub" / "gui" / "thread.json"
+        thread_path = workspace / ".vestahub" / "gui" / "thread.json"
         thread_path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_text(
             thread_path,
@@ -795,7 +795,7 @@ def main(argv: list[str] | None = None) -> int:
         host = MacOSHost(
             package_identity=args.package_identity,
             publisher_identity=args.publisher_identity,
-            application=args.application or Path("/Applications/OPai.app"),
+            application=args.application or Path("/Applications/Vesta.app"),
             baseline_feed_url=args.baseline_feed_url,
         )
     try:

@@ -4,16 +4,16 @@
 
 Goal: execute versioned verification policies into immutable, redacted evidence manifests and derive non-forgeable verification verdicts for #539.
 
-Architecture: opaihub.verification_execution owns records, canonical-worktree validation, argv execution, persistence, and recomputation. completion, CLI, GUI, and run summary consume one manifest rather than provider claims.
+Architecture: vestahub.verification_execution owns records, canonical-worktree validation, argv execution, persistence, and recomputation. completion, CLI, GUI, and run summary consume one manifest rather than provider claims.
 
-Tech stack: Python 3.10+, subprocess/hashlib/json, existing OPai atomic I/O, repository safety, redaction, CLI/GUI pipeline, pytest.
+Tech stack: Python 3.10+, subprocess/hashlib/json, existing Vesta atomic I/O, repository safety, redaction, CLI/GUI pipeline, pytest.
 
 ## Global Constraints
 
 - Execute only explicit PolicyCheck.command argv; never parse project scripts or provider text into commands.
 - Use shell=False, canonical worktree containment, a bounded environment, bounded redacted output, and process-group teardown.
 - Retain every retry; flakes, waivers, skips, unavailable commands, and missing evidence cannot become fully verified.
-- Persist under .opaihub/verification-evidence and validate manifest/artifact SHA-256 digests before a verdict.
+- Persist under .vestahub/verification-evidence and validate manifest/artifact SHA-256 digests before a verdict.
 - Keep legacy completion for non-managed/read-only work; a managed manifest is authoritative for edit completion.
 - #523 owns GitHub delivery; #527 owns broad data classification; #526 owns authorization policy.
 
@@ -21,7 +21,7 @@ Tech stack: Python 3.10+, subprocess/hashlib/json, existing OPai atomic I/O, rep
 
 ### Task 1: Immutable evidence contract
 
-Files: create opaihub/verification_execution.py; create tests/test_verification_execution.py.
+Files: create vestahub/verification_execution.py; create tests/test_verification_execution.py.
 
 Interfaces: define CheckStatus, VerificationVerdict, EnvironmentFingerprint, OutputReference, ArtifactReference, VerificationAttempt, CheckRecord, VerificationManifest, and verification_verdict(manifest). Consume VerificationPolicy and PolicyCheck.
 
@@ -33,7 +33,7 @@ Interfaces: define CheckStatus, VerificationVerdict, EnvironmentFingerprint, Out
 
 ### Task 2: Canonical context and hermetic runner
 
-Files: modify opaihub/verification_execution.py and tests/test_verification_execution.py.
+Files: modify vestahub/verification_execution.py and tests/test_verification_execution.py.
 
 Interfaces: add VerificationExecutionContext.from_repository_handle and execute_policy(policy, context, cancel=None, executor=None). Consume RepositoryHandle and existing command redaction.
 
@@ -45,7 +45,7 @@ Interfaces: add VerificationExecutionContext.from_repository_handle and execute_
 
 ### Task 3: Atomic artifacts and restart integrity
 
-Files: modify opaihub/verification_execution.py and tests/test_verification_execution.py.
+Files: modify vestahub/verification_execution.py and tests/test_verification_execution.py.
 
 Interfaces: add persist_verification_manifest(root, manifest), load_verification_manifest(path), and EvidenceManifestReference. Consume atomic_write_text, interprocess_transaction, and state_dir.
 
@@ -57,7 +57,7 @@ Interfaces: add persist_verification_manifest(root, manifest), load_verification
 
 ### Task 4: Completion and summary adapters
 
-Files: modify opaihub/completion.py, opaihub/run_summary.py, tests/test_completion_contract.py, and tests/test_verification_execution.py.
+Files: modify vestahub/completion.py, vestahub/run_summary.py, tests/test_completion_contract.py, and tests/test_verification_execution.py.
 
 Interfaces: consume a verification_manifest mapping in evaluate_completion. Map verified to completed; partially_verified/unverified to partial; blocked, failed, cancelled, and timeout to their existing CompletionVerdict equivalents.
 
@@ -69,9 +69,9 @@ Interfaces: consume a verification_manifest mapping in evaluate_completion. Map 
 
 ### Task 5: CLI and GUI integration
 
-Files: modify opai/cli.py, opaihub/gui_pipeline.py, opaihub/checkpoints.py, opaihub/workflow_state.py, tests/test_positioning_and_cli.py, tests/test_pipeline_routing_and_safety.py, and tests/test_completion_contract.py.
+Files: modify vesta/cli.py, vestahub/gui_pipeline.py, vestahub/checkpoints.py, vestahub/workflow_state.py, tests/test_positioning_and_cli.py, tests/test_pipeline_routing_and_safety.py, and tests/test_completion_contract.py.
 
-Interfaces: add opai verify run --task TASK [--json]. GUI results, receipts, checkpoint state, and workflow state carry the exact verification_manifest reference/digest produced by the executor.
+Interfaces: add vesta verify run --task TASK [--json]. GUI results, receipts, checkpoint state, and workflow state carry the exact verification_manifest reference/digest produced by the executor.
 
 - [ ] Step 1: Write failing CLI test for verify run persisting a manifest and returning non-zero when required check command is absent.
 - [ ] Step 2: Write failing GUI test showing a provider-declared passing test cannot override an unavailable manifest.

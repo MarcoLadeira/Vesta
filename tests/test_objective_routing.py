@@ -2,7 +2,7 @@ from unittest import mock
 
 import pytest
 
-from opaihub import objective_routing as routing
+from vestahub import objective_routing as routing
 
 
 def model(model_id, kind, **extra):
@@ -131,7 +131,7 @@ def test_concrete_local_route_precedes_cloud_for_readonly(tmp_path):
 )
 def test_only_fresh_observed_exhaustion_blocks(tmp_path, official, allowed):
     usage = [
-        {"provider": "groq", "official": official, "opaiTracked": {"calls": 999999}}
+        {"provider": "groq", "official": official, "vestaTracked": {"calls": 999999}}
     ]
     result = select(tmp_path, [model("free:groq:test", "free")], usage=usage)
     assert result["allowed"] is allowed
@@ -147,7 +147,7 @@ def test_recent_provider_block_is_honored(tmp_path):
 def test_no_catalog_discovery_probes_cloud_accounts(tmp_path):
     with (
         mock.patch(
-            "opai.app_state.available_models", return_value={"models": []}
+            "vesta.app_state.available_models", return_value={"models": []}
         ) as catalog,
         mock.patch.object(routing.provider_usage, "usage_overview", return_value=[]),
     ):
@@ -248,8 +248,8 @@ def test_quota_is_read_from_existing_ledger_and_expires_at_reset(tmp_path):
 
 def test_worker_route_uses_canonical_assignment_not_packet_suggestion(tmp_path):
     from types import SimpleNamespace
-    from opaihub import objective_worker
-    from opaihub.state import state_dir
+    from vestahub import objective_worker
+    from vestahub.state import state_dir
 
     worktree = tmp_path / "isolated"
     assignment = {
@@ -298,13 +298,13 @@ def test_worker_route_uses_canonical_assignment_not_packet_suggestion(tmp_path):
     directory = state_dir(tmp_path) / "objectives" / "workers" / "assignment-run"
     with (
         mock.patch(
-            "opaihub.agent_objectives.ObjectiveStore.snapshot", return_value=objective
+            "vestahub.agent_objectives.ObjectiveStore.snapshot", return_value=objective
         ),
         mock.patch(
-            "opaihub.worktree_leases.WorktreeManager.list", return_value=[lease]
+            "vestahub.worktree_leases.WorktreeManager.list", return_value=[lease]
         ),
         mock.patch(
-            "opai.app_state.available_models",
+            "vesta.app_state.available_models",
             return_value={"models": [model("free:groq:authorized", "free")]},
         ),
         mock.patch.object(routing.provider_usage, "usage_overview", return_value=[]),
@@ -320,7 +320,7 @@ def test_worker_route_uses_canonical_assignment_not_packet_suggestion(tmp_path):
 
 
 def test_auto_reuses_canonical_provider_reliability_order(tmp_path):
-    from opaihub import provider_reliability
+    from vestahub import provider_reliability
 
     provider_reliability.record_provider_outcome(
         tmp_path, "gemini", False, reason="timeout", now=95
@@ -380,17 +380,17 @@ def test_real_managed_pipeline_binds_local_route_without_rediscovery(
     tmp_path, endpoint
 ):
     from _helpers import make_repo
-    from opaihub.agent_objectives import ObjectiveStore
-    from opaihub.gui_pipeline import handle_gui_message
+    from vestahub.agent_objectives import ObjectiveStore
+    from vestahub.gui_pipeline import handle_gui_message
 
     root = make_repo(tmp_path)
     objective = ObjectiveStore(root).create(
         "Explain this project", [], mode="plan", model="openai:test"
     )
     with (
-        mock.patch("opaihub.local_runner.runner_for_model") as rediscover,
+        mock.patch("vestahub.local_runner.runner_for_model") as rediscover,
         mock.patch(
-            "opaihub.ask.run_ask",
+            "vestahub.ask.run_ask",
             return_value={"status": "answered_locally", "answer": "Project summary"},
         ) as ask,
     ):

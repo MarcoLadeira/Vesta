@@ -31,9 +31,9 @@ import unittest
 import tempfile
 from pathlib import Path
 
-from opaihub.ask import _complete_streaming, _supports_kwarg
-from opaihub.ledger import read_events
-from opaihub.provider_invocation import (
+from vestahub.ask import _complete_streaming, _supports_kwarg
+from vestahub.ledger import read_events
+from vestahub.provider_invocation import (
     INVOCATION_PROTOCOL_VERSION,
     ProviderInvocationCompatibilityError,
     ProviderInvocationPlan,
@@ -237,7 +237,7 @@ class ProviderInvocationPlanTests(unittest.TestCase):
 
 
 class AskAccountSingleDispatchTests(unittest.TestCase):
-    """The second site the issue names: opai/app_state.py's account
+    """The second site the issue names: vesta/app_state.py's account
     dispatch. Same reproduction shape, now against a fake mimicking
     AccountRunner.complete's real signature."""
 
@@ -262,7 +262,7 @@ class AskAccountSingleDispatchTests(unittest.TestCase):
         # {"status": "failed", ...} result (its own outer except Exception) —
         # the fix under test is that this happens after exactly one dispatch,
         # not that the exception escapes uncaught.
-        from opai.app_state import _ask_account
+        from vesta.app_state import _ask_account
 
         calls = []
 
@@ -283,7 +283,7 @@ class AskAccountSingleDispatchTests(unittest.TestCase):
         self.assertEqual(result["status"], "failed")
 
     def test_a_runner_genuinely_missing_mode_still_completes(self):
-        from opai.app_state import _ask_account
+        from vesta.app_state import _ask_account
 
         calls = []
 
@@ -313,7 +313,7 @@ class AskAccountSingleDispatchTests(unittest.TestCase):
         test_pipeline_preserves_pinned_full_auto_for_implementation, which
         asserts a recorded call's mode. This test pins the same shape
         directly against _ask_account so the gap has its own guard too."""
-        from opai.app_state import _ask_account
+        from vesta.app_state import _ask_account
 
         received: dict = {}
 
@@ -333,7 +333,7 @@ class AskAccountSingleDispatchTests(unittest.TestCase):
         self.assertEqual(received.get("mode"), "full-auto")
 
     def test_kwargs_accepting_runner_receives_pre_recorded_operation_id(self):
-        from opai.app_state import _ask_account
+        from vesta.app_state import _ask_account
 
         received: dict = {}
 
@@ -360,7 +360,7 @@ class AskAccountSingleDispatchTests(unittest.TestCase):
         self.assertTrue(descriptor["single_dispatch"])
 
     def test_incompatible_runner_is_rejected_before_operation_or_dispatch(self):
-        from opai.app_state import _ask_account
+        from vesta.app_state import _ask_account
 
         calls = []
 

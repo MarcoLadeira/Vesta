@@ -2,11 +2,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub.dashboard import build_dashboard
-from opaihub.local_models import discover_local_models
-from opaihub.mcp import render_mcp_config
-from opaihub.registry_writer import add_tool_entry
-from opaihub.state import (
+from vestahub.dashboard import build_dashboard
+from vestahub.local_models import discover_local_models
+from vestahub.mcp import render_mcp_config
+from vestahub.registry_writer import add_tool_entry
+from vestahub.state import (
     attach_project,
     effective_mcp_servers,
     effective_tools,
@@ -14,8 +14,8 @@ from opaihub.state import (
     set_mcp,
     set_tool,
 )
-from opaihub.validator import validate_all
-from opaihub.workflow_runner import workflow_plan
+from vestahub.validator import validate_all
+from vestahub.workflow_runner import workflow_plan
 
 
 class HubPhase2Tests(unittest.TestCase):

@@ -10,7 +10,7 @@ import time
 import unittest
 from pathlib import Path
 
-from opai import gui_recents
+from vesta import gui_recents
 
 
 _CHILD = r"""
@@ -18,7 +18,7 @@ import sys
 import time
 from pathlib import Path
 
-from opai.gui_recents import begin_thread_turn
+from vesta.gui_recents import begin_thread_turn
 
 root = Path(sys.argv[1])
 barrier = Path(sys.argv[2])

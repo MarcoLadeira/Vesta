@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from opai import bootstrap
+from vesta import bootstrap
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,18 +37,18 @@ def test_desktop_internal_worker_keeps_integrity_preflight_without_loading_qt():
         )
 
     code = bootstrap.run_desktop(
-        ["--opai-objective-worker", "request", "response"],
+        ["--vesta-objective-worker", "request", "response"],
         source_root=ROOT,
         spec_finder=SpecFinder("PySide6"),
         distribution_lookup=_installed_version,
         importer=importer,
     )
     assert code == 0
-    assert imported == ["opaihub.objective_worker"]
+    assert imported == ["vestahub.objective_worker"]
 
 
 def test_internal_worker_requires_exact_arguments():
-    assert bootstrap.run_cli(["--opai-objective-worker"]) == 2
+    assert bootstrap.run_cli(["--vesta-objective-worker"]) == 2
 
 
 def test_bootstrap_module_has_no_optional_dependency_imports() -> None:
@@ -113,7 +113,7 @@ def test_version_json_remains_available_without_optional_dependencies(capsys) ->
         source_root=ROOT,
         spec_finder=SpecFinder("yaml", "cryptography", "packaging"),
         distribution_lookup=_installed_version,
-        importer=lambda _name: pytest.fail("version must not import opai.cli"),
+        importer=lambda _name: pytest.fail("version must not import vesta.cli"),
     )
 
     assert code == 0
@@ -200,7 +200,7 @@ def test_classic_desktop_does_not_require_qt_webengine() -> None:
         )
         == 0
     )
-    assert imported == ["opai.cli"]
+    assert imported == ["vesta.cli"]
 
 
 def test_headless_gui_smoke_does_not_require_qt() -> None:
@@ -229,7 +229,7 @@ def test_raw_source_without_distribution_metadata_is_explicitly_unsupported(
         source_root=package,
         spec_finder=SpecFinder(),
         distribution_lookup=lambda _name: (_ for _ in ()).throw(
-            importlib.metadata.PackageNotFoundError("opai")
+            importlib.metadata.PackageNotFoundError("vesta")
         ),
     )
 
@@ -257,7 +257,7 @@ def test_packaged_payload_without_dist_info_is_not_misclassified_as_raw_source(
     tmp_path: Path, capsys
 ) -> None:
     package = tmp_path / "site-packages"
-    embedded = package / "opai" / "_embedded_build.json"
+    embedded = package / "vesta" / "_embedded_build.json"
     embedded.parent.mkdir(parents=True)
     embedded.write_text("{}\n", encoding="utf-8")
 
@@ -266,7 +266,7 @@ def test_packaged_payload_without_dist_info_is_not_misclassified_as_raw_source(
         source_root=package,
         spec_finder=SpecFinder(),
         distribution_lookup=lambda _name: (_ for _ in ()).throw(
-            importlib.metadata.PackageNotFoundError("opai")
+            importlib.metadata.PackageNotFoundError("vesta")
         ),
     )
 
@@ -285,7 +285,7 @@ def test_installed_package_never_uses_neighboring_checkout_identity(
     neighboring.mkdir()
     (neighboring / ".git").mkdir()
     (neighboring / "pyproject.toml").write_text(
-        '[project]\nname="opai"\nversion="9.9.9"\n', encoding="utf-8"
+        '[project]\nname="vesta"\nversion="9.9.9"\n', encoding="utf-8"
     )
     original = Path.cwd()
     try:
@@ -318,7 +318,7 @@ def test_source_checkout_ignores_an_unrelated_installed_distribution() -> None:
 
 def test_missing_packaged_asset_stops_before_qt_import(tmp_path: Path, capsys) -> None:
     assets = tmp_path / "assets"
-    shutil.copytree(ROOT / "opai" / "assets", assets)
+    shutil.copytree(ROOT / "vesta" / "assets", assets)
     (assets / "web" / "index.html").unlink()
     imported: list[str] = []
 
@@ -341,11 +341,11 @@ def test_missing_packaged_asset_stops_before_qt_import(tmp_path: Path, capsys) -
 def test_mismatched_installed_assets_fail_before_application_import(
     tmp_path: Path, capsys
 ) -> None:
-    from opai.asset_identity import asset_manifest
-    from opai.compatibility import runtime_compatibility_payload
+    from vesta.asset_identity import asset_manifest
+    from vesta.compatibility import runtime_compatibility_payload
 
     assets = tmp_path / "assets"
-    shutil.copytree(ROOT / "opai" / "assets", assets)
+    shutil.copytree(ROOT / "vesta" / "assets", assets)
     metadata = tmp_path / "_embedded_build.json"
     metadata.write_text(
         json.dumps(
@@ -375,11 +375,11 @@ def test_mismatched_installed_assets_fail_before_application_import(
 def test_incompatible_schema_fails_before_any_runtime_mutation(
     tmp_path: Path, capsys
 ) -> None:
-    from opai.asset_identity import asset_manifest
-    from opai.compatibility import runtime_compatibility_payload
+    from vesta.asset_identity import asset_manifest
+    from vesta.compatibility import runtime_compatibility_payload
 
     assets = tmp_path / "assets"
-    shutil.copytree(ROOT / "opai" / "assets", assets)
+    shutil.copytree(ROOT / "vesta" / "assets", assets)
     compatibility = runtime_compatibility_payload()
     compatibility["update_schema_version"] = 999
     metadata = tmp_path / "release-identity.json"
@@ -408,7 +408,7 @@ def test_newer_persisted_project_schema_fails_before_runtime_mutation(
     tmp_path: Path, capsys
 ) -> None:
     project = tmp_path / "project"
-    state_path = project / ".opaihub" / "project.json"
+    state_path = project / ".vestahub" / "project.json"
     state_path.parent.mkdir(parents=True)
     persisted = {"schema_version": 999, "sentinel": "must-remain"}
     state_path.write_text(json.dumps(persisted), encoding="utf-8")
@@ -439,7 +439,7 @@ def test_implicit_nested_project_schema_fails_before_runtime_import(
     (project / "pyproject.toml").write_text(
         '[project]\nname = "fixture"\nversion = "1"\n', encoding="utf-8"
     )
-    state_path = project / ".opaihub" / "project.json"
+    state_path = project / ".vestahub" / "project.json"
     state_path.parent.mkdir()
     state_path.write_text(json.dumps({"schema_version": 999}), encoding="utf-8")
     imported: list[str] = []
@@ -485,7 +485,7 @@ def test_malformed_user_configuration_is_classified_without_a_traceback(
 def test_real_malformed_yaml_is_classified_as_user_configuration(
     tmp_path: Path, capsys
 ) -> None:
-    from opaihub import loader
+    from vestahub import loader
 
     registry = tmp_path / "tools.yaml"
     registry.write_text("tools: [unterminated", encoding="utf-8")
@@ -505,12 +505,12 @@ def test_real_malformed_yaml_is_classified_as_user_configuration(
     assert "Traceback" not in error
 
 
-def test_all_opai_entrypoints_use_the_bootstrap_boundary() -> None:
+def test_all_vesta_entrypoints_use_the_bootstrap_boundary() -> None:
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    assert 'opai = "opai.bootstrap:cli_main"' in pyproject
-    assert 'op = "opai.bootstrap:cli_main"' in pyproject
-    assert 'opai-gui = "opai.bootstrap:desktop_main"' in pyproject
-    assert "bootstrap" in (ROOT / "opai" / "__main__.py").read_text(encoding="utf-8")
+    assert 'vesta = "vesta.bootstrap:cli_main"' in pyproject
+    assert 'op = "vesta.bootstrap:cli_main"' in pyproject
+    assert 'vesta-gui = "vesta.bootstrap:desktop_main"' in pyproject
+    assert "bootstrap" in (ROOT / "vesta" / "__main__.py").read_text(encoding="utf-8")
     assert "bootstrap" in (ROOT / "scripts" / "desktop_cli_entry.py").read_text(
         encoding="utf-8"
     )

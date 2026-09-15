@@ -39,9 +39,9 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub import journal_store
-from opaihub.journal_runtime import record_admission
-from opaihub.journal_store import (
+from vestahub import journal_store
+from vestahub.journal_runtime import record_admission
+from vestahub.journal_store import (
     INTEGRITY_COMPLETE,
     INTEGRITY_CORRUPT,
     INTEGRITY_DEGRADED,
@@ -505,7 +505,7 @@ class TheBackupCaseIsNowCoveredTests(unittest.TestCase):
     test output instead of only in a document beside the code -- a passing test
     would have reported coverage of a feature that did not exist.
 
-    ``opaihub.journal_backup`` now implements requirement 12, so the skip is
+    ``vestahub.journal_backup`` now implements requirement 12, so the skip is
     replaced by the fault it was standing in for: recovery attempted when the
     backup is not there.
     """
@@ -516,7 +516,7 @@ class TheBackupCaseIsNowCoveredTests(unittest.TestCase):
         self.root = Path(self._tmp.name)
 
     def test_recovery_with_no_backup_available_is_refused_by_name(self):
-        from opaihub import journal_backup
+        from vestahub import journal_backup
 
         record_admission(self.root, task_id="t", run_id="r", task="x", now=NOW_ISO)
         journal_path(self.root).write_bytes(b"not a database")
@@ -530,7 +530,7 @@ class TheBackupCaseIsNowCoveredTests(unittest.TestCase):
     def test_a_backup_taken_before_the_damage_recovers_the_runs(self):
         """The case the whole requirement exists for."""
 
-        from opaihub import journal_backup
+        from vestahub import journal_backup
 
         record_admission(
             self.root, task_id="t", run_id="survivor", task="x", now=NOW_ISO

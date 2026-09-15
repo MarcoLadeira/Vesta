@@ -2,7 +2,7 @@
 
 ## Goal
 
-Replace the left-anchored, concatenated live response with a centered conversation lane. Provider updates appear as separate short blocks, like ChatGPT, while OPai keeps its dark surfaces, green status accents, structured evidence, and low-overhead rendering.
+Replace the left-anchored, concatenated live response with a centered conversation lane. Provider updates appear as separate short blocks, like ChatGPT, while Vesta keeps its dark surfaces, green status accents, structured evidence, and low-overhead rendering.
 
 ## Interaction
 

@@ -7,9 +7,9 @@ from unittest import mock
 import pytest
 
 from _helpers import make_repo
-from opai.agents_bridge import inspect_objective_artifact, objective_worktree_path
-from opaihub.agent_objectives import ObjectiveStore
-from opaihub.objective_execution import ObjectiveExecutor
+from vesta.agents_bridge import inspect_objective_artifact, objective_worktree_path
+from vestahub.agent_objectives import ObjectiveStore
+from vestahub.objective_execution import ObjectiveExecutor
 
 
 def git(root, *args):
@@ -120,7 +120,7 @@ def test_inspection_never_runs_configured_git_helpers(artifact):
 
 
 def test_pr_is_read_only_and_resolved_from_canonical_origin_and_branch(artifact):
-    from opai import agents_bridge
+    from vesta import agents_bridge
 
     root, request, target, item = artifact
     git(root, "remote", "add", "origin", "https://github.com/example/project.git")

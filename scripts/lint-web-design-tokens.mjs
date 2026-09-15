@@ -28,7 +28,7 @@ export function lintCss(css) {
 }
 
 async function main() {
-  const stylesheet = fileURLToPath(new URL("../opai/assets/web/styles.css", import.meta.url));
+  const stylesheet = fileURLToPath(new URL("../vesta/assets/web/styles.css", import.meta.url));
   const violations = lintCss(await readFile(stylesheet, "utf8"));
   if (!violations.length) return;
   console.error("Raw web type/spacing values must use design tokens:\n" + violations.join("\n"));

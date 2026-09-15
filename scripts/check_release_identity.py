@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if sys.path[0] != str(ROOT):
     sys.path.insert(0, str(ROOT))
 
-from opai.release_validation import validate_release_identity  # noqa: E402
+from vesta.release_validation import validate_release_identity  # noqa: E402
 
 
 def main(argv: Sequence[str] | None = None) -> int:

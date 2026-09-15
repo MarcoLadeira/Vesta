@@ -3,7 +3,7 @@
 > One request → one task identity → one ordered event history → one
 > authoritative state → one evidence-backed terminal result.
 
-`#613` built the kernel: nine `opaihub/journal_*.py` modules, a SQLite store,
+`#613` built the kernel: nine `vestahub/journal_*.py` modules, a SQLite store,
 lifecycle adapter, comparator, canonical reader, operation idempotency, a
 retirement gate and a CLI. What it did **not** do is make anything depend on
 it. The journal is a faithful mirror running beside the authorities it was
@@ -26,10 +26,10 @@ Measured on `main` at `287dbfb`, by reading the code rather than the design.
 
 ### 1. The canonical read path is imported by nothing
 
-`opaihub/journal_reader.py` is Stage 5 -- "GUI, CLI and receipts stop reading
-files and start reading journal projections". Across `opaihub/` and `opai/`,
-its only importer is `opaihub/journal_retirement.py`, which is itself reached
-only by `opai/cli.py`'s doctor command. No GUI read path, no CLI read path and
+`vestahub/journal_reader.py` is Stage 5 -- "GUI, CLI and receipts stop reading
+files and start reading journal projections". Across `vestahub/` and `vesta/`,
+its only importer is `vestahub/journal_retirement.py`, which is itself reached
+only by `vesta/cli.py`'s doctor command. No GUI read path, no CLI read path and
 no receipt reaches it.
 
 So the epic's *"GUI, CLI and background projections are generated from the same
@@ -38,7 +38,7 @@ make it true exists and is wired to nothing.
 
 ### 2. The canonical lease cannot name its owner
 
-`opaihub/journal_runtime.py:260`:
+`vestahub/journal_runtime.py:260`:
 
 ```python
 fence = acquire_lease(store, run_id=run_id, owner=surface, now=now)
@@ -78,7 +78,7 @@ and both currently rest on fields that cannot carry the answer.
 
 ### 3. Two lease authorities, and the legacy one is the capable one
 
-| | `opaihub/owner_lease.py` | `journal_store.leases` |
+| | `vestahub/owner_lease.py` | `journal_store.leases` |
 | --- | --- | --- |
 | substrate | JSON file per resource | the canonical journal |
 | owner identity | pid + per-process boot id | a surface string |
@@ -188,7 +188,7 @@ territory of the epic's *"unknown cost is never represented as zero"*. Recorded
 here rather than acted on: it is a different acceptance criterion and deserves
 its own reproduction.
 
-`opaihub/attachments.py` had been writing durably since 2026-08-30 without a
+`vestahub/attachments.py` had been writing durably since 2026-08-30 without a
 migration owner, so Stage 1's ratchet was red on `main`. Triaged as
 `NOT_RUNTIME_STATE` in this branch.
 
@@ -231,7 +231,7 @@ for: "operation-bound, run-bound, expiring and atomically consumed".
 
 Nothing writes to it. Across the whole repository the only code that touches
 `approvals` is `journal_backup` (which backs it up and restores it) and its
-tests. The real approval authority is `opaihub/command_consent.py`, a
+tests. The real approval authority is `vestahub/command_consent.py`, a
 file-based handshake in a shared temp directory.
 
 That makes three modules now where the kernel has the machinery and nothing
@@ -295,7 +295,7 @@ runs in both:                     0
 ```
 
 `journal_background.legacy_runs` is the only legacy corpus Vesta assembles, and
-it reads `.opaihub/agent/background/runs/`. This installation has never run
+it reads `.vestahub/agent/background/runs/`. This installation has never run
 `vesta automation`, so that directory has never existed. Meanwhile every run in
 the journal came from the GUI.
 
@@ -422,14 +422,14 @@ install: they inherited `pythonw.exe`, where `sys.stdout` is `None`, so
 Measured on this machine, before any change:
 
 ```
-OPai-Desktop.exe  MISSING  C:\Python313\pythonww.exe
-opai-gui.exe      MISSING  C:\Python313\pythonww.exe
-opai.exe          OK       C:\Python313\pythonw.exe
+Vesta-Desktop.exe  MISSING  C:\Python313\pythonww.exe
+vesta-gui.exe      MISSING  C:\Python313\pythonww.exe
+vesta.exe          OK       C:\Python313\pythonw.exe
 ```
 
 And `vesta doctor` said `readiness: ready`, because every other component was
-genuinely clean and nothing had ever read the launchers. `opaihub.proc.console_interpreter`
-fixes the cause; `opaihub.launcher_health` makes the question answerable, and
+genuinely clean and nothing had ever read the launchers. `vestahub.proc.console_interpreter`
+fixes the cause; `vestahub.launcher_health` makes the question answerable, and
 an unreadable launcher reports `unreadable` rather than healthy.
 
 ## Two identities that were never recorded
@@ -463,7 +463,7 @@ window B: consume_grant('git push') -> True
 
 Both halves are fixed in this PR. Consumption is atomic (a rename claim), and
 the grant now records the run it was issued for. The run id reaches the hook
-subprocess through `OPAI_RUN_ID`, exported by `provider_child_env`, and
+subprocess through `VESTA_RUN_ID`, exported by `provider_child_env`, and
 `consume_grant` refuses a grant belonging to another run.
 
 The refusal needs evidence, so it fires only on a *positive* mismatch: "this
@@ -492,14 +492,14 @@ verification artifacts              -> 0
 
 `unevidenced_completions` counts the gap rather than closing it, and the
 restraint is deliberate. Every mirror in `journal_runtime` records rather than
-re-decides -- the layer that *can* judge a completion is `opaihub.completion`,
+re-decides -- the layer that *can* judge a completion is `vestahub.completion`,
 which has the answer, the diff and the policy in front of it. And refusing to
 record a terminal state would leave the run reading as unfinished, which is a
 worse lie than an unevidenced completion. Enforcement is Stage 5's; it needs
 this number to be zero first, and nothing could see it before.
 
 **Two numbers, because the first one flatters.** On the real journal in
-`.opai/source`, 27 runs recorded:
+`.vesta/source`, 27 runs recorded:
 
 | | |
 | --- | --- |
@@ -536,7 +536,7 @@ table and `mirror_from_status`. A fold with no reducer answers nothing, which
 is why "collapse projections into deterministic reducers over canonical
 events" had nothing to collapse into.
 
-`opaihub/journal_projections.py` is that reducer, and the parity check it
+`vestahub/journal_projections.py` is that reducer, and the parity check it
 makes possible compares the journal **against itself**. The `runs` table and
 the `events` table are written by the same lifecycle calls, in the same
 transactions -- two recordings of one history. If they disagree, the canonical
@@ -646,7 +646,7 @@ An audit found one real risk, and it was introduced by this branch.
 `grant_belongs_to` used strict equality, so a caller that could not name its
 run was refused. The process that spends a grant is the PreToolUse hook, and
 Vesta does not launch it: Vesta launches the *provider's* CLI, and that launches
-the hook. Whether `OPAI_RUN_ID` survives that hop is a third party's decision,
+the hook. Whether `VESTA_RUN_ID` survives that hop is a third party's decision,
 so a provider that sanitises its hook environment would have silently refused
 every approved push.
 
@@ -971,7 +971,7 @@ looks is not made read-only.
    branch's `record_admission(... surface=..., session=...)` call.
 3. `chat-components.test.js`: this branch's assertions are a superset; keep
    them.
-4. Add `"opaihub/objective_worker.py": "agent"` to `CALLERS` in
+4. Add `"vestahub/objective_worker.py": "agent"` to `CALLERS` in
    `tests/test_journal_run_origin.py` and pass `surface="agent"` where it calls
    `handle_gui_message`.
 

@@ -1,4 +1,4 @@
-# OPai Context, MCP, and Diff Review Implementation Plan
+# Vesta Context, MCP, and Diff Review Implementation Plan
 
 **Goal:** Close #173–#175 with one local-first, structured agent-workbench slice.
 

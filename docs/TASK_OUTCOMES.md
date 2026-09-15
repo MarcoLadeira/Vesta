@@ -32,7 +32,7 @@ surface reported identically by the GUI and CLI.
 
 ## The record — `task_outcome` event (schema v1)
 
-Written by `record_task_outcome` (in `opaihub/ledger.py`, alongside the other
+Written by `record_task_outcome` (in `vestahub/ledger.py`, alongside the other
 recorders). On top of the standard `created_at` / `event_type` / `task_hash`:
 
 | Field | Type | Meaning |

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import unittest
 
-from opaihub.operation_class import (
+from vestahub.operation_class import (
     UNKNOWN_KIND_CLASS,
     DispatchProof,
     OperationClass,
@@ -175,7 +175,7 @@ class ContractTests(unittest.TestCase):
 
     def test_no_registered_operation_is_left_unclassified(self) -> None:
         # Guards against a typo'd enum value silently becoming a string.
-        from opaihub.operation_class import _REGISTRY
+        from vestahub.operation_class import _REGISTRY
 
         for kind, value in _REGISTRY.items():
             self.assertIsInstance(value, OperationClass, kind)

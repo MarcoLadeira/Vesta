@@ -61,7 +61,7 @@ vesta savings --markdown
 - Savings = baseline tier cost − chosen route cost. Local tiers (`L0`/`L1`) cost
   `$0`, so every local route is pure savings versus the baseline.
 - **Privacy:** the ledger stores one-way task hashes and counts only. Raw
-  prompts and secrets are never written (`.opaihub/ledger/usage.jsonl`).
+  prompts and secrets are never written (`.vestahub/ledger/usage.jsonl`).
 
 ## Per-client before/after
 
@@ -73,8 +73,8 @@ Vesta activates the same firewall in front of every client. After
 | Claude Code | unrouted prompts | `CLAUDE.md` policy + routing |
 | Codex | unrouted prompts | `AGENTS.md` + skill discovery |
 | GitHub Copilot | unrouted prompts | `.github/copilot-instructions.md` |
-| Cursor | unrouted prompts | `.cursor/rules/opai.mdc` |
-| Cline | unrouted prompts | `.clinerules/opai.md` |
+| Cursor | unrouted prompts | `.cursor/rules/vesta.mdc` |
+| Cline | unrouted prompts | `.clinerules/vesta.md` |
 
 ```sh
 vesta doctor   # readiness: active / broken / missing per client, with repair

@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 from dataclasses import FrozenInstanceError
 
-from opaihub.change_attribution import (
+from vestahub.change_attribution import (
     ChangeSet,
     GitEntry,
     IndexEntry,
@@ -111,7 +111,7 @@ class ChangeSetSchemaTests(unittest.TestCase):
             before_identity_digest=before.digest,
             after_identity_digest=after.digest,
             confidence="high",
-            reasons=("pre_existing_user_change", "opai_operation_observed"),
+            reasons=("pre_existing_user_change", "vesta_operation_observed"),
         )
         change_set = ChangeSet(
             task_id="task-1",
@@ -265,7 +265,7 @@ class ChangeSetSchemaTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "change_set_id"):
             ChangeSet.from_dict(payload)
 
-    def test_opai_only_requires_a_successful_contiguous_transition(self) -> None:
+    def test_vesta_only_requires_a_successful_contiguous_transition(self) -> None:
         before = _identity("src/app.py", "2" * 40)
         after = _identity("src/app.py", "3" * 40)
         baseline = _snapshot(before)
@@ -289,12 +289,12 @@ class ChangeSetSchemaTests(unittest.TestCase):
         )
         claimed = PathAttribution(
             path="src/app.py",
-            classification="opai_only",
+            classification="vesta_only",
             operation_ids=("operation-1",),
             before_identity_digest=before.digest,
             after_identity_digest=after.digest,
             confidence="high",
-            reasons=("opai_operation_observed",),
+            reasons=("vesta_operation_observed",),
         )
 
         with self.assertRaisesRegex(ValueError, "successful producer chain"):

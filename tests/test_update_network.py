@@ -6,7 +6,7 @@ from urllib.request import Request
 
 import pytest
 
-from opai.update.network import (
+from vesta.update.network import (
     HttpsOnlyRedirectHandler,
     ManifestFetchError,
     fetch_manifest,
@@ -96,7 +96,7 @@ def test_artifact_handler_allows_only_an_explicit_https_redirect_origin():
     handler = HttpsOnlyRedirectHandler(
         (("https", "release-assets.githubusercontent.com", None),)
     )
-    request = Request("https://github.com/owner/repo/releases/download/v1/OPai.msix")
+    request = Request("https://github.com/owner/repo/releases/download/v1/Vesta.msix")
 
     redirected = handler.redirect_request(
         request,

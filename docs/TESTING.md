@@ -14,8 +14,8 @@ The Stop-button + live-activity + streaming work is tested at every layer:
 | Layer | Files | Covers |
 | --- | --- | --- |
 | Python unit/integration | `tests/test_activity.py`, `tests/test_streaming.py`, `tests/test_cancellation.py`, `tests/test_copilot.py` | claude stream parser, stale-guard, slow-model thresholds, error mapper; pipeline events + streamed text (account + local); `Popen` kill on stop/timeout; Copilot connector |
-| JS unit (Vitest, Node 22) | `opai/assets/web/__tests__/activity.test.js` | `shouldApply` stale-guard, thresholds, elapsed formatting, activity store |
-| E2E (Playwright, Chromium) | `opai/assets/web/__tests__/e2e/activity.spec.js` (+ `mock-bridge.js`) | generation visibility, slow-model, stop-before-token (no stale overwrite), stop-during-stream, double-stop, duplicate-submit, retry-after-stop, error recovery, a11y |
+| JS unit (Vitest, Node 22) | `vesta/assets/web/__tests__/activity.test.js` | `shouldApply` stale-guard, thresholds, elapsed formatting, activity store |
+| E2E (Playwright, Chromium) | `vesta/assets/web/__tests__/e2e/activity.spec.js` (+ `mock-bridge.js`) | generation visibility, slow-model, stop-before-token (no stale overwrite), stop-during-stream, double-stop, duplicate-submit, retry-after-stop, error recovery, a11y |
 
 Run the JS layers locally:
 
@@ -46,7 +46,7 @@ layouts, accessibility basics, CLI parity, loading states, and known
 regressions.
 
 Shared fixtures and helpers live under
-`opai/assets/web/__tests__/e2e/helpers/`. `fullScenario()` creates one complete
+`vesta/assets/web/__tests__/e2e/helpers/`. `fullScenario()` creates one complete
 deterministic app state, while individual tests override only the state they
 need. The mock records native bridge calls so tests can prove that a UI action
 delegated safely without executing a real provider, shell mutation, or paid
@@ -60,7 +60,7 @@ npx playwright test --list
 npm run test:e2e
 
 # Run one product area while developing
-npx playwright test opai/assets/web/__tests__/e2e/money-saved.spec.js
+npx playwright test vesta/assets/web/__tests__/e2e/money-saved.spec.js
 
 # Open failure artifacts locally
 npx playwright show-report
@@ -100,7 +100,7 @@ python -m ruff check .
 python -m ruff format --check .
 
 # Security static analysis
-python -m bandit -r opai opaihub opcoding -q
+python -m bandit -r vesta vestahub opcoding -q
 ```
 
 > **CI parity.** CI pins `ruff==0.15.9` (see `.github/workflows/ci.yml`). Run the
@@ -119,8 +119,8 @@ tests. Everything goes through injectable fakes in `tests/_helpers.py`:
 
 | Fake | Stands in for | Knobs |
 | --- | --- | --- |
-| `FakeAccountRunner` | `opaihub.accounts.AccountRunner` (paid cloud) | `account_id`, `text`, `cost`, `timed_out`, `raises`; records every call in `.calls` |
-| `FakeLocalRunner` | `opaihub.local_runner.LocalRunner` | `name`, `model`, `answer`, `available`, `raises` |
+| `FakeAccountRunner` | `vestahub.accounts.AccountRunner` (paid cloud) | `account_id`, `text`, `cost`, `timed_out`, `raises`; records every call in `.calls` |
+| `FakeLocalRunner` | `vestahub.local_runner.LocalRunner` | `name`, `model`, `answer`, `available`, `raises` |
 | `fake_subprocess` | `accounts._hidden_run` / `subprocess.run` | `stdout`, `returncode`, `timeout` |
 | `make_repo` | a temp git repo with markers | `files`, `commit` |
 | `isolated_home` | a throwaway `HOME` | context manager |
@@ -133,7 +133,7 @@ Example — drive the whole GUI pipeline without a real model:
 
 ```python
 from _helpers import FakeAccountRunner, make_repo
-from opaihub.gui_pipeline import handle_gui_message
+from vestahub.gui_pipeline import handle_gui_message
 
 fake = FakeAccountRunner(text="done", cost=0.042)
 res = handle_gui_message(root, "summarize", model_id="account:claude:sonnet",
@@ -169,12 +169,12 @@ redaction/privacy invariants in `test_savings_honesty.py` / `test_proxy.py`):
 
 ## Adding a new model provider
 
-The provider seam is `opaihub.accounts` (paid) and `opaihub.local_runner`
+The provider seam is `vestahub.accounts` (paid) and `vestahub.local_runner`
 (local). To add one (e.g. Gemini, Mistral, a custom endpoint):
 
 1. Add an adapter branch in `AccountRunner.build_command` / `complete`, or a new
    runner class mirroring the `available()` + `complete()` shape.
-2. Extend `opaihub.proxy.SUPPORTED_AGENTS` so the inline-capture shim routes it.
+2. Extend `vestahub.proxy.SUPPORTED_AGENTS` so the inline-capture shim routes it.
 3. Add a `FakeAccountRunner(account_id="…")` case to your tests — no real call.
 4. Keep `complete()` returning `{"text", "cost", "timed_out"?}` so honest cost
    accounting (`record_model_call(real_cost_usd=…)`) keeps working.

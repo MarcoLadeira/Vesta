@@ -1,1 +1,1 @@
-"""Deterministic OPaiBench agent-runtime evaluations."""
+"""Deterministic VestaBench agent-runtime evaluations."""

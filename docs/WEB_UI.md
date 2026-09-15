@@ -10,25 +10,25 @@ animation — at **zero new dependency** (QtWebEngine ships with PySide6 here).
 
 ```
 vesta gui  ─▶  cmd_gui (cli.py)
-                 │  web_available()?  ── yes ─▶ opai/gui_web.py  (QWebEngineView)
+                 │  web_available()?  ── yes ─▶ vesta/gui_web.py  (QWebEngineView)
                  │                                   │
                  │                                   ├─ QWebChannel ──▶ Bridge (QObject)
                  │                                   │      slots return JSON / emit signals
-                 │                                   └─ loads opai/assets/web/index.html
-                 └─  no / --classic  ─▶ opai/gui_desktop.py (classic Qt window, fallback)
+                 │                                   └─ loads vesta/assets/web/index.html
+                 └─  no / --classic  ─▶ vesta/gui_desktop.py (classic Qt window, fallback)
 ```
 
-- **`opai/gui_web.py`** — the QWebEngine host + the `Bridge`. The bridge reuses
+- **`vesta/gui_web.py`** — the QWebEngine host + the `Bridge`. The bridge reuses
   the *exact same Qt-free data modules* the Qt UI used (`gui_nav`, `gui_modes`,
   `gui_permissions`, `gui_prompts`, `gui_workspace`, `gui_view_model`,
   `gui_controls`). One source of truth for both surfaces. The front-end never
   computes anything sensitive — it renders JSON the bridge hands it.
-- **`opai/assets/web/`** — hand-built front-end: `index.html`, `styles.css`,
+- **`vesta/assets/web/`** — hand-built front-end: `index.html`, `styles.css`,
   `app.js`, plus focused modules loaded as plain `<script>`s before `app.js`
   (`activity.js`, `message-state.js`, `settings.js`). Inter is loaded via
   `@font-face` from `../fonts/Inter-Variable.ttf` with
   `-webkit-font-smoothing: antialiased`. New JS modules must be added to
-  `REQUIRED_WEB_ASSETS` in `opaihub/desktop_artifacts.py` (and the smoke check)
+  `REQUIRED_WEB_ASSETS` in `vestahub/desktop_artifacts.py` (and the smoke check)
   so they ship in the packaged desktop app.
 - **Fallback** — `vesta gui --classic` (or any machine without QtWebEngine) uses
   the classic Qt window in `gui_desktop.py`, which stays fully tested.
@@ -36,8 +36,8 @@ vesta gui  ─▶  cmd_gui (cli.py)
 ### Settings surface (`settings.js`, #217)
 
 The settings page is a **section registry**, not one long function. Each entry
-in `window.OPaiSettings.sections` is
-`{ id, title, icon, keywords, render(d, ctx) }`; `OPaiSettings.render(page, ctx)`
+in `window.VestaSettings.sections` is
+`{ id, title, icon, keywords, render(d, ctx) }`; `VestaSettings.render(page, ctx)`
 lays out **Claude-style paned pages**: the left rail is real page navigation —
 one cleanly labelled page visible at a time (`.settings-pane.active`), with
 `aria-current="page"` on the active rail item and `#settings/<id>` deep links
@@ -77,11 +77,11 @@ Cold start (process start → the chat view interactive) has a **budget of
 ≤ 1.5 s** on a warm profile. The dominant cost is the single `boot_payload`
 call, so that is where the budget is spent and measured.
 
-**Instrumentation** (`opaihub/startup_trace.py`) is **off by default** and
-**never leaves the machine**. Set `OPAI_STARTUP_TRACE=1` to record the major
+**Instrumentation** (`vestahub/startup_trace.py`) is **off by default** and
+**never leaves the machine**. Set `VESTA_STARTUP_TRACE=1` to record the major
 init stages (`boot:start → boot:prefs → boot:models → boot:workflow →
 boot:done → interactive`); the trace is appended as JSONL to
-`<workspace>/.opaihub/gui/startup-trace.jsonl`. Disabled, every mark is a no-op
+`<workspace>/.vestahub/gui/startup-trace.jsonl`. Disabled, every mark is a no-op
 and no file is written.
 
 **Deferral (measured win):** the session **inspector payload is deferred** —
@@ -107,7 +107,7 @@ data renders whenever the panel is opened).
 
 ## How to change the UI
 
-- Visuals: edit `opai/assets/web/styles.css` (design tokens are CSS variables at
+- Visuals: edit `vesta/assets/web/styles.css` (design tokens are CSS variables at
   the top) and `index.html`.
 - Behaviour/new data: add a `Bridge` slot in `gui_web.py` returning JSON from the
   existing data modules, then render it in `app.js`. Prefer adding data to a

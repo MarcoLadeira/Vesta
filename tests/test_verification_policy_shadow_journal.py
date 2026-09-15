@@ -1,6 +1,6 @@
 """#613 Stage 2: verification_policy's shadow journal, and the one record that verifies itself.
 
-Stage 1 named ``opaihub/verification_policy.py`` JOURNAL_OWNED -- "artifacts:
+Stage 1 named ``vestahub/verification_policy.py`` JOURNAL_OWNED -- "artifacts:
 verification policy state". The artifact records *which verification a run was
 dispatched under*: it is written immediately before provider dispatch, and
 ``verification_execution`` later refuses to produce a verdict without a policy
@@ -24,9 +24,9 @@ import unittest
 from hashlib import sha256
 from pathlib import Path
 
-from opaihub import shadow_journal
-from opaihub.state import state_dir
-from opaihub.verification_policy import (
+from vestahub import shadow_journal
+from vestahub.state import state_dir
+from vestahub.verification_policy import (
     persist_effective_policy,
     policy_artifact_contradiction_report,
     policy_artifact_projection,

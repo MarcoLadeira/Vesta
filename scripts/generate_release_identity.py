@@ -18,9 +18,9 @@ CURRENT_DOCUMENTATION = (
 
 
 def _identity_module(root: Path) -> ModuleType:
-    path = root / "opai" / "release_identity.py"
+    path = root / "vesta" / "release_identity.py"
     spec = importlib.util.spec_from_file_location(
-        "_opai_release_identity_generator", path
+        "_vesta_release_identity_generator", path
     )
     if spec is None or spec.loader is None:
         raise RuntimeError(f"cannot load release identity generator: {path}")
@@ -35,7 +35,7 @@ def generate(root: Path) -> tuple[Path, str]:
     identity = _identity_module(repository)
     release = identity.read_project_release(repository / "pyproject.toml")
     return (
-        repository / "opai" / "_generated_release.py",
+        repository / "vesta" / "_generated_release.py",
         identity.render_generated_release(release),
     )
 
@@ -51,14 +51,14 @@ def documentation_projections(root: Path) -> tuple[tuple[Path, str], ...]:
         indexes = [
             index
             for index, line in enumerate(lines)
-            if line.strip().startswith("<!-- opai-release-identity:")
+            if line.strip().startswith("<!-- vesta-release-identity:")
         ]
         if len(indexes) != 1:
             raise RuntimeError(
                 f"current documentation must contain one release marker: {path}"
             )
         try:
-            end = lines.index("<!-- /opai-release-identity -->", indexes[0] + 1)
+            end = lines.index("<!-- /vesta-release-identity -->", indexes[0] + 1)
         except ValueError as exc:
             raise RuntimeError(
                 f"current documentation release block is unterminated: {path}"

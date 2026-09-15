@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make OPai cache reuse content-aware, bounded, expiring, observable, and safe to bypass when repository state cannot be proven complete.
+**Goal:** Make Vesta cache reuse content-aware, bounded, expiring, observable, and safe to bypass when repository state cannot be proven complete.
 
 **Architecture:** Centralize cacheability in a bounded Git content-fingerprint assessment. Preserve compatibility wrappers for existing fingerprint/cache callers, then layer a schema-versioned result-cache envelope and local cache-outcome events over it. Every uncertainty becomes a cache miss/bypass, not stale reuse.
 
@@ -22,7 +22,7 @@
 ### Task 1: Add a bounded repository fingerprint assessment
 
 **Files:**
-- Modify: `opaihub/evidence_cache.py`
+- Modify: `vestahub/evidence_cache.py`
 - Modify: `tests/test_evidence_cache.py`
 - Create: `tests/test_result_cache_correctness.py`
 
@@ -73,7 +73,7 @@
 ### Task 2: Version and expire result-cache entries atomically
 
 **Files:**
-- Modify: `opaihub/result_cache.py`
+- Modify: `vestahub/result_cache.py`
 - Modify: `tests/test_local_execution.py`
 - Modify: `tests/test_result_cache_correctness.py`
 
@@ -124,10 +124,10 @@
 ### Task 3: Propagate safe bypasses and local cache evidence
 
 **Files:**
-- Modify: `opaihub/ledger.py`
-- Modify: `opaihub/ask.py`
-- Modify: `opaihub/evidence_cache.py`
-- Modify: `opaihub/intent_router.py`
+- Modify: `vestahub/ledger.py`
+- Modify: `vestahub/ask.py`
+- Modify: `vestahub/evidence_cache.py`
+- Modify: `vestahub/intent_router.py`
 - Modify: `tests/test_savings_honesty.py`
 - Modify: `tests/test_ai_model_bugfixes.py`
 - Modify: `tests/test_evidence_cache.py`
@@ -207,8 +207,8 @@
   ```powershell
   python -B -m ruff format --check .
   python -B -m ruff check --no-cache .
-  python -B -m bandit -r opai opaihub opcoding -q
-  python -B -m opaihub validate
+  python -B -m bandit -r vesta vestahub opcoding -q
+  python -B -m vestahub validate
   git diff --check
   ```
 
@@ -217,7 +217,7 @@
   Run:
 
   ```powershell
-  git add opaihub/evidence_cache.py opaihub/result_cache.py opaihub/ledger.py opaihub/ask.py opaihub/intent_router.py tests/test_local_execution.py tests/test_result_cache_correctness.py tests/test_evidence_cache.py tests/test_savings_honesty.py tests/test_ai_model_bugfixes.py docs/ALPHA_READINESS_2026-07-12.md
+  git add vestahub/evidence_cache.py vestahub/result_cache.py vestahub/ledger.py vestahub/ask.py vestahub/intent_router.py tests/test_local_execution.py tests/test_result_cache_correctness.py tests/test_evidence_cache.py tests/test_savings_honesty.py tests/test_ai_model_bugfixes.py docs/ALPHA_READINESS_2026-07-12.md
   git commit -m "fix(cache): make reuse content-aware and expiring"
   ```
 

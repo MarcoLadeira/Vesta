@@ -256,7 +256,7 @@ def test_account_quota_plan_requires_explicit_cloud_consent(tmp_path):
 
 
 def test_retained_run_requires_real_integrated_verification(tmp_path, monkeypatch):
-    from opaihub import objective_execution
+    from vestahub import objective_execution
     from pathlib import Path
 
     real_executor = objective_execution.ObjectiveExecutor

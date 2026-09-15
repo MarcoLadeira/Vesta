@@ -18,8 +18,8 @@ from datetime import date
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from opaihub.failure_envelope import FailureCategory, FailureEnvelope
-from opaihub.recovery_recipes import (
+from vestahub.failure_envelope import FailureCategory, FailureEnvelope
+from vestahub.recovery_recipes import (
     NON_AUTOMATABLE,
     READ_ONLY_ACTIONS,
     RECIPES,
@@ -726,7 +726,7 @@ class AdoptionTests(unittest.TestCase):
     def test_adoption_01_an_incomplete_run_carries_a_recovery_proposal(self) -> None:
         from pathlib import Path
 
-        from opaihub.local_runner import _propose_recovery
+        from vestahub.local_runner import _propose_recovery
 
         payload = _propose_recovery(
             self._make_outcome(stopped_reason="no_progress"), project_root=Path(".")
@@ -744,7 +744,7 @@ class AdoptionTests(unittest.TestCase):
         in a library unit test."""
         from pathlib import Path
 
-        from opaihub.local_runner import _propose_recovery
+        from vestahub.local_runner import _propose_recovery
 
         payload = _propose_recovery(
             self._make_outcome(
@@ -761,7 +761,7 @@ class AdoptionTests(unittest.TestCase):
     def test_adoption_03_a_cancelled_run_is_never_given_a_recovery(self) -> None:
         from pathlib import Path
 
-        from opaihub.local_runner import _propose_recovery
+        from vestahub.local_runner import _propose_recovery
 
         payload = _propose_recovery(
             self._make_outcome(stopped_reason="cancelled", error="stopped by user"),
@@ -772,7 +772,7 @@ class AdoptionTests(unittest.TestCase):
     def test_adoption_04_the_proposal_carries_caps_and_a_verdict(self) -> None:
         from pathlib import Path
 
-        from opaihub.local_runner import _propose_recovery
+        from vestahub.local_runner import _propose_recovery
 
         payload = _propose_recovery(
             self._make_outcome(stopped_reason="no_progress"), project_root=Path(".")
@@ -784,7 +784,7 @@ class AdoptionTests(unittest.TestCase):
     def test_adoption_05_a_broken_outcome_never_breaks_the_run_result(self) -> None:
         # A proposal is advisory; it must fail silent rather than take down a
         # result that already carries the real answer.
-        from opaihub.local_runner import _propose_recovery
+        from vestahub.local_runner import _propose_recovery
 
         self.assertIsNone(_propose_recovery(object()))
 
@@ -793,7 +793,7 @@ class AdoptionTests(unittest.TestCase):
         # refactor cannot start proposing recovery for successful runs.
         import inspect
 
-        from opaihub import local_runner
+        from vestahub import local_runner
 
         source = inspect.getsource(local_runner.FreeAPIRunner.complete_with_tools)
         self.assertIn("None", source.split('"recovery"')[1][:60])
@@ -804,7 +804,7 @@ class AdoptionTests(unittest.TestCase):
         it; this keeps them."""
         import re
 
-        from opaihub.recovery_recipes import RECIPES
+        from vestahub.recovery_recipes import RECIPES
 
         repo = next(r for r in RECIPES if r.family is RecipeFamily.REPOSITORY_MOVEMENT)
         self.assertIsNone(

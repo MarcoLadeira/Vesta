@@ -21,7 +21,7 @@ from unittest import mock
 
 from _helpers import FakeAccountRunner, make_repo
 
-from opaihub import gui_pipeline, journal_runtime, journal_store
+from vestahub import gui_pipeline, journal_runtime, journal_store
 
 NOW = "2026-09-10T10:00:00+00:00"
 LATER = "2026-09-10T10:00:30+00:00"

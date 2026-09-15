@@ -5,15 +5,15 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 
-from opai.cli import main as opai_main
-from opaihub.analytics import build_analytics_summary
-from opaihub.cost_model import (
+from vesta.cli import main as vesta_main
+from vestahub.analytics import build_analytics_summary
+from vestahub.cost_model import (
     estimate_route_savings,
     estimate_tokens,
     estimate_tokens_for_chars,
     load_cost_model,
 )
-from opaihub.ledger import (
+from vestahub.ledger import (
     MODEL_CALL_SCHEMA_VERSION,
     ledger_path,
     read_events,
@@ -24,8 +24,8 @@ from opaihub.ledger import (
     summarize_ledger,
     task_fingerprint,
 )
-from opaihub.usage_report import ProviderTurnUsage
-from opaihub.savings import build_savings_report, render_savings_markdown
+from vestahub.usage_report import ProviderTurnUsage
+from vestahub.savings import build_savings_report, render_savings_markdown
 
 
 class CostModelTests(unittest.TestCase):
@@ -246,7 +246,7 @@ class RouteReadOnlyTests(unittest.TestCase):
             before = self._snapshot(root)
             buffer = io.StringIO()
             with redirect_stdout(buffer):
-                code = opai_main(["route", "show git status", "--project", str(root)])
+                code = vesta_main(["route", "show git status", "--project", str(root)])
             after = self._snapshot(root)
         self.assertEqual(code, 0)
         self.assertFalse(ledger_path(root).exists())
@@ -258,7 +258,7 @@ class RouteReadOnlyTests(unittest.TestCase):
             (root / "pyproject.toml").write_text("[project]\nname='x'\n")
             buffer = io.StringIO()
             with redirect_stdout(buffer):
-                opai_main(["route", "fix a bug", "--record", "--project", str(root)])
+                vesta_main(["route", "fix a bug", "--record", "--project", str(root)])
             self.assertTrue(ledger_path(root).exists())
             self.assertEqual(len(read_events(root)), 1)
 

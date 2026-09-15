@@ -14,7 +14,7 @@ from unittest import mock
 import yaml
 
 from _helpers import isolated_home
-from opaihub import loader, provider_catalog
+from vestahub import loader, provider_catalog
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,7 +27,7 @@ PROVIDER_ENV = {
     "GITHUB_TOKEN",
 }
 EXTERNAL_STATE_ENV = PROVIDER_ENV | {
-    "OPAI_HUB_ROOT",
+    "VESTA_HUB_ROOT",
     "LOCAL_MODEL_URL",
     "LOCAL_MODEL_NAME",
     "OLLAMA_HOST",
@@ -37,7 +37,7 @@ EXTERNAL_STATE_ENV = PROVIDER_ENV | {
 
 def _load_smoke_module():
     path = ROOT / "scripts" / "smoke-install.py"
-    spec = importlib.util.spec_from_file_location("opai_smoke_install", path)
+    spec = importlib.util.spec_from_file_location("vesta_smoke_install", path)
     if spec is None or spec.loader is None:
         raise AssertionError("Could not load smoke-install.py")
     module = importlib.util.module_from_spec(spec)
@@ -48,7 +48,7 @@ def _load_smoke_module():
 class RuntimeDependencyMetadataTests(unittest.TestCase):
     def test_packaged_skill_registry_stays_in_lockstep_with_the_source_registry(self):
         source_root = ROOT / "hub" / "skills"
-        package_root = ROOT / "opaihub" / "data" / "hub" / "skills"
+        package_root = ROOT / "vestahub" / "data" / "hub" / "skills"
         source_files = {
             path.relative_to(source_root)
             for path in source_root.rglob("*")
@@ -83,7 +83,7 @@ class RuntimeDependencyMetadataTests(unittest.TestCase):
         )
 
     def test_production_test_loop_module_is_not_collected_by_pytest(self):
-        import opaihub.test_loop as test_loop
+        import vestahub.test_loop as test_loop
 
         self.assertIs(test_loop.__test__, False)
         self.assertIs(test_loop.TestLoop.__test__, False)
@@ -96,9 +96,9 @@ class RuntimeDependencyMetadataTests(unittest.TestCase):
             "hub/install/README.md",
             "hub/install/manifest.json",
             "hub/docs/INSTALL.md",
-            "opaihub/data/hub/install/README.md",
-            "opaihub/data/hub/install/manifest.json",
-            "opaihub/data/hub/docs/INSTALL.md",
+            "vestahub/data/hub/install/README.md",
+            "vestahub/data/hub/install/manifest.json",
+            "vestahub/data/hub/docs/INSTALL.md",
         ]
 
         for relative in installers:
@@ -123,7 +123,7 @@ class RegistryLoaderContractTests(unittest.TestCase):
             path.write_text("tools:\n  - id: ruff\n", encoding="utf-8")
             with mock.patch("builtins.__import__", side_effect=reject_yaml):
                 with self.assertRaisesRegex(
-                    RuntimeError, r"tools\.yaml.*PyYAML.*pip install opai"
+                    RuntimeError, r"tools\.yaml.*PyYAML.*pip install vesta"
                 ):
                     loader.load_registry(path)
 
@@ -174,10 +174,10 @@ class SmokeInstallContractTests(unittest.TestCase):
         self.assertEqual(
             commands,
             [
-                ["python", "-m", "opai", "--help"],
-                ["python", "-m", "opai", "doctor"],
-                ["python", "-m", "opaihub", "validate"],
-                ["python", "-m", "opai", "gui", "--once"],
+                ["python", "-m", "vesta", "--help"],
+                ["python", "-m", "vesta", "doctor"],
+                ["python", "-m", "vestahub", "validate"],
+                ["python", "-m", "vesta", "gui", "--once"],
             ],
         )
 
@@ -222,7 +222,7 @@ class SmokeInstallContractTests(unittest.TestCase):
         command = smoke.installed_identity_smoke_command(Path("python"), build_id)
 
         self.assertEqual(command[:3], ["python", "-I", "-c"])
-        self.assertIn("opai", command[3])
+        self.assertIn("vesta", command[3])
         self.assertIn("version", command[3])
         self.assertIn("build_id", command[3])
         self.assertIn(build_id, command[3])
@@ -232,7 +232,7 @@ class SmokeInstallContractTests(unittest.TestCase):
         candidate = "b" * 40
 
         self.assertEqual(
-            smoke.resolve_candidate_build_id(candidate, {"OPAI_BUILD_ID": "a" * 40}),
+            smoke.resolve_candidate_build_id(candidate, {"VESTA_BUILD_ID": "a" * 40}),
             candidate,
         )
         publishing = (ROOT / "docs" / "PUBLISHING.md").read_text(encoding="utf-8")
@@ -352,7 +352,7 @@ class WorkflowContractTests(unittest.TestCase):
             "/.github/required-checks.json",
             "/scripts/ci_local.py",
             "/scripts/check_secrets.py",
-            "/opaihub/provider_canary.py",
+            "/vestahub/provider_canary.py",
             "/.secrets.baseline",
             "/requirements-ci.txt",
             "/docs/CI_QUALIFICATION.md",
@@ -393,7 +393,7 @@ class WorkflowContractTests(unittest.TestCase):
 
 
 def test_pytest_starts_without_live_provider_credentials_or_keyring():
-    from opaihub import credentials
+    from vestahub import credentials
 
     assert PROVIDER_ENV.isdisjoint(os.environ)
     assert credentials._default_backend() is None

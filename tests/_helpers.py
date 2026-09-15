@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
-from opaihub.credentials import PROVIDER_ENV, CredentialStore
+from vestahub.credentials import PROVIDER_ENV, CredentialStore
 
 
 # Derived from the production registry rather than restated, so registering a
@@ -127,7 +127,7 @@ def isolated_home():
 
 
 class FakeAccountRunner:
-    """Drop-in for ``opaihub.accounts.AccountRunner`` - never launches a CLI.
+    """Drop-in for ``vestahub.accounts.AccountRunner`` - never launches a CLI.
 
     Records every ``complete()`` call (so tests can assert read-only vs edit),
     and can simulate a clean answer, a timeout, or a raised error.
@@ -206,7 +206,7 @@ class FakeStreamingRunner:
     def stream(self, prompt: str, **kwargs: Any) -> dict[str, Any]:
         import time
 
-        from opai.activity import make_event
+        from vesta.activity import make_event
 
         self.calls.append({"prompt": prompt, **kwargs})
         if self._raises is not None:
@@ -232,7 +232,7 @@ class FakeStreamingRunner:
 
 
 class FakeLocalRunner:
-    """Drop-in for ``opaihub.local_runner.LocalRunner`` - no network, no model."""
+    """Drop-in for ``vestahub.local_runner.LocalRunner`` - no network, no model."""
 
     def __init__(
         self,

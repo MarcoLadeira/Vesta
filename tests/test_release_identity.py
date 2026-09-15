@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _release_module():
-    return importlib.import_module("opai.release_identity")
+    return importlib.import_module("vesta.release_identity")
 
 
 def test_project_version_is_the_canonical_application_version() -> None:
@@ -25,7 +25,7 @@ def test_project_version_is_the_canonical_application_version() -> None:
 
 
 def test_generated_runtime_projection_matches_the_canonical_version() -> None:
-    generated = importlib.import_module("opai._generated_release")
+    generated = importlib.import_module("vesta._generated_release")
     release = _release_module().read_project_release(ROOT / "pyproject.toml")
 
     assert generated.APPLICATION_VERSION == release.application_version
@@ -36,13 +36,13 @@ def test_generated_runtime_projection_matches_the_canonical_version() -> None:
 
 
 def test_package_version_exports_are_generated_projections() -> None:
-    opai = importlib.import_module("opai")
-    opaihub = importlib.import_module("opaihub")
-    generated = importlib.import_module("opai._generated_release")
+    vesta = importlib.import_module("vesta")
+    vestahub = importlib.import_module("vestahub")
+    generated = importlib.import_module("vesta._generated_release")
 
-    assert opai.__version__ == generated.APPLICATION_VERSION
-    assert opai.__release_stage__ == generated.RELEASE_STAGE
-    assert opaihub.__version__ == generated.APPLICATION_VERSION
+    assert vesta.__version__ == generated.APPLICATION_VERSION
+    assert vesta.__release_stage__ == generated.RELEASE_STAGE
+    assert vestahub.__version__ == generated.APPLICATION_VERSION
 
 
 def test_explicit_packaged_identity_ignores_neighbouring_checkout(
@@ -68,7 +68,7 @@ def test_explicit_packaged_identity_ignores_neighbouring_checkout(
     checkout.mkdir()
     (checkout / ".git").mkdir()
     (checkout / "pyproject.toml").write_text(
-        '[project]\nname = "opai"\nversion = "9.9.9"\n', encoding="utf-8"
+        '[project]\nname = "vesta"\nversion = "9.9.9"\n', encoding="utf-8"
     )
 
     identity = _release_module().load_release_identity(
@@ -87,7 +87,7 @@ def test_packaged_runtime_discovers_only_its_exact_windows_bundle_identity(
     tmp_path: Path,
 ) -> None:
     bundle = tmp_path / "package"
-    executable = bundle / "cli" / "opai.exe"
+    executable = bundle / "cli" / "vesta.exe"
     executable.parent.mkdir(parents=True)
     executable.write_bytes(b"native")
     embedded = bundle / "release-identity.json"
@@ -128,7 +128,7 @@ def test_packaged_metadata_discovery_does_not_fall_back_to_an_ancestor(
     tmp_path: Path,
 ) -> None:
     bundle = tmp_path / "parent" / "bundle"
-    executable = bundle / "gui" / "opai-gui.exe"
+    executable = bundle / "gui" / "vesta-gui.exe"
     executable.parent.mkdir(parents=True)
     executable.write_bytes(b"native")
     ancestor = tmp_path / "parent" / "release-identity.json"
@@ -161,7 +161,7 @@ def test_packaged_metadata_discovery_does_not_fall_back_to_an_ancestor(
 def test_packaged_metadata_discovery_uses_macos_resources_directory(
     tmp_path: Path,
 ) -> None:
-    executable = tmp_path / "OPai.app" / "Contents" / "MacOS" / "opai-gui"
+    executable = tmp_path / "Vesta.app" / "Contents" / "MacOS" / "vesta-gui"
     executable.parent.mkdir(parents=True)
     executable.write_bytes(b"native")
 
@@ -170,7 +170,7 @@ def test_packaged_metadata_discovery_uses_macos_resources_directory(
     )
 
     assert paths == (
-        tmp_path / "OPai.app" / "Contents" / "Resources" / "release-identity.json",
+        tmp_path / "Vesta.app" / "Contents" / "Resources" / "release-identity.json",
     )
 
 

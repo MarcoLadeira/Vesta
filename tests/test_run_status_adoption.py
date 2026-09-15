@@ -34,16 +34,16 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from opaihub.generated_lifecycle import LEGACY_STATUS_MAP, STATE_IDS
+from vestahub.generated_lifecycle import LEGACY_STATUS_MAP, STATE_IDS
 
 ROOT = Path(__file__).resolve().parents[1]
 
 # Execution paths that build run-result dicts consumed by GUI/CLI surfaces.
 EXECUTION_PATHS = (
-    "opaihub/ask.py",
-    "opai/app_state.py",
-    "opaihub/gui_pipeline.py",
-    "opaihub/accounts.py",
+    "vestahub/ask.py",
+    "vesta/app_state.py",
+    "vestahub/gui_pipeline.py",
+    "vestahub/accounts.py",
 )
 
 # Statuses these paths emit that are deliberately NOT run-lifecycle states.
@@ -85,7 +85,7 @@ def test_every_emitted_run_status_is_canonically_interpretable() -> None:
         "interpreted by the canonical lifecycle, so they degrade to "
         "needs_attention/incompatible instead of their real state:\n"
         + "\n".join(f"  {s!r} <- {', '.join(f)}" for s, f in sorted(unmapped.items()))
-        + "\n\nFix by adding the status to opaihub/lifecycle_schema.json (then "
+        + "\n\nFix by adding the status to vestahub/lifecycle_schema.json (then "
         "run scripts/generate_lifecycle.py), or — if it genuinely is not a run "
         "lifecycle state — by adding it to NOT_RUN_LIFECYCLE with a reason."
     )
@@ -118,7 +118,7 @@ def test_dead_ends_are_not_dressed_up_as_questions() -> None:
     # the exact dishonesty `needs_model` is documented to avoid. These statuses
     # mean "this run cannot continue as-is"; the remedy is a new run, so none of
     # them may report that the user's answer would resume this one.
-    from opaihub.run_state import is_awaiting_input
+    from vestahub.run_state import is_awaiting_input
 
     for status in (
         "capability_mismatch",

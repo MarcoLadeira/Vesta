@@ -2,18 +2,18 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make every OPai terminal outcome an evidence-backed verdict, shared by the GUI, CLI, workflow checkpoint, activity ledger, and per-turn receipt.
+**Goal:** Make every Vesta terminal outcome an evidence-backed verdict, shared by the GUI, CLI, workflow checkpoint, activity ledger, and per-turn receipt.
 
-**Architecture:** `opaihub.completion` becomes the single producer of an immutable objective, normalized evidence references, and a typed verdict. The GUI pipeline attaches that result once at the terminal boundary; renderers consume it without re-inferring success. Compatibility `status`/`completion_state` fields remain for alpha callers, but cannot upgrade a non-completed verdict.
+**Architecture:** `vestahub.completion` becomes the single producer of an immutable objective, normalized evidence references, and a typed verdict. The GUI pipeline attaches that result once at the terminal boundary; renderers consume it without re-inferring success. Compatibility `status`/`completion_state` fields remain for alpha callers, but cannot upgrade a non-completed verdict.
 
-**Tech Stack:** Python 3.10+, pytest, OPai GUI pipeline, terminal CLI, browser JavaScript/Playwright.
+**Tech Stack:** Python 3.10+, pytest, Vesta GUI pipeline, terminal CLI, browser JavaScript/Playwright.
 
 ---
 
 ### Task 1: Define the objective and evidence contract
 
 **Files:**
-- Modify: `opaihub/completion.py`
+- Modify: `vestahub/completion.py`
 - Test: `tests/test_completion_contract.py`
 
 - [x] Add immutable `ObjectiveRecord`, `EvidenceRef`, and `CompletionVerdict` types.
@@ -24,9 +24,9 @@
 ### Task 2: Attach one terminal verdict to the shared pipeline
 
 **Files:**
-- Modify: `opaihub/gui_pipeline.py`
-- Modify: `opaihub/workflow_state.py`
-- Modify: `opaihub/checkpoints.py`
+- Modify: `vestahub/gui_pipeline.py`
+- Modify: `vestahub/workflow_state.py`
+- Modify: `vestahub/checkpoints.py`
 - Test: `tests/test_completion_contract.py`
 
 - [x] Capture the prompt/mode objective before provider execution and evaluate it only at the terminal decoration boundary.
@@ -37,11 +37,11 @@
 ### Task 3: Enforce GUI/CLI/receipt parity
 
 **Files:**
-- Modify: `opai/cli_stream.py`
-- Modify: `opai/assets/web/app.js`
-- Modify: `opai/assets/web/styles.css`
+- Modify: `vesta/cli_stream.py`
+- Modify: `vesta/assets/web/app.js`
+- Modify: `vesta/assets/web/styles.css`
 - Test: `tests/test_cli_stream.py`
-- Test: `opai/assets/web/__tests__/e2e/activity-truth.spec.js`
+- Test: `vesta/assets/web/__tests__/e2e/activity-truth.spec.js`
 
 - [x] Render verdict plus typed reason before any answer/receipt success affordance.
 - [x] Render non-completed verdicts without a success glyph/style and include the safest next action.
@@ -55,7 +55,7 @@
 - Test: `tests/test_completion_contract.py`
 - Test: `tests/test_cli_stream.py`
 - Test: `tests/test_edit_approval.py`
-- Test: `opai/assets/web/__tests__/e2e/activity-truth.spec.js`
+- Test: `vesta/assets/web/__tests__/e2e/activity-truth.spec.js`
 
 - [x] Add the #378 regression matrix to the QA record, including evidence expectations and no-success-style property coverage.
 - [x] Run focused Python/browser suites, lint/format, and full browser tests before opening the PR. The JavaScript unit runner is not installed in this worktree, so it cannot run offline.

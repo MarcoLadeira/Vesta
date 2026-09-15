@@ -15,14 +15,14 @@ Run the local release evidence before requesting a production artifact run:
 python -m ruff format --check .
 python -m ruff check .
 python -m unittest discover -s tests
-python -m opaihub validate
+python -m vestahub validate
 python -m opcoding tools . run bandit
 python -m opcoding tools . run pip-audit
 python -m opcoding tools . run detect-secrets
 $candidateSha = git rev-parse HEAD
 python scripts\smoke-install.py --candidate-sha $candidateSha
-python -m opai benchmark run --suite max --mode both
-python -m opai benchmark gate --min-effectiveness-index 95 --require-risk-blocks
+python -m vesta benchmark run --suite max --mode both
+python -m vesta benchmark gate --min-effectiveness-index 95 --require-risk-blocks
 ```
 
 Follow [the desktop artifact runbook](DESKTOP_ARTIFACT_RELEASE.md) for the
@@ -42,7 +42,7 @@ op status
 
 The normal editable install resolves declared core runtime dependencies. Use
 `--no-deps` only for an intentional maintainer check that supplies dependencies
-separately. Both `op` and `opai` launch Vesta; the legacy OPcoding CLI remains
+separately. Both `op` and `vesta` launch Vesta; the legacy OPcoding CLI remains
 available as `opcoding`.
 
 ## Public release handoff

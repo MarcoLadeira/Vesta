@@ -4,7 +4,7 @@
 
 ## Purpose
 
-Create one evidence-led operating system for deciding whether OPai may launch,
+Create one evidence-led operating system for deciding whether Vesta may launch,
 adapting launch communication to each community, responding to incidents, and
 turning post-launch evidence into explicit product and channel decisions. This
 implements canonical child issue #554 and supports, but does not close, parent
@@ -18,7 +18,7 @@ epic #530.
 - Public claims require reproducible evidence or a clear hypothesis/early
   observation label.
 - The current repository must not imply that a public artifact is available or
-  that OPai is launch-ready before the release gates are met.
+  that Vesta is launch-ready before the release gates are met.
 - Attribution is channel-level, consent-compatible, and separate from product
   telemetry. Impressions, votes, downloads, and raw sign-ups are diagnostic
   signals rather than launch-success metrics.
@@ -94,6 +94,6 @@ heading or removing a safety requirement requires an explicit test update.
 ## Non-goals
 
 - Publishing an artifact, opening launch channels, creating telemetry, making
-  paid promotion decisions, or declaring OPai launch-ready.
+  paid promotion decisions, or declaring Vesta launch-ready.
 - Closing #530, #519, #362, or any release-gate issue. The implementation PR
   will close #554 and identify #530 as its parent epic.

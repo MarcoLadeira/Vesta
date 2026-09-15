@@ -6,12 +6,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub.mcp import (
+from vestahub.mcp import (
     render_mcp_config,
     validate_mcp_config,
     write_mcp_config,
 )
-from opaihub.state import set_mcp
+from vestahub.state import set_mcp
 
 from tests._helpers import make_repo
 
@@ -37,7 +37,7 @@ class FilesystemPolicyTests(unittest.TestCase):
     def test_git_env_secrets_and_caches_are_blocked(self):
         forbidden = self._filesystem()["policy"]["forbiddenPaths"]
         names = {Path(item).name for item in forbidden} | set(forbidden)
-        for blocked in (".git", ".env", "node_modules", ".opaihub", ".opcoding"):
+        for blocked in (".git", ".env", "node_modules", ".vestahub", ".opcoding"):
             self.assertIn(blocked, names, blocked)
 
     def test_filesystem_roots_are_scoped_to_the_project(self):

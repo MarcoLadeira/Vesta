@@ -8,7 +8,7 @@ from pathlib import Path
 
 from _helpers import make_repo
 
-from opai.brand import (
+from vesta.brand import (
     EMPTY_TITLE,
     TAGLINE,
     boot_brand,
@@ -83,7 +83,7 @@ class CliMirrorTests(unittest.TestCase):
 
 class BootPayloadBrandTests(unittest.TestCase):
     def test_boot_payload_carries_brand(self):
-        from opai.gui_web import boot_payload
+        from vesta.gui_web import boot_payload
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))

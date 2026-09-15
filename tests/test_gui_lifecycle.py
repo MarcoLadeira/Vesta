@@ -15,8 +15,8 @@ from unittest import mock
 
 from _helpers import make_repo
 
-from opai.gui_desktop import build_chat_job
-from opai.gui_lifecycle import drain_workers, signal_cancels, start_tracked_worker
+from vesta.gui_desktop import build_chat_job
+from vesta.gui_lifecycle import drain_workers, signal_cancels, start_tracked_worker
 
 
 class FakeSignal:
@@ -157,7 +157,7 @@ class BuildChatJobTests(unittest.TestCase):
             return {"status": "answered", "answer": "ok"}
 
         with mock.patch(
-            "opaihub.gui_pipeline.handle_gui_message", side_effect=fake_handle
+            "vestahub.gui_pipeline.handle_gui_message", side_effect=fake_handle
         ):
             job, cancel = build_chat_job(
                 Path("."), "hello", model_id="auto", mode="ask"
@@ -184,7 +184,7 @@ class BuildChatJobTests(unittest.TestCase):
         # contract records exactly one terminal completion_verdict for the audit
         # trail — the same behaviour handle_gui_message has (see
         # test_savings_honesty.test_cancelled_before_run_records_only_a_terminal_verdict).
-        from opaihub.ledger import read_events
+        from vestahub.ledger import read_events
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))

@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import unittest
 
-from opai import model_registry as reg
-from opaihub.paid_api_models import PAID_MODEL_SPECS
+from vesta import model_registry as reg
+from vestahub.paid_api_models import PAID_MODEL_SPECS
 
 
 class PaidProviderRegistrationTests(unittest.TestCase):
@@ -69,7 +69,7 @@ class PaidModelConsistencyTests(unittest.TestCase):
                         (provider, model_spec.id),
                         operational,
                         f"registered paid model {provider}/{model_spec.id} has "
-                        "no operational spec in opaihub/paid_api_models.py",
+                        "no operational spec in vestahub/paid_api_models.py",
                     )
 
     def test_paid_specs_are_well_formed(self):
@@ -85,7 +85,7 @@ class PaidModelConsistencyTests(unittest.TestCase):
     def test_every_paid_model_id_has_a_real_price(self):
         # A registered paid model with no pricing entry would be sellable
         # through the picker but unable to bill honestly.
-        from opaihub.deepseek_pricing import PRICES
+        from vestahub.deepseek_pricing import PRICES
 
         for spec in PAID_MODEL_SPECS:
             with self.subTest(id=spec["id"]):

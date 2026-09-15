@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub import audit
+from vestahub import audit
 
 
 class AuditPerformanceTests(unittest.TestCase):

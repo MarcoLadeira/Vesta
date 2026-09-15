@@ -13,7 +13,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
-from opaihub.call_reconciliation import (
+from vestahub.call_reconciliation import (
     ABANDON_AFTER_SECONDS,
     ABANDON_REASONS,
     OWNER_DEAD_GRACE_SECONDS,
@@ -293,7 +293,7 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(set(ABANDON_REASONS), {s for s in CallLiveness if s.abandoned})
 
     def test_the_window_is_documented_not_magic(self) -> None:
-        from opaihub import call_reconciliation
+        from vestahub import call_reconciliation
 
         source = call_reconciliation.__doc__ or ""
         self.assertIn("#685", source)
@@ -310,13 +310,13 @@ class ContractTests(unittest.TestCase):
 
         record = _record(age_seconds=OWNER_DEAD_GRACE_SECONDS + 1)
         with mock.patch(
-            "opaihub.call_reconciliation.pid_is_running", side_effect=_dead
+            "vestahub.call_reconciliation.pid_is_running", side_effect=_dead
         ):
             self.assertEqual(
                 classify_call(record, now=NOW), CallLiveness.ABANDONED_OWNER_GONE
             )
         with mock.patch(
-            "opaihub.call_reconciliation.pid_is_running", side_effect=_alive
+            "vestahub.call_reconciliation.pid_is_running", side_effect=_alive
         ):
             self.assertEqual(classify_call(record, now=NOW), CallLiveness.IN_FLIGHT)
 

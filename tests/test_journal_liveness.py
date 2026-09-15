@@ -22,8 +22,8 @@ import os
 import unittest
 from datetime import datetime, timedelta, timezone
 
-from opaihub import journal_liveness, owner_lease
-from opaihub.journal_liveness import (
+from vestahub import journal_liveness, owner_lease
+from vestahub.journal_liveness import (
     ACTIONABLE,
     OWNED_HERE,
     OWNER_GONE,
@@ -545,7 +545,7 @@ class TheHeartbeatInvariantIsLoadBearingTests(unittest.TestCase):
         import tempfile
         from pathlib import Path
 
-        from opaihub import journal_store
+        from vestahub import journal_store
 
         root = Path(tempfile.mkdtemp())
         store = journal_store.open_store(root)
@@ -614,7 +614,7 @@ class AProcessIdMustActuallyBeOneTests(unittest.TestCase):
     """
 
     def test_a_boolean_is_not_a_process_id(self):
-        from opaihub.call_reconciliation import positive_pid as _positive_pid
+        from vestahub.call_reconciliation import positive_pid as _positive_pid
 
         self.assertIsNone(
             _positive_pid(True),
@@ -626,18 +626,18 @@ class AProcessIdMustActuallyBeOneTests(unittest.TestCase):
     def test_a_float_is_not_truncated_into_a_process_id(self):
         """Truncating 2.9 to pid 2 invents an identity nobody recorded."""
 
-        from opaihub.call_reconciliation import positive_pid as _positive_pid
+        from vestahub.call_reconciliation import positive_pid as _positive_pid
 
         self.assertIsNone(_positive_pid(2.9))
 
     def test_real_process_ids_still_work(self):
-        from opaihub.call_reconciliation import positive_pid as _positive_pid
+        from vestahub.call_reconciliation import positive_pid as _positive_pid
 
         self.assertEqual(_positive_pid(4242), 4242)
         self.assertEqual(_positive_pid("4242"), 4242)
 
     def test_impossible_ids_are_absent_rather_than_stored(self):
-        from opaihub.call_reconciliation import positive_pid as _positive_pid
+        from vestahub.call_reconciliation import positive_pid as _positive_pid
 
         for value in (0, -1, None, object(), float("inf")):
             with self.subTest(value=value):
@@ -651,8 +651,8 @@ class AProcessIdMustActuallyBeOneTests(unittest.TestCase):
         every place that asks gets its answer.
         """
 
-        from opaihub import call_reconciliation, journal_liveness
-        from opaihub.call_reconciliation import positive_pid as _positive_pid
+        from vestahub import call_reconciliation, journal_liveness
+        from vestahub.call_reconciliation import positive_pid as _positive_pid
 
         for value in (True, False, 2.9, 0, -1, None, float("inf"), "x"):
             with self.subTest(value=value):

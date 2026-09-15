@@ -7,7 +7,7 @@
 
 ## Outcome
 
-OPai must complete productive coding work without exposing an internal tool-call
+Vesta must complete productive coding work without exposing an internal tool-call
 allowance as a user-facing limit. It must reduce token waste automatically,
 report usage with enough provenance to be trusted, let users remove limits and
 reset the visible accounting baseline, render Settings as a clear product
@@ -30,7 +30,7 @@ the supplied screenshots:
   turn.
 - `run_explicit_model()` preserves `stopped_reason`, but `app_state` maps the
   result to `answered_by_free_api` and the GUI pipeline records and renders it
-  as `OPai completed`. The contradictory success activity and stop message are
+  as `Vesta completed`. The contradictory success activity and stop message are
   therefore both real.
 - Tool calling is currently coupled to edit authority: `run_explicit_model()`
   calls `complete_with_tools()` only when `allow_edits=True`. A correctly
@@ -44,7 +44,7 @@ the supplied screenshots:
   output. About 99% of that total is input. Two newer tasks used 12 provider
   turns each; 14 older records do not contain a turn count, so the displayed
   `38 model calls` is a lower bound and is currently presented too confidently.
-- The 1,000,000,000 figure is a user-configured OPai soft limit, not a Gemini
+- The 1,000,000,000 figure is a user-configured Vesta soft limit, not a Gemini
   quota. The UI and preference sanitizer reject zero and blank values, and no
   reset API or ledger event exists.
 - A reached soft limit currently interrupts a task for confirmation. That
@@ -71,7 +71,7 @@ the supplied screenshots:
    boundary is reached, a paid/cloud boundary needs consent, or deterministic
    goal-progress checks prove the run is stuck.
 3. A stuck run is recoverable and resumable. It is never recorded as completed.
-4. OPai remains local-first. This work does not add paid features or silently
+4. Vesta remains local-first. This work does not add paid features or silently
    authorize cloud calls, remote writes, or destructive actions.
 5. User-configured token thresholds are advisory. Dollar caps, explicit
    paid/cloud consent, provider billing errors, and provider quotas are
@@ -173,7 +173,7 @@ The decision payload is strict and provider-independent:
 ```
 
 Providers without structured-output support receive the same JSON-only prompt;
-OPai validates the parsed object. Ambiguous prose, invalid JSON, unknown fields,
+Vesta validates the parsed object. Ambiguous prose, invalid JSON, unknown fields,
 missing evidence, or a premature completion claim triggers one bounded re-plan
 attempt, then a recoverable error rather than success.
 
@@ -231,7 +231,7 @@ characters. Providers with no declared limit use the absolute boundary.
 The replay of the measured 12-turn observation-size fixture must keep maximum
 request context bounded and cumulative serialized input at or below 50% of the
 legacy full-history algorithm. Providers that report cached input, reasoning,
-or total tokens retain those values rather than having OPai reconstruct them
+or total tokens retain those values rather than having Vesta reconstruct them
 from input plus output.
 
 This design reduces cumulative input amplification while allowing useful work
@@ -272,7 +272,7 @@ mapping is explicit:
 `answered_locally` and `answered_by_free_api` are emitted only for `completed`.
 A non-complete result propagates through `ask`, `app_state`, `gui_pipeline`,
 workflow checkpoints, task outcomes, saved chat, CLI, and the frontend without
-being rewritten as `answered`, `DONE`, or `OPai completed`. Dual-read adapters
+being rewritten as `answered`, `DONE`, or `Vesta completed`. Dual-read adapters
 accept older results that lack `completion_state`; new writers always emit it.
 
 Every non-complete recoverable result includes a privacy-safe checkpoint and
@@ -284,7 +284,7 @@ The existing `RunCheckpoint` advances to schema 2 and is reused rather than
 creating a second persistence system. It atomically stores a stable `run_id`,
 controller revision, model and mode, bounded redacted subgoals/evidence,
 side-effect fingerprints, next turn, usage-event identifiers, and recovery
-state under `.opaihub`. Raw provider messages, raw tool output, credentials, and
+state under `.vestahub`. Raw provider messages, raw tool output, credentials, and
 unredacted source snippets remain ephemeral. A cross-process lease prevents two
 windows from resuming the same run concurrently.
 
@@ -343,7 +343,7 @@ independent from nullable input/output components, and token provenance remains
 independent from cost provenance.
 
 New-schema usage is recorded per provider turn rather than as one aggregate at
-task completion. Before dispatch OPai appends `model_call_started` with a stable
+task completion. Before dispatch Vesta appends `model_call_started` with a stable
 `run_id`, `turn_index`, canonical model identifier, current model-specific
 `usage_epoch`, and unique event identifier. On response it appends the matching
 version-2 `model_call` with nullable token components, per-component provenance,
@@ -388,7 +388,7 @@ Snapshots expose distinct concepts instead of overloading one progress bar:
 }
 ```
 
-Provider quota is a separate nested value and never replaces OPai-tracked token
+Provider quota is a separate nested value and never replaces Vesta-tracked token
 usage. A stale quota snapshot is labelled stale/unknown unless an absolute reset
 time or a bounded freshness rule proves it current. Token measurement and cost
 measurement are independent. Legacy records without provider-turn counts yield
@@ -428,7 +428,7 @@ and removals use the same cross-process mutation lock, read-merge-write under
 that lock, a same-directory temporary file, `fsync`, and atomic replace. A
 failed write keeps the prior valid preference file. Reset uses the ledger lock,
 so saves, removals, calls, and resets preserve unrelated model state across
-multiple OPai windows.
+multiple Vesta windows.
 
 ### 7. Settings information architecture and interaction design
 
@@ -498,7 +498,7 @@ registries, cached model catalog, and safe placeholders. Repository status,
 inspector, and ledger-backed detail hydrate asynchronously and stale responses
 are discarded by revision. Cold snapshot construction performs at most two Git
 processes. A cache hit younger than the two-second bounded-staleness window
-performs none; after that window OPai refreshes rather than promising indefinite
+performs none; after that window Vesta refreshes rather than promising indefinite
 truth without a Git/file-system observation.
 
 Settings requests section data by section identifier and revision. Only the
@@ -512,19 +512,19 @@ The invalidation contract is explicit:
 
 | Change | Invalidation source |
 | --- | --- |
-| OPai ledger/preference/reset write | synchronous revision bump |
-| OPai Git/edit tool | synchronous workspace revision bump |
+| Vesta ledger/preference/reset write | synchronous revision bump |
+| Vesta Git/edit tool | synchronous workspace revision bump |
 | branch/index/HEAD change | Git metadata watcher plus two-second fallback |
 | external tracked/untracked edit | workspace watcher plus two-second fallback |
 | credential/login/provider mutation | provider-cache revision bump |
 | workspace switch | resolved-root/gitdir key change and request cancellation |
-| second OPai process | file watcher plus two-second fallback |
+| second Vesta process | file watcher plus two-second fallback |
 
 Cache keys include the resolved workspace root and Git common directory.
 Failures and cancellations release in-flight entries; a failed result is not
 cached as healthy data.
 
-Performance markers separate OPai overhead from provider latency. The supplied
+Performance markers separate Vesta overhead from provider latency. The supplied
 13.9-second activity is a provider/run duration, not evidence that all of it is
 GUI overhead. The release harness records process launch, WebEngine shell paint,
 chat-interactive, submit click, provider dispatch, first provider byte, first
@@ -537,7 +537,7 @@ Performance acceptance budgets on the documented reference Windows workspace
 - shell-visible to chat-interactive p95 at or below 250 ms;
 - full process launch to visible shell p95 at or below 2 seconds cold, recorded
   separately because QtWebEngine startup is outside payload construction;
-- submit-to-provider-dispatch OPai overhead p95 at or below 100 ms warm and
+- submit-to-provider-dispatch Vesta overhead p95 at or below 100 ms warm and
   200 ms cold, excluding confirmation wait and provider network time;
 - first-provider-byte to rendered text p95 at or below 50 ms;
 - no synchronous GUI operation above 50 ms;
@@ -553,7 +553,7 @@ Performance acceptance budgets on the documented reference Windows workspace
 
 CI uses deterministic call counters, serialized-size assertions, fake clocks,
 and injected delays rather than flaky absolute timing. The release command
-`opai perf gui --workspace <fixture> --cold-samples 5 --warm-samples 20` records
+`vesta perf gui --workspace <fixture> --cold-samples 5 --warm-samples 20` records
 p50/p95 timing, payload sizes, long tasks, Git/ledger/process counts, hardware,
 and cache preparation. Its JSON artifact is required PR evidence on the
 reference Windows environment; CI enforces the deterministic budgets.
@@ -562,7 +562,7 @@ reference Windows environment; CI enforces the deterministic budgets.
 
 Pytest configuration scopes canonical discovery to `tests/`. Embedded benchmark
 fixture repositories remain executable only through their benchmark harness and
-are not imported as OPai test modules. Directly targeted fixture tests remain
+are not imported as Vesta test modules. Directly targeted fixture tests remain
 possible from their intended working directory. This makes plain `pytest`
 equivalent to the maintained canonical Python suite.
 
@@ -684,7 +684,7 @@ Tests are written before production changes and include:
 - versioned async reads/mutations cover error responses, cancellation, worker
   shutdown, cache invalidation, concurrent coalescing, failure release, stale
   root/revision/request rejection, and cross-workspace isolation;
-- the invalidation matrix covers OPai and external file/Git changes, branch/
+- the invalidation matrix covers Vesta and external file/Git changes, branch/
   index/HEAD changes, ledger/preferences, credentials, workspace switches,
   multiple windows, and two-second bounded staleness;
 - one snapshot performs one ledger parse, one registry/policy load, and at most
@@ -728,7 +728,7 @@ Tests are written before production changes and include:
   and lazy-loading contracts.
 - Boot, chat dispatch/rendering, and Settings meet deterministic call-count/
   long-task gates and measured local performance budgets.
-- Plain `pytest` runs only the maintained OPai suite.
+- Plain `pytest` runs only the maintained Vesta suite.
 - All canonical, security, packaging, release-preflight, and E2E gates pass
   before the pull request is merged.
 

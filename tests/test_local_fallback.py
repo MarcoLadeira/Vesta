@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub.local_fallback import (
+from vestahub.local_fallback import (
     FallbackDecision,
     capability_score,
     choose_local_fallback,
@@ -152,7 +152,7 @@ class DiscoveryTests(unittest.TestCase):
     def test_plan_workflow_fallback_uses_live_local_discovery_only(self):
         with tempfile.TemporaryDirectory() as tmp:
             with mock.patch(
-                "opaihub.local_runner.list_local_models",
+                "vestahub.local_runner.list_local_models",
                 return_value=[_model("ollama:qwen2.5-coder:7b", "qwen2.5-coder:7b")],
             ) as discovery:
                 decision = plan_workflow_fallback(Path(tmp), "repair")
@@ -165,10 +165,10 @@ class DiscoveryTests(unittest.TestCase):
         import io
         import json
 
-        from opaihub.cli import main
+        from vestahub.cli import main
 
         with tempfile.TemporaryDirectory() as tmp:
-            with mock.patch("opaihub.local_runner.list_local_models", return_value=[]):
+            with mock.patch("vestahub.local_runner.list_local_models", return_value=[]):
                 out = io.StringIO()
                 with contextlib.redirect_stdout(out):
                     code = main(["--project", tmp, "models", "fallback", "planning"])

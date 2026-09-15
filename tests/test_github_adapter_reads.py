@@ -16,7 +16,7 @@ from pathlib import Path
 
 from _helpers import make_repo
 
-from opaihub.github_workflow import GitHubAdapter
+from vestahub.github_workflow import GitHubAdapter
 
 
 def _completed(argv: list[str], stdout: str, returncode: int = 0, stderr: str = ""):

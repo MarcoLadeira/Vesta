@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub import ledger, usage
+from vestahub import ledger, usage
 
 
 class UsagePerformanceTests(unittest.TestCase):

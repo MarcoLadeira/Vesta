@@ -14,8 +14,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub.agent_policy import build_capability_contract, resolve_agent_policy
-from opaihub.provider_tools import (
+from vestahub.agent_policy import build_capability_contract, resolve_agent_policy
+from vestahub.provider_tools import (
     GIT_OPS_TOOLS,
     RepositoryToolExecutor,
     available_tool_names,
@@ -72,7 +72,7 @@ class WriteFileTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), commit=True)
             executor = _executor(root)
-            for path in (".env", ".git/config", ".opaihub/state.json", "id_rsa"):
+            for path in (".env", ".git/config", ".vestahub/state.json", "id_rsa"):
                 result = executor.invoke("write_file", {"path": path, "content": "x"})
                 self.assertFalse(result["ok"], path)
                 self.assertIn(
@@ -186,7 +186,7 @@ class GitToolTests(unittest.TestCase):
             )
             executor.invoke("git_create_branch", {"name": "feat/pr"})
             with mock.patch(
-                "opaihub.github_connector.create_pull_request",
+                "vestahub.github_connector.create_pull_request",
                 return_value={"ok": True, "url": "https://github.com/o/r/pull/1"},
             ) as fake:
                 result = executor.invoke("open_pr", {"title": "Add feature"})
@@ -308,7 +308,7 @@ class GithubReadToolTests(unittest.TestCase):
                 root, allow_edits=False, allow_github_read=True
             )
             with mock.patch(
-                "opaihub.github_connector.pull_request_status",
+                "vestahub.github_connector.pull_request_status",
                 return_value={"ok": True, "number": 7, "state": "open", "checks": {}},
             ) as fake:
                 result = executor.invoke("github_pr_status", {"number": 7})
@@ -355,7 +355,7 @@ class GithubReadToolTests(unittest.TestCase):
                 "github_comment", {s["function"]["name"] for s in executor.schemas()}
             )
             with mock.patch(
-                "opaihub.github_connector.add_comment",
+                "vestahub.github_connector.add_comment",
                 return_value={"ok": True, "url": "https://github.com/o/r/issues/5#c1"},
             ) as fake:
                 result = executor.invoke(
@@ -378,7 +378,7 @@ class GithubReadToolTests(unittest.TestCase):
             )
             self.assertEqual(empty["error_code"], "INVALID_TOOL_ARGUMENTS")
             with mock.patch(
-                "opaihub.github_connector.request_reviewers",
+                "vestahub.github_connector.request_reviewers",
                 return_value={"ok": True, "requested": ["alice"]},
             ) as fake:
                 ok = executor.invoke(
@@ -441,12 +441,12 @@ class SchemaAndContractTests(unittest.TestCase):
 
 class GuardDecisionAuditTests(unittest.TestCase):
     """A live tool call leaves a real audit-trail entry, not just a return
-    value (#546). Before this, opaihub.audit's tamper-evident chain only
+    value (#546). Before this, vestahub.audit's tamper-evident chain only
     recorded entries from the manual `vesta guard` CLI command -- an actual
     autonomous run's own decisions left no trace at all."""
 
     def test_a_permitted_write_is_recorded_as_guard_allow(self):
-        from opaihub.audit import GUARD_ALLOW, read_audit
+        from vestahub.audit import GUARD_ALLOW, read_audit
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), commit=True)
@@ -467,7 +467,7 @@ class GuardDecisionAuditTests(unittest.TestCase):
         # is an *unrelated* foreign dirty file blocking an unrelated planned
         # write, exactly like test_repository_safety.py's
         # test_gate_refuses_unrelated_user_changes_without_isolation.
-        from opaihub.audit import GUARD_DENY, read_audit
+        from vestahub.audit import GUARD_DENY, read_audit
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"docs/guide.md": "guide"}, commit=True)
@@ -487,7 +487,7 @@ class GuardDecisionAuditTests(unittest.TestCase):
         # Not two independent logs -- one hash-chained sequence a later
         # entry's prev_hash depends on, proving nothing was inserted or
         # reordered after the fact.
-        from opaihub.audit import verify_chain
+        from vestahub.audit import verify_chain
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"docs/guide.md": "guide"}, commit=True)
@@ -501,7 +501,7 @@ class GuardDecisionAuditTests(unittest.TestCase):
         self.assertGreaterEqual(chain["length"], 2)
 
     def test_an_executed_confirm_class_command_is_recorded_as_evidence(self):
-        from opaihub.audit import EVIDENCE_PACKET, read_audit
+        from vestahub.audit import EVIDENCE_PACKET, read_audit
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), commit=True)

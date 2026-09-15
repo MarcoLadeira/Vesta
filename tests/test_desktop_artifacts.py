@@ -17,7 +17,7 @@ import zipfile
 import yaml
 
 try:
-    from opaihub.desktop_artifacts import (
+    from vestahub.desktop_artifacts import (
         ArtifactReleaseError,
         release_ref,
         verify_bundle,
@@ -47,7 +47,7 @@ def _load_release_transport_module():
     path = (
         Path(__file__).resolve().parents[1] / "scripts" / "desktop_release_transport.py"
     )
-    spec = spec_from_file_location("opai_desktop_release_transport_test", path)
+    spec = spec_from_file_location("vesta_desktop_release_transport_test", path)
     if spec is None or spec.loader is None:
         raise AssertionError("Could not load desktop_release_transport.py")
     module = module_from_spec(spec)
@@ -64,7 +64,7 @@ class DesktopArtifactContractTests(unittest.TestCase):
             root = Path(tmp)
             bundle = root / "source-bundle"
             bundle.mkdir()
-            executable = bundle / "opai"
+            executable = bundle / "vesta"
             executable.write_text("#!/bin/sh\n", encoding="utf-8")
             executable.chmod(0o755)
             archive = root / "transport.tar"
@@ -74,10 +74,10 @@ class DesktopArtifactContractTests(unittest.TestCase):
             transport.extract_transport(archive, restored)
 
             self.assertEqual(
-                (restored / "opai").read_text(encoding="utf-8"), "#!/bin/sh\n"
+                (restored / "vesta").read_text(encoding="utf-8"), "#!/bin/sh\n"
             )
             if os.name != "nt":
-                self.assertTrue((restored / "opai").stat().st_mode & stat.S_IXUSR)
+                self.assertTrue((restored / "vesta").stat().st_mode & stat.S_IXUSR)
 
             unsafe = root / "unsafe.zip"
             with zipfile.ZipFile(unsafe, "w") as value:
@@ -90,7 +90,7 @@ class DesktopArtifactContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             archive = root / "signed.zip"
-            info = zipfile.ZipInfo("opai-desktop-bundle/cli/opai")
+            info = zipfile.ZipInfo("vesta-desktop-bundle/cli/vesta")
             info.create_system = 3
             info.external_attr = (stat.S_IFREG | 0o755) << 16
             with zipfile.ZipFile(archive, "w") as value:
@@ -99,10 +99,10 @@ class DesktopArtifactContractTests(unittest.TestCase):
             restored = root / "bundle"
             transport.extract_signed_zip(archive, restored)
 
-            self.assertEqual((restored / "cli" / "opai").read_bytes(), b"native")
+            self.assertEqual((restored / "cli" / "vesta").read_bytes(), b"native")
             if os.name != "nt":
                 self.assertTrue(
-                    (restored / "cli" / "opai").stat().st_mode & stat.S_IXUSR
+                    (restored / "cli" / "vesta").stat().st_mode & stat.S_IXUSR
                 )
 
     def test_release_extractors_reject_duplicates_and_expansion_limits(self):
@@ -120,8 +120,8 @@ class DesktopArtifactContractTests(unittest.TestCase):
 
             crowded = root / "crowded.zip"
             with zipfile.ZipFile(crowded, "w") as value:
-                value.writestr("opai-desktop-bundle/one", b"1")
-                value.writestr("opai-desktop-bundle/two", b"2")
+                value.writestr("vesta-desktop-bundle/one", b"1")
+                value.writestr("vesta-desktop-bundle/two", b"2")
             with (
                 patch.object(transport, "MAX_ARCHIVE_MEMBERS", 1),
                 self.assertRaises(transport.TransportError),
@@ -130,7 +130,7 @@ class DesktopArtifactContractTests(unittest.TestCase):
 
             oversized = root / "oversized.zip"
             with zipfile.ZipFile(oversized, "w") as value:
-                value.writestr("opai-desktop-bundle/probe", b"too large")
+                value.writestr("vesta-desktop-bundle/probe", b"too large")
             with (
                 patch.object(transport, "MAX_UNCOMPRESSED_BYTES", 1),
                 self.assertRaises(transport.TransportError),
@@ -146,15 +146,15 @@ class DesktopArtifactContractTests(unittest.TestCase):
                 release_tag="v0.2.1a2",
                 versions={
                     "pyproject.toml": "0.2.1a1",
-                    "opai/_generated_release.py": "0.2.1a1",
+                    "vesta/_generated_release.py": "0.2.1a1",
                 },
             )
 
     def test_transport_rejects_bundle_metadata_for_another_application_version(self):
         transport = _load_release_transport_module()
         with tempfile.TemporaryDirectory() as tmp:
-            bundle = Path(tmp) / "OPai-v0.2.1a1-macos"
-            executable = bundle / "cli" / "opai"
+            bundle = Path(tmp) / "Vesta-v0.2.1a1-macos"
+            executable = bundle / "cli" / "vesta"
             executable.parent.mkdir(parents=True)
             executable.write_bytes(b"artifact")
             reference = release_ref(
@@ -183,7 +183,7 @@ class DesktopArtifactContractTests(unittest.TestCase):
 
     def test_artifact_resolver_selects_latest_available_producer_attempt(self):
         transport = _load_release_transport_module()
-        prefix = "OPai-v0.2.1a1-macos-latest-production-signed-77-"
+        prefix = "Vesta-v0.2.1a1-macos-latest-production-signed-77-"
         inventory = [
             {"id": 101, "name": prefix + "1", "expired": False},
             {"id": 103, "name": prefix + "3", "expired": False},
@@ -205,7 +205,7 @@ class DesktopArtifactContractTests(unittest.TestCase):
         transport = _load_release_transport_module()
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            archive = root / "OPai-v0.2.1a1-macos-latest-production.zip"
+            archive = root / "Vesta-v0.2.1a1-macos-latest-production.zip"
             archive.write_bytes(b"signed archive")
             raw_report = root / "raw-smoke.json"
             raw_report.write_text('{"ok": true}\n', encoding="utf-8")
@@ -267,7 +267,7 @@ class DesktopArtifactContractTests(unittest.TestCase):
             )
 
     def test_internal_git_uses_the_resolved_absolute_executable(self):
-        from opaihub import desktop_artifacts
+        from vestahub import desktop_artifacts
 
         executable = str((Path("C:/tools/git.exe")).resolve())
         completed = CompletedProcess([], 0, stdout="a" * 40 + "\n", stderr="")
@@ -283,7 +283,7 @@ class DesktopArtifactContractTests(unittest.TestCase):
         self.assertEqual(run.call_args.args[0][0], executable)
 
     def test_artifact_smoke_environment_strips_signing_credentials(self):
-        from opaihub.desktop_artifacts import isolated_artifact_environment
+        from vestahub.desktop_artifacts import isolated_artifact_environment
 
         secret_names = (
             "WINDOWS_PFX_BASE64",
@@ -318,8 +318,8 @@ class DesktopArtifactContractTests(unittest.TestCase):
         assert verify_bundle is not None
         assert write_bundle_evidence is not None
         with tempfile.TemporaryDirectory() as tmp:
-            bundle = Path(tmp) / "OPai-v0.2.1a1-windows"
-            executable = bundle / "cli" / "opai.exe"
+            bundle = Path(tmp) / "Vesta-v0.2.1a1-windows"
+            executable = bundle / "cli" / "vesta.exe"
             executable.parent.mkdir(parents=True)
             executable.write_bytes(b"original executable")
             reference = release_ref(
@@ -345,8 +345,8 @@ class DesktopArtifactContractTests(unittest.TestCase):
             "lock": {"name": "desktop-build.windows.lock", "sha256": "a" * 64},
         }
         with tempfile.TemporaryDirectory() as tmp:
-            bundle = Path(tmp) / "OPai-v0.2.1a1-windows"
-            executable = bundle / "cli" / "opai.exe"
+            bundle = Path(tmp) / "Vesta-v0.2.1a1-windows"
+            executable = bundle / "cli" / "vesta.exe"
             executable.parent.mkdir(parents=True)
             executable.write_bytes(b"original executable")
             reference = release_ref(
@@ -371,21 +371,21 @@ class DesktopArtifactContractTests(unittest.TestCase):
         self.assertIn("hash mismatch", verified["problems"])
 
     def test_bundle_evidence_rejects_an_incorrect_artifact_version(self):
-        from opai.asset_identity import asset_manifest
-        from opai.release_identity import artifact_identity_payload
+        from vesta.asset_identity import asset_manifest
+        from vesta.release_identity import artifact_identity_payload
 
         root = Path(__file__).resolve().parents[1]
         commit = "e" * 40
         identity = artifact_identity_payload(
             build_id=commit,
-            assets=asset_manifest(root / "opai" / "assets"),
+            assets=asset_manifest(root / "vesta" / "assets"),
             platform_name="windows",
             architecture="x86_64",
         )
         identity["application_version"] = "9.9.9"
         with tempfile.TemporaryDirectory() as tmp:
-            bundle = Path(tmp) / "OPai-v0.2.1a1-windows"
-            executable = bundle / "cli" / "opai.exe"
+            bundle = Path(tmp) / "Vesta-v0.2.1a1-windows"
+            executable = bundle / "cli" / "vesta.exe"
             executable.parent.mkdir(parents=True)
             executable.write_bytes(b"artifact")
             reference = release_ref(
@@ -405,14 +405,14 @@ class DesktopArtifactContractTests(unittest.TestCase):
         assert write_bundle_evidence is not None
         root = Path(__file__).resolve().parents[1]
         script_path = root / "scripts" / "finalize_desktop_artifact.py"
-        spec = spec_from_file_location("opai_artifact_finalizer_test", script_path)
+        spec = spec_from_file_location("vesta_artifact_finalizer_test", script_path)
         assert spec is not None and spec.loader is not None
         module = module_from_spec(spec)
         spec.loader.exec_module(module)
         build_metadata = {"lock": {"name": "desktop-build.windows.lock"}}
         with tempfile.TemporaryDirectory() as tmp:
-            bundle = Path(tmp) / "OPai-v0.2.1a1-windows"
-            executable = bundle / "cli" / "opai.exe"
+            bundle = Path(tmp) / "Vesta-v0.2.1a1-windows"
+            executable = bundle / "cli" / "vesta.exe"
             executable.parent.mkdir(parents=True)
             executable.write_bytes(b"original executable")
             reference = release_ref(
@@ -437,8 +437,8 @@ class DesktopArtifactContractTests(unittest.TestCase):
         assert verify_bundle is not None
         assert write_bundle_evidence is not None
         with tempfile.TemporaryDirectory() as tmp:
-            bundle = Path(tmp) / "OPai-v0.2.1a1-windows"
-            executable = bundle / "cli" / "opai.exe"
+            bundle = Path(tmp) / "Vesta-v0.2.1a1-windows"
+            executable = bundle / "cli" / "vesta.exe"
             executable.parent.mkdir(parents=True)
             executable.write_bytes(b"original executable")
             reference = release_ref(
@@ -452,7 +452,7 @@ class DesktopArtifactContractTests(unittest.TestCase):
         self.assertTrue(verified["ok"])
 
     def test_deployment_specs_pin_tools_and_include_runtime_assets(self):
-        from opaihub import desktop_artifacts
+        from vestahub import desktop_artifacts
 
         root = Path(__file__).resolve().parents[1]
         self.assertTrue(
@@ -466,8 +466,8 @@ class DesktopArtifactContractTests(unittest.TestCase):
         specs = desktop_artifacts.deployment_specs(root, root / "dist" / "desktop")
         pins = desktop_artifacts.load_build_pins(root)
 
-        self.assertEqual(specs.gui.name, "OPai")
-        self.assertEqual(specs.cli.name, "opai")
+        self.assertEqual(specs.gui.name, "Vesta")
+        self.assertEqual(specs.cli.name, "vesta")
         self.assertEqual(specs.gui.tool, "pyside6-deploy")
         self.assertEqual(specs.cli.tool, "python -m nuitka")
         self.assertEqual(
@@ -496,23 +496,23 @@ class DesktopArtifactContractTests(unittest.TestCase):
             "settings.js",
             "onboarding.js",
         ]:
-            self.assertIn(f"=opai/assets/web/{asset}", joined_gui_args)
-        self.assertIn("=opai/assets/fonts", joined_gui_args)
-        self.assertIn("=opai/assets/web/icons", joined_gui_args)
+            self.assertIn(f"=vesta/assets/web/{asset}", joined_gui_args)
+        self.assertIn("=vesta/assets/fonts", joined_gui_args)
+        self.assertIn("=vesta/assets/web/icons", joined_gui_args)
         self.assertIn(
-            "=opai/assets/web/vendor/markdown-it-14.1.0.min.js", joined_gui_args
+            "=vesta/assets/web/vendor/markdown-it-14.1.0.min.js", joined_gui_args
         )
         self.assertIn(
-            "=opai/assets/web/vendor/markdown-it.LICENSE.txt", joined_gui_args
+            "=vesta/assets/web/vendor/markdown-it.LICENSE.txt", joined_gui_args
         )
-        self.assertIn("=opai/assets/opai-icon.png", joined_gui_args)
-        self.assertIn("=opai/assets/opai-mascot.png", joined_gui_args)
-        self.assertIn("=opaihub/data", joined_gui_args)
+        self.assertIn("=vesta/assets/vesta-icon.png", joined_gui_args)
+        self.assertIn("=vesta/assets/vesta-mascot.png", joined_gui_args)
+        self.assertIn("=vestahub/data", joined_gui_args)
         self.assertNotIn("__tests__", joined_gui_args)
         self.assertNotIn("\\", joined_gui_args)
 
     def test_build_and_smoke_commands_are_source_independent_and_explicit(self):
-        from opaihub import desktop_artifacts
+        from vestahub import desktop_artifacts
 
         required_helpers = (
             "build_commands",
@@ -557,7 +557,7 @@ class DesktopArtifactContractTests(unittest.TestCase):
         self.assertIn("[app]", gui_config)
         self.assertIn("packages = Nuitka==4.0", gui_config)
         self.assertIn("WebEngineWidgets", gui_config)
-        self.assertIn("--output-filename=OPai", gui_config)
+        self.assertIn("--output-filename=Vesta", gui_config)
         self.assertIn(f"project_dir = {root.as_posix()}", staged_gui_config)
 
     def test_build_runner_closes_stdin_and_preserves_diagnostics(self):
@@ -584,10 +584,10 @@ class DesktopArtifactContractTests(unittest.TestCase):
             directory = Path(tmp)
             output = directory / "desktop_cli_entry.dist"
             output.mkdir()
-            (output / "opai.exe").write_bytes(b"native")
+            (output / "vesta.exe").write_bytes(b"native")
             self.assertEqual(
                 builder._component_output(
-                    directory, "opai", entrypoint=Path("desktop_cli_entry.py")
+                    directory, "vesta", entrypoint=Path("desktop_cli_entry.py")
                 ),
                 output,
             )
@@ -597,16 +597,16 @@ class DesktopArtifactContractTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp)
-            (directory / "OPai.dist").mkdir()
+            (directory / "Vesta.dist").mkdir()
             with self.assertRaises(ArtifactReleaseError):
-                builder._component_output(directory, "OPai")
+                builder._component_output(directory, "Vesta")
 
     def test_nuitka_reexecution_uses_native_entry_instead_of_python_placeholder(self):
-        from opai import bootstrap
-        from opaihub.objective_guardian import guardian_command
-        from opaihub.objective_execution import worker_command
+        from vesta import bootstrap
+        from vestahub.objective_guardian import guardian_command
+        from vestahub.objective_execution import worker_command
 
-        executable = str(Path("native/OPai.exe").resolve())
+        executable = str(Path("native/Vesta.exe").resolve())
         with (
             patch.dict(bootstrap.__dict__, {"__compiled__": object()}),
             patch.object(bootstrap.sys, "argv", [executable]),
@@ -621,7 +621,7 @@ class DesktopArtifactContractTests(unittest.TestCase):
             )
 
     def test_source_reexecution_preserves_the_python_interpreter(self):
-        from opai import bootstrap
+        from vesta import bootstrap
 
         with (
             patch.object(bootstrap.sys, "argv", ["untrusted-project/script.py"]),
@@ -631,7 +631,7 @@ class DesktopArtifactContractTests(unittest.TestCase):
 
     def test_native_compiler_arguments_apply_to_both_components(self):
         from scripts import build_desktop_artifacts as builder
-        from opaihub import desktop_artifacts
+        from vestahub import desktop_artifacts
 
         root = Path(__file__).resolve().parents[1]
         specs = desktop_artifacts.deployment_specs(root, root / "dist" / "desktop")
@@ -643,12 +643,12 @@ class DesktopArtifactContractTests(unittest.TestCase):
             self.assertIn("--assume-yes-for-downloads", component.extra_args)
 
     def test_deploy_spec_accepts_a_preconverted_native_icon(self):
-        from opaihub import desktop_artifacts
+        from vestahub import desktop_artifacts
 
         root = Path(__file__).resolve().parents[1]
         specs = desktop_artifacts.deployment_specs(root, root / "dist" / "desktop")
         with tempfile.TemporaryDirectory() as tmp:
-            icon = Path(tmp) / "OPai.ico"
+            icon = Path(tmp) / "Vesta.ico"
             icon.write_bytes(b"native-icon")
             config = desktop_artifacts.render_pyside_deploy_spec(
                 specs.gui,
@@ -658,12 +658,12 @@ class DesktopArtifactContractTests(unittest.TestCase):
         self.assertIn(f"icon = {icon.as_posix()}", config)
 
     def test_smoke_contract_uses_isolated_artifact_environment(self):
-        from opaihub import desktop_artifacts
+        from vestahub import desktop_artifacts
 
         with tempfile.TemporaryDirectory() as tmp:
-            bundle = Path(tmp) / "OPai-v0.2.1a1-windows-unsigned-prealpha"
-            gui = bundle / "gui" / "OPai.exe"
-            cli = bundle / "cli" / "opai.exe"
+            bundle = Path(tmp) / "Vesta-v0.2.1a1-windows-unsigned-prealpha"
+            gui = bundle / "gui" / "Vesta.exe"
+            cli = bundle / "cli" / "vesta.exe"
             gui.parent.mkdir(parents=True)
             cli.parent.mkdir(parents=True)
             gui.write_bytes(b"gui")
@@ -698,7 +698,7 @@ class DesktopArtifactContractTests(unittest.TestCase):
         self.assertTrue(any(item["kind"] == "secret" for item in scan))
 
     def test_gui_cli_accepts_an_artifact_smoke_result_contract(self):
-        from opai.cli import build_parser
+        from vesta.cli import build_parser
 
         try:
             args = build_parser().parse_args(
@@ -731,8 +731,8 @@ class DesktopArtifactContractTests(unittest.TestCase):
         assert write_bundle_evidence is not None
         assert ArtifactReleaseError is not None
         with tempfile.TemporaryDirectory() as tmp:
-            bundle = Path(tmp) / "OPai-v0.2.1a1-windows"
-            executable = bundle / "cli" / "opai.exe"
+            bundle = Path(tmp) / "Vesta-v0.2.1a1-windows"
+            executable = bundle / "cli" / "vesta.exe"
             executable.parent.mkdir(parents=True)
             executable.write_bytes(b"original executable")
             reference = release_ref(
@@ -753,8 +753,8 @@ class DesktopArtifactContractTests(unittest.TestCase):
         assert verify_bundle is not None
         assert write_bundle_evidence is not None
         with tempfile.TemporaryDirectory() as tmp:
-            bundle = Path(tmp) / "OPai-v0.2.1a1-windows"
-            executable = bundle / "cli" / "opai.exe"
+            bundle = Path(tmp) / "Vesta-v0.2.1a1-windows"
+            executable = bundle / "cli" / "vesta.exe"
             executable.parent.mkdir(parents=True)
             executable.write_bytes(b"original executable")
             reference = release_ref(
@@ -786,8 +786,8 @@ class DesktopArtifactContractTests(unittest.TestCase):
         assert verify_bundle is not None
         assert write_bundle_evidence is not None
         with tempfile.TemporaryDirectory() as tmp:
-            bundle = Path(tmp) / "OPai-v0.2.1a1-macos"
-            executable = bundle / "cli" / "opai"
+            bundle = Path(tmp) / "Vesta-v0.2.1a1-macos"
+            executable = bundle / "cli" / "vesta"
             executable.parent.mkdir(parents=True)
             executable.write_bytes(b"original executable")
             reference = release_ref(
@@ -819,8 +819,8 @@ class DesktopArtifactContractTests(unittest.TestCase):
         assert verify_bundle is not None
         assert write_bundle_evidence is not None
         with tempfile.TemporaryDirectory() as tmp:
-            bundle = Path(tmp) / "OPai-v0.2.1a1-windows"
-            executable = bundle / "cli" / "opai.exe"
+            bundle = Path(tmp) / "Vesta-v0.2.1a1-windows"
+            executable = bundle / "cli" / "vesta.exe"
             executable.parent.mkdir(parents=True)
             executable.write_bytes(b"original executable")
             reference = release_ref(
@@ -852,8 +852,8 @@ class DesktopArtifactContractTests(unittest.TestCase):
         assert verify_bundle is not None
         assert write_bundle_evidence is not None
         with tempfile.TemporaryDirectory() as tmp:
-            bundle = Path(tmp) / "OPai-v0.2.1a1-windows"
-            executable = bundle / "cli" / "opai.exe"
+            bundle = Path(tmp) / "Vesta-v0.2.1a1-windows"
+            executable = bundle / "cli" / "vesta.exe"
             executable.parent.mkdir(parents=True)
             executable.write_bytes(b"unsigned executable")
             reference = release_ref(
@@ -889,13 +889,13 @@ class DesktopArtifactContractTests(unittest.TestCase):
         self.assertTrue(verified["outer_release_authentication_required"])
 
     def test_native_windows_signature_verifier_checks_all_code_files(self):
-        from opaihub import desktop_artifacts
+        from vestahub import desktop_artifacts
 
         with tempfile.TemporaryDirectory() as tmp:
-            bundle = Path(tmp) / "OPai-v0.2.1a1-windows"
+            bundle = Path(tmp) / "Vesta-v0.2.1a1-windows"
             targets = (
-                bundle / "gui" / "OPai.exe",
-                bundle / "cli" / "opai.exe",
+                bundle / "gui" / "Vesta.exe",
+                bundle / "cli" / "vesta.exe",
                 bundle / "cli" / "runtime.dll",
                 bundle / "cli" / "module.pyd",
             )
@@ -905,9 +905,9 @@ class DesktopArtifactContractTests(unittest.TestCase):
             executable = str((Path("C:/tools/powershell.exe")).resolve())
             completed = CompletedProcess([], 0, stdout="", stderr="")
             with (
-                patch("opaihub.desktop_artifacts._is_windows", return_value=True),
+                patch("vestahub.desktop_artifacts._is_windows", return_value=True),
                 patch(
-                    "opaihub.desktop_artifacts.shutil.which", return_value=executable
+                    "vestahub.desktop_artifacts.shutil.which", return_value=executable
                 ),
                 patch.object(
                     desktop_artifacts.subprocess, "run", return_value=completed
@@ -928,14 +928,14 @@ class DesktopArtifactContractTests(unittest.TestCase):
             self.assertIn(str(target), command)
 
     def test_native_windows_signature_verifier_requires_a_pinned_identity(self):
-        from opaihub import desktop_artifacts
+        from vestahub import desktop_artifacts
 
         with tempfile.TemporaryDirectory() as tmp:
-            bundle = Path(tmp) / "OPai-v0.2.1a1-windows"
-            target = bundle / "cli" / "opai.exe"
+            bundle = Path(tmp) / "Vesta-v0.2.1a1-windows"
+            target = bundle / "cli" / "vesta.exe"
             target.parent.mkdir(parents=True)
             target.write_bytes(b"signed test binary")
-            with patch("opaihub.desktop_artifacts._is_windows", return_value=True):
+            with patch("vestahub.desktop_artifacts._is_windows", return_value=True):
                 problems = desktop_artifacts.native_platform_signature_problems(
                     bundle, "windows"
                 )
@@ -957,7 +957,7 @@ class DesktopArtifactContractTests(unittest.TestCase):
     def test_windows_webengine_helper_uses_an_absolute_tasklist_executable(self):
         root = Path(__file__).resolve().parents[1]
         script_path = root / "scripts" / "smoke_desktop_artifacts.py"
-        spec = spec_from_file_location("opai_artifact_smoke_test", script_path)
+        spec = spec_from_file_location("vesta_artifact_smoke_test", script_path)
         assert spec is not None and spec.loader is not None
         module = module_from_spec(spec)
         spec.loader.exec_module(module)
@@ -1019,7 +1019,7 @@ class DesktopArtifactContractTests(unittest.TestCase):
             "uninstall",
             "rollback",
             "unsigned",
-            "opai-production-signing",
+            "vesta-production-signing",
             "root of trust",
             "attestation",
             "gh attestation verify",
@@ -1047,7 +1047,7 @@ class DesktopArtifactContractTests(unittest.TestCase):
                 "provider-qualification",
             },
         )
-        self.assertEqual(sign["environment"]["name"], "opai-production-signing")
+        self.assertEqual(sign["environment"]["name"], "vesta-production-signing")
         self.assertNotIn("deployment", sign["environment"])
         self.assertIn("inputs.release_channel == 'production'", sign["if"])
         self.assertIn("github.ref == 'refs/heads/main'", sign["if"])
@@ -1061,7 +1061,7 @@ class DesktopArtifactContractTests(unittest.TestCase):
             encoding="utf-8"
         )
 
-        self.assertIn('CLI="$BUNDLE/cli/opai"', source)
+        self.assertIn('CLI="$BUNDLE/cli/vesta"', source)
         self.assertIn(
             '/usr/bin/codesign --force --options runtime --timestamp --keychain "$KEYCHAIN" --sign "$APPLE_DEVELOPER_ID" "$CLI"',
             source,
@@ -1340,7 +1340,7 @@ class DesktopArtifactContractTests(unittest.TestCase):
             "SignerCertificate.Thumbprint",
             "APPLE_TEAM_ID",
             "TeamIdentifier=$APPLE_TEAM_ID",
-            "opai-publisher-identity.json",
+            "vesta-publisher-identity.json",
             '--windows-signer-thumbprint "$WINDOWS_SIGNER_THUMBPRINT"',
             '--macos-team-id "$MACOS_TEAM_ID"',
         ):
@@ -1349,7 +1349,7 @@ class DesktopArtifactContractTests(unittest.TestCase):
         # runner.temp is not allowed in job-level env, so it is provisioned into
         # $GITHUB_ENV from $RUNNER_TEMP by the job's resolve-paths step.
         self.assertIn(
-            "PUBLISHER_IDENTITY=$RUNNER_TEMP/opai-publisher-identity.json", source
+            "PUBLISHER_IDENTITY=$RUNNER_TEMP/vesta-publisher-identity.json", source
         )
         self.assertNotIn("EXPECTED_WINDOWS_SIGNER_THUMBPRINT", smoke["env"])
         self.assertNotIn("EXPECTED_MACOS_TEAM_ID", smoke["env"])

@@ -31,7 +31,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: opai-desktop-artifact-${{ github.event.inputs.release_tag || github.ref_name }}-${{ github.event.inputs.release_channel || 'unsigned-prealpha' }}
+  group: vesta-desktop-artifact-${{ github.event.inputs.release_tag || github.ref_name }}-${{ github.event.inputs.release_channel || 'unsigned-prealpha' }}
   cancel-in-progress: false
 
 jobs:
@@ -97,7 +97,7 @@ jobs:
       - name: Resolve source evidence paths outside the candidate checkout
         shell: bash
         run: |
-          EVIDENCE_DIR="$RUNNER_TEMP/opai-source-evidence-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          EVIDENCE_DIR="$RUNNER_TEMP/vesta-source-evidence-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           mkdir -p "$EVIDENCE_DIR"
           printf 'EVIDENCE_DIR=%s\n' "$EVIDENCE_DIR" >> "$GITHUB_ENV"
 
@@ -185,18 +185,18 @@ jobs:
     needs: [source-qualification, web-qualification, build]
     if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_channel == 'production' && github.ref == 'refs/heads/main' }}
     environment:
-      name: opai-provider-canary
+      name: vesta-provider-canary
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
       contents: read
     env:
-      OPAI_LIVE_PROVIDER_SMOKE: "1"
-      OPAI_CONFIRM_CLOUD_TESTS: "YES"
-      OPAI_PROVIDER_CANARY_NON_PRODUCTION: "YES"
-      OPAI_LIVE_PROVIDER_SMOKE_PROVIDERS: ${{ vars.OPAI_PROVIDER_CANARY_PROVIDERS }}
-      OPAI_LIVE_MODELS: ${{ vars.OPAI_PROVIDER_CANARY_MODELS }}
-      OPAI_PROVIDER_CANARY_MAX_USD: ${{ vars.OPAI_PROVIDER_CANARY_MAX_USD }}
+      VESTA_LIVE_PROVIDER_SMOKE: "1"
+      VESTA_CONFIRM_CLOUD_TESTS: "YES"
+      VESTA_PROVIDER_CANARY_NON_PRODUCTION: "YES"
+      VESTA_LIVE_PROVIDER_SMOKE_PROVIDERS: ${{ vars.VESTA_PROVIDER_CANARY_PROVIDERS }}
+      VESTA_LIVE_MODELS: ${{ vars.VESTA_PROVIDER_CANARY_MODELS }}
+      VESTA_PROVIDER_CANARY_MAX_USD: ${{ vars.VESTA_PROVIDER_CANARY_MAX_USD }}
       EXPECTED_CANDIDATE_SHA: ${{ needs.source-qualification.outputs.candidate_sha }}
       EXPECTED_TAG_OBJECT_SHA: ${{ needs.source-qualification.outputs.tag_object_sha }}
     steps:
@@ -280,10 +280,10 @@ jobs:
         shell: bash
         run: |
           {
-            echo "BUNDLE=$RUNNER_TEMP/opai-desktop-bundle"
-            echo "SMOKE_BUNDLE=$RUNNER_TEMP/opai-unsigned-smoke-bundle"
-            echo "VERIFY_LOG=$RUNNER_TEMP/opai-unsigned-verification.log"
-            echo "TRANSPORT_ARCHIVE=$RUNNER_TEMP/OPai-${RELEASE_TAG}-${{ matrix.os }}-production-input.tar"
+            echo "BUNDLE=$RUNNER_TEMP/vesta-desktop-bundle"
+            echo "SMOKE_BUNDLE=$RUNNER_TEMP/vesta-unsigned-smoke-bundle"
+            echo "VERIFY_LOG=$RUNNER_TEMP/vesta-unsigned-verification.log"
+            echo "TRANSPORT_ARCHIVE=$RUNNER_TEMP/Vesta-${RELEASE_TAG}-${{ matrix.os }}-production-input.tar"
           } >> "$GITHUB_ENV"
 
       - name: Reject invalid channel acknowledgement and untrusted production workflow ref
@@ -400,7 +400,7 @@ jobs:
         if: env.RELEASE_CHANNEL == 'unsigned-prealpha' && matrix.os == 'macos-latest'
         shell: bash
         run: |
-          ARCHIVE="$RUNNER_TEMP/OPai-${RELEASE_TAG}-macos-latest-unsigned-prealpha.zip"
+          ARCHIVE="$RUNNER_TEMP/Vesta-${RELEASE_TAG}-macos-latest-unsigned-prealpha.zip"
           /usr/bin/ditto -c -k --keepParent "$BUNDLE" "$ARCHIVE"
           printf 'ARCHIVE=%s\n' "$ARCHIVE" >> "$GITHUB_ENV"
 
@@ -408,7 +408,7 @@ jobs:
         if: env.RELEASE_CHANNEL == 'unsigned-prealpha' && matrix.os == 'windows-latest'
         shell: pwsh
         run: |
-          $archive = Join-Path $env:RUNNER_TEMP ("OPai-{0}-windows-latest-unsigned-prealpha.zip" -f $env:RELEASE_TAG)
+          $archive = Join-Path $env:RUNNER_TEMP ("Vesta-{0}-windows-latest-unsigned-prealpha.zip" -f $env:RELEASE_TAG)
           Compress-Archive -LiteralPath $env:BUNDLE -DestinationPath $archive -Force
           "ARCHIVE=$archive" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
@@ -433,7 +433,7 @@ jobs:
         if: env.RELEASE_CHANNEL == 'unsigned-prealpha'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: OPai-${{ github.event.inputs.release_tag || github.ref_name }}-${{ matrix.os }}-unsigned-prealpha-${{ github.run_id }}-${{ github.run_attempt }}
+          name: Vesta-${{ github.event.inputs.release_tag || github.ref_name }}-${{ matrix.os }}-unsigned-prealpha-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ env.ARCHIVE }}
             ${{ env.SMOKE_BUNDLE }}/SHA256SUMS.txt
@@ -447,7 +447,7 @@ jobs:
         if: env.RELEASE_CHANNEL == 'production'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: OPai-${{ github.event.inputs.release_tag }}-${{ matrix.os }}-production-input-${{ github.run_id }}-${{ github.run_attempt }}
+          name: Vesta-${{ github.event.inputs.release_tag }}-${{ matrix.os }}-production-input-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ env.TRANSPORT_ARCHIVE }}
           if-no-files-found: error
           retention-days: 1
@@ -457,7 +457,7 @@ jobs:
     needs: [build, source-qualification, web-qualification, provider-qualification]
     if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_channel == 'production' && github.ref == 'refs/heads/main' }}
     environment:
-      name: opai-production-signing
+      name: vesta-production-signing
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     permissions:
@@ -474,15 +474,15 @@ jobs:
       EXPECTED_CANDIDATE_SHA: ${{ needs.source-qualification.outputs.candidate_sha }}
       EXPECTED_TAG_OBJECT_SHA: ${{ needs.source-qualification.outputs.tag_object_sha }}
       PACKAGE_VERSION: ${{ needs.source-qualification.outputs.package_version }}
-      EXPECTED_WINDOWS_SIGNER_THUMBPRINT: ${{ vars.OPAI_WINDOWS_SIGNER_THUMBPRINT }}
-      EXPECTED_MACOS_TEAM_ID: ${{ vars.OPAI_MACOS_TEAM_ID }}
-      WINDOWS_PACKAGE_IDENTITY: ${{ vars.OPAI_WINDOWS_PACKAGE_IDENTITY }}
-      WINDOWS_PUBLISHER_IDENTITY: ${{ vars.OPAI_WINDOWS_PUBLISHER_IDENTITY }}
-      MACOS_PACKAGE_IDENTITY: ${{ vars.OPAI_MACOS_PACKAGE_IDENTITY }}
-      UPDATE_CHANNEL: ${{ vars.OPAI_UPDATE_CHANNEL }}
-      UPDATE_FEED_URL: ${{ vars.OPAI_UPDATE_FEED_URL }}
-      UPDATE_TRUST_JSON: ${{ vars.OPAI_UPDATE_TRUST_JSON }}
-      SPARKLE_PUBLIC_KEY: ${{ vars.OPAI_SPARKLE_PUBLIC_KEY }}
+      EXPECTED_WINDOWS_SIGNER_THUMBPRINT: ${{ vars.VESTA_WINDOWS_SIGNER_THUMBPRINT }}
+      EXPECTED_MACOS_TEAM_ID: ${{ vars.VESTA_MACOS_TEAM_ID }}
+      WINDOWS_PACKAGE_IDENTITY: ${{ vars.VESTA_WINDOWS_PACKAGE_IDENTITY }}
+      WINDOWS_PUBLISHER_IDENTITY: ${{ vars.VESTA_WINDOWS_PUBLISHER_IDENTITY }}
+      MACOS_PACKAGE_IDENTITY: ${{ vars.VESTA_MACOS_PACKAGE_IDENTITY }}
+      UPDATE_CHANNEL: ${{ vars.VESTA_UPDATE_CHANNEL }}
+      UPDATE_FEED_URL: ${{ vars.VESTA_UPDATE_FEED_URL }}
+      UPDATE_TRUST_JSON: ${{ vars.VESTA_UPDATE_TRUST_JSON }}
+      SPARKLE_PUBLIC_KEY: ${{ vars.VESTA_SPARKLE_PUBLIC_KEY }}
 
     steps:
       - name: Check out trusted release tooling from main
@@ -498,13 +498,13 @@ jobs:
         shell: bash
         run: |
           {
-            echo "BUNDLE=$RUNNER_TEMP/opai-desktop-bundle"
-            echo "SIGNING_INPUT=$RUNNER_TEMP/opai-production-signing-input"
-            echo "VERIFY_LOG=$RUNNER_TEMP/opai-signing-verification.log"
-            echo "PUBLISHER_IDENTITY=$RUNNER_TEMP/opai-publisher-identity.json"
-            echo "TRUST_FILE=$RUNNER_TEMP/opai-update-trust.json"
-            echo "MSIX_LAYOUT=$RUNNER_TEMP/opai-msix-layout"
-            echo "NATIVE_OUTPUT=$RUNNER_TEMP/opai-native-output"
+            echo "BUNDLE=$RUNNER_TEMP/vesta-desktop-bundle"
+            echo "SIGNING_INPUT=$RUNNER_TEMP/vesta-production-signing-input"
+            echo "VERIFY_LOG=$RUNNER_TEMP/vesta-signing-verification.log"
+            echo "PUBLISHER_IDENTITY=$RUNNER_TEMP/vesta-publisher-identity.json"
+            echo "TRUST_FILE=$RUNNER_TEMP/vesta-update-trust.json"
+            echo "MSIX_LAYOUT=$RUNNER_TEMP/vesta-msix-layout"
+            echo "NATIVE_OUTPUT=$RUNNER_TEMP/vesta-native-output"
           } >> "$GITHUB_ENV"
 
       - name: Set up trusted Python
@@ -518,11 +518,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          INVENTORY="$RUNNER_TEMP/opai-production-input-artifacts.json"
+          INVENTORY="$RUNNER_TEMP/vesta-production-input-artifacts.json"
           gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" > "$INVENTORY"
           python scripts/desktop_release_transport.py resolve-artifact \
             --inventory "$INVENTORY" \
-            --name-prefix "OPai-${RELEASE_TAG}-${{ matrix.os }}-production-input-${GITHUB_RUN_ID}-" \
+            --name-prefix "Vesta-${RELEASE_TAG}-${{ matrix.os }}-production-input-${GITHUB_RUN_ID}-" \
             --current-attempt "$GITHUB_RUN_ATTEMPT" \
             --github-output "$GITHUB_OUTPUT"
 
@@ -537,7 +537,7 @@ jobs:
       - name: Restore mode-preserving production signing input
         shell: bash
         run: |
-          TRANSPORT_ARCHIVE="$SIGNING_INPUT/OPai-${RELEASE_TAG}-${{ matrix.os }}-production-input.tar"
+          TRANSPORT_ARCHIVE="$SIGNING_INPUT/Vesta-${RELEASE_TAG}-${{ matrix.os }}-production-input.tar"
           test -f "$TRANSPORT_ARCHIVE"
           python scripts/desktop_release_transport.py extract-transport \
             --archive "$TRANSPORT_ARCHIVE" --bundle-output "$BUNDLE"
@@ -623,7 +623,7 @@ jobs:
           if ($expectedThumbprint -notmatch '^[0-9A-F]{40}$') { throw "A protected Windows signer thumbprint is required for production." }
           $signTool = Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10\bin\x64\signtool.exe"
           if (-not (Test-Path -LiteralPath $signTool -PathType Leaf)) { throw "Trusted signtool.exe was not found at $signTool" }
-          $certificate = Join-Path $env:RUNNER_TEMP "opai-signing.pfx"
+          $certificate = Join-Path $env:RUNNER_TEMP "vesta-signing.pfx"
           try {
             [IO.File]::WriteAllBytes($certificate, [Convert]::FromBase64String($env:WINDOWS_PFX_BASE64))
             $log = @()
@@ -654,7 +654,7 @@ jobs:
           APPLE_NOTARY_APPLE_ID: ${{ secrets.OPAI_APPLE_NOTARY_APPLE_ID }}
           APPLE_NOTARY_TEAM_ID: ${{ secrets.OPAI_APPLE_NOTARY_TEAM_ID }}
           APPLE_NOTARY_APP_SPECIFIC_PASSWORD: ${{ secrets.OPAI_APPLE_NOTARY_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ vars.OPAI_MACOS_TEAM_ID }}
+          APPLE_TEAM_ID: ${{ vars.VESTA_MACOS_TEAM_ID }}
         run: |
           set -euo pipefail
           test -n "$APPLE_DEVELOPER_ID"
@@ -665,10 +665,10 @@ jobs:
           test -n "$APPLE_NOTARY_APP_SPECIFIC_PASSWORD"
           [[ "$APPLE_TEAM_ID" =~ ^[A-Z0-9]{10}$ ]]
           [[ "$APPLE_NOTARY_TEAM_ID" == "$APPLE_TEAM_ID" ]]
-          KEYCHAIN="$RUNNER_TEMP/opai-signing.keychain-db"
-          CERTIFICATE="$RUNNER_TEMP/opai-signing.p12"
+          KEYCHAIN="$RUNNER_TEMP/vesta-signing.keychain-db"
+          CERTIFICATE="$RUNNER_TEMP/vesta-signing.p12"
           KEYCHAIN_PASSWORD="$(/usr/bin/uuidgen)"
-          NOTARY_PROFILE="opai-notary-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          NOTARY_PROFILE="vesta-notary-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           cleanup() {
             /usr/bin/security delete-keychain "$KEYCHAIN" >/dev/null 2>&1 || true
             /bin/rm -f "$CERTIFICATE"
@@ -681,14 +681,14 @@ jobs:
           /usr/bin/security import "$CERTIFICATE" -k "$KEYCHAIN" -P "$APPLE_SIGNING_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
           /usr/bin/security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
           /usr/bin/xcrun notarytool store-credentials "$NOTARY_PROFILE" --apple-id "$APPLE_NOTARY_APPLE_ID" --team-id "$APPLE_NOTARY_TEAM_ID" --password "$APPLE_NOTARY_APP_SPECIFIC_PASSWORD" --keychain "$KEYCHAIN"
-          APP="$BUNDLE/gui/OPai.app"
-          CLI="$BUNDLE/cli/opai"
+          APP="$BUNDLE/gui/Vesta.app"
+          CLI="$BUNDLE/cli/vesta"
           test -d "$APP"
           test -f "$CLI"
           /usr/bin/codesign --force --deep --options runtime --timestamp --keychain "$KEYCHAIN" --sign "$APPLE_DEVELOPER_ID" "$APP"
           /usr/bin/codesign --force --options runtime --timestamp --keychain "$KEYCHAIN" --sign "$APPLE_DEVELOPER_ID" "$CLI"
-          /usr/bin/ditto -c -k --keepParent "$BUNDLE" "$RUNNER_TEMP/opai-notary-input.zip"
-          /usr/bin/xcrun notarytool submit "$RUNNER_TEMP/opai-notary-input.zip" --keychain-profile "$NOTARY_PROFILE" --keychain "$KEYCHAIN" --wait
+          /usr/bin/ditto -c -k --keepParent "$BUNDLE" "$RUNNER_TEMP/vesta-notary-input.zip"
+          /usr/bin/xcrun notarytool submit "$RUNNER_TEMP/vesta-notary-input.zip" --keychain-profile "$NOTARY_PROFILE" --keychain "$KEYCHAIN" --wait
           /usr/bin/xcrun stapler staple "$APP"
           {
             /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP"
@@ -722,10 +722,10 @@ jobs:
           WINDOWS_PFX_PASSWORD: ${{ secrets.OPAI_WINDOWS_PFX_PASSWORD }}
         run: |
           New-Item -ItemType Directory -Path $env:NATIVE_OUTPUT -Force | Out-Null
-          $assets = Join-Path $env:RUNNER_TEMP "opai-msix-assets"
+          $assets = Join-Path $env:RUNNER_TEMP "vesta-msix-assets"
           New-Item -ItemType Directory -Path $assets -Force | Out-Null
           Add-Type -AssemblyName System.Drawing
-          $source = [System.Drawing.Image]::FromFile((Resolve-Path "opai/assets/opai-icon.png"))
+          $source = [System.Drawing.Image]::FromFile((Resolve-Path "vesta/assets/vesta-icon.png"))
           try {
             $sizes = @{
               "StoreLogo.png" = @(50, 50)
@@ -757,9 +757,9 @@ jobs:
             Where-Object { $_.DirectoryName -match '[\\/]x64$' } |
             Sort-Object FullName -Descending | Select-Object -First 1
           if (-not $makeAppx -or -not $signTool) { throw "Windows SDK packaging tools are unavailable." }
-          $native = Join-Path $env:NATIVE_OUTPUT ("OPai-{0}-windows-x64.msix" -f $env:RELEASE_TAG)
+          $native = Join-Path $env:NATIVE_OUTPUT ("Vesta-{0}-windows-x64.msix" -f $env:RELEASE_TAG)
           python scripts/prepare_native_update.py make-msix --layout $env:MSIX_LAYOUT --output $native --makeappx $makeAppx.FullName
-          $certificate = Join-Path $env:RUNNER_TEMP "opai-msix-signing.pfx"
+          $certificate = Join-Path $env:RUNNER_TEMP "vesta-msix-signing.pfx"
           try {
             [IO.File]::WriteAllBytes($certificate, [Convert]::FromBase64String($env:WINDOWS_PFX_BASE64))
             & $signTool.FullName sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /f $certificate /p $env:WINDOWS_PFX_PASSWORD $native
@@ -785,9 +785,9 @@ jobs:
           set -euo pipefail
           test -n "$SPARKLE_PRIVATE_KEY_BASE64"
           mkdir -p "$NATIVE_OUTPUT"
-          NATIVE_PACKAGE="$NATIVE_OUTPUT/OPai-${RELEASE_TAG}-macos.zip"
-          /usr/bin/ditto -c -k --keepParent --sequesterRsrc "$BUNDLE/gui/OPai.app" "$NATIVE_PACKAGE"
-          SPARKLE_KEY="$RUNNER_TEMP/opai-sparkle-private-key"
+          NATIVE_PACKAGE="$NATIVE_OUTPUT/Vesta-${RELEASE_TAG}-macos.zip"
+          /usr/bin/ditto -c -k --keepParent --sequesterRsrc "$BUNDLE/gui/Vesta.app" "$NATIVE_PACKAGE"
+          SPARKLE_KEY="$RUNNER_TEMP/vesta-sparkle-private-key"
           cleanup_sparkle_key() { /bin/rm -f "$SPARKLE_KEY"; }
           trap cleanup_sparkle_key EXIT
           printf '%s' "$SPARKLE_PRIVATE_KEY_BASE64" | /usr/bin/base64 -D > "$SPARKLE_KEY"
@@ -852,7 +852,7 @@ jobs:
         if: matrix.os == 'macos-latest'
         shell: bash
         run: |
-          ARCHIVE="$RUNNER_TEMP/OPai-${RELEASE_TAG}-macos-latest-production.zip"
+          ARCHIVE="$RUNNER_TEMP/Vesta-${RELEASE_TAG}-macos-latest-production.zip"
           /usr/bin/ditto -c -k --keepParent "$BUNDLE" "$ARCHIVE"
           printf 'ARCHIVE=%s\n' "$ARCHIVE" >> "$GITHUB_ENV"
 
@@ -860,14 +860,14 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
-          $archive = Join-Path $env:RUNNER_TEMP ("OPai-{0}-windows-latest-production.zip" -f $env:RELEASE_TAG)
+          $archive = Join-Path $env:RUNNER_TEMP ("Vesta-{0}-windows-latest-production.zip" -f $env:RELEASE_TAG)
           Compress-Archive -LiteralPath $env:BUNDLE -DestinationPath $archive -Force
           "ARCHIVE=$archive" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Upload immutable signed production output
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: OPai-${{ github.event.inputs.release_tag }}-${{ matrix.os }}-production-signed-${{ github.run_id }}-${{ github.run_attempt }}
+          name: Vesta-${{ github.event.inputs.release_tag }}-${{ matrix.os }}-production-signed-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ env.ARCHIVE }}
             ${{ env.NATIVE_PACKAGE }}
@@ -911,10 +911,10 @@ jobs:
         shell: bash
         run: |
           {
-            echo "SIGNED_OUTPUT=$RUNNER_TEMP/opai-signed-output"
-            echo "BUNDLE=$RUNNER_TEMP/opai-desktop-bundle"
-            echo "RAW_SMOKE_REPORT=$RUNNER_TEMP/opai-raw-smoke-report.json"
-            echo "SMOKE_REPORT=$RUNNER_TEMP/opai-smoke-report.json"
+            echo "SIGNED_OUTPUT=$RUNNER_TEMP/vesta-signed-output"
+            echo "BUNDLE=$RUNNER_TEMP/vesta-desktop-bundle"
+            echo "RAW_SMOKE_REPORT=$RUNNER_TEMP/vesta-raw-smoke-report.json"
+            echo "SMOKE_REPORT=$RUNNER_TEMP/vesta-smoke-report.json"
           } >> "$GITHUB_ENV"
 
       - name: Set up trusted Python
@@ -928,11 +928,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          INVENTORY="$RUNNER_TEMP/opai-signed-artifacts.json"
+          INVENTORY="$RUNNER_TEMP/vesta-signed-artifacts.json"
           gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" > "$INVENTORY"
           python scripts/desktop_release_transport.py resolve-artifact \
             --inventory "$INVENTORY" \
-            --name-prefix "OPai-${RELEASE_TAG}-${{ matrix.os }}-production-signed-${GITHUB_RUN_ID}-" \
+            --name-prefix "Vesta-${RELEASE_TAG}-${{ matrix.os }}-production-signed-${GITHUB_RUN_ID}-" \
             --current-attempt "$GITHUB_RUN_ATTEMPT" \
             --github-output "$GITHUB_OUTPUT"
 
@@ -947,8 +947,8 @@ jobs:
       - name: Clean-extract the exact signed archive outside the checkout
         shell: bash
         run: |
-          ARCHIVE="$SIGNED_OUTPUT/OPai-${RELEASE_TAG}-${{ matrix.os }}-production.zip"
-          PUBLISHER_IDENTITY="$(find "$SIGNED_OUTPUT" -type f -name opai-publisher-identity.json -print -quit)"
+          ARCHIVE="$SIGNED_OUTPUT/Vesta-${RELEASE_TAG}-${{ matrix.os }}-production.zip"
+          PUBLISHER_IDENTITY="$(find "$SIGNED_OUTPUT" -type f -name vesta-publisher-identity.json -print -quit)"
           test -f "$ARCHIVE"
           test -n "$PUBLISHER_IDENTITY"
           python scripts/desktop_release_transport.py extract-signed-zip \
@@ -1039,7 +1039,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: OPai-${{ github.event.inputs.release_tag }}-${{ matrix.os }}-production-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          name: Vesta-${{ github.event.inputs.release_tag }}-${{ matrix.os }}-production-smoke-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ env.SMOKE_REPORT }}
           if-no-files-found: error
           retention-days: 30
@@ -1049,7 +1049,7 @@ jobs:
     needs: [source-qualification, sign, smoke]
     if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_channel == 'production' && github.ref == 'refs/heads/main' }}
     environment:
-      name: opai-production-signing
+      name: vesta-production-signing
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     permissions:
@@ -1082,9 +1082,9 @@ jobs:
         shell: bash
         run: |
           {
-            echo "SIGNED_OUTPUT=$RUNNER_TEMP/opai-signed-output"
-            echo "SMOKE_OUTPUT=$RUNNER_TEMP/opai-smoke-output"
-            echo "BUNDLE=$RUNNER_TEMP/opai-desktop-bundle"
+            echo "SIGNED_OUTPUT=$RUNNER_TEMP/vesta-signed-output"
+            echo "SMOKE_OUTPUT=$RUNNER_TEMP/vesta-smoke-output"
+            echo "BUNDLE=$RUNNER_TEMP/vesta-desktop-bundle"
           } >> "$GITHUB_ENV"
 
       - name: Set up trusted Python
@@ -1098,11 +1098,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          INVENTORY="$RUNNER_TEMP/opai-signed-artifacts.json"
+          INVENTORY="$RUNNER_TEMP/vesta-signed-artifacts.json"
           gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" > "$INVENTORY"
           python scripts/desktop_release_transport.py resolve-artifact \
             --inventory "$INVENTORY" \
-            --name-prefix "OPai-${RELEASE_TAG}-${{ matrix.os }}-production-signed-${GITHUB_RUN_ID}-" \
+            --name-prefix "Vesta-${RELEASE_TAG}-${{ matrix.os }}-production-signed-${GITHUB_RUN_ID}-" \
             --current-attempt "$GITHUB_RUN_ATTEMPT" \
             --github-output "$GITHUB_OUTPUT"
 
@@ -1112,11 +1112,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          INVENTORY="$RUNNER_TEMP/opai-smoke-artifacts.json"
+          INVENTORY="$RUNNER_TEMP/vesta-smoke-artifacts.json"
           gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" > "$INVENTORY"
           python scripts/desktop_release_transport.py resolve-artifact \
             --inventory "$INVENTORY" \
-            --name-prefix "OPai-${RELEASE_TAG}-${{ matrix.os }}-production-smoke-${GITHUB_RUN_ID}-" \
+            --name-prefix "Vesta-${RELEASE_TAG}-${{ matrix.os }}-production-smoke-${GITHUB_RUN_ID}-" \
             --current-attempt "$GITHUB_RUN_ATTEMPT" \
             --github-output "$GITHUB_OUTPUT"
 
@@ -1139,15 +1139,15 @@ jobs:
       - name: Verify exact archive, smoke binding, and collect release evidence
         shell: bash
         run: |
-          ARCHIVE="$SIGNED_OUTPUT/OPai-${RELEASE_TAG}-${{ matrix.os }}-production.zip"
+          ARCHIVE="$SIGNED_OUTPUT/Vesta-${RELEASE_TAG}-${{ matrix.os }}-production.zip"
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            NATIVE_PACKAGE="$SIGNED_OUTPUT/OPai-${RELEASE_TAG}-windows-x64.msix"
+            NATIVE_PACKAGE="$SIGNED_OUTPUT/Vesta-${RELEASE_TAG}-windows-x64.msix"
           else
-            NATIVE_PACKAGE="$SIGNED_OUTPUT/OPai-${RELEASE_TAG}-macos.zip"
+            NATIVE_PACKAGE="$SIGNED_OUTPUT/Vesta-${RELEASE_TAG}-macos.zip"
           fi
-          SIGNING_LOG="$SIGNED_OUTPUT/opai-signing-verification.log"
-          PUBLISHER_IDENTITY="$SIGNED_OUTPUT/opai-publisher-identity.json"
-          SMOKE_REPORT="$SMOKE_OUTPUT/opai-smoke-report.json"
+          SIGNING_LOG="$SIGNED_OUTPUT/vesta-signing-verification.log"
+          PUBLISHER_IDENTITY="$SIGNED_OUTPUT/vesta-publisher-identity.json"
+          SMOKE_REPORT="$SMOKE_OUTPUT/vesta-smoke-report.json"
           test -f "$ARCHIVE"
           test -f "$NATIVE_PACKAGE"
           test -f "$SIGNING_LOG"
@@ -1167,7 +1167,7 @@ jobs:
             --signed-artifact-name "${{ steps.signed_artifact.outputs.artifact_name }}" \
             --signed-artifact-attempt "${{ steps.signed_artifact.outputs.producer_attempt }}" \
             --smoke-attempt "${{ steps.smoke_artifact.outputs.producer_attempt }}"
-          EVIDENCE="$RUNNER_TEMP/opai-release-evidence"
+          EVIDENCE="$RUNNER_TEMP/vesta-release-evidence"
           mkdir -p "$EVIDENCE"
           cp "$ARCHIVE" "$EVIDENCE/"
           cp "$NATIVE_PACKAGE" "$EVIDENCE/"
@@ -1196,7 +1196,7 @@ jobs:
       - name: Stage non-publishable immutable production evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: OPai-${{ github.event.inputs.release_tag }}-${{ matrix.os }}-production-staging-${{ github.run_id }}-${{ github.run_attempt }}
+          name: Vesta-${{ github.event.inputs.release_tag }}-${{ matrix.os }}-production-staging-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ env.RELEASE_EVIDENCE }}
           if-no-files-found: error
           retention-days: 30

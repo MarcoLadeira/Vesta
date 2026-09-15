@@ -8,7 +8,7 @@ Close #109 by emitting timeline events at the real repository/GitHub operation b
 
 Each operation emits a running event and updates that same event ID when it reaches a terminal state. Test execution uses `validation`; PR creation uses `tool_call`; CI polling uses `ci_watch`; merging uses `command_complete`. Titles describe the concrete action and never claim success before the subprocess or CI snapshot proves it.
 
-`opai.activity.emit_event` remains a thin wrapper over `make_event`. Delivery is best-effort: a closed or broken display callback cannot change the outcome of the underlying operation.
+`vesta.activity.emit_event` remains a thin wrapper over `make_event`. Delivery is best-effort: a closed or broken display callback cannot change the outcome of the underlying operation.
 
 ## Operation sources
 

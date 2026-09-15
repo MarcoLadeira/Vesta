@@ -24,8 +24,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub.provider_tools import RepositoryToolExecutor
-from opaihub.repository_safety import (
+from vestahub.provider_tools import RepositoryToolExecutor
+from vestahub.repository_safety import (
     RepositoryProbeError,
     capture_repository_handle,
 )

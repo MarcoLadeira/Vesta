@@ -14,7 +14,7 @@ import time
 
 import pytest
 
-from opaihub.verification_execution import (
+from vestahub.verification_execution import (
     ArtifactReference,
     CheckRecord,
     CheckStatus,
@@ -27,7 +27,7 @@ from opaihub.verification_execution import (
     persist_verification_manifest,
     verification_verdict,
 )
-from opaihub.verification_policy import PolicyCheck, PolicySource, VerificationPolicy
+from vestahub.verification_policy import PolicyCheck, PolicySource, VerificationPolicy
 
 
 def _policy() -> VerificationPolicy:
@@ -179,7 +179,7 @@ def test_runner_executes_only_declared_argv_in_the_canonical_worktree(
 
 def test_missing_executable_is_unavailable_not_success(tmp_path: Path) -> None:
     manifest = execute_policy(
-        _policy_for_command(("opai-command-that-does-not-exist",)), _context(tmp_path)
+        _policy_for_command(("vesta-command-that-does-not-exist",)), _context(tmp_path)
     )
 
     assert manifest.checks[0].status is CheckStatus.UNAVAILABLE
@@ -276,7 +276,7 @@ def test_cancellation_records_the_teardown_lifecycle_it_went_through(
     # #666: the durable journal ties force_terminating to the real
     # terminate_tree kill and terminated to the observed exit — evidence
     # beside the manifest, not a label.
-    from opaihub.cancellation_lifecycle import CancellationTracker
+    from vestahub.cancellation_lifecycle import CancellationTracker
 
     cancellation_checks = 0
 
@@ -331,7 +331,7 @@ def test_persisted_manifest_round_trips_with_bounded_redacted_output(
     restored = load_verification_manifest(reference.path)
 
     assert reference.path.is_relative_to(
-        tmp_path / ".opaihub" / "verification-evidence"
+        tmp_path / ".vestahub" / "verification-evidence"
     )
     assert restored.digest == reference.digest
     assert "12345678901234567890" not in reference.path.read_text(encoding="utf-8")
@@ -371,7 +371,7 @@ def test_invalid_json_manifest_fails_closed_not_silently(tmp_path: Path) -> None
 def test_evidence_directory_rejects_a_path_that_escapes_the_state_root(
     tmp_path: Path,
 ) -> None:
-    from opaihub.verification_execution import _evidence_directory
+    from vestahub.verification_execution import _evidence_directory
 
     class _EscapingContext:
         task_id = "../../.."
@@ -384,7 +384,7 @@ def test_evidence_directory_rejects_a_path_that_escapes_the_state_root(
 def test_provider_tool_trace_cannot_override_an_unverified_manifest(
     tmp_path: Path,
 ) -> None:
-    from opaihub.completion import (
+    from vestahub.completion import (
         CompletionVerdict,
         evaluate_completion,
         objective_from_request,
