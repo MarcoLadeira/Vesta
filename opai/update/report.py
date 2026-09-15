@@ -169,6 +169,17 @@ def user_facing(payload: dict) -> dict:
     ownership = dict(discovery.get("ownership") or {})
     state = str(operation.get("state") or "idle")
 
+    category = str(operation.get("error_category") or "")
+    rollout_messages = {
+        "candidate_quarantined": "This version failed its health check. Vesta is waiting for a fixed update.",
+        "rollout_quarantined": "This update was stopped after a health failure.",
+        "rollout_paused": "This update is paused while its health is reviewed.",
+        "rollout_yanked": "This update was withdrawn by its publisher.",
+        "rollout_excluded": "This update is being released gradually and is not available to this installation yet.",
+    }
+    if category in rollout_messages:
+        return {"title": "Update held back", "message": rollout_messages[category]}
+
     if state == "unsupported_install":
         if ownership.get("self_updatable") is False:
             return {

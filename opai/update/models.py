@@ -106,9 +106,16 @@ _TRANSITIONS: dict[UpdateState, frozenset[UpdateState]] = {
     UpdateState.VERIFYING: frozenset(
         {UpdateState.READY_TO_INSTALL, UpdateState.FAILED_TERMINAL}
     ),
-    UpdateState.PAUSED: frozenset({UpdateState.DOWNLOADING, UpdateState.CANCELLED}),
+    UpdateState.PAUSED: frozenset(
+        {UpdateState.DOWNLOADING, UpdateState.CANCELLED, UpdateState.POLICY_BLOCKED}
+    ),
     UpdateState.FAILED_RETRIABLE: frozenset(
-        {UpdateState.CHECKING, UpdateState.DOWNLOADING, UpdateState.INSTALLING}
+        {
+            UpdateState.CHECKING,
+            UpdateState.DOWNLOADING,
+            UpdateState.INSTALLING,
+            UpdateState.POLICY_BLOCKED,
+        }
     ),
     UpdateState.CANCELLED: frozenset({UpdateState.AVAILABLE, UpdateState.CHECKING}),
     UpdateState.READY_TO_INSTALL: frozenset(
@@ -329,6 +336,8 @@ class UpdateCandidate:
     required_after: str = ""
     rollout_percentage: int = 100
     cohort_start: int = 0
+    rollout_status: str = "active"
+    rollout_reason: str = ""
     minimum_updater_protocol: int = 1
     rollback_compatible: bool = False
     native: Mapping[str, Any] = field(default_factory=dict)
@@ -343,8 +352,19 @@ class UpdateCandidate:
             raise ValueError("candidate artifact digest is not SHA-256")
         if self.artifact_size <= 0:
             raise ValueError("candidate artifact size must be positive")
-        if not 0 <= self.rollout_percentage <= 100 or not 0 <= self.cohort_start < 100:
+        if (
+            type(self.rollout_percentage) is not int
+            or type(self.cohort_start) is not int
+            or not 0 <= self.rollout_percentage <= 100
+            or not 0 <= self.cohort_start < 100
+        ):
             raise ValueError("candidate rollout is invalid")
+        if self.rollout_status not in {"active", "paused", "yanked", "quarantined"}:
+            raise ValueError("candidate rollout status is invalid")
+        if self.rollout_status != "active" and self.rollout_percentage != 0:
+            raise ValueError("inactive rollout must exclude legacy clients too")
+        if not isinstance(self.rollout_reason, str) or len(self.rollout_reason) > 256:
+            raise ValueError("candidate rollout reason is invalid")
 
     def to_dict(self) -> dict[str, Any]:
         value = asdict(self)

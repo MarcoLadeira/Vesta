@@ -280,3 +280,44 @@ clean Windows and macOS artifact launches,
 provider setup and missing-provider recovery, upgrade/uninstall rehearsal,
 rollback rehearsal, accessibility keyboard journey, live signing/notarization
 verification, and public archive-attestation verification.
+
+
+## Signed rollout revisions (#833)
+
+`scripts/revise_update_rollout.py` prepares a revised canonical manifest for the
+existing feed publication process. It does not publish anything. Supply the
+current manifest, trusted public-key configuration, installed-build identity
+JSON, existing metadata signing key files, and the channel's durable metadata
+version floor. `--help` lists all arguments. Use a new output filename for each
+reviewed revision; existing files are never overwritten.
+
+Use `--status active --percentage N` to advance through 0, 1, 5, 25, 50, 100.
+Expansion advances one stage at a time and requires `--health` JSON containing
+one aggregate for each artifact. Each aggregate has the exact channel, version,
+build ID, platform, architecture, artifact SHA-256, `observed_at`, and all
+`COUNTERS` defined in `opai/update/rollout.py`. Unknown fields are rejected.
+Counts must come from a trusted release-health collector. Installer exits are
+not health confirmations; rollback success likewise requires recovery-process
+health confirmation. The default gate requires 1,000 installation attempts and
+evidence no more than five minutes old; `--policy` accepts a reviewed
+`HealthPolicy` JSON configuration. These thresholds are gates, not proof of
+fleet SLO achievement.
+
+A health breach produces a signed zero-percent pause, including when the same
+percentage is requested with updated health evidence. An explicit reduction,
+pause, yank, or quarantine needs no health evidence. Inactive candidates always
+have zero-percent exposure, including for older clients. Yanked/quarantined
+candidates cannot be reactivated; publish a higher fixed release. Cohort start,
+artifact identity, channel, and original expiry are preserved. Each revision
+increments the metadata version and includes a signed audit reason. Download
+and install now revalidate signed eligibility; unavailable metadata blocks the
+transaction until a fresh check succeeds.
+
+The tests cover signed control revisions and abrupt exits at real persisted
+health/recovery boundaries. Their native adapter is a test fixture. The trusted
+health collector, automatic revision publication, fleet halt-latency measurement,
+and the full signed-installer fault matrix still require integration and native
+qualification; these changes do not complete the entire epic. Existing native
+qualification lives in `scripts/qualify_native_update.py` and the protected
+`publish-packaged-update.yml` workflow. Never substitute fixture results for
+Windows/MSIX or macOS/Sparkle execution evidence.

@@ -591,6 +591,11 @@ class UpdateService:
         trigger = resolved.value if resolved is not None else str(trigger or "")
         policy = self.policy()
         current = self.store.load_operation()
+        if current.state is UpdateState.NEEDS_ATTENTION and (
+            not force
+            or resolved not in {None, UpdateTrigger.MANUAL, UpdateTrigger.RETRY}
+        ):
+            return current
         checked = _parse_time(current.last_successful_check_at)
         retry_at = _parse_time(current.next_retry_at)
         interval = _jittered_check_interval(policy)
@@ -634,6 +639,11 @@ class UpdateService:
             with self.store.operation_guard():
                 policy = self.policy()
                 current = self.store.load_operation()
+                if current.state is UpdateState.NEEDS_ATTENTION and (
+                    not force
+                    or resolved not in {None, UpdateTrigger.MANUAL, UpdateTrigger.RETRY}
+                ):
+                    return current
                 checking = self._save(self._begin_check(current, trigger))
                 if not policy.discovery_allowed:
                     return self._save(checking.transition(UpdateState.POLICY_BLOCKED))
@@ -693,8 +703,25 @@ class UpdateService:
                             self.store.load_metadata_floor(self.installed.channel),
                         ),
                         now=self._now(),
-                        metadata_only=unsupported,
+                        metadata_only=True,
                     )
+                    # A signed pause/reduction must advance the replay floor even
+                    # when this installation is no longer eligible for a release.
+                    durable_version = self.store.record_metadata_version(
+                        verified.channel, verified.metadata_version
+                    )
+                    checking = self._save(
+                        replace(checking, highest_metadata_version=durable_version)
+                    )
+                    if not unsupported:
+                        verified = verify_manifest(
+                            payload,
+                            trust=self.trust,
+                            installed=self.installed,
+                            cohort=policy.rollout_cohort,
+                            prior_metadata_version=durable_version,
+                            now=self._now(),
+                        )
                 except ManifestError as exc:
                     return self._save(
                         checking.transition(
@@ -704,9 +731,6 @@ class UpdateService:
                             **self._retry_changes(checking),
                         )
                     )
-                durable_version = self.store.record_metadata_version(
-                    verified.channel, verified.metadata_version
-                )
                 changes = {
                     "highest_metadata_version": durable_version,
                     "last_successful_check_at": self._now().isoformat(),
@@ -734,6 +758,18 @@ class UpdateService:
                         )
                     )
                 changes["candidate"] = verified.candidate.to_dict()
+                if verified.candidate.version in checking.quarantined_versions:
+                    return self._save(
+                        checking.transition(
+                            UpdateState.POLICY_BLOCKED,
+                            error_category="candidate_quarantined",
+                            safe_diagnostic=(
+                                "This version failed its health check and is quarantined. "
+                                "A higher fixed version is required."
+                            ),
+                            **changes,
+                        )
+                    )
                 if policy.owner is not UpdateOwner.OPAI:
                     result = self._save(
                         checking.transition(UpdateState.POLICY_BLOCKED, **changes)
@@ -857,6 +893,60 @@ class UpdateService:
         result["message"] = message
         return result
 
+    def _revalidate_rollout(self, current: UpdateOperation) -> None:
+        """Recheck signed eligibility before a download or native transaction.
+
+        A staged artifact is not permanent permission to install a yanked build.
+        The caller holds the operation guard, so the persisted metadata floor
+        and the subsequent action belong to the same serialized operation.
+        """
+        try:
+            payload = self.manifest_fetcher(str(self.trust.get("feed_url") or ""))
+        except Exception as exc:  # noqa: BLE001 - never expose transport secrets
+            raise UpdateError(
+                "rollout_revalidation_unavailable", retriable=True
+            ) from exc
+        try:
+            verified = verify_manifest(
+                payload,
+                trust=self.trust,
+                installed=self.installed,
+                cohort=self.policy().rollout_cohort,
+                prior_metadata_version=max(
+                    current.highest_metadata_version,
+                    self.store.load_metadata_floor(self.installed.channel),
+                ),
+                now=self._now(),
+                metadata_only=True,
+            )
+            floor = self.store.record_metadata_version(
+                verified.channel, verified.metadata_version
+            )
+            verified = verify_manifest(
+                payload,
+                trust=self.trust,
+                installed=self.installed,
+                cohort=self.policy().rollout_cohort,
+                prior_metadata_version=floor,
+                now=self._now(),
+            )
+        except ManifestError as exc:
+            raise UpdateError(exc.code) from exc
+        if verified.candidate is None:
+            raise UpdateError("candidate_no_longer_available")
+        previous = UpdateCandidate.from_dict(current.candidate).to_dict()
+        latest = verified.candidate.to_dict()
+        for field in (
+            "rollout_percentage",
+            "cohort_start",
+            "rollout_status",
+            "rollout_reason",
+        ):
+            previous.pop(field, None)
+            latest.pop(field, None)
+        if previous != latest:
+            raise UpdateError("candidate_changed")
+
     def download(self, operation_id: str) -> UpdateOperation:
         try:
             with self.store.operation_guard():
@@ -889,6 +979,19 @@ class UpdateService:
                         )
                     )
                 candidate = UpdateCandidate.from_dict(current.candidate)
+                if candidate.version in current.quarantined_versions:
+                    raise UpdateError("candidate_quarantined")
+                try:
+                    self._revalidate_rollout(current)
+                except UpdateError as exc:
+                    self._save(
+                        current.transition(
+                            UpdateState.POLICY_BLOCKED,
+                            error_category=exc.category,
+                            safe_diagnostic="The release is not currently eligible for this installation.",
+                        )
+                    )
+                    raise
                 downloading = self._save(
                     current.transition(
                         UpdateState.DOWNLOADING,
@@ -1119,6 +1222,19 @@ class UpdateService:
                         )
                     )
                 candidate = UpdateCandidate.from_dict(current.candidate)
+                if candidate.version in current.quarantined_versions:
+                    raise UpdateError("candidate_quarantined")
+                try:
+                    self._revalidate_rollout(current)
+                except UpdateError as exc:
+                    self._save(
+                        current.transition(
+                            UpdateState.POLICY_BLOCKED,
+                            error_category=exc.category,
+                            safe_diagnostic="The release is not currently eligible for this installation.",
+                        )
+                    )
+                    raise
                 staged = Path(current.staged_artifact)
                 if (
                     current.staged_sha256 != candidate.artifact_sha256
@@ -1296,6 +1412,8 @@ class UpdateService:
                 UpdateState.RESTARTING,
                 UpdateState.HEALTH_CHECKING,
                 UpdateState.ROLLING_BACK,
+                UpdateState.ROLLBACK_PENDING,
+                UpdateState.NEEDS_ATTENTION,
                 UpdateState.DOWNLOADING,
                 UpdateState.VERIFYING,
                 UpdateState.INSTALLING,
@@ -1336,7 +1454,15 @@ class UpdateService:
                 # Another surface is mid-operation; the banner is stale, not
                 # harmful, and the next maintenance cycle clears it.
                 return current
-        if current.state in {UpdateState.RESTARTING, UpdateState.ROLLING_BACK}:
+        if current.state is UpdateState.NEEDS_ATTENTION:
+            return current
+        if current.state is UpdateState.ROLLBACK_PENDING:
+            return self.rollback(current.operation_id)
+        if current.state in {
+            UpdateState.RESTARTING,
+            UpdateState.HEALTH_CHECKING,
+            UpdateState.ROLLING_BACK,
+        }:
             deadline = _parse_time(current.health_deadline_at)
             if deadline is not None and self._now() >= deadline:
                 if current.state is UpdateState.ROLLING_BACK:
@@ -1353,8 +1479,15 @@ class UpdateService:
                         )
                 with self.store.operation_guard():
                     latest = self._current_for(current.operation_id)
-                    checking = self._save(
-                        latest.transition(UpdateState.HEALTH_CHECKING)
+                    if latest.state not in {
+                        UpdateState.RESTARTING,
+                        UpdateState.HEALTH_CHECKING,
+                    }:
+                        return latest
+                    checking = (
+                        self._save(latest.transition(UpdateState.HEALTH_CHECKING))
+                        if latest.state is UpdateState.RESTARTING
+                        else latest
                     )
                     candidate = UpdateCandidate.from_dict(checking.candidate)
                     pending = self._save(
@@ -1452,9 +1585,16 @@ class UpdateService:
                 current = self._current_for(operation_id)
                 if current.state is UpdateState.COMPLETED:
                     return current
-                if current.state is not UpdateState.RESTARTING:
+                if current.state not in {
+                    UpdateState.RESTARTING,
+                    UpdateState.HEALTH_CHECKING,
+                }:
                     raise UpdateError("health_not_expected")
-                checking = self._save(current.transition(UpdateState.HEALTH_CHECKING))
+                checking = (
+                    self._save(current.transition(UpdateState.HEALTH_CHECKING))
+                    if current.state is UpdateState.RESTARTING
+                    else current
+                )
                 candidate = UpdateCandidate.from_dict(checking.candidate)
                 category = ""
                 if (
