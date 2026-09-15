@@ -16,6 +16,8 @@ import os
 from collections.abc import Mapping
 from typing import Any
 
+from vesta.legacy import delete_legacy_keyring_entry, migrate_keyring_entry
+
 SERVICE_NAME = "Vesta/free-model-api"
 PROVIDER_ENV = {
     "kimi": "MOONSHOT_API_KEY",
@@ -76,9 +78,14 @@ class CredentialStore:
         if not self._secure_backend():
             return ""
         try:
-            return str(self._backend.get_password(SERVICE_NAME, provider) or "").strip()
+            value = str(
+                self._backend.get_password(SERVICE_NAME, provider) or ""
+            ).strip()
         except Exception:  # noqa: BLE001 - backend failures must fail closed
             return ""
+        # A key saved before the rename lives under the old service name: move
+        # it (write new, then delete old only once the write succeeded).
+        return value or migrate_keyring_entry(self._backend, SERVICE_NAME, provider)
 
     def get(self, provider: str) -> str | None:
         provider = self._provider(provider)
@@ -120,6 +127,8 @@ class CredentialStore:
     def delete(self, provider: str) -> dict[str, Any]:
         provider = self._provider(provider)
         if self._secure_backend():
+            # A leftover pre-rename copy would otherwise be migrated back.
+            delete_legacy_keyring_entry(self._backend, provider)
             try:
                 self._backend.delete_password(SERVICE_NAME, provider)
             except Exception:  # noqa: BLE001 - missing entries are already deleted

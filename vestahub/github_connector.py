@@ -33,6 +33,7 @@ from .command_runner import redact
 from .credentials import CredentialStore, CredentialStoreUnavailable
 from .proc import no_window_kwargs
 from .safety_gates import resolve_trusted_git_executable
+from vesta.legacy import home_item
 
 API_ROOT = "https://api.github.com"
 PROVIDER = "github"
@@ -41,7 +42,7 @@ _TOKEN_ENV_VARS = ("GITHUB_TOKEN", "GH_TOKEN")
 
 def _config_path() -> Path:
     # Resolved at call time so tests (and changed HOME) are honoured.
-    return Path.home() / ".vesta" / "github.json"
+    return home_item(Path.home(), "github.json")
 
 
 # method, url, token, json-payload-or-None -> (status_code, parsed_json)

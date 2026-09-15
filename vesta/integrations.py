@@ -10,8 +10,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from vesta import __brand__
-from vesta.context_slim import AI_IGNORE_FILES, write_ai_ignore_files
+from vesta import __brand__, legacy
+from vesta.context_slim import (
+    AI_IGNORE_FILES,
+    AI_IGNORE_PATTERNS,
+    write_ai_ignore_files,
+)
 from vesta.release_identity import release_version_text, surface_identity_payload
 from vesta.terminal_ui import render_badge
 from vestahub import shadow_journal
@@ -33,18 +37,18 @@ PS_END_MARKER = "# Vesta managed block: end"
 # replaced in place and uninstalled -- never left behind with a second block
 # appended after it.
 LEGACY_MARKERS = {
-    START_MARKER: "<!-- OPai managed block: start -->",
-    END_MARKER: "<!-- OPai managed block: end -->",
-    PS_START_MARKER: "# OPai managed block: start",
-    PS_END_MARKER: "# OPai managed block: end",
+    START_MARKER: legacy.LEGACY_START_MARKER,
+    END_MARKER: legacy.LEGACY_END_MARKER,
+    PS_START_MARKER: legacy.LEGACY_PS_START_MARKER,
+    PS_END_MARKER: legacy.LEGACY_PS_END_MARKER,
 }
 SUPERPOWERS_REPO = "https://github.com/obra/superpowers.git"
 
 
 def upgrade_legacy_markers(text: str) -> str:
     """Rewrite managed-block markers from before the rebrand to the current ones."""
-    for current, legacy in LEGACY_MARKERS.items():
-        text = text.replace(legacy, current)
+    for current, previous in LEGACY_MARKERS.items():
+        text = text.replace(previous, current)
     return text
 
 
@@ -287,6 +291,23 @@ def _write_project_instructions(project_root: Path) -> list[str]:
     return written
 
 
+def remove_legacy_project_files(project_root: Path) -> list[str]:
+    """Delete the pre-rename rule and ignore files Vesta generated here.
+
+    Only files holding nothing but Vesta's own generated content go; a rule or
+    ignore file a user added lines to is left exactly as it is.
+    """
+    from vestahub.context_engine import managed_ignore_lines
+
+    try:
+        return legacy.remove_legacy_project_artifacts(
+            project_root,
+            ignore_lines=[*AI_IGNORE_PATTERNS, *managed_ignore_lines()],
+        )
+    except Exception:  # noqa: BLE001 - cleanup must never block activation
+        return []
+
+
 def _planned_project_files(project_root: Path) -> list[str]:
     return [
         str(project_root / "AGENTS.md"),
@@ -411,6 +432,7 @@ def activate_project(
     attached = attach_project(root)
     project_files = _write_project_instructions(root)
     ai_ignore_files = write_ai_ignore_files(root)
+    legacy_removed = remove_legacy_project_files(root)
     superpowers = ensure_superpowers_bridge(user_home, auto_install=install_superpowers)
     global_result = (
         install_global_integrations(
@@ -431,6 +453,7 @@ def activate_project(
         "state_path": attached["state_path"],
         "project_files": project_files,
         "ai_ignore_files": ai_ignore_files,
+        "legacy_files_removed": legacy_removed,
         "superpowers": superpowers,
         "global_integrations": global_result,
         "next_steps": [
@@ -718,12 +741,18 @@ def _write_shell_wrappers(home: Path) -> list[str]:
     return written
 
 
-def _write_shell_aliases(home: Path) -> list[Path]:
-    powershell_profiles = [
+def _powershell_profiles(home: Path) -> list[Path]:
+    return [
         home / "Documents" / "PowerShell" / "Microsoft.PowerShell_profile.ps1",
         home / "Documents" / "WindowsPowerShell" / "Microsoft.PowerShell_profile.ps1",
     ]
-    written = []
+
+
+def _posix_profiles(home: Path) -> list[Path]:
+    return [home / ".profile", home / ".bashrc", home / ".zshrc"]
+
+
+def _powershell_alias_block(home: Path) -> str:
     bin_dir = vesta_home(home) / "bin"
     python_ps = _ps_quote(_python_executable())
     powershell_block = f"""{PS_START_MARKER}
@@ -734,13 +763,10 @@ function claude {{ & "{bin_dir / "vesta-claude.ps1"}" @args }}
 function copilot {{ & "{bin_dir / "vesta-copilot.ps1"}" @args }}
 function gemini {{ & "{bin_dir / "vesta-gemini.ps1"}" @args }}
 {PS_END_MARKER}"""
-    for profile in powershell_profiles:
-        existing = profile.read_text(encoding="utf-8") if profile.exists() else ""
-        written.append(
-            _write(profile, _replace_shell_block(existing, powershell_block))
-        )
+    return powershell_block
 
-    posix_profiles = [home / ".profile", home / ".bashrc", home / ".zshrc"]
+
+def _posix_alias_block(home: Path) -> str:
     posix_bin = vesta_home(home) / "bin"
     python_sh = shlex.quote(_python_executable())
     posix_block = f"""{PS_START_MARKER}
@@ -751,10 +777,66 @@ claude() {{ "{posix_bin / "vesta-claude"}" "$@"; }}
 copilot() {{ "{posix_bin / "vesta-copilot"}" "$@"; }}
 gemini() {{ "{posix_bin / "vesta-gemini"}" "$@"; }}
 {PS_END_MARKER}"""
-    for profile in posix_profiles:
+    return posix_block
+
+
+def _write_shell_aliases(home: Path) -> list[Path]:
+    written = []
+    powershell_block = _powershell_alias_block(home)
+    for profile in _powershell_profiles(home):
+        existing = profile.read_text(encoding="utf-8") if profile.exists() else ""
+        written.append(
+            _write(profile, _replace_shell_block(existing, powershell_block))
+        )
+    posix_block = _posix_alias_block(home)
+    for profile in _posix_profiles(home):
         existing = profile.read_text(encoding="utf-8") if profile.exists() else ""
         written.append(_write(profile, _replace_shell_block(existing, posix_block)))
     return written
+
+
+def _upgrade_legacy_shell_aliases(home: Path) -> list[Path]:
+    """Re-render only the profiles still holding a pre-rename alias block.
+
+    Those blocks call the old-name wrappers through the old package module,
+    neither of which exists any more, so the user's ``claude``/``codex``
+    commands fail until rewritten. A profile without such a block is not
+    created or touched.
+    """
+    written: list[Path] = []
+    for profiles, block in (
+        (_powershell_profiles(home), _powershell_alias_block(home)),
+        (_posix_profiles(home), _posix_alias_block(home)),
+    ):
+        for profile in profiles:
+            try:
+                existing = profile.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            current = upgrade_legacy_markers(existing)
+            start = current.find(PS_START_MARKER)
+            end = current.find(PS_END_MARKER)
+            if start == -1 or end <= start:
+                continue
+            if legacy.LEGACY_WRAPPER_PREFIX not in current[start:end] and (
+                legacy.LEGACY_PS_START_MARKER not in existing
+            ):
+                continue
+            written.append(_write(profile, _replace_shell_block(existing, block)))
+    return written
+
+
+def _claude_memory_references_legacy_home(home: Path) -> bool:
+    claude = home / ".claude" / "CLAUDE.md"
+    try:
+        text = upgrade_legacy_markers(claude.read_text(encoding="utf-8"))
+    except OSError:
+        return False
+    start = text.find(START_MARKER)
+    end = text.find(END_MARKER)
+    if start == -1 or end <= start:
+        return False
+    return legacy.LEGACY_INSTRUCTIONS_FILENAME in text[start:end]
 
 
 def install_global_integrations(
@@ -817,6 +899,18 @@ def install_global_integrations(
         written.extend(_write_shell_wrappers(user_home))
         if install_shell_aliases:
             written.extend(str(path) for path in _write_shell_aliases(user_home))
+        else:
+            written.extend(
+                str(path) for path in _upgrade_legacy_shell_aliases(user_home)
+            )
+    if "claude" not in selected and _claude_memory_references_legacy_home(user_home):
+        # An old global memory block points at instructions/OPAI.md, which is
+        # about to be removed: rewrite the block the user already consented to.
+        written.append(str(_write_claude_memory(root, user_home)))
+    legacy_removed = legacy.remove_legacy_global_artifacts(
+        user_home,
+        claude_memory_upgraded=not _claude_memory_references_legacy_home(user_home),
+    )
     superpowers = (
         ensure_superpowers_bridge(user_home, auto_install=install_superpowers)
         if ensure_superpowers
@@ -834,6 +928,7 @@ def install_global_integrations(
         "installed_at": now_iso(),
         "written": written,
         "vesta_skills": vesta_skills,
+        "legacy_files_removed": legacy_removed,
         "superpowers": superpowers,
         "notes": [
             "Codex can discover the Vesta skill from ~/.agents/skills/vesta.",
@@ -868,6 +963,48 @@ def install_global_integrations(
             manifest_path, manifest, is_valid_record=_valid_manifest_record
         )
     return {"status": "installed", "manifest": str(manifest_path), **manifest}
+
+
+def upgrade_legacy_global_install(home: Path | None = None) -> dict[str, Any]:
+    """Re-render the global integrations an install from before the rename left.
+
+    Old-name wrappers run the old package module, which no longer exists, so
+    they fail until regenerated. This re-installs exactly the targets recorded
+    in the consent manifest (no new targets, no Superpowers changes), and the
+    install removes the legacy files. Without a manifest nothing was consented
+    and nothing is written.
+    """
+    user_home = (home or Path.home()).expanduser().resolve()
+    if not legacy.legacy_global_artifacts_present(user_home):
+        return {"status": "current"}
+    manifest = load_global_status(user_home)
+    known = {"codex", "claude", "copilot", "gemini", "shell"}
+    targets = [
+        str(target) for target in manifest.get("targets") or [] if str(target) in known
+    ]
+    if not manifest.get("installed") or not targets:
+        # Nothing to re-render, but the old wrappers cannot run any more:
+        # remove the ones carrying the old installer's signature.
+        removed = legacy.remove_legacy_global_artifacts(
+            user_home,
+            claude_memory_upgraded=not _claude_memory_references_legacy_home(user_home),
+        )
+        return {"status": "not_installed", "legacy_files_removed": removed}
+    project_root = Path(str(manifest.get("project_root") or user_home))
+    if not project_root.is_dir():
+        project_root = user_home
+    result = install_global_integrations(
+        project_root,
+        home=user_home,
+        targets=targets,
+        install_shell_aliases=False,
+        ensure_superpowers=False,
+    )
+    return {
+        "status": "upgraded",
+        "targets": targets,
+        "legacy_files_removed": result.get("legacy_files_removed", []),
+    }
 
 
 def _valid_manifest_record(record) -> bool:
@@ -962,7 +1099,7 @@ def update_vesta_source(home: Path | None = None, timeout: int = 120) -> dict[st
     """
     if home is not None:
         user_home = home.expanduser().resolve()
-        source = vesta_home(user_home) / "source"
+        source = legacy.home_item(user_home, "source")
     else:
         from vesta.updater import install_root
 

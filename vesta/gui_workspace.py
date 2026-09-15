@@ -10,12 +10,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from vesta.legacy import home_item
 
 MAX_RECENTS = 8
 
 
 def recents_path() -> Path:
-    return Path.home() / ".vesta" / "gui_workspaces.json"
+    return home_item(Path.home(), "gui_workspaces.json")
 
 
 def is_valid_workspace(path: str | Path) -> bool:

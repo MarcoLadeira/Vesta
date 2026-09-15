@@ -4,6 +4,9 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+# The header these rules were written under before the rebrand to Vesta.
+from vesta.legacy import LEGACY_IGNORE_HEADER
+
 
 AI_IGNORE_FILES = [
     ".claudeignore",
@@ -85,10 +88,6 @@ def _append_unique(existing: str, lines: list[str]) -> str:
     return body + "\n\n" + "\n".join(missing).rstrip() + "\n"
 
 
-# The header these rules were written under before the rebrand to Vesta.
-LEGACY_IGNORE_HEADER = "# OPai context-slimming rules"
-
-
 def write_ai_ignore_files(project_root: Path) -> list[str]:
     root = project_root.expanduser().resolve()
     written: list[str] = []
@@ -129,7 +128,9 @@ def generated_context_targets(project_root: Path) -> list[Path]:
     vestahub = root / ".vestahub"
     targets.extend(vestahub / name for name in VESTAHUB_GENERATED_TARGETS)
     if vestahub.exists():
-        targets.extend(path for path in vestahub.glob("install-test-*") if path.is_dir())
+        targets.extend(
+            path for path in vestahub.glob("install-test-*") if path.is_dir()
+        )
     return targets
 
 

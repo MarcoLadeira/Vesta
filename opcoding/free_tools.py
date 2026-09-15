@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .utils import command_exists, project_op_dir, run_command, write_json
+from vesta.legacy import home_item
 
 
 PYTHON_TOOLS = ["ruff", "bandit", "pip-audit", "detect-secrets"]
@@ -29,7 +30,7 @@ def _tool_cache_base() -> Path:
     xdg_cache = os.environ.get("XDG_CACHE_HOME")
     if xdg_cache:
         return Path(xdg_cache).expanduser().resolve() / "vesta" / "tool-cache"
-    return Path.home().expanduser().resolve() / ".vesta" / "tool-cache"
+    return home_item(Path.home().expanduser().resolve(), "tool-cache")
 
 
 def _project_cache_name(root: Path) -> str:

@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from vesta.legacy import migrate_project_state
+
 from .loader import registry_items
 
 
@@ -20,6 +22,10 @@ def now_iso() -> str:
 def state_dir(project_root: Path) -> Path:
     root = project_root.expanduser().resolve()
     path = root / ".vestahub"
+    if not os.path.lexists(path):
+        # A project last used before the rename keeps its state in .opaihub:
+        # rename it in place. A failure (in use) leaves it for the next call.
+        migrate_project_state(root)
     if path.is_symlink() or (hasattr(path, "is_junction") and path.is_junction()):
         raise OSError(f"unsafe Vesta state directory link: {path}")
     try:

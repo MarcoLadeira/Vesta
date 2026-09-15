@@ -39,6 +39,7 @@ from vesta.model_registry import (
 )
 from vestahub.atomic_io import atomic_write_text, interprocess_transaction
 from vestahub.boundary_errors import safe_detail
+from vesta.legacy import home_item
 
 #: Bounds. This file is read on every model lookup; it is a convenience list,
 #: not a database, and an unbounded one would be a way to slow the picker down.
@@ -77,7 +78,7 @@ def overrides_path() -> Path:
     env = os.environ.get("VESTA_MODEL_OVERRIDES")
     if env:
         return Path(env).expanduser()
-    return Path.home() / ".vesta" / "models.json"
+    return home_item(Path.home(), "models.json")
 
 
 @dataclass(frozen=True)

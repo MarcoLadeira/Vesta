@@ -12,6 +12,7 @@ from vestahub.budget import budget_status
 from vestahub.cost_telemetry import summarize_cost_telemetry
 from vestahub.local_models import discover_local_models
 from vestahub.savings import build_savings_report
+from vesta.legacy import home_item
 
 
 def _client_counts(status: dict[str, Any]) -> dict[str, int]:
@@ -29,7 +30,7 @@ def _client_counts(status: dict[str, Any]) -> dict[str, int]:
 
 def _wrapper_status(status: dict[str, Any]) -> dict[str, Any]:
     wrappers = status["global"]["wrappers"]
-    bin_dir = Path.home() / ".vesta" / "bin"
+    bin_dir = home_item(Path.home(), "bin")
     path_parts = [
         Path(part).expanduser()
         for part in os.environ.get("PATH", "").split(os.pathsep)
