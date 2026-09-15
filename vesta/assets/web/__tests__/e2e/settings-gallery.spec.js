@@ -35,7 +35,7 @@ async function choose(page, id) {
 }
 
 async function capture(page, name) {
-  await expect(page.locator("#view-settings")).not.toContainText(/\bVesta\b/);
+  await expect(page.locator("#view-settings")).not.toContainText(/\bOPai\b/);
   await expect(page.locator("#view-settings")).toHaveScreenshot(name, {
     animations: "disabled",
     caret: "hide",

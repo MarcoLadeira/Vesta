@@ -2930,7 +2930,6 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
   font: inherit;
   font-size: var(--type-label);
   font-weight: var(--weight-semibold);
-  line-height: var(--leading-snug);
 }
 .workspace-tab:first-child { padding-left: var(--space-3); }
 .workspace-tab::after {
@@ -2968,7 +2967,6 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
 .workspace-setting-copy .hint {
   color: var(--muted);
   font-size: var(--type-caption);
-  line-height: var(--leading-snug);
 }
 .workspace-setting-control {
   display: flex;
@@ -3351,7 +3349,6 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
   color: var(--faint);
   font-size: var(--type-label);
   font-weight: var(--weight-regular);
-  line-height: var(--leading-snug);
 }
 .settings-search-results {
   margin-top: var(--space-2);
@@ -3385,12 +3382,10 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
 }
 .settings-result-label {
   font-weight: var(--weight-semibold);
-  line-height: var(--leading-snug);
 }
 .settings-result-path {
   color: var(--faint);
   font-size: var(--type-label);
-  line-height: var(--leading-snug);
 }
 .settings-search-results .settings-noresults {
   display: flex;
