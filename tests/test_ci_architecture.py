@@ -212,7 +212,7 @@ class CiArchitectureContractTests(unittest.TestCase):
         self.assertEqual(health["environment"]["name"], "vesta-runner-health")
         self.assertEqual(health["environment"]["deployment"], "false")
         health_source = str(health)
-        self.assertIn("secrets.OPAI_RUNNER_HEALTH_TOKEN", health_source)
+        self.assertIn("secrets.VESTA_RUNNER_HEALTH_TOKEN", health_source)
         self.assertNotIn("github.token", health_source)
         trusted = self_hosted["jobs"]["trusted-gate"]
         self.assertEqual(trusted["needs"], "runner-health")

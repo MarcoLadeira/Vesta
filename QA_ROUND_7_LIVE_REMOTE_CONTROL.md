@@ -12,7 +12,7 @@
 
 **Steps:**
 
-1. Ask Vesta to post the supplied QA Round 6 retest comment using `gh pr comment 511 --repo MarcoLadeira/OPai --body-file ...`.
+1. Ask Vesta to post the supplied QA Round 6 retest comment using `gh pr comment 511 --repo MarcoLadeira/Vesta --body-file ...`.
 2. Repeat with the comment body first saved to a local markdown file, so the command itself contains no quoted `git push` text.
 3. Explicitly authorize the command in a follow-up request.
 

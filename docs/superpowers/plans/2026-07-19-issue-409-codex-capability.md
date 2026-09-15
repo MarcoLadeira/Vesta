@@ -110,4 +110,4 @@ Run: `python -m pytest tests/test_provider_connections.py tests/test_connection_
 
 - [ ] **Step 4: Review, commit, create, and merge the PR closing #409**
 
-Run: `gh pr create --repo MarcoLadeira/OPai --base main --title "fix(codex): filter unsupported subscription models" --body "Closes #409"`
+Run: `gh pr create --repo MarcoLadeira/Vesta --base main --title "fix(codex): filter unsupported subscription models" --body "Closes #409"`

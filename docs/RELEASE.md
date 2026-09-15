@@ -9,7 +9,7 @@ performs every safe step with no external side effects, and rollback restores
 the previous tested release without touching user state.
 
 Implementation: [`vestahub/release_preflight.py`](../vestahub/release_preflight.py).
-Issue: [#32](https://github.com/MarcoLadeira/OPai/issues/32).
+Issue: [#32](https://github.com/MarcoLadeira/Vesta/issues/32).
 
 ## Planning, source qualification, and final qualification
 
@@ -72,7 +72,7 @@ contract:
 ```json
 {
   "schema_version": 3,
-  "repository": "MarcoLadeira/OPai",
+  "repository": "MarcoLadeira/Vesta",
   "workflow": ".github/workflows/desktop-artifacts.yml",
   "run_id": "123456789",
   "run_attempt": "1",

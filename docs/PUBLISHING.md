@@ -4,7 +4,7 @@
 > not a public download page. Do not invent or advertise an install command
 > until a verified release artifact is actually published.
 
-Vesta is released from this repository, `MarcoLadeira/OPai`. It must not be
+Vesta is released from this repository, `MarcoLadeira/Vesta`. It must not be
 released from a parent website repository or a copied working directory.
 
 ## Maintainer checks

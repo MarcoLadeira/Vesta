@@ -22,7 +22,7 @@ from vestahub import release_preflight as rp
 
 CANDIDATE_SHA = "1" * 40
 OTHER_SHA = "2" * 40
-REPOSITORY = "MarcoLadeira/OPai"
+REPOSITORY = "MarcoLadeira/Vesta"
 DESKTOP_WORKFLOW = ".github/workflows/desktop-artifacts.yml"
 RUN_ID = "621001"
 RUN_ATTEMPT = "2"

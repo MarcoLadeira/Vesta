@@ -19,7 +19,7 @@ class SiteFunnelTests(unittest.TestCase):
             self.assertIn(client, self.html)
 
     def test_free_alpha_has_no_paid_or_private_access_gate(self):
-        self.assertNotIn("raw.githubusercontent.com/MarcoLadeira/OPai", self.html)
+        self.assertNotIn("raw.githubusercontent.com/MarcoLadeira/Vesta", self.html)
         self.assertNotIn("install.ps1", self.html)
         self.assertNotIn("install.sh", self.html)
         self.assertNotIn('python -m pip install "vesta[desktop-gui]"', self.html)
@@ -108,7 +108,7 @@ class StrategyAndCommandsTests(unittest.TestCase):
     def test_current_onboarding_does_not_claim_an_archived_release_path(self):
         for relative in ["README.md", "docs/QUICKSTART.md"]:
             text = (REPO / relative).read_text(encoding="utf-8")
-            self.assertIn("github.com/MarcoLadeira/OPai/releases", text, relative)
+            self.assertIn("github.com/MarcoLadeira/Vesta/releases", text, relative)
             self.assertIn("no public", text.lower(), relative)
             self.assertNotIn(
                 "current verified release path is described in the release notes",

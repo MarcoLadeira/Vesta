@@ -2,7 +2,7 @@
 
 Status: implemented for the provider tool-loop controller  
 Derivation version: `semantic-action-v1`  
-Issue: [#649](https://github.com/MarcoLadeira/OPai/issues/649)
+Issue: [#649](https://github.com/MarcoLadeira/Vesta/issues/649)
 
 ## Purpose
 

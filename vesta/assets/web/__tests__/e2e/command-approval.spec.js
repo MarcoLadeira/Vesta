@@ -7,7 +7,7 @@ import { openApp, sendPrompt } from "./helpers/app.js";
 // exact command; the card offers Approve once / Deny; Approve re-sends the
 // original message with allowCommand set to that exact string.
 
-const COMMAND = "gh issue view 219 --repo MarcoLadeira/OPai";
+const COMMAND = "gh issue view 219 --repo MarcoLadeira/Vesta";
 
 function gateScenario() {
   return {

@@ -133,4 +133,4 @@ Run: `python -m pytest tests/test_reliable_ai_controls.py -k "auto_ or FastPaylo
 
 - [ ] **Step 3: Create, push, and merge a PR that closes #406**
 
-Run: `gh pr create --repo MarcoLadeira/OPai --base main --head codex/issue-406-auto-fallback --title "fix(auto): retry the configured fallback" --body "Closes #406"`
+Run: `gh pr create --repo MarcoLadeira/Vesta --base main --head codex/issue-406-auto-fallback --title "fix(auto): retry the configured fallback" --body "Closes #406"`

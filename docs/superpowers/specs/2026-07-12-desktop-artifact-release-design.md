@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-12
 **Status:** Approved for implementation under the owner's continuing alpha-programme direction
-**Issue:** [#290 — Build and smoke-test free Windows and macOS desktop artifacts](https://github.com/MarcoLadeira/OPai/issues/290)
+**Issue:** [#290 — Build and smoke-test free Windows and macOS desktop artifacts](https://github.com/MarcoLadeira/Vesta/issues/290)
 
 ## Scope and non-goals
 

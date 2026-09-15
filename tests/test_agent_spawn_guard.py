@@ -269,7 +269,7 @@ class ClaudePreToolHookDecisionTests(unittest.TestCase):
         """A direct PR comment is outward-facing, but not a dead-end block."""
 
         command = (
-            "gh pr comment 511 --repo MarcoLadeira/OPai --body-file .pr511-comment.md"
+            "gh pr comment 511 --repo MarcoLadeira/Vesta --body-file .pr511-comment.md"
         )
         with _hermetic_hub(), _consent_store():
             from vestahub import command_consent
@@ -291,7 +291,7 @@ class ClaudePreToolHookDecisionTests(unittest.TestCase):
         approval is for.
         """
         command = (
-            "gh pr create --repo MarcoLadeira/OPai --base main "
+            "gh pr create --repo MarcoLadeira/Vesta --base main "
             "--head docs/252-refresh --title 'docs: refresh'"
         )
         with _hermetic_hub(), _consent_store():
@@ -381,7 +381,7 @@ class ClaudePreToolHookDecisionTests(unittest.TestCase):
         """
         for command in (
             "gh pr close 5",
-            "gh repo delete MarcoLadeira/OPai",
+            "gh repo delete MarcoLadeira/Vesta",
             "gh release delete v1",
             "gh api -X DELETE repos/x/y",
         ):

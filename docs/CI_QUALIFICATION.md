@@ -1,6 +1,6 @@
 # CI qualification and merge governance
 
-Issue [#621](https://github.com/MarcoLadeira/OPai/issues/621) defines one rule:
+Issue [#621](https://github.com/MarcoLadeira/Vesta/issues/621) defines one rule:
 qualification is evidence about an exact commit, not merely a green workflow.
 Missing tools, skipped required checks, stale evidence, runner outages, absent
 credentials, and failed artifact uploads are non-success states.
@@ -175,9 +175,9 @@ billing/spend limits, the only self-hosted runner offline, and no protected
 environments/secrets/variables configured. Those are external
 `infrastructure_blocked` conditions, not repository success. The macOS desktop
 lock and real Windows/macOS signing/install evidence remain owned by
-[#290](https://github.com/MarcoLadeira/OPai/issues/290),
-[#355](https://github.com/MarcoLadeira/OPai/issues/355), and
-[#624](https://github.com/MarcoLadeira/OPai/issues/624).
+[#290](https://github.com/MarcoLadeira/Vesta/issues/290),
+[#355](https://github.com/MarcoLadeira/Vesta/issues/355), and
+[#624](https://github.com/MarcoLadeira/Vesta/issues/624).
 
 ## Failure drills and diagnosis
 

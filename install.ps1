@@ -18,7 +18,7 @@ Get-ChildItem env: | Where-Object { $_.Name -like "OPAI_*" } | ForEach-Object {
     }
 }
 
-$RepoUrl = if ($env:VESTA_REPO_URL) { $env:VESTA_REPO_URL } else { "https://github.com/MarcoLadeira/OPai.git" }
+$RepoUrl = if ($env:VESTA_REPO_URL) { $env:VESTA_REPO_URL } else { "https://github.com/MarcoLadeira/Vesta.git" }
 $Branch = if ($env:VESTA_BRANCH) { $env:VESTA_BRANCH } else { "main" }
 $InstallTools = $WithTools -or $env:VESTA_WITH_TOOLS -eq "1"
 $SkipSuperpowers = $NoSuperpowers -or $env:VESTA_NO_SUPERPOWERS -eq "1"

@@ -230,7 +230,7 @@ class ProviderTimeoutTests(_JournalledRun):
 class GithubDeliveryTimeoutTests(_JournalledRun):
     """The delivery boundary: did the pull request get created or not?"""
 
-    KEY = "github:pr:MarcoLadeira/OPai:feat-x"
+    KEY = "github:pr:MarcoLadeira/Vesta:feat-x"
 
     def test_the_record_keeps_saying_we_do_not_know(self):
         journal_operations.record_claim(self.root, self.KEY, now=NOW, run_id="run-1")
@@ -255,7 +255,7 @@ class GithubDeliveryTimeoutTests(_JournalledRun):
             self.root,
             self.KEY,
             now=LATER,
-            external_ref="https://github.com/MarcoLadeira/OPai/pull/847",
+            external_ref="https://github.com/MarcoLadeira/Vesta/pull/847",
             run_id="run-1",
         )
 

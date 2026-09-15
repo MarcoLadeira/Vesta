@@ -11,6 +11,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from vesta.legacy import LEGACY_REPOSITORY as _LEGACY_REPOSITORY
+
 # The exact, approved public claim. Must stay limited to the local benchmark.
 LAUNCH_CLAIM = (
     "Local max benchmark proof: publish only results reproduced with "
@@ -28,8 +30,10 @@ _LEGACY_ACCESS_PLACEHOLDERS = [
     "PRIVATE_BENCHMARK_PROOF_URL",
 ]
 # Strings that would expose an unsafe raw-install route on the public site.
+# The pre-rename slug still redirects, so a raw link through it leaks the same way.
 _LEAKAGE_MARKERS = [
-    "raw.githubusercontent.com/MarcoLadeira/OPai",
+    "raw.githubusercontent.com/MarcoLadeira/Vesta",
+    f"raw.githubusercontent.com/{_LEGACY_REPOSITORY}",
 ]
 
 

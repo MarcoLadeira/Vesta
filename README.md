@@ -24,7 +24,7 @@ The goal is simple: make AI-assisted development feel close to "one prompt to bu
 
 There is no public package or desktop artifact installation command yet. The
 commands below apply after a verified free artifact is published on
-[GitHub Releases](https://github.com/MarcoLadeira/OPai/releases), or when you
+[GitHub Releases](https://github.com/MarcoLadeira/Vesta/releases), or when you
 have installed this source checkout for contributor development.
 
 ```sh
@@ -286,7 +286,7 @@ Vesta alpha launches fully free. No checkout, license, invitation, or private
 access link is required to use alpha functionality. **No public desktop artifact
 or package installation command is published yet.** When platform release proof
 is complete, the current verified path will be published on
-[GitHub Releases](https://github.com/MarcoLadeira/OPai/releases); source and
+[GitHub Releases](https://github.com/MarcoLadeira/Vesta/releases); source and
 development installation remain available separately for contributors.
 
 After install, restart your terminal and AI clients once, then check:
@@ -517,8 +517,8 @@ Docs:
 
 Community:
 
-- [Discussions](https://github.com/MarcoLadeira/OPai/discussions): questions, ideas, tool suggestions, and install help.
-- [Issues](https://github.com/MarcoLadeira/OPai/issues): reproducible bugs, cost regressions, security hardening, and roadmap tasks.
+- [Discussions](https://github.com/MarcoLadeira/Vesta/discussions): questions, ideas, tool suggestions, and install help.
+- [Issues](https://github.com/MarcoLadeira/Vesta/issues): reproducible bugs, cost regressions, security hardening, and roadmap tasks.
 - [CONTRIBUTING.md](CONTRIBUTING.md): local development and PR guidance.
 - [SECURITY.md](SECURITY.md): reporting and safety defaults.
 - [SUPPORT.md](SUPPORT.md): where to ask for help.

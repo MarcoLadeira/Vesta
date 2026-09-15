@@ -14,7 +14,7 @@ from urllib.parse import quote
 from .ledger import summarize_ledger
 
 
-SITE_URL = "https://github.com/MarcoLadeira/OPai"
+SITE_URL = "https://github.com/MarcoLadeira/Vesta"
 
 
 def _badge_svg(label: str, value: str, color: str = "#0a7cff") -> str:

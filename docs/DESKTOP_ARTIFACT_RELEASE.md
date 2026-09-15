@@ -119,8 +119,8 @@ GitHub-hosted runners:
 
 ```sh
 gh attestation verify Vesta-<tag>-<platform>-production.zip \
-  --repo MarcoLadeira/OPai \
-  --signer-workflow MarcoLadeira/OPai/.github/workflows/desktop-artifacts.yml \
+  --repo MarcoLadeira/Vesta \
+  --signer-workflow MarcoLadeira/Vesta/.github/workflows/desktop-artifacts.yml \
   --source-ref refs/heads/main \
   --deny-self-hosted-runners
 ```
@@ -229,8 +229,8 @@ The alpha artifact is a **portable** application, not an installer.
 
    ```sh
    gh attestation verify <archive> \
-     --repo MarcoLadeira/OPai \
-     --signer-workflow MarcoLadeira/OPai/.github/workflows/desktop-artifacts.yml \
+     --repo MarcoLadeira/Vesta \
+     --signer-workflow MarcoLadeira/Vesta/.github/workflows/desktop-artifacts.yml \
      --source-ref refs/heads/main \
      --deny-self-hosted-runners
    ```

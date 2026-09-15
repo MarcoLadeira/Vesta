@@ -8,7 +8,7 @@ functionality.
 
 There is **no public package or desktop artifact installation command yet**.
 When the platform release proof is complete, use only the current verified path
-published on [GitHub Releases](https://github.com/MarcoLadeira/OPai/releases).
+published on [GitHub Releases](https://github.com/MarcoLadeira/Vesta/releases).
 Until then, a source contributor can install the checkout they already have;
 never treat a payment or private checkout link as an installation prerequisite:
 

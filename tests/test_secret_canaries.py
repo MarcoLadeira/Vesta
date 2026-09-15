@@ -64,7 +64,7 @@ BENIGN: tuple[str, ...] = (
     "Traceback (most recent call last): File app.py line 42",
     "tokens=15234 input_tokens=9000 output_tokens=6234",
     "AKIA is the AWS access-key prefix",
-    "https://github.com/MarcoLadeira/OPai/pull/660",
+    "https://github.com/MarcoLadeira/Vesta/pull/660",
     "docs/lifecycle-schema.md updated with 8 new mappings",
 )
 

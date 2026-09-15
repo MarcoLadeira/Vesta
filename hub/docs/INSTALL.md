@@ -7,13 +7,13 @@ Vesta 0.2.0 alpha.1 installs as a small Python CLI with local registry files. Th
 Windows PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/MarcoLadeira/Vesta/main/install.ps1 | iex
 ```
 
 macOS/Linux:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/MarcoLadeira/Vesta/main/install.sh | sh
 ```
 
 The remote installer clones or updates Vesta under `~/.vesta/source`, installs the `op`/`vesta` CLI, activates the project you ran it from, writes global AI-client discovery files, clones or updates the free open-source Superpowers repo, enables Superpowers discovery, and installs persistent AI-client shell wrappers by default.
@@ -28,14 +28,14 @@ To download the heavier free local tool bundle during install:
 
 ```powershell
 $env:VESTA_WITH_TOOLS = "1"
-irm https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/MarcoLadeira/Vesta/main/install.ps1 | iex
 ```
 
 To skip the Superpowers network clone in locked-down environments:
 
 ```powershell
 $env:VESTA_NO_SUPERPOWERS = "1"
-irm https://raw.githubusercontent.com/MarcoLadeira/OPai/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/MarcoLadeira/Vesta/main/install.ps1 | iex
 ```
 
 ## Local Checkout Install

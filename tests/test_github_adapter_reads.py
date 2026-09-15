@@ -122,9 +122,9 @@ class IssueViewTests(unittest.TestCase):
             return _completed(argv, self.ISSUE_JSON)
 
         adapter = GitHubAdapter(Path("C:/repo"), run=fake_run)
-        adapter.issue_view(219, repo="MarcoLadeira/OPai")
+        adapter.issue_view(219, repo="MarcoLadeira/Vesta")
         argv = calls[0]
-        self.assertEqual(argv[argv.index("--repo") + 1], "MarcoLadeira/OPai")
+        self.assertEqual(argv[argv.index("--repo") + 1], "MarcoLadeira/Vesta")
 
     def test_issue_view_rejects_malformed_json(self):
         def fake_run(argv, **kwargs):

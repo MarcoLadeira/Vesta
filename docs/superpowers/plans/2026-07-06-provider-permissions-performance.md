@@ -393,7 +393,7 @@ Skip this commit when the worktree is already clean.
 
 ```powershell
 git push -u origin codex/provider-permissions-performance
-gh pr create --repo MarcoLadeira/OPai --base main --head codex/provider-permissions-performance --title "fix: honor editable modes across AI providers" --body "Fixes Vesta's contradictory read-only behavior in editable modes. Preserves acknowledged Full Auto, gives explicit free API models bounded repository tools, activates Gemini CLI instructions/mode mapping, and removes redundant explicit-provider routing/cache work. Includes mocked end-to-end provider tests; no live cloud credentials or calls are used."
+gh pr create --repo MarcoLadeira/Vesta --base main --head codex/provider-permissions-performance --title "fix: honor editable modes across AI providers" --body "Fixes Vesta's contradictory read-only behavior in editable modes. Preserves acknowledged Full Auto, gives explicit free API models bounded repository tools, activates Gemini CLI instructions/mode mapping, and removes redundant explicit-provider routing/cache work. Includes mocked end-to-end provider tests; no live cloud credentials or calls are used."
 ```
 
 The PR body must include root cause, mode/security behavior, benchmark evidence, tests, no-live-cloud-test disclosure, and rollback notes.

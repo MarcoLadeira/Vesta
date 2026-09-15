@@ -4,9 +4,9 @@
 > the 2026-07-12 evidence snapshot, not the current application identity.
 
 **Assessment date:** 2026-07-12
-**Repository:** MarcoLadeira/OPai
+**Repository:** MarcoLadeira/Vesta
 **Evidence snapshot:** origin/main at f4c27b715d83b9febbcaab59d1d58dec8acf28ab
-**Release target:** [Vesta 0.2.0 Free Public Alpha (milestone 3)](https://github.com/MarcoLadeira/OPai/milestone/3)
+**Release target:** [Vesta 0.2.0 Free Public Alpha (milestone 3)](https://github.com/MarcoLadeira/Vesta/milestone/3)
 
 Line references in this document describe the evidence snapshot above. Later
 programme commits may move those lines or resolve a finding; the snapshot keeps
@@ -40,13 +40,13 @@ The four immediate trust failures are concrete:
    vestahub/budget.py:77-92; vestahub/ledger.py:375-390).
 
 The selected response is the smallest sound programme:
-[epic #291](https://github.com/MarcoLadeira/OPai/issues/291), comprising
-[#283](https://github.com/MarcoLadeira/OPai/issues/283),
-[#284](https://github.com/MarcoLadeira/OPai/issues/284),
-[#285](https://github.com/MarcoLadeira/OPai/issues/285), and
-[#286](https://github.com/MarcoLadeira/OPai/issues/286). After it lands, release
+[epic #291](https://github.com/MarcoLadeira/Vesta/issues/291), comprising
+[#283](https://github.com/MarcoLadeira/Vesta/issues/283),
+[#284](https://github.com/MarcoLadeira/Vesta/issues/284),
+[#285](https://github.com/MarcoLadeira/Vesta/issues/285), and
+[#286](https://github.com/MarcoLadeira/Vesta/issues/286). After it lands, release
 confidence—not feature expansion—is next:
-[epic #293](https://github.com/MarcoLadeira/OPai/issues/293).
+[epic #293](https://github.com/MarcoLadeira/Vesta/issues/293).
 
 The launch is fully free. Pricing, entitlements, licensing, and closed-source
 fulfilment are post-launch discovery informed by actual use; they are not alpha
@@ -90,9 +90,9 @@ repeatable guardrail rather than a production latency claim; the clean path
 opened no repository files in its contract test.
 
 The hard remaining public-alpha block is artifact/release confidence:
-[#290](https://github.com/MarcoLadeira/OPai/issues/290) and
-[#293](https://github.com/MarcoLadeira/OPai/issues/293). Outcome measurement
-([#288](https://github.com/MarcoLadeira/OPai/issues/288)), real-provider smoke,
+[#290](https://github.com/MarcoLadeira/Vesta/issues/290) and
+[#293](https://github.com/MarcoLadeira/Vesta/issues/293). Outcome measurement
+([#288](https://github.com/MarcoLadeira/Vesta/issues/288)), real-provider smoke,
 GUI/CLI parity, a controlled macOS lock/platform run, and clean Windows/macOS
 artifact journeys are still required. Local JavaScript and Playwright evidence
 now exists on this branch, but it is not packaged-artifact or accessibility
@@ -195,7 +195,7 @@ capabilities, execution plans, normalized events, probes, and usage extraction
 (vestahub/provider_adapters.py:19-111, 160-224, 278-354). Provider knowledge is
 nevertheless split across account specs, free model specs, local runners, model
 registry data, and inline command construction. This is tracked under
-[epic #295](https://github.com/MarcoLadeira/OPai/issues/295).
+[epic #295](https://github.com/MarcoLadeira/Vesta/issues/295).
 
 Free API calls require an explicit cloud confirmation before repository context
 leaves the device (vesta/app_state.py:696-728). Local endpoint discovery accepts
@@ -276,14 +276,14 @@ workflow_dispatch triggers (.github/workflows/ci.yml:3-11;
 .github/workflows/ci-selfhosted.yml:3-12). The self-hosted workflow records that
 its broker can remain “online” while jobs queue indefinitely
 (.github/workflows/ci-selfhosted.yml:6-9;
-[#264](https://github.com/MarcoLadeira/OPai/issues/264)).
+[#264](https://github.com/MarcoLadeira/Vesta/issues/264)).
 
 The clean-install smoke builds and installs the core wheel, checks packaged web
 assets, and executes CLI smoke commands
 (scripts/smoke-install.py:130-185). It does not install desktop-gui, render the
 real PySide6 window, or produce and launch distributable Windows/macOS desktop
 artifacts. That is the central release-proof gap in
-[#290](https://github.com/MarcoLadeira/OPai/issues/290).
+[#290](https://github.com/MarcoLadeira/Vesta/issues/290).
 
 ## 3. Critical user-journey status
 
@@ -293,23 +293,23 @@ promise for a public alpha.
 
 | Journey | Status | Verified behaviour | Remaining release evidence or defect |
 |---|---|---|---|
-| Installation and first launch | **Blocked** | Wheel/CLI smoke and packaged web-asset checks exist; vesta-gui entry point exists. | No desktop artifact, GUI-extra install, clean first-launch, upgrade, uninstall, signing/notarisation, or macOS artifact proof. See [#290](https://github.com/MarcoLadeira/OPai/issues/290) and [#293](https://github.com/MarcoLadeira/OPai/issues/293). |
+| Installation and first launch | **Blocked** | Wheel/CLI smoke and packaged web-asset checks exist; vesta-gui entry point exists. | No desktop artifact, GUI-extra install, clean first-launch, upgrade, uninstall, signing/notarisation, or macOS artifact proof. See [#290](https://github.com/MarcoLadeira/Vesta/issues/290) and [#293](https://github.com/MarcoLadeira/Vesta/issues/293). |
 | Provider configuration | **Partial** | Connection Doctor, guided account sign-in, free-key keyring storage, live tests, and recovery actions exist (vesta/assets/web/app.js:1545-1741). | Needs packaged-app and real-provider smoke; provider capability metadata is fragmented. |
 | Open or select a repository | **Working with release validation pending** | The bridge opens a native folder picker, resolves Git root, saves active context, displays branch/dirty count, and keeps workspace recents. | Exercise nested repos, invalid folders, permissions, and reopen behaviour from artifacts. |
 | Ask a read-only question | **Partial** | Account, free API, and local paths answer; cloud requires consent; errors are typed. | The model-less CLI uses a different path; local responses do not stream; multi-turn context is absent. |
-| Request a code change | **Blocked** | Account providers and free APIs have edit-oriented plumbing and bounded tools. | Copilot over-authority and prose-only local false success make the generic promise unsafe. See [#284](https://github.com/MarcoLadeira/OPai/issues/284) and [#285](https://github.com/MarcoLadeira/OPai/issues/285). |
+| Request a code change | **Blocked** | Account providers and free APIs have edit-oriented plumbing and bounded tools. | Copilot over-authority and prose-only local false success make the generic promise unsafe. See [#284](https://github.com/MarcoLadeira/Vesta/issues/284) and [#285](https://github.com/MarcoLadeira/Vesta/issues/285). |
 | Review a proposed change | **Partial/strong** | Current-task paths receive bounded diff evidence, risk markers, and persisted decisions. | A false-success local edit can reach review state with no real change; packaged GUI review is unproved. |
 | Apply a change | **Partial** | Repository tools enforce root/path/size/call bounds and dirty overlap; build loop has deterministic apply/rollback. | Provider-specific edit support is inconsistent; Copilot edit must fail closed until bounded. |
-| Cancel an operation | **Working per run** | GUI Stop, window close, CLI Ctrl+C, local HTTP cancellation, and account process-tree termination are implemented. | No global active-session registry or crash-time orphan sweep. See [#295](https://github.com/MarcoLadeira/OPai/issues/295). |
+| Cancel an operation | **Working per run** | GUI Stop, window close, CLI Ctrl+C, local HTTP cancellation, and account process-tree termination are implemented. | No global active-session registry or crash-time orphan sweep. See [#295](https://github.com/MarcoLadeira/Vesta/issues/295). |
 | Recover from failure | **Partial/strong** | Typed provider errors, stale-auth cache invalidation, pre-edit checkpoints, interrupted-run recovery, partial output retention, and rollback helpers exist. | Recovery rate is not instrumented; session ownership is not global; packaged crash recovery is untested. |
 | Switch between GUI and CLI | **Partial** | CLI asks with --model use the exact GUI pipeline and receipt/event contracts. | Model-less CLI ask and classic GUI remain divergent paths; behavioural parity is not measured. |
-| View token and cost information | **Blocked for trust** | Local ledger, route comparison, model-call events, budgets, receipts, and confidence labels exist. | Free GUI calls and summaries can count spend more than once. See [#286](https://github.com/MarcoLadeira/OPai/issues/286). |
-| Return to an existing project | **Partial** | Project state, preferences, workflow state, local prompt recents, and caches persist. | Recents are prompts, not conversation memory; there is no visible/editable project memory source. See [#294](https://github.com/MarcoLadeira/OPai/issues/294). |
+| View token and cost information | **Blocked for trust** | Local ledger, route comparison, model-call events, budgets, receipts, and confidence labels exist. | Free GUI calls and summaries can count spend more than once. See [#286](https://github.com/MarcoLadeira/Vesta/issues/286). |
+| Return to an existing project | **Partial** | Project state, preferences, workflow state, local prompt recents, and caches persist. | Recents are prompts, not conversation memory; there is no visible/editable project memory source. See [#294](https://github.com/MarcoLadeira/Vesta/issues/294). |
 | Work in a dirty worktree | **Working/strong** | Baseline dirty files are captured; intended-path conflicts block; unrelated work is preserved; checkpoints distinguish run-attributed paths. | Add artifact/E2E coverage and keep this contract unchanged. |
 | Handle missing credentials | **Working with validation pending** | Missing key/account states are typed, actionable, and secret-safe; connection status does not expose values. | Verify every provider from a clean packaged installation. |
 | Handle provider failure | **Partial/strong** | Stable error codes cover auth, rate limit, timeout, unavailable, invalid config, and stream failure; recovery actions are surfaced. | Real provider contract smoke and lifecycle metrics are absent. |
 | Handle partial tool execution | **Partial** | Partial account output survives cancellation; checkpoints and workflow events retain evidence. | No single-flight registry, terminal-outcome invariant, or comprehensive partial-session reconciliation. |
-| Handle unsupported or dangerous action | **Blocked until trust patch** | Destructive intent is confirmation-gated; command policy and safety gates fail closed; Full Auto is pinned. | Copilot all-tools and generic publish capabilities contradict the boundary. See [#283](https://github.com/MarcoLadeira/OPai/issues/283) and [#284](https://github.com/MarcoLadeira/OPai/issues/284). |
+| Handle unsupported or dangerous action | **Blocked until trust patch** | Destructive intent is confirmation-gated; command policy and safety gates fail closed; Full Auto is pinned. | Copilot all-tools and generic publish capabilities contradict the boundary. See [#283](https://github.com/MarcoLadeira/Vesta/issues/283) and [#284](https://github.com/MarcoLadeira/Vesta/issues/284). |
 
 ## 4. Product definition and measurable alpha target
 
@@ -418,8 +418,8 @@ means release ordering, not severity theatre.
 - **Recommended outcome:** Reject unsupported local and Copilot edits before
   execution with one capability_mismatch shape; preserve supported read paths.
 - **Dependencies:** Shared policy/pipeline contract; issues
-  [#284](https://github.com/MarcoLadeira/OPai/issues/284) and
-  [#285](https://github.com/MarcoLadeira/OPai/issues/285).
+  [#284](https://github.com/MarcoLadeira/Vesta/issues/284) and
+  [#285](https://github.com/MarcoLadeira/Vesta/issues/285).
 - **Risk:** Existing users see less apparent functionality; that is an honest
   capability reduction, not a regression.
 - **Validation:** Runner-not-called, cache-not-called, no-event/no-receipt,
@@ -443,9 +443,9 @@ means release ordering, not severity theatre.
   telemetry.
 - **Recommended outcome:** model_call is the only spend event; route remains a
   separate counterfactual; add outcome-linked metrics only after exactness.
-- **Dependencies:** [#286](https://github.com/MarcoLadeira/OPai/issues/286)
-  before [#288](https://github.com/MarcoLadeira/OPai/issues/288), under
-  [epic #292](https://github.com/MarcoLadeira/OPai/issues/292).
+- **Dependencies:** [#286](https://github.com/MarcoLadeira/Vesta/issues/286)
+  before [#288](https://github.com/MarcoLadeira/Vesta/issues/288), under
+  [epic #292](https://github.com/MarcoLadeira/Vesta/issues/292).
 - **Risk:** Historic ledgers contain legacy semantics. Do not rewrite them
   silently; version and explain summaries.
 - **Validation:** One route plus one model_call per integrated call; budget and
@@ -470,7 +470,7 @@ means release ordering, not severity theatre.
 - **Recommended outcome:** Move heavy slots to cancellable workers with stale
   result guards; add honest local streaming or explicit non-streaming state.
 - **Dependencies:** Existing Calm Stream work and
-  [epic #295](https://github.com/MarcoLadeira/OPai/issues/295), especially
+  [epic #295](https://github.com/MarcoLadeira/Vesta/issues/295), especially
   existing issues #146 and #154.
 - **Risk:** Async conversion can reorder state and introduce stale updates.
 - **Validation:** GUI heartbeat/p95 interaction test on small and large repos,
@@ -510,8 +510,8 @@ means release ordering, not severity theatre.
   decision-table gate covers all entry points.
 - **Recommended outcome:** Establish one request/result contract and a
   surface-adapter layer; do not rewrite the functioning core.
-- **Dependencies:** [#291](https://github.com/MarcoLadeira/OPai/issues/291) and
-  [#295](https://github.com/MarcoLadeira/OPai/issues/295).
+- **Dependencies:** [#291](https://github.com/MarcoLadeira/Vesta/issues/291) and
+  [#295](https://github.com/MarcoLadeira/Vesta/issues/295).
 - **Risk:** Consolidation can break CLI compatibility or GUI-specific recovery.
 - **Validation:** Feed equivalent fixtures to GUI bridge, streaming CLI, and
   model-less CLI; assert policy, terminal status, events, changed files, and
@@ -557,8 +557,8 @@ means release ordering, not severity theatre.
   planning, and the adapter contract is not the sole source of truth.
 - **Recommended outcome:** Fail Copilot edits closed now; later make one
   capability/health record feed picker, doctor, router, and runner.
-- **Dependencies:** [#284](https://github.com/MarcoLadeira/OPai/issues/284) then
-  [#295](https://github.com/MarcoLadeira/OPai/issues/295).
+- **Dependencies:** [#284](https://github.com/MarcoLadeira/Vesta/issues/284) then
+  [#295](https://github.com/MarcoLadeira/Vesta/issues/295).
 - **Risk:** Provider CLI versions and flags change outside Vesta.
 - **Validation:** Command snapshots by provider/mode; unsupported-capability
   matrix; versioned live smoke with no repository mutation.
@@ -589,8 +589,8 @@ means release ordering, not severity theatre.
   variable task and repository deltas, native cache read/write fields remain
   provider-specific, and unavailable data remains unknown. Evaluate retrieval
   before default.
-- **Dependencies:** [#287](https://github.com/MarcoLadeira/OPai/issues/287)
-  before [#289](https://github.com/MarcoLadeira/OPai/issues/289).
+- **Dependencies:** [#287](https://github.com/MarcoLadeira/Vesta/issues/287)
+  before [#289](https://github.com/MarcoLadeira/Vesta/issues/289).
 - **Risk:** Hashing large worktrees adds latency and must never persist content.
 - **Validation:** Same-path byte-change, untracked, ignored, binary, oversized,
   expiry, corruption, and clean fast-path tests; adapter fixtures preserve any
@@ -614,8 +614,8 @@ means release ordering, not severity theatre.
 - **Recommended outcome:** Incremental, explainable context selection with safe
   fallback and user-visible provenance.
 - **Dependencies:** Exact accounting, cache correctness, and task-outcome
-  instrumentation; [#289](https://github.com/MarcoLadeira/OPai/issues/289) and
-  [#294](https://github.com/MarcoLadeira/OPai/issues/294).
+  instrumentation; [#289](https://github.com/MarcoLadeira/Vesta/issues/289) and
+  [#294](https://github.com/MarcoLadeira/Vesta/issues/294).
 - **Risk:** Retrieval omissions silently reduce code quality.
 - **Validation:** Representative task fixtures comparing completion quality,
   selected tokens, update latency, and fallback rate against current behaviour.
@@ -635,7 +635,7 @@ means release ordering, not severity theatre.
   capability bundle.
 - **Recommended outcome:** Separate local implementation, publication, and ship;
   add publish only for a positive explicit request, with clause-aware negation.
-- **Dependencies:** [#283](https://github.com/MarcoLadeira/OPai/issues/283).
+- **Dependencies:** [#283](https://github.com/MarcoLadeira/Vesta/issues/283).
 - **Risk:** Natural-language matching can over-grant on negated or quoted text.
 - **Validation:** Positive, negative, mixed-clause, and surface-parity decision
   tables; ordinary edit never exposes publish/merge/deploy.
@@ -657,7 +657,7 @@ means release ordering, not severity theatre.
 - **Recommended outcome:** Remove the unrestricted flag and return a typed
   mismatch until a bounded Copilot adapter exists. Preserve existing layered
   gates.
-- **Dependencies:** [#284](https://github.com/MarcoLadeira/OPai/issues/284).
+- **Dependencies:** [#284](https://github.com/MarcoLadeira/Vesta/issues/284).
 - **Risk:** Users may assume Safe Auto means “works everywhere”; copy must say
   which providers support edits.
 - **Validation:** Static search for unsafe flags, runner-not-called tests,
@@ -681,7 +681,7 @@ means release ordering, not severity theatre.
 - **Recommended outcome:** Add one request/session registry, single-flight
   cancellation, startup orphan sweep, and terminal-outcome invariant.
 - **Dependencies:** Stable request IDs and
-  [#295](https://github.com/MarcoLadeira/OPai/issues/295).
+  [#295](https://github.com/MarcoLadeira/Vesta/issues/295).
 - **Risk:** Cross-platform process handles and stale PID reuse.
 - **Validation:** Retry-race, window-close, Ctrl+C, timeout, crash/restart, child
   process, and orphan-count tests on Windows and macOS.
@@ -702,7 +702,7 @@ means release ordering, not severity theatre.
   resolution.
 - **Recommended outcome:** Make policy at least as restrictive as tool exposure;
   retain double consent and merge gates.
-- **Dependencies:** [#283](https://github.com/MarcoLadeira/OPai/issues/283).
+- **Dependencies:** [#283](https://github.com/MarcoLadeira/Vesta/issues/283).
 - **Risk:** Existing tests may encode overbroad capabilities.
 - **Validation:** End-to-end matrix across plain edit, commit request, push
   request, PR request, explicit prohibition, missing token, and consent off.
@@ -761,7 +761,7 @@ means release ordering, not severity theatre.
   and audit design. Add fixtures proving injected repository/tool/MCP content
   cannot alter authority, leak tokens, escape allowed paths, or make a remote
   call without explicit authorization.
-- **Dependencies:** [#284](https://github.com/MarcoLadeira/OPai/issues/284).
+- **Dependencies:** [#284](https://github.com/MarcoLadeira/Vesta/issues/284).
 - **Risk:** Static secret regexes cannot catch every credential form; provider
   CLIs and local/remote MCP servers are external trust dependencies. Prompt
   injection can still influence planning within an allowed capability, so
@@ -789,7 +789,7 @@ means release ordering, not severity theatre.
   JavaScript, E2E, provider contracts, failure/cancel, packaging, and platform
   smokes as one release evidence set.
 - **Dependencies:** Trust implementation and
-  [#293](https://github.com/MarcoLadeira/OPai/issues/293).
+  [#293](https://github.com/MarcoLadeira/Vesta/issues/293).
 - **Risk:** Mock-heavy suites can prove shape without proving a real provider or
   Qt runtime.
 - **Validation:** Preserve red-first evidence for each defect; clean-environment
@@ -812,9 +812,9 @@ means release ordering, not severity theatre.
   rather than one request/outcome lifecycle.
 - **Recommended outcome:** Fix exact-once spend, then add privacy-safe terminal
   outcomes keyed by stable request IDs and reconciled to ledgers.
-- **Dependencies:** [#286](https://github.com/MarcoLadeira/OPai/issues/286),
-  [#288](https://github.com/MarcoLadeira/OPai/issues/288), and
-  [#295](https://github.com/MarcoLadeira/OPai/issues/295).
+- **Dependencies:** [#286](https://github.com/MarcoLadeira/Vesta/issues/286),
+  [#288](https://github.com/MarcoLadeira/Vesta/issues/288), and
+  [#295](https://github.com/MarcoLadeira/Vesta/issues/295).
 - **Risk:** Bad outcome definitions reward short failed answers; telemetry must
   not store prompts or source.
 - **Validation:** Ledger reconciliation, one terminal per task, unknown-value
@@ -837,8 +837,8 @@ means release ordering, not severity theatre.
 - **Recommended outcome:** Reproducible free Windows and macOS artifacts,
   clean-runner launch smoke, assets/first-run/exit/upgrade/uninstall/rollback,
   checksums, provenance, and explicit signing status.
-- **Dependencies:** [#290](https://github.com/MarcoLadeira/OPai/issues/290) under
-  [#293](https://github.com/MarcoLadeira/OPai/issues/293).
+- **Dependencies:** [#290](https://github.com/MarcoLadeira/Vesta/issues/290) under
+  [#293](https://github.com/MarcoLadeira/Vesta/issues/293).
 - **Risk:** Signing/notarisation credentials and platform-specific deployment
   behaviour are external.
 - **Validation:** Fresh VMs/runners with no source checkout or developer
@@ -860,7 +860,7 @@ means release ordering, not severity theatre.
   artifact-level execution.
 - **Recommended outcome:** Make target-platform artifact smoke a visible release
   gate; keep Linux wheel coverage useful but not a desktop launch blocker.
-- **Dependencies:** [#293](https://github.com/MarcoLadeira/OPai/issues/293),
+- **Dependencies:** [#293](https://github.com/MarcoLadeira/Vesta/issues/293),
   issue #18, and reliable CI delivery.
 - **Risk:** A single maintainer machine can hide clean-HOME, locale, path,
   keychain, permissions, and signing problems.
@@ -932,7 +932,7 @@ means release ordering, not severity theatre.
 - **Recommended outcome:** Reliable automatic merge gate plus deliberate
   cross-platform release matrix, reproducible preflight/dry run, checksums,
   rollback rehearsal, and published evidence.
-- **Dependencies:** [#293](https://github.com/MarcoLadeira/OPai/issues/293),
+- **Dependencies:** [#293](https://github.com/MarcoLadeira/Vesta/issues/293),
   existing #32 and #264.
 - **Risk:** Re-enabling hosted jobs without budget controls can exhaust minutes;
   relying only on self-hosted CI can silently queue forever.
@@ -957,8 +957,8 @@ means release ordering, not severity theatre.
   control plane; describe measured facts and unknowns; price only after usage
   evidence.
 - **Dependencies:** Exact accounting
-  ([#292](https://github.com/MarcoLadeira/OPai/issues/292)) and release proof
-  ([#293](https://github.com/MarcoLadeira/OPai/issues/293)).
+  ([#292](https://github.com/MarcoLadeira/Vesta/issues/292)) and release proof
+  ([#293](https://github.com/MarcoLadeira/Vesta/issues/293)).
 - **Risk:** “Cost firewall” can imply guaranteed savings when only route
   estimates exist.
 - **Validation:** Claim-to-code/evidence matrix, launch-copy review, user
@@ -978,7 +978,7 @@ means release ordering, not severity theatre.
 - **Root cause:** Duplicated ownership at boundaries—not generally poor code or
   a need for a rewrite.
 - **Recommended outcome:** Complete
-  [epic #291](https://github.com/MarcoLadeira/OPai/issues/291), then exact
+  [epic #291](https://github.com/MarcoLadeira/Vesta/issues/291), then exact
   release proof. Defer broad refactors.
 - **Dependencies:** Issues #283-#286 and release epic #293.
 - **Risk:** Treating all technical debt as P0 dilutes focus; treating these four
@@ -1007,17 +1007,17 @@ The programme should narrow unsafe edges around these systems, not replace them.
 
 | Horizon | Work | Why | Exit condition |
 |---|---|---|---|
-| **P0 public-alpha blocker** | [#283 explicit publish intent](https://github.com/MarcoLadeira/OPai/issues/283) | Least-authority and publication truth | Plain edits cannot push/open PR/merge/deploy; negation wins. |
-| **P0 public-alpha blocker** | [#284 Copilot fail-closed edits](https://github.com/MarcoLadeira/OPai/issues/284) | Removes unrestricted provider authority | No all-tools construction; read works; edit emits mismatch before launch. |
-| **P0 public-alpha blocker** | [#285 truthful local edit mismatch](https://github.com/MarcoLadeira/OPai/issues/285) | Stops fabricated mutation success | Edit intent calls no cache/model and produces no success evidence. |
-| **P0 public-alpha blocker** | [#286 exact-once spend](https://github.com/MarcoLadeira/OPai/issues/286) | Restores cost truth and budget correctness | One route + one model_call; only model_call spends. |
-| **P0 public-alpha blocker** | [#290 desktop artifacts](https://github.com/MarcoLadeira/OPai/issues/290) and [#293 release confidence](https://github.com/MarcoLadeira/OPai/issues/293) | Source/wheel proof is not a desktop release | Clean Windows/macOS artifact lifecycle passes with provenance and limitations. |
-| **P0/P1 release-critical** | Existing #146 GUI freeze and #264 CI runner reliability, grouped in [#295](https://github.com/MarcoLadeira/OPai/issues/295) / [#293](https://github.com/MarcoLadeira/OPai/issues/293) | Responsive desktop and enforceable checks | No long main-thread block on critical journey; required validation starts reliably. |
-| **P1 public-alpha evidence gate** | [#287 content-aware cache and expiry](https://github.com/MarcoLadeira/OPai/issues/287) | Correctness before reuse savings | Dirty/untracked bytes, schema, expiry, corrupt, and uncertain inputs cannot return a stale result. If it is not landed, disable result reuse rather than only bypassing dirty repositories. |
-| **P1 public-alpha evidence gate** | [#288 outcome metrics](https://github.com/MarcoLadeira/OPai/issues/288) | Establishes honest product baselines | Every run has at most one terminal outcome that reconciles calls, cost, cache decisions, recovery, and quality evidence without raw prompt/source telemetry. |
-| **P1 release-critical subset** | Provider lifecycle/session registry in [#295](https://github.com/MarcoLadeira/OPai/issues/295) | Single-flight, orphan, and recovery confidence | The launch-supported provider paths have one active process per request, one terminal outcome, bounded cancellation, and zero surviving children in tests. |
+| **P0 public-alpha blocker** | [#283 explicit publish intent](https://github.com/MarcoLadeira/Vesta/issues/283) | Least-authority and publication truth | Plain edits cannot push/open PR/merge/deploy; negation wins. |
+| **P0 public-alpha blocker** | [#284 Copilot fail-closed edits](https://github.com/MarcoLadeira/Vesta/issues/284) | Removes unrestricted provider authority | No all-tools construction; read works; edit emits mismatch before launch. |
+| **P0 public-alpha blocker** | [#285 truthful local edit mismatch](https://github.com/MarcoLadeira/Vesta/issues/285) | Stops fabricated mutation success | Edit intent calls no cache/model and produces no success evidence. |
+| **P0 public-alpha blocker** | [#286 exact-once spend](https://github.com/MarcoLadeira/Vesta/issues/286) | Restores cost truth and budget correctness | One route + one model_call; only model_call spends. |
+| **P0 public-alpha blocker** | [#290 desktop artifacts](https://github.com/MarcoLadeira/Vesta/issues/290) and [#293 release confidence](https://github.com/MarcoLadeira/Vesta/issues/293) | Source/wheel proof is not a desktop release | Clean Windows/macOS artifact lifecycle passes with provenance and limitations. |
+| **P0/P1 release-critical** | Existing #146 GUI freeze and #264 CI runner reliability, grouped in [#295](https://github.com/MarcoLadeira/Vesta/issues/295) / [#293](https://github.com/MarcoLadeira/Vesta/issues/293) | Responsive desktop and enforceable checks | No long main-thread block on critical journey; required validation starts reliably. |
+| **P1 public-alpha evidence gate** | [#287 content-aware cache and expiry](https://github.com/MarcoLadeira/Vesta/issues/287) | Correctness before reuse savings | Dirty/untracked bytes, schema, expiry, corrupt, and uncertain inputs cannot return a stale result. If it is not landed, disable result reuse rather than only bypassing dirty repositories. |
+| **P1 public-alpha evidence gate** | [#288 outcome metrics](https://github.com/MarcoLadeira/Vesta/issues/288) | Establishes honest product baselines | Every run has at most one terminal outcome that reconciles calls, cost, cache decisions, recovery, and quality evidence without raw prompt/source telemetry. |
+| **P1 release-critical subset** | Provider lifecycle/session registry in [#295](https://github.com/MarcoLadeira/Vesta/issues/295) | Single-flight, orphan, and recovery confidence | The launch-supported provider paths have one active process per request, one terminal outcome, bounded cancellation, and zero surviving children in tests. |
 | **P1 high** | Full JavaScript/accessibility and real-provider smoke | Closes desktop validation gap | Vitest/Playwright and manual keyboard/screen-reader journeys pass on artifacts. |
-| **Post-alpha / evidence-gated** | [#289 bounded index integration](https://github.com/MarcoLadeira/OPai/issues/289) and [#294 repository intelligence](https://github.com/MarcoLadeira/OPai/issues/294) | High-leverage differentiation, not required for truthful launch | Non-inferior quality with measured lower context and conservative fallback. |
+| **Post-alpha / evidence-gated** | [#289 bounded index integration](https://github.com/MarcoLadeira/Vesta/issues/289) and [#294 repository intelligence](https://github.com/MarcoLadeira/Vesta/issues/294) | High-leverage differentiation, not required for truthful launch | Non-inferior quality with measured lower context and conservative fallback. |
 | **Post-alpha** | Visible/editable project memory (existing #131) | Improves returning-user efficiency | User can inspect, correct, clear, and trace every persisted fact. |
 | **Post-alpha** | Vesta Build/product expansion | Broader creation workflow | Reprioritise from alpha evidence, not roadmap momentum. |
 | **Post-launch discovery** | Pricing, editions, licensing, paid fulfilment | User has explicitly chosen a fully free launch | Use outcome/support/cost evidence to decide what, if anything, becomes paid. |
@@ -1045,26 +1045,26 @@ must not be presented as measured outcomes.
 | Added latency from optimisation | Some elapsed activity | No before/after benchmark around cache/index/context | Local deterministic benchmark with warm/cold and bypass cases. |
 | Quality impact of optimisation | Eval harness components | No production-context non-inferiority gate | Fixed representative tasks and outcome rubric before enabling retrieval/cache changes. |
 
-[#288](https://github.com/MarcoLadeira/OPai/issues/288) owns the task-outcome
-foundation. [#287](https://github.com/MarcoLadeira/OPai/issues/287) owns cache
-decision truth, and [#289](https://github.com/MarcoLadeira/OPai/issues/289)
+[#288](https://github.com/MarcoLadeira/Vesta/issues/288) owns the task-outcome
+foundation. [#287](https://github.com/MarcoLadeira/Vesta/issues/287) owns cache
+decision truth, and [#289](https://github.com/MarcoLadeira/Vesta/issues/289)
 consumes both before claiming context savings.
 
 ## 9. Selected immediate programme
 
 ### Programme
 
-**[Epic #291 — Alpha trust: truthful capabilities, execution, and publication](https://github.com/MarcoLadeira/OPai/issues/291)**
+**[Epic #291 — Alpha trust: truthful capabilities, execution, and publication](https://github.com/MarcoLadeira/Vesta/issues/291)**
 
 Execution order:
 
-1. [#283 — Require explicit publish intent before push or pull-request capabilities](https://github.com/MarcoLadeira/OPai/issues/283)
-2. [#284 — Fail closed when Copilot cannot safely execute repository edits](https://github.com/MarcoLadeira/OPai/issues/284)
-3. [#285 — Return truthful capability mismatch for prose-only local edit requests](https://github.com/MarcoLadeira/OPai/issues/285)
-4. [#286 — Count model spend exactly once across GUI and CLI ledgers](https://github.com/MarcoLadeira/OPai/issues/286)
+1. [#283 — Require explicit publish intent before push or pull-request capabilities](https://github.com/MarcoLadeira/Vesta/issues/283)
+2. [#284 — Fail closed when Copilot cannot safely execute repository edits](https://github.com/MarcoLadeira/Vesta/issues/284)
+3. [#285 — Return truthful capability mismatch for prose-only local edit requests](https://github.com/MarcoLadeira/Vesta/issues/285)
+4. [#286 — Count model spend exactly once across GUI and CLI ledgers](https://github.com/MarcoLadeira/Vesta/issues/286)
 
 Issue #286 is **primarily owned by
-[epic #292 — Cost efficiency](https://github.com/MarcoLadeira/OPai/issues/292)**,
+[epic #292 — Cost efficiency](https://github.com/MarcoLadeira/Vesta/issues/292)**,
 but it belongs in the immediate Alpha Trust programme because an inflated
 receipt or budget is the same class of user-trust failure as a fabricated edit
 or overbroad permission. Trust is the programme outcome; roadmap ownership does
@@ -1114,19 +1114,19 @@ not dictate implementation sequence.
 
 | Issue | Programme role | Alpha relationship |
 |---|---|---|
-| [#283](https://github.com/MarcoLadeira/OPai/issues/283) | Explicit publish intent | Immediate P0 |
-| [#284](https://github.com/MarcoLadeira/OPai/issues/284) | Copilot edit fail-closed | Immediate P0 |
-| [#285](https://github.com/MarcoLadeira/OPai/issues/285) | Local prose edit truth | Immediate P0 |
-| [#286](https://github.com/MarcoLadeira/OPai/issues/286) | Exact-once spend | Immediate P0; primarily cost epic |
-| [#287](https://github.com/MarcoLadeira/OPai/issues/287) | Content-aware expiring result cache | P1 correctness |
-| [#288](https://github.com/MarcoLadeira/OPai/issues/288) | Outcome and avoided-call metrics | P1 measurement |
-| [#289](https://github.com/MarcoLadeira/OPai/issues/289) | Evaluated bounded context selection | Post-trust P2 |
-| [#290](https://github.com/MarcoLadeira/OPai/issues/290) | Windows/macOS desktop artifacts | P0 release proof |
-| [#291](https://github.com/MarcoLadeira/OPai/issues/291) | Alpha trust epic | First programme |
-| [#292](https://github.com/MarcoLadeira/OPai/issues/292) | Cost truth/reuse/outcomes epic | P0/P1 |
-| [#293](https://github.com/MarcoLadeira/OPai/issues/293) | Free alpha release-confidence epic | Next programme |
-| [#294](https://github.com/MarcoLadeira/OPai/issues/294) | Repository intelligence/cache/memory epic | Post-trust differentiation |
-| [#295](https://github.com/MarcoLadeira/OPai/issues/295) | Provider lifecycle/recovery epic | P1 with release-critical children |
+| [#283](https://github.com/MarcoLadeira/Vesta/issues/283) | Explicit publish intent | Immediate P0 |
+| [#284](https://github.com/MarcoLadeira/Vesta/issues/284) | Copilot edit fail-closed | Immediate P0 |
+| [#285](https://github.com/MarcoLadeira/Vesta/issues/285) | Local prose edit truth | Immediate P0 |
+| [#286](https://github.com/MarcoLadeira/Vesta/issues/286) | Exact-once spend | Immediate P0; primarily cost epic |
+| [#287](https://github.com/MarcoLadeira/Vesta/issues/287) | Content-aware expiring result cache | P1 correctness |
+| [#288](https://github.com/MarcoLadeira/Vesta/issues/288) | Outcome and avoided-call metrics | P1 measurement |
+| [#289](https://github.com/MarcoLadeira/Vesta/issues/289) | Evaluated bounded context selection | Post-trust P2 |
+| [#290](https://github.com/MarcoLadeira/Vesta/issues/290) | Windows/macOS desktop artifacts | P0 release proof |
+| [#291](https://github.com/MarcoLadeira/Vesta/issues/291) | Alpha trust epic | First programme |
+| [#292](https://github.com/MarcoLadeira/Vesta/issues/292) | Cost truth/reuse/outcomes epic | P0/P1 |
+| [#293](https://github.com/MarcoLadeira/Vesta/issues/293) | Free alpha release-confidence epic | Next programme |
+| [#294](https://github.com/MarcoLadeira/Vesta/issues/294) | Repository intelligence/cache/memory epic | Post-trust differentiation |
+| [#295](https://github.com/MarcoLadeira/Vesta/issues/295) | Provider lifecycle/recovery epic | P1 with release-critical children |
 
 ## 11. Readiness gate checklist
 
@@ -1200,7 +1200,7 @@ blocked.**
 ## 12. Next programme: free alpha release confidence
 
 After the trust patch, execute
-**[epic #293 — Free alpha release confidence: artifacts, install, CI, rollback](https://github.com/MarcoLadeira/OPai/issues/293)**.
+**[epic #293 — Free alpha release confidence: artifacts, install, CI, rollback](https://github.com/MarcoLadeira/Vesta/issues/293)**.
 
 Recommended order:
 
@@ -1208,7 +1208,7 @@ Recommended order:
    the self-hosted queue failure without uncontrolled hosted spend.
 2. Complete clean install/activation and deterministic preflight/rollback work
    in existing issues #18 and #32.
-3. Deliver [#290](https://github.com/MarcoLadeira/OPai/issues/290): reproducible
+3. Deliver [#290](https://github.com/MarcoLadeira/Vesta/issues/290): reproducible
    free Windows and macOS desktop artifacts with real GUI/CLI smoke.
 4. Run the complete critical-journey, accessibility, process-cleanup, upgrade,
    uninstall, and rollback matrix.

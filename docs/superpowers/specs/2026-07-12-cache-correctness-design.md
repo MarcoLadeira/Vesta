@@ -3,7 +3,7 @@
 - **Date:** 2026-07-12
 - **Status:** Approved under the standing alpha-release direction to resolve
   release-critical GitHub issues without introducing paid or cloud dependencies.
-- **Issue:** [#287](https://github.com/MarcoLadeira/OPai/issues/287)
+- **Issue:** [#287](https://github.com/MarcoLadeira/Vesta/issues/287)
 
 ## Problem
 

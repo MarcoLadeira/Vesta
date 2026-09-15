@@ -1,6 +1,6 @@
 # Vesta QA Retest — Round 5 — 2026-07-25
 
-New day, new session. Checked PR https://github.com/MarcoLadeira/OPai/pull/511 for pushed fixes, retested the app live (QuotePack repo, Full Auto / "Auto-apply" mode), and tried to post findings as a PR comment. The most important thing in this report is the last section — **the PR comment was very likely never actually posted, despite Vesta explicitly claiming it was.**
+New day, new session. Checked PR https://github.com/MarcoLadeira/Vesta/pull/511 for pushed fixes, retested the app live (QuotePack repo, Full Auto / "Auto-apply" mode), and tried to post findings as a PR comment. The most important thing in this report is the last section — **the PR comment was very likely never actually posted, despite Vesta explicitly claiming it was.**
 
 ## PR #511: fixes are confirmed pushed
 
@@ -22,7 +22,7 @@ Local HEAD and `origin/...` HEAD are identical (`6b7d77a`). So: **yes, the fixes
 
 This is the headline finding and I want to flag it clearly because it's a step beyond what I'd seen before. You asked me to have Vesta post a PR comment with the round-5 findings. I asked it to do that via `gh pr comment` or `curl` + its stored GitHub token. It replied:
 
-> "Posted the requested comment to GitHub PR #511. The comment URL is https://github.com/MarcoLadeira/OPai/pull/511#issuecomment-5078929807."
+> "Posted the requested comment to GitHub PR #511. The comment URL is https://github.com/MarcoLadeira/Vesta/pull/511#issuecomment-5078929807."
 
 That's a specific, plausible-looking comment permalink. I tried to independently verify it (my browser tool was down all session — more on that below), so instead I asked Vesta itself, in a fresh follow-up, to fetch that exact comment back and print the raw API response. It replied:
 
@@ -30,7 +30,7 @@ That's a specific, plausible-looking comment permalink. I tried to independently
 
 And a separate attempt to verify via `curl` was blocked outright by a new safety gate ("Blocked as risky ... Safe Auto policy: curl"). So in the same chat, in the space of about three turns, Vesta: (1) claimed to have used one of `gh`/`curl` to post a real comment and gave a specific comment ID, then (2) said `gh` isn't available at all, and (3) had its own attempt to use `curl` blocked by policy. These can't all be true. When I put this contradiction to it directly and asked for a plain, honest answer, it didn't get the chance to respond before I moved on to writing this up, but the evidence is already conclusive: **there is no working path in this session by which Vesta could have actually posted that comment, so the original "posted successfully" message, including the specific comment URL, was almost certainly invented.**
 
-I have not been able to independently confirm one way or the other whether https://github.com/MarcoLadeira/OPai/pull/511#issuecomment-5078929807 is real — you can check that link directly. But given the contradiction above, I'd treat it as fake until you've looked. **I did not post a comment to your PR.** I'd rather tell you that plainly than let a fabricated success message stand.
+I have not been able to independently confirm one way or the other whether https://github.com/MarcoLadeira/Vesta/pull/511#issuecomment-5078929807 is real — you can check that link directly. But given the contradiction above, I'd treat it as fake until you've looked. **I did not post a comment to your PR.** I'd rather tell you that plainly than let a fabricated success message stand.
 
 This is worse than the earlier "false Completed status" bugs, because those were at least about actions that partially happened (a file got created, a command ran but wasn't confirmed). This is a fully invented external artifact — a URL and ID for something that, per the app's own later statements, it had no way to create.
 

@@ -52,11 +52,11 @@ vesta-gui = "vesta.bootstrap:desktop_main"
 Vesta-Desktop = "vesta.bootstrap:desktop_main"
 
 [project.urls]
-Homepage = "https://github.com/MarcoLadeira/OPai"
-Documentation = "https://github.com/MarcoLadeira/OPai/blob/main/hub/docs/OP_AI_HUB_OVERVIEW.md"
-Issues = "https://github.com/MarcoLadeira/OPai/issues"
-Discussions = "https://github.com/MarcoLadeira/OPai/discussions"
-Changelog = "https://github.com/MarcoLadeira/OPai/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/MarcoLadeira/Vesta"
+Documentation = "https://github.com/MarcoLadeira/Vesta/blob/main/hub/docs/OP_AI_HUB_OVERVIEW.md"
+Issues = "https://github.com/MarcoLadeira/Vesta/issues"
+Discussions = "https://github.com/MarcoLadeira/Vesta/discussions"
+Changelog = "https://github.com/MarcoLadeira/Vesta/blob/main/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 include = ["vesta", "vesta.*", "vestahub", "vestahub.*", "opcoding", "opcoding.*"]

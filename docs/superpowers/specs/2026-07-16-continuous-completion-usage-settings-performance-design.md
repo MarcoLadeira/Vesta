@@ -2,7 +2,7 @@
 
 - **Date:** 2026-07-16
 - **Status:** Written specification approved by the product owner on 2026-07-16
-- **Repository:** `MarcoLadeira/OPai`
+- **Repository:** `MarcoLadeira/Vesta`
 - **Target branch:** `codex/alpha-reliability`
 
 ## Outcome

@@ -16,7 +16,7 @@ if [ -z "${VESTA_INSTALL_ROOT:-}" ] && [ ! -e "$HOME/.vesta/source" ] && [ -d "$
   VESTA_INSTALL_ROOT="$HOME/.opai/source"
 fi
 
-VESTA_REPO_URL="${VESTA_REPO_URL:-https://github.com/MarcoLadeira/OPai.git}"
+VESTA_REPO_URL="${VESTA_REPO_URL:-https://github.com/MarcoLadeira/Vesta.git}"
 VESTA_BRANCH="${VESTA_BRANCH:-main}"
 VESTA_INSTALL_ROOT="${VESTA_INSTALL_ROOT:-$HOME/.vesta/source}"
 VESTA_PROJECT_ROOT="${VESTA_PROJECT_ROOT:-$(pwd)}"

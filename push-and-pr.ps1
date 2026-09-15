@@ -6,7 +6,7 @@ git push --set-upstream origin HEAD
 
 # 2. Create the PR via gh CLI
 gh pr create `
-  --repo MarcoLadeira/OPai `
+  --repo MarcoLadeira/Vesta `
   --title "feat: free API models and grouped model picker" `
   --base main `
   --head feat/free-models-model-picker-groups `

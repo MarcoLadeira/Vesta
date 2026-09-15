@@ -1,6 +1,6 @@
 # Run-Scoped Change Attribution Implementation Plan
 
-**Issue:** [#620](https://github.com/MarcoLadeira/OPai/issues/620)
+**Issue:** [#620](https://github.com/MarcoLadeira/Vesta/issues/620)
 
 **Goal:** Replace path-only `git status` comparisons with durable, fail-closed mutation evidence that can distinguish Vesta writes from pre-existing or concurrent user changes and bind verification and delivery to the exact attributed snapshot.
 

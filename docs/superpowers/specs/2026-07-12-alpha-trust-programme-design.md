@@ -2,7 +2,7 @@
 
 - **Date:** 2026-07-12
 - **Status:** Approved for implementation
-- **Repository:** `MarcoLadeira/OPai`
+- **Repository:** `MarcoLadeira/Vesta`
 **Baseline:** `f4c27b715d83b9febbcaab59d1d58dec8acf28ab`
 
 ## Decision

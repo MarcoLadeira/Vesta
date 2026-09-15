@@ -32,7 +32,7 @@ Grouped implementation in three workstreams:
 2. Detect or install `pipx` (preferred) or `uv`.
 3. Attempt PyPI install: `pipx install vesta` (or `uv tool install vesta`).
 4. If PyPI is unavailable or the package is not yet published, fall back to:
-   - Clone or update `https://github.com/MarcoLadeira/OPai.git` into `~/.vesta/source`
+   - Clone or update `https://github.com/MarcoLadeira/Vesta.git` into `~/.vesta/source`
    - `pip install -e .` inside that clone
 5. Add the install bin directory to the user PATH if needed.
 6. Run verification: `vesta --version` and `vesta doctor`.

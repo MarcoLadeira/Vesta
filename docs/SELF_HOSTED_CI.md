@@ -31,7 +31,7 @@ persistence.
    token scoped only to this repository with repository Administration **read**
    (plus Metadata read); GitHub's default workflow token cannot list repository
    runners. Do not grant write permission.
-2. Open <https://github.com/MarcoLadeira/OPai/settings/actions/runners/new>,
+2. Open <https://github.com/MarcoLadeira/Vesta/settings/actions/runners/new>,
    select Windows x64, and follow GitHub's current download instructions.
 3. Configure with the one-time token and add labels `Windows,X64` if they are not
    already automatic. The final label set must include all three required labels.
@@ -40,7 +40,7 @@ persistence.
    an interactive terminal:
 
    ```powershell
-   ./config.cmd --url https://github.com/MarcoLadeira/OPai --token <one-time-token> --labels Windows,X64
+   ./config.cmd --url https://github.com/MarcoLadeira/Vesta --token <one-time-token> --labels Windows,X64
    ./svc.cmd install
    ./svc.cmd start
    ```

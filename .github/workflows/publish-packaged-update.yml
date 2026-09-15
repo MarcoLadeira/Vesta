@@ -137,7 +137,7 @@ jobs:
       - name: Materialize protected metadata keys without logging them
         shell: bash
         env:
-          UPDATE_METADATA_KEYS_JSON: ${{ secrets.OPAI_UPDATE_METADATA_KEYS_JSON }}
+          UPDATE_METADATA_KEYS_JSON: ${{ secrets.VESTA_UPDATE_METADATA_KEYS_JSON }}
         run: |
           mkdir -p "$METADATA_KEYS"
           chmod 700 "$METADATA_KEYS"

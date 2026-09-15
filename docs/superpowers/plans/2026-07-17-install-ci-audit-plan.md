@@ -96,7 +96,7 @@ class SourceInstallTests(unittest.TestCase):
             install_root = Path(tmp) / "source"
             with mock.patch("subprocess.run", return_value=FakeCompleted()) as run:
                 self.assertTrue(install_vesta.install_from_source(
-                    "https://github.com/MarcoLadeira/OPai.git",
+                    "https://github.com/MarcoLadeira/Vesta.git",
                     "main",
                     install_root,
                 ))
@@ -110,7 +110,7 @@ class SourceInstallTests(unittest.TestCase):
             (install_root / ".git").mkdir(parents=True)
             with mock.patch("subprocess.run", return_value=FakeCompleted()) as run:
                 self.assertTrue(install_vesta.install_from_source(
-                    "https://github.com/MarcoLadeira/OPai.git",
+                    "https://github.com/MarcoLadeira/Vesta.git",
                     "main",
                     install_root,
                 ))
@@ -184,7 +184,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-REPO_URL = "https://github.com/MarcoLadeira/OPai.git"
+REPO_URL = "https://github.com/MarcoLadeira/Vesta.git"
 DEFAULT_INSTALL_ROOT = Path.home() / ".vesta" / "source"
 
 
@@ -375,7 +375,7 @@ $Python = if ($env:VESTA_PYTHON) {
 $ScriptPath = Join-Path $PSScriptRoot "scripts/install_vesta.py"
 if (-not (Test-Path $ScriptPath)) {
     $ScriptPath = Join-Path $env:TEMP "install_vesta.py"
-    $Url = "https://raw.githubusercontent.com/MarcoLadeira/OPai/main/scripts/install_vesta.py"
+    $Url = "https://raw.githubusercontent.com/MarcoLadeira/Vesta/main/scripts/install_vesta.py"
     Invoke-WebRequest -Uri $Url -OutFile $ScriptPath
 }
 
@@ -472,7 +472,7 @@ SCRIPT="$SCRIPT_DIR/scripts/install_vesta.py"
 
 if [ ! -f "$SCRIPT" ]; then
     SCRIPT="$(mktemp)"
-    curl -fsSL "https://raw.githubusercontent.com/MarcoLadeira/OPai/main/scripts/install_vesta.py" -o "$SCRIPT"
+    curl -fsSL "https://raw.githubusercontent.com/MarcoLadeira/Vesta/main/scripts/install_vesta.py" -o "$SCRIPT"
 fi
 
 exec "$PYTHON" "$SCRIPT" "$@"

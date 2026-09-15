@@ -75,6 +75,9 @@ LEGACY_CLINE_RULE = (".clinerules", "opai.md")
 LEGACY_CURSOR_RULE = (".cursor", "rules", "opai.mdc")
 LEGACY_IGNORE_FILENAME = ".opaiignore"
 
+# The GitHub repository before it was renamed; GitHub still redirects it.
+LEGACY_REPOSITORY = "MarcoLadeira/OPai"
+
 # Files a team commits to its repository. Repositories set up before the
 # rename still carry these names; they are read until someone renames them.
 LEGACY_TEAM_POLICY_FILE = "opai-team-policy.yaml"

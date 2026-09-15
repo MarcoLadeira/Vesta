@@ -49,7 +49,7 @@ def _fake_git(
             return _completed(0, "true\n") if default_ok else _completed(1)
         if key == ("remote", "get-url", "origin"):
             return (
-                _completed(0, "https://github.com/MarcoLadeira/OPai.git\n")
+                _completed(0, "https://github.com/MarcoLadeira/Vesta.git\n")
                 if default_ok
                 else _completed(1)
             )

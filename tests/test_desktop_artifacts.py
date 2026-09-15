@@ -1311,7 +1311,7 @@ class DesktopArtifactContractTests(unittest.TestCase):
         )
 
         self.assertIn(
-            "--signer-workflow MarcoLadeira/OPai/.github/workflows/desktop-artifacts.yml",
+            "--signer-workflow MarcoLadeira/Vesta/.github/workflows/desktop-artifacts.yml",
             runbook,
         )
         self.assertIn("--source-ref refs/heads/main", runbook)

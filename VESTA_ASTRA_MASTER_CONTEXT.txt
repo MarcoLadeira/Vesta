@@ -1,7 +1,7 @@
 VESTA / ASTRA MASTER PRODUCT + ENGINEERING CONTEXT
 ================================================
 Snapshot date: 2026-09-06
-Repository: MarcoLadeira/OPai
+Repository: MarcoLadeira/Vesta
 Purpose: Canonical strategic and engineering orientation for coding agents working on Vesta.
 Audience: Codex, Astra, Claude Code, Copilot, other engineering agents, and human contributors.
 

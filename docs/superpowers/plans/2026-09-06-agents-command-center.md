@@ -1,6 +1,6 @@
 # Agents command center implementation plan
 
-Issue: https://github.com/MarcoLadeira/OPai/issues/821
+Issue: https://github.com/MarcoLadeira/Vesta/issues/821
 
 Goal: supervise one engineering objective as safely isolated, independently routed assignments and produce one verified, cost-accounted outcome.
 

@@ -2,7 +2,7 @@
 
 - **Date:** 2026-07-12
 - **Status:** Approved by the product direction: the whole launch is free.
-- **Repository:** `MarcoLadeira/OPai`
+- **Repository:** `MarcoLadeira/Vesta`
 
 ## Decision
 

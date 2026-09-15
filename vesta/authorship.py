@@ -86,7 +86,7 @@ def with_coauthor(message: str) -> str:
 # Plain ASCII deliberately. This string reaches Windows consoles and log files
 # on a cp1252 default encoding, where an emoji raises UnicodeEncodeError — a
 # decorative character is not worth a crash on a code path that opens PRs.
-PR_ATTRIBUTION = f"Opened with [{VESTA_NAME}](https://github.com/MarcoLadeira/OPai)"
+PR_ATTRIBUTION = f"Opened with [{VESTA_NAME}](https://github.com/MarcoLadeira/Vesta)"
 
 
 def with_pr_attribution(body: str) -> str:

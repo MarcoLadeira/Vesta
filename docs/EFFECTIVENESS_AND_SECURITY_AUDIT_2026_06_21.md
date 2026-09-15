@@ -84,7 +84,7 @@ Public launch page:
 - No `issues/new` links.
 - No `founding-pro-interest.yml`, `team-pilot.yml`, or `benchmark-proof.yml`
   issue templates.
-- No raw `raw.githubusercontent.com/MarcoLadeira/OPai/main/install...` source
+- No raw `raw.githubusercontent.com/MarcoLadeira/Vesta/main/install...` source
   install links.
 - Private placeholders remain intentionally:
   - `PRIVATE_FOUNDING_PRO_CHECKOUT_URL`
