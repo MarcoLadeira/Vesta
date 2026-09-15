@@ -14,8 +14,8 @@ from vestahub.atomic_io import atomic_write_text, interprocess_transaction
 from vestahub.owner_lease import acquire as acquire_lease
 from vestahub.owner_lease import is_current as lease_is_current
 
-from .models import UpdateOperation, UpdatePolicy
-from vesta.legacy import home_item
+from .models import UpdateOperation, UpdateOwner, UpdatePolicy
+from vesta.legacy import LEGACY_PACKAGE, home_item
 
 
 @dataclass(frozen=True)
@@ -105,8 +105,8 @@ class UpdateStore:
             )
         if managed.get("channel") in {"stable", "beta", "alpha"}:
             set_managed("channel", str(managed["channel"]))
-        if managed.get("owner") in {"vesta", "mdm", "store", "manual"}:
-            set_managed("owner", str(managed["owner"]))
+        if managed.get("owner") in {"vesta", LEGACY_PACKAGE, "mdm", "store", "manual"}:
+            set_managed("owner", UpdateOwner(str(managed["owner"])).value)
         if isinstance(managed.get("maximum_deferral_hours"), int):
             set_managed("maximum_deferral_hours", managed["maximum_deferral_hours"])
         if isinstance(managed.get("mandatory_install_after"), str):

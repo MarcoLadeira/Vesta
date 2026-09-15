@@ -10,11 +10,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from vesta import legacy
+from vesta import gui_theme, legacy
+from vesta.update import factory
+from vesta.update.models import UpdateOwner
+from vesta.update.storage import UpdaterPaths, UpdateStore
 from vestahub import benchmark, change_attribution, team_policy, verification_policy
 
 
@@ -83,6 +88,68 @@ class FrozenAttributionDigestTests(unittest.TestCase):
         self.assertEqual(
             change_attribution._content_digest("path-identity", value), before_rename
         )
+
+
+class LegacyUpdatePolicyTests(unittest.TestCase):
+    def _store_with_saved_policy(self, home: Path) -> UpdateStore:
+        root = home / ".vesta" / "updater"
+        root.mkdir(parents=True)
+        saved = {
+            "schema_version": 1,
+            "owner": "opai",
+            "channel": "beta",
+            "automatic_downloads": True,
+        }
+        (root / "policy.json").write_text(json.dumps(saved), encoding="utf-8")
+        return UpdateStore(UpdaterPaths.for_home(home))
+
+    def test_a_policy_saved_before_the_rename_keeps_its_choices(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            policy = self._store_with_saved_policy(Path(tmp)).load_policy()
+
+        self.assertIs(policy.owner, UpdateOwner.VESTA)
+        self.assertEqual(policy.channel, "beta")
+        self.assertTrue(policy.automatic_downloads)
+
+    def test_update_settings_can_still_be_changed_and_are_saved_under_the_new_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = self._store_with_saved_policy(Path(tmp))
+            policy = store.update_policy(automatic_downloads=False)
+            written = json.loads(store.paths.policy.read_text(encoding="utf-8"))
+
+        self.assertFalse(policy.automatic_downloads)
+        self.assertEqual(written["owner"], "vesta")
+        self.assertEqual(written["channel"], "beta")
+
+    def test_a_machine_policy_deployed_under_the_old_name_still_binds(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(factory.platform, "system", return_value="Windows"),                     mock.patch.dict(os.environ, {"ProgramData": tmp}):
+                paths = factory._managed_policy_paths()
+            legacy_policy = Path(tmp) / "OPai" / "update-policy.json"
+            legacy_policy.parent.mkdir()
+            legacy_policy.write_text(
+                json.dumps({"schema_version": 1, "disableUpdateChecks": True}),
+                encoding="utf-8",
+            )
+            managed = factory.load_managed_update_configuration(paths=paths)
+
+        self.assertEqual(paths[0], Path(tmp) / "Vesta" / "update-policy.json")
+        self.assertIs(managed.get("disable_update_checks"), True)
+
+
+class LegacyThemeFileTests(unittest.TestCase):
+    def test_the_theme_is_read_from_the_old_home_while_it_could_not_be_moved(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            (home / ".vesta").mkdir()
+            (home / ".opai").mkdir()
+            (home / ".opai" / "gui_theme.json").write_text(
+                json.dumps({"theme": "light"}), encoding="utf-8"
+            )
+            with mock.patch.object(Path, "home", return_value=home):
+                path = gui_theme.theme_path()
+
+        self.assertEqual(path, home / ".opai" / "gui_theme.json")
 
 
 if __name__ == "__main__":

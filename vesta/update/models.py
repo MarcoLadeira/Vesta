@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Mapping
 
+from vesta.legacy import LEGACY_PACKAGE
+
 
 UPDATE_SCHEMA_VERSION = 1
 UPDATER_PROTOCOL_VERSION = 1
@@ -31,6 +33,13 @@ class UpdateOwner(str, Enum):
     MDM = "mdm"
     STORE = "store"
     MANUAL = "manual"
+
+    @classmethod
+    def _missing_(cls, value: object) -> UpdateOwner | None:
+        # Policies saved before the rename name the app itself "opai".
+        if isinstance(value, str) and value.casefold() == LEGACY_PACKAGE:
+            return cls.VESTA
+        return None
 
 
 class UpdateState(str, Enum):

@@ -21,6 +21,7 @@ import json
 import re
 from pathlib import Path
 
+from vesta.legacy import home_item
 from vestahub.atomic_io import atomic_write_text
 
 # Preferences a user can choose, and the palettes they paint with. Every
@@ -44,7 +45,7 @@ THEME_GROUND = {
 
 
 def theme_path() -> Path:
-    return Path.home() / ".vesta" / "gui_theme.json"
+    return home_item(Path.home(), "gui_theme.json")
 
 
 def normalize_theme(value: object) -> str:

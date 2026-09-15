@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from typing import Callable, Iterable, Mapping
 
-from vesta import __version__
+from vesta import __version__, legacy
 from vesta.release_identity import packaged_metadata_paths
 
 from .identity import detect_install_type
@@ -90,10 +90,22 @@ def load_trust_store(*, paths: Iterable[Path] | None = None) -> dict[str, object
 def _managed_policy_paths() -> tuple[Path, ...]:
     if platform.system().casefold() == "windows":
         base = Path(os.environ.get("ProgramData") or "C:/ProgramData")
-        return (base / "Vesta" / "update-policy.json",)
+        # The first valid file wins, so a policy under the new name overrides one
+        # deployed before the rename, which keeps binding until it is replaced.
+        return (
+            base / "Vesta" / "update-policy.json",
+            base / legacy.LEGACY_WINDOWS_POLICY_DIRNAME / "update-policy.json",
+        )
     if platform.system().casefold() == "darwin":
-        return (Path("/Library/Managed Preferences/com.vesta.desktop.update.json"),)
-    return (Path("/etc/vesta/update-policy.json"),)
+        managed = Path("/Library/Managed Preferences")
+        return (
+            managed / "com.vesta.desktop.update.json",
+            managed / legacy.LEGACY_MACOS_POLICY_FILE,
+        )
+    return (
+        Path("/etc/vesta/update-policy.json"),
+        Path("/etc") / legacy.LEGACY_LINUX_POLICY_DIRNAME / "update-policy.json",
+    )
 
 
 def load_managed_update_configuration(

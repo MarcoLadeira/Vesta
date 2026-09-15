@@ -78,6 +78,12 @@ LEGACY_IGNORE_FILENAME = ".opaiignore"
 # The GitHub repository before it was renamed; GitHub still redirects it.
 LEGACY_REPOSITORY = "MarcoLadeira/OPai"
 
+# Where administrators deployed a machine update policy before the rename.
+# A policy that disables or takes over updates must keep binding.
+LEGACY_WINDOWS_POLICY_DIRNAME = "OPai"
+LEGACY_MACOS_POLICY_FILE = "com.opai.desktop.update.json"
+LEGACY_LINUX_POLICY_DIRNAME = "opai"
+
 # Files a team commits to its repository. Repositories set up before the
 # rename still carry these names; they are read until someone renames them.
 LEGACY_TEAM_POLICY_FILE = "opai-team-policy.yaml"

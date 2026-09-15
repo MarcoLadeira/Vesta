@@ -26,9 +26,11 @@
   - the saved key moves from the old keychain entry;
   - old managed blocks, wrappers, skills and rule files are upgraded or
     removed, and user content is never touched.
-- The GitHub repository keeps its `MarcoLadeira/Vesta` URL until the repository
-  itself is renamed. Earlier entries below keep the name they were written
-  under.
+- The GitHub repository is now `MarcoLadeira/Vesta`; GitHub redirects the old
+  `MarcoLadeira/OPai` links. Earlier entries below keep the name they were
+  written under.
+- Saved update settings and machine update policies written by OPai keep
+  applying.
 
 ## 0.2.1 Alpha.1
 
