@@ -27,7 +27,7 @@ test("proof action copies the private local command", async ({ page }) => {
   await openApp(page);
   await openNav(page, "Proof Bundle");
   await page.getByRole("button", { name: "Copy proof command" }).click();
-  await expect(page.locator("#toast")).toContainText("opai proof bundle");
+  await expect(page.locator("#toast")).toContainText("vesta proof bundle");
 });
 
 test("proof surface does not render injected secret fixture text", async ({ page }) => {

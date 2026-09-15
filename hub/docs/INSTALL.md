@@ -66,7 +66,7 @@ python -m opai doctor
 
 ## AI Client Badge Setup
 
-The default `opai install` writes safe global discovery files so supported AI coding clients can find Vesta:
+The default `vesta install` writes safe global discovery files so supported AI coding clients can find Vesta:
 
 - `~/.opai/status.txt`
 - `~/.opai/instructions/OPAI.md`
@@ -79,9 +79,9 @@ The default `opai install` writes safe global discovery files so supported AI co
 For terminal CLIs, Vesta can print the badge before launching the AI client:
 
 ```sh
-opai launch codex
-opai launch claude
-opai launch copilot
+vesta launch codex
+vesta launch claude
+vesta launch copilot
 ```
 
 The one-command installer writes managed shell aliases that shadow `op`, `opai`, `codex`, `claude`, and `copilot` with Vesta wrappers by default. PowerShell profiles are supported on Windows; `.profile`, `.bashrc`, and `.zshrc` are written for POSIX shells. To opt out from a local checkout:
@@ -99,18 +99,18 @@ Using Vesta
 It is blue in ANSI-capable terminals. The stronger CLI welcome screen is:
 
 ```sh
-opai welcome
-opai welcome --animate
-opai welcome --compact --animate --frames 7
-opai welcome --image ansi
-opai welcome --image ascii
+vesta welcome
+vesta welcome --animate
+vesta welcome --compact --animate --frames 7
+vesta welcome --image ansi
+vesta welcome --image ascii
 ```
 
 Terminals that support inline graphics can try:
 
 ```sh
-opai welcome --image kitty
-opai welcome --image iterm
+vesta welcome --image kitty
+vesta welcome --image iterm
 ```
 
 For packaged installs, install the optional terminal image renderer with:
@@ -121,19 +121,19 @@ pip install "opai[terminal-ui]"
 
 Closed desktop apps may not expose a place for Vesta to draw a bottom-right status label. Vesta still installs discovery/instruction files for clients that support local skills, memory, or project instructions.
 
-Project activation writes OPai managed blocks at the top of `AGENTS.md`, `CLAUDE.md`, and `.github/copilot-instructions.md`. This keeps Vesta visible even in projects that already have long instruction files.
+Project activation writes Vesta managed blocks at the top of `AGENTS.md`, `CLAUDE.md`, and `.github/copilot-instructions.md`. This keeps Vesta visible even in projects that already have long instruction files.
 
 ## Python Editable Install
 
 ```sh
 python -m pip install -e .
-opai install --no-tools
+vesta install --no-tools
 ```
 
 ## Optional Free Tool Bootstrap
 
 ```sh
-opai install --with-tools
+vesta install --with-tools
 ```
 
 This may download free open-source tools such as linters and scanners. It still does not enable paid model APIs.
@@ -144,14 +144,14 @@ When Vesta is published, the intended user flow is:
 
 ```sh
 pipx install opai
-opai install
+vesta install
 ```
 
 For a Git repository before package publishing:
 
 ```sh
 pipx install git+https://github.com/<owner>/opai.git
-opai install
+vesta install
 ```
 
 Vesta keeps remote script install small and reviewable; the script clones a normal Git checkout instead of hiding the project inside opaque shell logic.

@@ -1129,7 +1129,7 @@ def build_opaibench_dashboard(project_root: Path, *, history_limit: int = 12) ->
     if latest is None:
         body = (
             '<p class="empty">No OPaiBench run recorded yet. '
-            "Run <code>opai hub opaibench run</code>.</p>"
+            "Run <code>vesta hub opaibench run</code>.</p>"
         )
     else:
         dimension_cards = "\n".join(

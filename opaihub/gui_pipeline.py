@@ -1022,7 +1022,7 @@ def _handle_gui_message(
     allowEditsOnce: bool = False,
     defer_checkpoint_finalization: bool = False,
     # Which surface asked for this turn. The CLI, background automations
-    # and `opai build` all run through this exact pipeline, so an
+    # and `vesta build` all run through this exact pipeline, so an
     # admission hardcoded to "gui" recorded every one of them as a
     # desktop run -- and #818 AC2 asks for GUI, CLI and background
     # projections built from one canonical state, which is impossible

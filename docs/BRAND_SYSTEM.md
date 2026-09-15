@@ -41,7 +41,7 @@ did, what it cost, and what to do next — and nothing else.
 | Moment | Where | Why it's ours |
 | --- | --- | --- |
 | **Activity Rail** | timeline in every reply + CLI glyph lines | transparent execution, GUI & terminal alike |
-| **Honest Receipt** | footer after every run + `opai receipt` (signed) | proof, not marketing numbers |
+| **Honest Receipt** | footer after every run + `vesta receipt` (signed) | proof, not marketing numbers |
 | **Cost Firewall** | Safe Auto gates, panic mode, paid-needs-consent | protection before spend |
 | **CLI Mirror** | Inspector shows the terminal twin of the current selection, ready to copy | GUI/CLI parity made visible |
 | **Empty-state promise** | "Build more. Burn less." + the receipt promise | 10-second identity |

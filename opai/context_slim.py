@@ -15,7 +15,7 @@ AI_IGNORE_FILES = [
 ]
 
 AI_IGNORE_PATTERNS = [
-    "# OPai context-slimming rules",
+    "# Vesta context-slimming rules",
     ".git/",
     ".opcoding/",
     ".opcoding-tools/",
@@ -85,13 +85,19 @@ def _append_unique(existing: str, lines: list[str]) -> str:
     return body + "\n\n" + "\n".join(missing).rstrip() + "\n"
 
 
+# The header these rules were written under before the rebrand to Vesta.
+LEGACY_IGNORE_HEADER = "# OPai context-slimming rules"
+
+
 def write_ai_ignore_files(project_root: Path) -> list[str]:
     root = project_root.expanduser().resolve()
     written: list[str] = []
     for name in AI_IGNORE_FILES:
         path = root / name
         existing = path.read_text(encoding="utf-8") if path.exists() else ""
-        updated = _append_unique(existing, AI_IGNORE_PATTERNS)
+        # Rename the old header in place rather than appending a second one.
+        current = existing.replace(LEGACY_IGNORE_HEADER, AI_IGNORE_PATTERNS[0])
+        updated = _append_unique(current, AI_IGNORE_PATTERNS)
         if updated != existing:
             path.write_text(updated, encoding="utf-8")
         written.append(str(path))

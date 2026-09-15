@@ -25,9 +25,9 @@ Hard context cap: 12,000 chars
 ## Commands
 
 ```sh
-opai route "fix failing tests"
-opai route "prepare release" --full-evidence
-opai models recommend "prepare release"
+vesta route "fix failing tests"
+vesta route "prepare release" --full-evidence
+vesta models recommend "prepare release"
 op cost . report
 op ask "explain project" --project .
 ```

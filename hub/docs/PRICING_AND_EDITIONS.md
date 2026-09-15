@@ -14,7 +14,7 @@ alpha workflow.
 
 - Local-first routing, context/evidence collection, and a privacy-safe local
   usage ledger.
-- Savings reports and local Markdown exports with `opai savings --export`.
+- Savings reports and local Markdown exports with `vesta savings --export`.
 - Client activation, policy profiles, guarded workflows, audit evidence, and
   the implemented team/governance controls already present in this repository.
 - Local proof bundles and signatures where the relevant command is available.
@@ -24,7 +24,7 @@ That is a provider cost decision, not Vesta access pricing.
 
 ## Availability, not entitlement
 
-`opai edition show` remains as a compatibility diagnostic. It reports the
+`vesta edition show` remains as a compatibility diagnostic. It reports the
 single Free Public Alpha launch state and distinguishes implemented work from
 planned work. The legacy selection subcommand is a harmless no-op: it cannot
 unlock, lock, or persist access.

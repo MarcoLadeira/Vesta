@@ -1,4 +1,4 @@
-"""Route-run history and the `opai why` explainer (power-efficiency roadmap Phase 2).
+"""Route-run history and the `vesta why` explainer (power-efficiency roadmap Phase 2).
 
 Persists compact, privacy-safe route decisions under `.opaihub/runs/` and turns a
 routing decision into a plain explanation of *why* Vesta chose its path. Building

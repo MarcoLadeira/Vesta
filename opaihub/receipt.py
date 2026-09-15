@@ -2,7 +2,7 @@
 
 A receipt is a compact, signed snapshot of the local savings ledger that a
 developer can screenshot and share, and that an eng lead can independently
-verify (see ``verify_receipt`` / the ``opai receipt verify`` command, #88). It
+verify (see ``verify_receipt`` / the ``vesta receipt verify`` command, #88). It
 is the hero artifact behind Epic B (#84): one object that serves both the
 solo-dev growth loop and the enterprise audit wedge.
 
@@ -187,7 +187,7 @@ def render_receipt_svg(receipt: dict[str, Any]) -> str:
         ]
     else:
         hero = "No data yet"
-        sub = 'Run a task first:  opai route "<task>" --record'
+        sub = 'Run a task first:  vesta route "<task>" --record'
         chips = [("0", "routed tasks"), ("0", "paid calls avoided"), ("$0.00", "spent")]
 
     chip_svg = []
@@ -220,6 +220,6 @@ def render_receipt_svg(receipt: dict[str, Any]) -> str:
   <text x="40" y="135" fill="{accent}" font-size="52" font-weight="800" font-family="Nunito,Segoe UI,sans-serif">{hero}</text>
   <text x="42" y="158" fill="{muted}" font-size="14" font-family="Nunito,Segoe UI,sans-serif">{_esc(sub)}</text>
   {"".join(chip_svg)}
-  <text x="40" y="285" fill="{muted}" font-size="12" font-family="Nunito,Segoe UI,sans-serif">hash {short_hash}  ·  verify:  opai receipt verify &lt;file&gt;</text>
+  <text x="40" y="285" fill="{muted}" font-size="12" font-family="Nunito,Segoe UI,sans-serif">hash {short_hash}  ·  verify:  vesta receipt verify &lt;file&gt;</text>
   <text x="40" y="318" fill="{muted}" font-size="11" font-family="Nunito,Segoe UI,sans-serif">{_esc(receipt.get("privacy", ""))}</text>
 </svg>"""

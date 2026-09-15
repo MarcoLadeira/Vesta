@@ -4,7 +4,7 @@ A reporting dashboard tells you what you spent; this *prevents* avoidable
 paid/cloud AI calls. Budgets layer on top of the policy profile: per-project and
 per-team ceilings, daily/monthly accumulation read from the local ledger, and a
 panic mode that forces deterministic/local-only routing until disabled. The gate
-fails closed - `opai budget gate` exits non-zero when the next route would
+fails closed - `vesta budget gate` exits non-zero when the next route would
 exceed policy or budget.
 """
 
@@ -394,7 +394,7 @@ def budget_status(
         notes.append(
             f"{abandoned_month} call(s) this month were dispatched but never "
             "reported an outcome. What they cost is unknown, so the totals "
-            "below are a lower bound. Run 'opai savings' to see which."
+            "below are a lower bound. Run 'vesta savings' to see which."
         )
 
     return {
@@ -490,7 +490,7 @@ def budget_gate(
     if caps.get("panic") and not is_local:
         escalate(
             "deny",
-            "Panic mode is ON: paid/cloud routes blocked. Disable with: opai budget panic --off",
+            "Panic mode is ON: paid/cloud routes blocked. Disable with: vesta budget panic --off",
         )
 
     # 2. Policy gate (tier/cloud/destructive/per-task budget).
@@ -575,7 +575,7 @@ def budget_gate(
                     "today were dispatched but never reported an outcome, so "
                     "what they cost is unknown), and the budget ceiling cannot "
                     "be enforced against an incomplete total — confirm before "
-                    "routing. Run 'opai savings' to see which calls.",
+                    "routing. Run 'vesta savings' to see which calls.",
                 )
 
         if daily is not None and spent_day + next_cost_usd > float(daily):

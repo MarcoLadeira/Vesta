@@ -8,8 +8,8 @@ repair flow.
 ## Readiness check (all clients)
 
 ```sh
-opai doctor        # active / broken / missing per client + a repair command
-opai activate --repair   # fix stale paths after moving the repo or install
+vesta doctor        # active / broken / missing per client + a repair command
+vesta activate --repair   # fix stale paths after moving the repo or install
 ```
 
 ## The shared demo (run in any repo)
@@ -19,9 +19,9 @@ opai activate --repair   # fix stale paths after moving the repo or install
 #   -> large context, paid cloud call, no policy gate
 
 # AFTER: route the same task through Vesta
-opai route "fix the failing auth test" --record
-opai why "fix the failing auth test"      # workflow, tier, policy, savings
-opai savings --markdown                    # dollars saved, cloud calls avoided
+vesta route "fix the failing auth test" --record
+vesta why "fix the failing auth test"      # workflow, tier, policy, savings
+vesta savings --markdown                    # dollars saved, cloud calls avoided
 ```
 
 ## Per-client
@@ -29,26 +29,26 @@ opai savings --markdown                    # dollars saved, cloud calls avoided
 ### Claude Code
 - Vesta writes `CLAUDE.md` (managed block) + global `~/.claude/CLAUDE.md`.
 - Demo: open Claude Code in the repo; it reads the Vesta policy and prefers
-  `opai route`/`opai context pack` before sending whole files.
+  `vesta route`/`vesta context pack` before sending whole files.
 
 ### Codex
 - Vesta writes `AGENTS.md` + `~/.agents/skills/opai/SKILL.md`.
-- Demo: `opai launch codex` activates Vesta, prints the `Using Vesta` badge, then
+- Demo: `vesta launch codex` activates Vesta, prints the `Using Vesta` badge, then
   launches Codex with the policy in scope.
 
 ### Cursor
 - Vesta writes `.cursor/rules/opai.mdc` and `.cursorignore`.
-- Demo: `opai context ignores --clients cursor` then show Cursor no longer
+- Demo: `vesta context ignores --clients cursor` then show Cursor no longer
   sends `node_modules/`, build output, or caches to the model.
 
 ### Cline
 - Vesta writes `.clinerules/opai.md` and `.clineignore`.
-- Demo: same context-slim proof via `.clineignore`; `opai context profile`
+- Demo: same context-slim proof via `.clineignore`; `vesta context profile`
   shows the bytes/tokens removed.
 
 ### GitHub Copilot
 - Vesta writes `.github/copilot-instructions.md` and `.copilotignore`.
-- Demo: `opai doctor` shows Copilot active; `.copilotignore` keeps generated
+- Demo: `vesta doctor` shows Copilot active; `.copilotignore` keeps generated
   files out of Copilot context.
 
 ### Gemini CLI
@@ -60,13 +60,13 @@ opai savings --markdown                    # dollars saved, cloud calls avoided
 
 ```powershell
 # Windows PowerShell
-opai activate --repair --shell-aliases
+vesta activate --repair --shell-aliases
 op status
 ```
 
 ```sh
 # POSIX shell
-opai activate --repair --shell-aliases
+vesta activate --repair --shell-aliases
 op status
 ```
 

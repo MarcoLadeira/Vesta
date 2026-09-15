@@ -348,7 +348,7 @@ class TheCorpusDoesNotLockEveryRunTests(_BackgroundFixture):
     ``background_runs.load_run`` takes an interprocess lock per file, which is
     right for a caller about to act on that run and wrong for a census. The
     first version of ``legacy_runs`` went through it and cost ~4 s on a
-    300-run project inside ``opai doctor``; the comparison it fed took 40 ms.
+    300-run project inside ``vesta doctor``; the comparison it fed took 40 ms.
 
     Counting locks rather than milliseconds for the same reason as the
     store-open ratchet: a duration threshold that passes on a developer SSD and

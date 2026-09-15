@@ -11,14 +11,30 @@
 - The Vesta heart replaces the mascot and the app icon: window, taskbar,
   Alt-Tab, the header, the home screen, the terminal welcome, and the packaged
   Windows icon. `scripts/make_app_icon.py` now derives the icon from the logo.
-- Unchanged on purpose, so existing installs, saved credentials and update
-  feeds keep working: the `opai` command, Python packages and `~/.opai` data;
-  the `OPai-Desktop` entry point and the `OPai.Desktop` app id; `OPai.exe`,
-  `OPai.app`, `OPai.msix` and `OPai-<version>-…` release asset names; the
-  `OPai/free-model-api` keychain entry; the managed-block and context-rule
-  markers already written into users' files; the ProgramData update-policy
-  folder; and the `MarcoLadeira/OPai` repository. Earlier entries below keep
-  the name they were written under.
+- The command is `vesta` and the desktop app is `Vesta-Desktop` (with
+  `vesta-gui`). Every command shown in the app, CLI help, docs and website
+  reads `vesta …`. The shell integration defines a `vesta` function next to
+  `op`. `opai`, `opai-gui` and `OPai-Desktop` still work as aliases for
+  existing shortcuts, hooks and scripts. Agent instructions forbid both names
+  inside an AI task; the recursion guard is name-independent.
+- Managed blocks written into your files now say "Vesta managed block", and AI
+  ignore rules say "Vesta context-slimming rules". Blocks written before the
+  rebrand are recognised, upgraded in place, and uninstalled as before, never
+  duplicated.
+- The empty state's pulsing ring is gone, and the header shows the heart on its
+  own instead of on the old brand-gradient tile.
+- Unchanged on purpose, because nothing a person reads shows it and changing it
+  would break existing installs, saved credentials or update feeds:
+  - the `opai` Python packages and module (`python -m opai`), and `~/.opai`
+    data;
+  - the `OPai.Desktop` app id;
+  - `OPai.exe`, `OPai.app`, `OPai.msix` and `OPai-<version>-…` release asset
+    names;
+  - the `OPai/free-model-api` keychain entry;
+  - the ProgramData update-policy folder;
+  - the `MarcoLadeira/OPai` repository.
+
+  Earlier entries below keep the name they were written under.
 
 ## 0.2.1 Alpha.1
 

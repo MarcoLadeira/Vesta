@@ -296,7 +296,7 @@ runs in both:                     0
 
 `journal_background.legacy_runs` is the only legacy corpus Vesta assembles, and
 it reads `.opaihub/agent/background/runs/`. This installation has never run
-`opai automation`, so that directory has never existed. Meanwhile every run in
+`vesta automation`, so that directory has never existed. Meanwhile every run in
 the journal came from the GUI.
 
 **The comparator is comparing an empty set against 27 runs it can never
@@ -417,7 +417,7 @@ distlib builds a `gui_scripts` launcher by substring substitution --
 which is not a file. **Updating Vesta from inside Vesta killed the way the user
 opens Vesta.** The console scripts were damaged more quietly by the same
 install: they inherited `pythonw.exe`, where `sys.stdout` is `None`, so
-`opai --version` in a terminal printed nothing.
+`vesta --version` in a terminal printed nothing.
 
 Measured on this machine, before any change:
 
@@ -427,7 +427,7 @@ opai-gui.exe      MISSING  C:\Python313\pythonww.exe
 opai.exe          OK       C:\Python313\pythonw.exe
 ```
 
-And `opai doctor` said `readiness: ready`, because every other component was
+And `vesta doctor` said `readiness: ready`, because every other component was
 genuinely clean and nothing had ever read the launchers. `opaihub.proc.console_interpreter`
 fixes the cause; `opaihub.launcher_health` makes the question answerable, and
 an unreadable launcher reports `unreadable` rather than healthy.
@@ -436,7 +436,7 @@ an unreadable launcher reports `unreadable` rather than healthy.
 
 **Which surface asked.** `handle_gui_message` is the one turn pipeline, and
 five things call it: the QtWebEngine desktop, the classic desktop host,
-`opai ask`/`opai route`, background automations and `opai build`. Admission
+`vesta ask`/`vesta route`, background automations and `vesta build`. Admission
 recorded `surface="gui"` as a literal, so all five were filed as desktop runs.
 `journal_retirement` already groups runs by `origin_surface` to report
 populations -- that report could only ever have had one row. AC2 asks for GUI,
@@ -513,7 +513,7 @@ verification and delivery evidence and does not mention cost at all. Shipping
 only the zero would have been this epic's own failure in miniature: a
 confident answer with the inconvenient half left out.
 
-`opai journal status` now says so:
+`vesta journal status` now says so:
 
 ```
 unverified:     20 of 21 completed runs have no verification (AC6 asks for this one)
@@ -553,7 +553,7 @@ runs in projection: 27
 disagreements     : 0
 ```
 
-`opai journal status` stays silent when they agree, counts them when they do
+`vesta journal status` stays silent when they agree, counts them when they do
 not, and says "unknown" out loud when the projection had to stop at an
 unreadable event -- because a *short* history compared against a complete
 table would report disagreements that are only the part it never read.
@@ -716,7 +716,7 @@ merge. Stage 5 changes that deliberately, and the test says so, so a *read*
 that can refuse work has to be somebody's decision rather than an accident.
 
 The expensive reports -- parity, unevidenced completions, unconfirmed
-cancellations, launcher health -- are `opai doctor`'s and doctor's only,
+cancellations, launcher health -- are `vesta doctor`'s and doctor's only,
 checked the same way.
 
 ### What a user can see changed
@@ -738,7 +738,7 @@ this is the list as it stands, checked against `git diff main`:
   edit-capable mode can now edit, as its mode contract says; Vesta's own tool
   loop, which cannot stop and ask, edits in Manual only with the user's
   one-shot grant (commit 50f9538, `tests/test_every_edit_mode_can_edit.py`).
-- `opai doctor` and `opai journal status` gained lines and words: parity
+- `vesta doctor` and `vesta journal status` gained lines and words: parity
   counts, "abandoned", "migration pending", "incompatible". CLI diagnostics
   only.
 
@@ -766,10 +766,10 @@ so they are recorded here with what each one cost and what closed it.
 
 ### 1. The lease named whoever first saved the run, not whoever ran it
 
-`opai automation enqueue` writes the run file and exits. `opai automation run`
+`vesta automation enqueue` writes the run file and exits. `vesta automation run`
 executes it in a **second process** that never took the lease over. So the
 journal's owner was a pid that had been gone for milliseconds, and a
-concurrent `opai automation recover` did exactly what the liveness check was
+concurrent `vesta automation recover` did exactly what the liveness check was
 added to prevent:
 
 ```
@@ -932,7 +932,7 @@ whatever the build has.
 
 One interaction is not a failure but will be visible: #842's `ObjectiveStore`
 writes `runs` rows directly rather than through `journal_runtime`, so those
-runs have no lifecycle events. `opai journal migration` will count them under
+runs have no lifecycle events. `vesta journal migration` will count them under
 event parity, and `journal pending` will list their leases as `unknown`. Both
 are reports, not gates -- doctor readiness does not read them, and nothing is
 blocked -- and both are true: the store does disagree with itself about those
@@ -947,7 +947,7 @@ Review finding 16 said running doctor silently migrated the journal. The fix
 made `store_health` ask without migrating, and pinned that one function. It
 did not make the finding false: the migration report doctor prints next --
 event parity, unfinished runs, turn parity -- opened the store the ordinary
-way, and a journal one migration behind came out of `opai doctor` upgraded.
+way, and a journal one migration behind came out of `vesta doctor` upgraded.
 Found by running doctor on such a journal rather than by reading the fix.
 
 Doctor now runs inside `journal_store.reading_only()`. There `open_store`

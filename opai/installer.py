@@ -72,11 +72,11 @@ def install_project(
         "superpowers_auto_install": install_superpowers,
         "global_integrations": activation.get("global_integrations"),
         "next_steps": [
-            "opai doctor",
-            "opai scan",
-            "opai tools",
-            "opai dashboard --html",
-            "opai statusline",
+            "vesta doctor",
+            "vesta scan",
+            "vesta tools",
+            "vesta dashboard --html",
+            "vesta statusline",
         ],
     }
     path = state_dir(root) / "install.json"

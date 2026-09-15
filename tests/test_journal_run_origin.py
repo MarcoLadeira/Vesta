@@ -5,8 +5,8 @@ generated from *the same canonical state*. That is impossible if the state
 cannot tell them apart -- and it could not.
 
 ``handle_gui_message`` is the one turn pipeline. Five things call it: the
-QtWebEngine desktop, the classic desktop host, ``opai ask`` / ``opai route``,
-background automations, and ``opai build``. The admission inside it recorded
+QtWebEngine desktop, the classic desktop host, ``vesta ask`` / ``vesta route``,
+background automations, and ``vesta build``. The admission inside it recorded
 ``surface="gui"`` as a literal, so every run from every one of those five was
 filed in the journal as a desktop run. ``journal_retirement`` already groups
 runs by ``origin_surface`` to report populations; that report could only ever

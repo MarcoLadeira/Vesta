@@ -475,7 +475,7 @@ def _module_failure(exc: BaseException, mode: str) -> BootstrapFailure | None:
             component="user-configuration",
             message="Vesta could not parse a user configuration file.",
             remediation=(
-                "Run `opai doctor`, repair the reported configuration file, and retry."
+                "Run `vesta doctor`, repair the reported configuration file, and retry."
             ),
             startup_mode=mode,
         )
@@ -492,7 +492,7 @@ def _module_failure(exc: BaseException, mode: str) -> BootstrapFailure | None:
             component="user-configuration",
             message="Vesta could not parse a user registry configuration file.",
             remediation=(
-                "Run `opai doctor`, repair the reported configuration file, and retry."
+                "Run `vesta doctor`, repair the reported configuration file, and retry."
             ),
             startup_mode=mode,
         )

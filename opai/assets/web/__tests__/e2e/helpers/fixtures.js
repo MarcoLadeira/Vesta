@@ -124,7 +124,7 @@ export const DASHBOARDS = {
         ],
       },
     ],
-    actions: [{ id: "copy_savings", label: "Copy savings report", command: "opai savings --markdown" }],
+    actions: [{ id: "copy_savings", label: "Copy savings report", command: "vesta savings --markdown" }],
   },
   firewall: {
     title: "Cost Firewall",
@@ -140,7 +140,7 @@ export const DASHBOARDS = {
     ],
     actions: [
       { id: "panic_toggle", label: "Enable panic mode" },
-      { id: "copy_budget", label: "Copy budget status", command: "opai budget status" },
+      { id: "copy_budget", label: "Copy budget status", command: "vesta budget status" },
     ],
   },
   context: {
@@ -156,7 +156,7 @@ export const DASHBOARDS = {
       { title: "node_modules", body: "Generated dependency files", metrics: [{ label: "Estimated tokens", value: "41,000", severity: "warning" }] },
       { title: "dist", body: "Generated build output", metrics: [{ label: "Estimated tokens", value: "5,200", severity: "warning" }] },
     ],
-    actions: [{ id: "copy_context", label: "Copy profile command", command: "opai context profile" }],
+    actions: [{ id: "copy_context", label: "Copy profile command", command: "vesta context profile" }],
   },
   benchmark: {
     title: "Benchmark Proof",
@@ -168,7 +168,7 @@ export const DASHBOARDS = {
       { label: "Risk blocks", value: "6", severity: "warning" },
     ],
     cards: [{ title: "Approved claim", body: "Vesta reduced context by 50x and avoided 16 paid calls on the 16-task local benchmark suite." }],
-    actions: [{ id: "copy_benchmark", label: "Copy benchmark command", command: "opai benchmark run --suite max --mode both" }],
+    actions: [{ id: "copy_benchmark", label: "Copy benchmark command", command: "vesta benchmark run --suite max --mode both" }],
   },
   agents: {
     title: "Agent Readiness",
@@ -193,7 +193,7 @@ export const DASHBOARDS = {
       { title: "What it cost", body: "$0.0420 actual spend; no savings claimed." },
       { title: "Privacy guarantee", body: "Task hash only. No raw prompt or secret." },
     ],
-    actions: [{ id: "copy_proof", label: "Copy proof command", command: "opai proof bundle" }],
+    actions: [{ id: "copy_proof", label: "Copy proof command", command: "vesta proof bundle" }],
   },
   workflows: {
     title: "Guarded Workflows",
@@ -203,7 +203,7 @@ export const DASHBOARDS = {
       { title: "Security audit", status: "READ-ONLY", severity: "success", body: "Checks secrets, dependencies, and permissions." },
       { title: "Release preflight", status: "CONFIRM", severity: "warning", body: "Never pushes, deploys, or publishes automatically." },
     ],
-    actions: [{ id: "copy_workflow", label: "Copy workflow command", command: "opai workflow plan release_preflight" }],
+    actions: [{ id: "copy_workflow", label: "Copy workflow command", command: "vesta workflow plan release_preflight" }],
   },
 };
 

@@ -1,4 +1,4 @@
-"""CLI streaming ask (`opai ask --model …`) — the terminal front-end over the
+"""CLI streaming ask (`vesta ask --model …`) — the terminal front-end over the
 same pipeline as the GUI. No real CLI, no network, no spend: everything runs
 through FakeStreamingRunner / mocks.
 """
@@ -407,7 +407,7 @@ class CrossSurfaceDiscoverabilityTests(unittest.TestCase):
     """A CLI turn registers in the same durable record the GUI reads (#545).
 
     Before this, a CLI-started turn existed only in this process's memory:
-    `opai resume` (and the GUI's own boot/resume view, which reads the exact
+    `vesta resume` (and the GUI's own boot/resume view, which reads the exact
     same thread store) had no way to know it was running or how it ended.
     """
 
@@ -438,7 +438,7 @@ class CrossSurfaceDiscoverabilityTests(unittest.TestCase):
 
     def test_a_running_cli_turn_is_visible_with_this_process_as_owner(self) -> None:
         # The other half of "discoverable": not just after the fact, but while
-        # it is still running -- a second terminal's `opai resume` (or the
+        # it is still running -- a second terminal's `vesta resume` (or the
         # GUI's own boot/resume view, reading this same thread store) must be
         # able to see it and know who owns it, not just its final result.
         from opai.gui_recents import load_thread

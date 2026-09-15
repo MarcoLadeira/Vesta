@@ -1,6 +1,6 @@
 # Vesta CLI Usage
 
-The CLI and the desktop GUI share **one core**: `opai ask --model …` runs the
+The CLI and the desktop GUI share **one core**: `vesta ask --model …` runs the
 exact same pipeline (`opaihub.gui_pipeline.handle_gui_message`) the GUI chat
 uses — same routing, same safety gates, same ledger, same receipts.
 
@@ -8,16 +8,16 @@ uses — same routing, same safety gates, same ledger, same receipts.
 
 ```sh
 # Free, local-first (unchanged classic behavior — $0, cache + local model):
-opai ask "summarize my changes"
+vesta ask "summarize my changes"
 
 # Stream your connected account with live activity (same core as the GUI):
-opai ask --model claude:opus "why is this test flaky?"
-opai ask --model codex "refactor the auth module"        # default codex model
-opai ask --model copilot:gpt-5.2 --mode plan "plan the migration"
-opai ask --model auto "quick question"                    # Vesta routes cheapest
+vesta ask --model claude:opus "why is this test flaky?"
+vesta ask --model codex "refactor the auth module"        # default codex model
+vesta ask --model copilot:gpt-5.2 --mode plan "plan the migration"
+vesta ask --model auto "quick question"                    # Vesta routes cheapest
 
 # Machine-readable (for scripts/automation):
-opai ask --model claude:sonnet --json "list the public API of opai/activity.py"
+vesta ask --model claude:sonnet --json "list the public API of opai/activity.py"
 ```
 
 What you see while it runs (Claude Code-style activity):
@@ -61,16 +61,16 @@ GUI mode picker; panic mode still blocks paid calls.
 
 | Command | What it does |
 | --- | --- |
-| `opai gui` | the desktop app (web-rendered); `--classic` for the Qt fallback |
-| `opai route "task"` | route + record a task through the cost firewall |
-| `opai cost` / `opai savings` | spend + savings from the ledger |
-| `opai receipt [--svg]` / `receipt verify` | signed, shareable savings receipt |
-| `opai budget …` | caps, panic mode, gates |
-| `opai models list` | Auto, Claude, Codex, Copilot, and local model choices |
-| `opai doctor` | client/wrapper readiness + repair |
-| `opai proxy <agent> "task"` | inline-capture shim (gate → route → record) |
-| `opai context pack` | tiny targeted context instead of whole files |
-| `opai slim` | write AI ignore files; report context bloat |
+| `vesta gui` | the desktop app (web-rendered); `--classic` for the Qt fallback |
+| `vesta route "task"` | route + record a task through the cost firewall |
+| `vesta cost` / `vesta savings` | spend + savings from the ledger |
+| `vesta receipt [--svg]` / `receipt verify` | signed, shareable savings receipt |
+| `vesta budget …` | caps, panic mode, gates |
+| `vesta models list` | Auto, Claude, Codex, Copilot, and local model choices |
+| `vesta doctor` | client/wrapper readiness + repair |
+| `vesta proxy <agent> "task"` | inline-capture shim (gate → route → record) |
+| `vesta context pack` | tiny targeted context instead of whole files |
+| `vesta slim` | write AI ignore files; report context bloat |
 
 Every command supports `--project` and most support `--json`.
 

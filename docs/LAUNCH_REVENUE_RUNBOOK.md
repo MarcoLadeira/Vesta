@@ -47,12 +47,12 @@ Deliver manually at first:
 For each pilot:
 
 ```sh
-opai doctor
-opai benchmark run --suite max --mode both
-opai benchmark gate --min-effectiveness-index 95 --require-risk-blocks
-opai savings --markdown
-opai policy check
-opai team report
+vesta doctor
+vesta benchmark run --suite max --mode both
+vesta benchmark gate --min-effectiveness-index 95 --require-risk-blocks
+vesta savings --markdown
+vesta policy check
+vesta team report
 ```
 
 Sell the pilot around governance and cost control:

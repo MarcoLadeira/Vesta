@@ -44,5 +44,5 @@ test("panic-mode action delegates to Vesta and makes no provider request", async
 test("budget status action exposes the CLI parity command", async ({ page }) => {
   await openNav(page, "Cost Firewall");
   await page.getByRole("button", { name: "Copy budget status" }).click();
-  await expect(page.locator("#toast")).toContainText("opai budget status");
+  await expect(page.locator("#toast")).toContainText("vesta budget status");
 });

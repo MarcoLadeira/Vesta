@@ -1,6 +1,6 @@
 """Presentation view-model for the Vesta premium desktop GUI.
 
-This module stays PySide-free so tests, `opai gui --once`, and headless CLI
+This module stays PySide-free so tests, `vesta gui --once`, and headless CLI
 paths never need desktop dependencies. It adapts the local app-state layer into
 safe display data, action metadata, icons, and confirmation requirements.
 """
@@ -114,7 +114,7 @@ def _status_severity(status: str) -> str:
 
 
 def _client_card(client: dict[str, Any]) -> dict[str, Any]:
-    repair = _redact(client.get("repair") or "opai activate --repair")
+    repair = _redact(client.get("repair") or "vesta activate --repair")
     return {
         "title": _redact(client.get("label") or client.get("id")),
         "subtitle": _redact(client.get("reason") or "Vesta client integration status"),
@@ -223,13 +223,13 @@ def build_view_model(project_root: Path) -> dict[str, Any]:
         "privacy": "Local only · no telemetry",
     }
 
-    next_best = _redact(overview.get("next_best_action", "Run opai cockpit."))
+    next_best = _redact(overview.get("next_best_action", "Run vesta cockpit."))
     home_actions = [
         _action(
             "first_route",
             "Copy first route",
             icon="copy",
-            command='opai route "<task>" --record',
+            command='vesta route "<task>" --record',
             variant="primary",
         ),
         _action(
@@ -622,7 +622,7 @@ def build_view_model(project_root: Path) -> dict[str, Any]:
                 "copy_workflow_command",
                 "Copy workflow list command",
                 icon="copy",
-                command="opai guard list",
+                command="vesta guard list",
             ),
         ],
     }

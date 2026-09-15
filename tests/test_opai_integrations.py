@@ -64,7 +64,7 @@ class OPaiIntegrationTests(unittest.TestCase):
             install_global_integrations(project, home=home, targets=["claude"])
 
             text = (home / ".claude" / "CLAUDE.md").read_text(encoding="utf-8")
-            self.assertEqual(text.count("OPai managed block"), 2)
+            self.assertEqual(text.count("Vesta managed block"), 2)
             self.assertEqual(text.count("Using Vesta"), 1)
 
     def test_managed_instructions_are_token_tiny(self):
@@ -157,7 +157,7 @@ class OPaiIntegrationTests(unittest.TestCase):
             activate_project(project, home=home, install_global=False)
 
             text = (project / "AGENTS.md").read_text(encoding="utf-8")
-            self.assertTrue(text.startswith("<!-- OPai managed block: start -->"))
+            self.assertTrue(text.startswith("<!-- Vesta managed block: start -->"))
             self.assertIn(existing, text)
             self.assertLess(
                 text.index("Vesta Active"),

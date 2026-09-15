@@ -195,7 +195,7 @@ def build_welcome(
         return "\n".join(parts)
 
     rules = colorize("-" * min(columns, 72), DIM, color)
-    commands = "opai doctor  |  opai scan  |  opai hub analytics status"
+    commands = "vesta doctor  |  vesta scan  |  vesta hub analytics status"
     lines = [badge, graphic, rules, f"{title}  {subtitle}", commands, rules]
     return "\n".join(line for line in lines if line)
 

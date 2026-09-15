@@ -9,7 +9,7 @@ import { openApp, openNav } from "./helpers/app.js";
  * a shell command in backticks. All of it true, none of it the user's problem.
  * They need to know whether there is an update and what to press.
  *
- * The detail did not go away -- it lives in `opai update doctor`, where
+ * The detail did not go away -- it lives in `vesta update doctor`, where
  * somebody debugging the updater looks. These tests pin that it stays there.
  */
 

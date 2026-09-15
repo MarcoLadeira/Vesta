@@ -101,7 +101,7 @@ def create_schedule(
         "enabled": True,
         "runner": "manual-cli",
         "created_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
-        "notes": "No background daemon is started; run with opai hub workflow run when desired.",
+        "notes": "No background daemon is started; run with vesta hub workflow run when desired.",
     }
     path = _path(root)
     # The atomic publisher alone cannot protect a read-modify-write sequence:

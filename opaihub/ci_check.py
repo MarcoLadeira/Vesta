@@ -27,7 +27,7 @@ def _check_team_policy(
                 "status": "missing",
                 "message": (
                     "opai-team-policy.yaml is required in strict CI mode; run "
-                    "'opai team init' and commit the policy."
+                    "'vesta team init' and commit the policy."
                 ),
             }
         return {
@@ -35,7 +35,7 @@ def _check_team_policy(
             "ok": True,
             "status": "skipped",
             "skipped": True,
-            "detail": "No opai-team-policy.yaml; run 'opai team init' to enforce one.",
+            "detail": "No opai-team-policy.yaml; run 'vesta team init' to enforce one.",
         }
     result = validate_against_team_policy(root)
     return {

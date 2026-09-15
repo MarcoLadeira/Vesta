@@ -1,14 +1,14 @@
-# Vesta Local Execution: `opai ask` (real savings, not estimates)
+# Vesta Local Execution: `vesta ask` (real savings, not estimates)
 
 For a long time Vesta *planned* the cheap route but never ran it - the savings
-were estimates. `opai ask` closes that gap (open issue #13): it actually answers
+were estimates. `vesta ask` closes that gap (open issue #13): it actually answers
 cheap tasks with a **local model** and caches the result, so a real cloud call is
 avoided every time.
 
 ```sh
-opai ask "summarize my uncommitted changes"
-opai ask "what tests cover the auth module?"
-opai ask "draft a commit message for these changes"
+vesta ask "summarize my uncommitted changes"
+vesta ask "what tests cover the auth module?"
+vesta ask "draft a commit message for these changes"
 ```
 
 ## How it works
@@ -34,7 +34,7 @@ opai ask "draft a commit message for these changes"
 
 ## Connect a local model
 
-`opai ask` finds a local model automatically from, in order:
+`vesta ask` finds a local model automatically from, in order:
 
 1. `LOCAL_MODEL_URL` - any OpenAI-compatible local server (LM Studio, vLLM,
    llama.cpp server). Example: `http://127.0.0.1:1234/v1`.
@@ -44,8 +44,8 @@ opai ask "draft a commit message for these changes"
 Check what Vesta sees:
 
 ```sh
-opai hub models discover-local
+vesta hub models discover-local
 ```
 
-If no local model is running, `opai ask` degrades gracefully with a setup hint -
+If no local model is running, `vesta ask` degrades gracefully with a setup hint -
 it never falls back to a paid call on its own.

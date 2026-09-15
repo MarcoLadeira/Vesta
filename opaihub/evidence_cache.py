@@ -1,14 +1,14 @@
 """Stable evidence caching for the Vesta router (power-efficiency roadmap Phase 2).
 
 The evidence collector re-scans the whole repository (a recursive language walk
-plus several git calls) on every ``opai route``. The raw ``cache_key`` baked
+plus several git calls) on every ``vesta route``. The raw ``cache_key`` baked
 into the evidence payload includes a timestamp, so it never matches and nothing
 is ever reused.
 
 This module adds a *stable* fingerprint (git HEAD + working-tree state, or
 marker mtimes for non-git projects) so identical repo states reuse a cached
 evidence pack instead of re-scanning. Cache reads are side-effect free (they
-never create files), so ``opai route`` stays read-only by default (#12); only an
+never create files), so ``vesta route`` stays read-only by default (#12); only an
 explicit ``write=True`` persists a pack.
 """
 

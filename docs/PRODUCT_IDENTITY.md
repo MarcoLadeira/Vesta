@@ -14,7 +14,7 @@ hands you an honest receipt.
 - Not a wrapper that hides which provider ran — providers are first-class,
   visible, and swappable.
 - Not a savings-theater dashboard — paid calls are recorded as spend, estimates
-  are labeled, receipts are signed (`opai receipt verify`).
+  are labeled, receipts are signed (`vesta receipt verify`).
 
 ## Why Vesta exists (the manifesto, short)
 

@@ -2015,7 +2015,7 @@ def summarize_ledger(project_root: Path) -> dict[str, Any]:
         # contributed real money that nobody can price, so the total is a
         # lower bound whenever anything is outstanding. `cost_reconciliation`
         # has known this all along and said so in its own note; until now no
-        # savings surface asked it, so `opai savings` presented an
+        # savings surface asked it, so `vesta savings` presented an
         # authoritative-looking figure that silently omitted those attempts.
         # Reuses the events already read above: this runs on every chat send,
         # and a second full scan here would double the cost of the hot path.

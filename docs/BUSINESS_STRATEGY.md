@@ -179,7 +179,7 @@ The strongest differentiators:
 - Vesta is cross-client. It does not require users to choose one AI vendor.
 - Vesta starts local. That makes it safer for developers and more believable for security-conscious teams.
 - Vesta reduces spend instead of monetizing spend first.
-- Vesta has a real install surface: wrappers, status, project instructions, AI ignore files, skills, and `opai doctor`.
+- Vesta has a real install surface: wrappers, status, project instructions, AI ignore files, skills, and `vesta doctor`.
 - Vesta has a registry architecture for tools, agents, workflows, MCP servers, model routing, permissions, and budgets.
 - Vesta has a guarded workflow proof point in mobile readiness: two readiness scores, bounded remediation queues, path locks, signed evidence, CI lanes, and no auto-push/upload/submit.
 
@@ -214,8 +214,8 @@ Stop burning credits on context your machine can collect locally.
 
 Target conversion:
 
-- Install page to `opai status`.
-- `opai slim` and `opai route` to first savings proof.
+- Install page to `vesta status`.
+- `vesta slim` and `vesta route` to first savings proof.
 - Savings report to Pro.
 
 ### Segment 2: Small Engineering Teams
@@ -281,10 +281,10 @@ Free and open core.
 - Installer.
 - Project activation.
 - AI-client instructions and ignore files.
-- `opai doctor`.
-- `opai status`.
-- `opai slim`.
-- `opai route`.
+- `vesta doctor`.
+- `vesta status`.
+- `vesta slim`.
+- `vesta route`.
 - Basic model recommendation.
 - Local-first default policy.
 
@@ -394,7 +394,7 @@ The first funnel is already in the repo at `site/index.html`.
 It should drive this path:
 
 ```text
-page visit -> install command -> opai status -> opai doctor -> opai route -> first savings proof
+page visit -> install command -> vesta status -> vesta doctor -> vesta route -> first savings proof
 ```
 
 The page should not try to explain every feature. It should make one thing unforgettable:
@@ -432,10 +432,10 @@ Win solo developers with free install and visible savings.
 
 Required proof:
 
-- `opai status` works.
-- `opai doctor` is clear.
-- `opai slim` finds context bloat.
-- `opai route` explains local-first decisions.
+- `vesta status` works.
+- `vesta doctor` is clear.
+- `vesta slim` finds context bloat.
+- `vesta route` explains local-first decisions.
 
 ### Expand
 
@@ -476,7 +476,7 @@ Required proof:
 
 - Add route history.
 - Add usage ledger.
-- Add `opai savings`.
+- Add `vesta savings`.
 - Show context bloat avoided.
 - Show estimated cloud escalations avoided.
 - Keep prompt storage off by default.
@@ -552,10 +552,10 @@ Vesta can build moats in places that agent vendors have weaker incentives to own
 Product metrics:
 
 - Install success rate.
-- `opai status` success rate.
+- `vesta status` success rate.
 - AI-client activation success rate.
-- `opai slim` context reduced.
-- `opai route` runs per active repo.
+- `vesta slim` context reduced.
+- `vesta route` runs per active repo.
 - Estimated tokens avoided.
 - Cloud escalations avoided.
 - Doctor repair success rate.

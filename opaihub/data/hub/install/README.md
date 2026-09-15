@@ -20,11 +20,11 @@ Developer install:
 
 ```sh
 python -m pip install -e .
-opai install --no-tools
+vesta install --no-tools
 ```
 
 Optional free tool install:
 
 ```sh
-opai install --with-tools
+vesta install --with-tools
 ```

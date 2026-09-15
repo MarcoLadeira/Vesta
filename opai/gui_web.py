@@ -1500,7 +1500,7 @@ def apply_tool_payload(root: Path, name: str) -> dict[str, Any]:
 def outcomes_payload(root: Path) -> dict[str, Any]:
     """Task-outcome metrics for the cockpit (#288).
 
-    Returns exactly what ``opai outcomes`` prints, so the GUI and CLI are
+    Returns exactly what ``vesta outcomes`` prints, so the GUI and CLI are
     provably in parity: cost per completed task and duplicate-call avoidance,
     reconciled to the authoritative model_call ledger.
     """

@@ -368,7 +368,7 @@ class CompactTests(_JournalCommandFixture):
 
 
 class PendingTests(_JournalCommandFixture):
-    """`opai journal pending` -- the first question after a crash.
+    """`vesta journal pending` -- the first question after a crash.
 
     #613 opens by describing a run that "may appear active with no worker".
     Answering that from Python only would repeat the mistake this migration

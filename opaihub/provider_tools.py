@@ -36,7 +36,7 @@ WRITE_TOOLS = (
     "git_commit",
 )
 # Outward-facing tools: available only with a connected GitHub account AND the
-# persisted `opai github allow-push on` consent (see github_connector).
+# persisted `vesta github allow-push on` consent (see github_connector).
 GIT_OPS_TOOLS = ("git_push", "open_pr")
 # Read-only GitHub context: available with a connected token but NO push consent
 # (reading PR/CI status or an issue is not an outward mutation).
@@ -231,7 +231,7 @@ class RepositoryToolExecutor:
         _token_connected: bool | None = None
         if allow_git_ops is None:
             # Push/PR need edits enabled, a connected GitHub token, AND the
-            # persisted `opai github allow-push on` consent — all three.
+            # persisted `vesta github allow-push on` consent — all three.
             allow_git_ops = False
             if self.allow_edits:
                 try:
@@ -374,7 +374,7 @@ class RepositoryToolExecutor:
         The decision has already been made by the time this is called; a
         failure here must never retroactively change or block it. This is
         the first live-run wiring of opaihub.audit's tamper-evident trail --
-        previously it only recorded entries from the manual ``opai guard``
+        previously it only recorded entries from the manual ``vesta guard``
         CLI command, so decisions made during an actual autonomous run left
         no audit trail at all.
         """

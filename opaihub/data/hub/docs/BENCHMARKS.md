@@ -11,21 +11,21 @@ prompts, and writes only hashes, counts, costs, and artifact hashes under
 ## Commands
 
 ```sh
-opai benchmark list
-opai benchmark run --suite local --mode both
-opai benchmark run --suite max --mode both
-opai benchmark gate --min-context-reduction 10
-opai benchmark compare --format markdown
-opai benchmark export --harness promptfoo
-opai benchmark report --format markdown
-opai benchmark report --format json
-opai benchmark report --format html
+vesta benchmark list
+vesta benchmark run --suite local --mode both
+vesta benchmark run --suite max --mode both
+vesta benchmark gate --min-context-reduction 10
+vesta benchmark compare --format markdown
+vesta benchmark export --harness promptfoo
+vesta benchmark report --format markdown
+vesta benchmark report --format json
+vesta benchmark report --format html
 ```
 
 Record a redacted benchmark event to the governance audit trail:
 
 ```sh
-opai benchmark run --suite local --mode both --audit
+vesta benchmark run --suite local --mode both --audit
 ```
 
 ## Real-pipeline coding parity
@@ -37,9 +37,9 @@ content, run checkpoint, and local unit tests. The suite covers a bug fix, a
 feature, a refactor, and a test addition.
 
 ```sh
-opai hub opaibench parity
-opai hub opaibench parity --task bugfix --no-write
-opai hub opaibench parity --format markdown
+vesta hub opaibench parity
+vesta hub opaibench parity --task bugfix --no-write
+vesta hub opaibench parity --format markdown
 ```
 
 The default runner is an in-process scripted provider. It makes no network,
@@ -54,7 +54,7 @@ capture another system separately, copy
 completion, edit, test, step, and cost values, then import that offline file:
 
 ```sh
-opai hub opaibench parity \
+vesta hub opaibench parity \
   --baseline path/to/baseline.json \
   --format markdown
 ```
@@ -82,7 +82,7 @@ and measures the compact context payload Vesta would give an agent.
 
 ## Max suite
 
-`opai benchmark run --suite max --mode both` is Vesta's highest local benchmark
+`vesta benchmark run --suite max --mode both` is Vesta's highest local benchmark
 mode. It is still offline and privacy-safe, but it is shaped around the outside
 benchmarks that matter most for coding agents:
 
@@ -116,11 +116,11 @@ not produce infinite multipliers.
 
 ## Benchmark gates
 
-`opai benchmark gate` turns the latest benchmark run into a CI-ready proof gate.
+`vesta benchmark gate` turns the latest benchmark run into a CI-ready proof gate.
 It exits non-zero when Vesta no longer meets the required efficiency bar:
 
 ```sh
-opai benchmark gate \
+vesta benchmark gate \
   --min-context-reduction 10 \
   --min-paid-call-avoidance 1 \
   --min-cost-reduction 1 \
@@ -134,18 +134,18 @@ block regressions when local evidence stops proving the claim.
 
 ## Regression comparison
 
-`opai benchmark compare` compares the latest two benchmark runs and flags
+`vesta benchmark compare` compares the latest two benchmark runs and flags
 regressions in metrics where bigger is better (context/cost/paid-call reduction,
 success, risk blocks) or smaller is better (time to evidence, human
 interventions).
 
 ```sh
-opai benchmark compare --format markdown
+vesta benchmark compare --format markdown
 ```
 
 ## Promptfoo export
 
-`opai benchmark export --harness promptfoo` writes a privacy-safe starter config
+`vesta benchmark export --harness promptfoo` writes a privacy-safe starter config
 under `.opaihub/benchmarks/promptfooconfig.yaml`. The export uses task ids and
 one-way task hashes rather than raw prompts, so provider-backed evals remain
 explicit and opt-in.

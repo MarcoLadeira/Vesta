@@ -164,7 +164,7 @@ Then open http://localhost:8000 — or just open `index.html` in a browser.
 ## Build features with Vesta
 
 ```
-opai build "implement <the feature you want>"
+vesta build "implement <the feature you want>"
 ```
 
 Vesta sends only the relevant files, gets back complete updated files, and
@@ -363,8 +363,8 @@ Then open http://localhost:8000 — or open `index.html` directly.
 ## Build features with Vesta
 
 ```
-opai build "add due dates to each item"
-opai build "add a filter for done vs active"
+vesta build "add due dates to each item"
+vesta build "add a filter for done vs active"
 ```
 
 Each prompt sends only the relevant files and applies a small, verified diff —
@@ -538,11 +538,11 @@ def scaffold_app(
         next_steps=[
             f"cd {root}",
             str(spec["preview_cmd"]) + "   # preview it (no install needed)",
-            'opai build "implement <the first feature>"   # cheap targeted diff',
+            'vesta build "implement <the first feature>"   # cheap targeted diff',
         ],
     )
     # The build manifest marks this directory as a Vesta Build app — the
-    # customization loop (`opai build`, opaihub/build_loop.py) reads it to
+    # customization loop (`vesta build`, opaihub/build_loop.py) reads it to
     # select context and apply edits safely.
     from opaihub.build_loop import save_app_manifest
 
@@ -556,7 +556,7 @@ def scaffold_app(
             "entrypoint": result.entrypoint,
             "preview_cmd": result.preview_cmd,
             "files": result.files,
-            "created_by": "opai new",
+            "created_by": "vesta new",
             # Persisted so the per-app receipt can always report what the
             # free scaffold saved, even long after creation (#276).
             "boilerplate_tokens_avoided": estimate_boilerplate_tokens(

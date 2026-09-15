@@ -1,4 +1,4 @@
-"""#818 review finding 11: `opai automation recover` output.
+"""#818 review finding 11: `vesta automation recover` output.
 
 The branch changed stdout from a JSON list of recovered runs to an object,
 which breaks every script that parses it. And its "left_to_their_owner" half

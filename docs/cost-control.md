@@ -38,10 +38,10 @@ that arrives afterwards still supersedes it.
 
 What this changes:
 
-- **Reports** — `opai savings`, `opai budget status`, and Settings → Model
+- **Reports** — `vesta savings`, `vesta budget status`, and Settings → Model
   Usage count abandoned calls as unaccounted spend permanently. Totals stay
   labelled a lower bound, never a verified figure.
-- **Gating** — `opai budget gate` asks for confirmation when a call was
+- **Gating** — `vesta budget gate` asks for confirmation when a call was
   abandoned *today* and a budget ceiling is set, because a ceiling cannot be
   enforced against an incomplete total. That window clears on its own by the
   next day. A call merely in flight never prompts.

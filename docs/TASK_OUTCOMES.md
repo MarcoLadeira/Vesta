@@ -60,7 +60,7 @@ schema is versioned so they can be filled in later without a migration.
 
 ## Emission — one per turn, at the pipeline chokepoint
 
-Every surface (desktop GUI, `opai ask`/CLI stream, background runs, Build mode)
+Every surface (desktop GUI, `vesta ask`/CLI stream, background runs, Build mode)
 runs one turn through `handle_gui_message`, and every terminal path in that
 function funnels through its inner `_decorate`. That is the single exactly-once
 boundary. `_decorate` derives the terminal `category` from the turn's honest
@@ -102,7 +102,7 @@ Reconciles outcomes against the authoritative ledger:
 - **`reconciles_to_ledger`** — a self-check that the spend numerator equals the
   ledger's authoritative spend.
 
-`opai outcomes [--json]` prints the summary; the GUI `taskOutcomes` bridge slot
+`vesta outcomes [--json]` prints the summary; the GUI `taskOutcomes` bridge slot
 returns the same dict, so the two surfaces are provably in parity.
 
 ## What this is (and isn't)

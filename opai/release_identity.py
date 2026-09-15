@@ -251,7 +251,7 @@ def render_documentation_projection(release: ProjectRelease, *, surface: str) ->
         )
     elif surface == "docs/INSTALL_PROOF.md":
         body = (
-            f"- [ ] **CLI resolves.** `opai version` begins with `Vesta "
+            f"- [ ] **CLI resolves.** `vesta version` begins with `Vesta "
             f"{release.application_version} {release.release_stage}`\n"
             "      and reports either the exact packaged build SHA or the honest\n"
             "      `development`/`unknown` fallback."

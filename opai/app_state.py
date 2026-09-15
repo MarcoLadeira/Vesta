@@ -39,8 +39,8 @@ BENCHMARK_CAVEAT = (
     "Terminal-Bench, Aider, or third-party leaderboard result."
 )
 ZERO_STATE = (
-    'No real routed tasks recorded yet. Run `opai route "<task>" --record` '
-    "or `opai quickstart`."
+    'No real routed tasks recorded yet. Run `vesta route "<task>" --record` '
+    "or `vesta quickstart`."
 )
 
 
@@ -101,8 +101,8 @@ def model_setup(project_root: Path) -> dict[str, Any]:
             "ollama serve",
             "ollama run qwen2.5-coder:7b",
         ],
-        "verify_command": "opai models discover-local",
-        "ask_command": 'opai ask "summarize my changes"',
+        "verify_command": "vesta models discover-local",
+        "ask_command": 'vesta ask "summarize my changes"',
         "privacy": "Loopback/private endpoints only count as local. Public endpoints require cloud confirmation.",
     }
 
@@ -110,7 +110,7 @@ def model_setup(project_root: Path) -> dict[str, Any]:
 def local_model_onboarding(project_root: Path) -> dict[str, Any]:
     """Guided local-model readiness for the GUI and CLI (#3), one shared source.
 
-    Every surface (``opai models onboard``, ``opai doctor``, the desktop GUI)
+    Every surface (``vesta models onboard``, ``vesta doctor``, the desktop GUI)
     derives readiness from ``opaihub.local_onboarding`` so they agree. Never
     downloads a model, starts a service, or reaches a public host on its own.
     """
@@ -421,7 +421,7 @@ def agent_readiness(project_root: Path) -> dict[str, Any]:
                 "config_rules": bool(client.get("project_managed")),
                 "global_required": global_required,
                 "global_ready": global_ready,
-                "repair": client.get("repair", "opai activate --repair"),
+                "repair": client.get("repair", "vesta activate --repair"),
             }
         )
     return {
@@ -429,7 +429,7 @@ def agent_readiness(project_root: Path) -> dict[str, Any]:
         "summary": integrations["summary"],
         "stale_paths": detect_stale_paths(root),
         "repair_command": integrations.get("repair_command")
-        or "opai activate --repair",
+        or "vesta activate --repair",
     }
 
 
@@ -511,7 +511,7 @@ def benchmark_proof(project_root: Path) -> dict[str, Any]:
             "claim": BENCHMARK_CLAIM,
             "caveat": BENCHMARK_CAVEAT,
             "report_files": report_files,
-            "next_command": "opai benchmark run --suite max --mode both",
+            "next_command": "vesta benchmark run --suite max --mode both",
         }
     score = report.get("efficiency_score", {})
     return {
@@ -542,7 +542,7 @@ def proof_status(project_root: Path) -> dict[str, Any]:
         "signing_key_source": source,
         "redaction": "one-way task hashes only; raw prompts and secrets never stored",
         "export_formats": ["markdown", "json"],
-        "command": "opai proof bundle --out proof.json",
+        "command": "vesta proof bundle --out proof.json",
         "note": "Proof bundles redact prompts/secrets; sign locally (not PKI identity).",
     }
 
@@ -564,7 +564,7 @@ def guarded_workflows(project_root: Path) -> dict[str, Any]:
                 "approvals": template.get("fail_closed", []),
                 "evidence_artifacts": template.get("evidence_artifacts", []),
                 "permission_boundaries": template.get("permission_boundaries"),
-                "start_command": f"opai guard evidence {template.get('id')} --sign",
+                "start_command": f"vesta guard evidence {template.get('id')} --sign",
             }
         )
     return {

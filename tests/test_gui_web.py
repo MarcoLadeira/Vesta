@@ -1675,7 +1675,7 @@ class GithubReadinessCitesACheckTests(unittest.TestCase):
         """The config's shadow journal refuses credential-shaped keys.
 
         A secret written into an append-only journal survives disconnects,
-        rotations and `opai github disconnect` alike, so the record has to
+        rotations and `vesta github disconnect` alike, so the record has to
         stay clear of anything that looks like one.
         """
 

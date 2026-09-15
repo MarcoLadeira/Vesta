@@ -34,8 +34,8 @@ This statement fixes the factual positioning, not a copy-and-paste post. Adapt i
       is reviewed and any launch blockers are accepted or fixed.
 - [ ] [Install proof checklist](INSTALL_PROOF.md) passes on a clean machine.
 - [ ] `python -m unittest discover -s tests` is green.
-- [ ] `opai benchmark run --suite max --mode both` is green.
-- [ ] `opai benchmark gate --min-effectiveness-index 95 --require-risk-blocks` passes.
+- [ ] `vesta benchmark run --suite max --mode both` is green.
+- [ ] `vesta benchmark gate --min-effectiveness-index 95 --require-risk-blocks` passes.
 - [ ] [Product identity](PRODUCT_IDENTITY.md) and the release notes explain
       that future pricing is post-launch discovery, not an alpha feature gate.
 - [ ] Every public claim maps to a shipped command (no vaporware).
@@ -53,8 +53,8 @@ The following channel prompts are planning aids, not approved copy. Apply the [L
 ## Product Hunt
 
 - [ ] Tagline: "The AI coding cost firewall."
-- [ ] First comment: the before/after `opai savings` table from PROOF.md.
-- [ ] Gallery: `opai doctor`, `opai route`, `opai savings --markdown` output.
+- [ ] First comment: the before/after `vesta savings` table from PROOF.md.
+- [ ] Gallery: `vesta doctor`, `vesta route`, `vesta savings --markdown` output.
 
 ## Hacker News (Show HN)
 
@@ -72,11 +72,11 @@ The following channel prompts are planning aids, not approved copy. Apply the [L
 
 1. Hook (0–10s): "Your AI coding assistant bills you for `git status`. Here's the firewall."
 2. Install (10–25s, after a verified artifact is published): show the exact
-   published command, then `opai doctor` → six clients active. Until then, use
+   published command, then `vesta doctor` → six clients active. Until then, use
    the release-availability page rather than implying an install command.
-3. Route (25–45s): `opai route "fix the failing test"` → cheapest safe tier, read-only.
-4. Proof (45–70s): `opai savings --markdown` → dollars saved, cloud calls avoided.
-5. Trust (70–90s): `opai guard action "git push"` → denied (fail closed); privacy line.
+3. Route (25–45s): `vesta route "fix the failing test"` → cheapest safe tier, read-only.
+4. Proof (45–70s): `vesta savings --markdown` → dollars saved, cloud calls avoided.
+5. Trust (70–90s): `vesta guard action "git push"` → denied (fail closed); privacy line.
 
 ## Post-launch
 

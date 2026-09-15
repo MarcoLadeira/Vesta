@@ -15,7 +15,7 @@ assumed from the issue text:
    un-redacted ``str(exc)`` that reached ``render_ask``'s plain-text CLI
    output completely unmodified — reproduced end to end before fixing:
    a runner raising ``RuntimeError("... Bearer sk-live-...")`` printed the
-   live key straight to the terminal via ``opai ask``.
+   live key straight to the terminal via ``vesta ask``.
 """
 
 from __future__ import annotations
@@ -182,7 +182,7 @@ class AskBoundaryRedactionTests(unittest.TestCase):
         )
 
     def test_the_cli_render_path_never_shows_the_raw_secret(self):
-        """The actual user-visible surface this fix closes: `opai ask`'s
+        """The actual user-visible surface this fix closes: `vesta ask`'s
         plain-text output (render_ask), not just the internal result dict."""
 
         class LeakyRunner:

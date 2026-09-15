@@ -25,7 +25,7 @@ test("composer placeholder carries the brand voice", async ({ page }) => {
 
 test("inspector shows the CLI mirror and it tracks the mode", async ({ page }) => {
   const cmd = page.locator("#cliMirrorCmd");
-  await expect(cmd).toContainText("opai ask --model claude:opus");
+  await expect(cmd).toContainText("vesta ask --model claude:opus");
   await expect(cmd).toContainText("<your task>");
   // Switching run mode updates the terminal twin.
   await page.selectOption("#modeSel", "safe-auto");

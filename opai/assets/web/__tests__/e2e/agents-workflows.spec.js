@@ -37,7 +37,7 @@ test("workflows display risk and approval posture", async ({ page }) => {
 test("workflow action copies a plan command without running it", async ({ page }) => {
   await openNav(page, "Workflows");
   await page.getByRole("button", { name: "Copy workflow command" }).click();
-  await expect(page.locator("#toast")).toContainText("opai workflow plan release_preflight");
+  await expect(page.locator("#toast")).toContainText("vesta workflow plan release_preflight");
   expect(await page.evaluate(() => window.__mock.sendCount)).toBe(0);
   expect(await page.evaluate(() => window.__mock.runTools)).toEqual([]);
 });

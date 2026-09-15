@@ -79,7 +79,7 @@ def cmd_install(args: argparse.Namespace) -> int:
 def cmd_delegate(args: argparse.Namespace) -> int:
     root = _project(args.project)
     # Read-only by default (issue #12): delegating to the hub must not activate
-    # or write project files. Use `opai activate` for write side effects.
+    # or write project files. Use `vesta activate` for write side effects.
     project_args = ["--project", str(root)]
     return hub_main(project_args + list(args.hub_args))
 
@@ -469,7 +469,7 @@ def gui_main() -> int:
     executable (pythonw-backed) that opens the desktop app with **no attached
     console window** — suitable for a Start-menu/taskbar shortcut. Any arguments
     are forwarded to the ``gui`` subcommand, so ``opai-gui --project X`` and
-    ``opai-gui "fix the bug"`` behave exactly like ``opai gui ...``.
+    ``opai-gui "fix the bug"`` behave exactly like ``vesta gui ...``.
     """
     return main(["gui", *sys.argv[1:]])
 
@@ -478,7 +478,7 @@ def cmd_new(args: argparse.Namespace) -> int:
     """Scaffold a runnable app skeleton from a description — zero tokens (#276).
 
     The free-boilerplate entry point to Vesta Build: get a runnable app, then
-    build features with cheap targeted `opai ask` prompts.
+    build features with cheap targeted `vesta ask` prompts.
     """
     from opaihub.app_scaffold import scaffold_app
 
@@ -1008,9 +1008,9 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         # launchers themselves rather than assumed from this process.
         "launchers": launchers,
         "next_steps": [
-            "Run opai activate --repair to fix broken or missing client integrations.",
+            "Run vesta activate --repair to fix broken or missing client integrations.",
             "Restart AI clients after global skill changes.",
-            'Run opai route "<task>" --record to populate the savings ledger.',
+            'Run vesta route "<task>" --record to populate the savings ledger.',
         ],
     }
     print_json(payload)
@@ -1089,7 +1089,7 @@ def _journal_migration(root: Path) -> dict[str, object]:
 
     # Every fact starts as "not checked". They used to share one suppress
     # block, so when the store refused to open -- a journal written by a newer
-    # Vesta -- nothing after that point was ever set, `opai journal status` fell
+    # Vesta -- nothing after that point was ever set, `vesta journal status` fell
     # back to its defaults, and it printed "unfinished: 0" over a real
     # unfinished run (#818 review finding 5). Now each report stands alone and
     # a report that cannot look says so.
@@ -1614,7 +1614,7 @@ def cmd_launch(args: argparse.Namespace) -> int:
 # --------------------------------------------------------------------------- #
 # Recursion guard (F12): provider CLIs spawned by Vesta carry OPAI_AGENT_SESSION
 # in their environment (see opaihub.proc). When an agent follows an
-# instruction-file recipe like "run `opai route ...`", the nested Vesta process
+# instruction-file recipe like "run `vesta route ...`", the nested Vesta process
 # must refuse instead of recursing into another agent run. Agentic subcommands
 # check this guard; pure utility/hook subcommands must keep working inside an
 # agent session.
@@ -1820,7 +1820,7 @@ def _push_consent_state() -> tuple[bool, str]:
     """Whether the user has already granted Vesta push consent, and why not.
 
     Consent is the same persisted pair the GUI toggle and Vesta's own
-    ``git_push`` tool read: ``opai github allow-push on`` plus a connected
+    ``git_push`` tool read: ``vesta github allow-push on`` plus a connected
     token. Fails closed — any lookup problem is treated as "not consented" so
     the gate can only ever become stricter on error.
     """
@@ -2101,7 +2101,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
     else:
         print(render_ask(result))
     # #295 Workstream H: the exit code names which ending this was, from the one
-    # canonical mapping, so `opai ask` and the streaming path agree and a script
+    # canonical mapping, so `vesta ask` and the streaming path agree and a script
     # can tell a timeout from a refusal.
     from opaihub.run_state import exit_code_for
 
@@ -2246,10 +2246,10 @@ def cmd_quickstart(args: argparse.Namespace) -> int:
             "savings_headline": report["headline"],
             "share_badge_markdown": card["badge"]["markdown"],
             "next_steps": [
-                'Run more tasks with: opai route "<task>" --record',
-                "See the full report: opai savings --markdown",
-                "Share your savings: opai share --markdown",
-                "Check readiness anytime: opai doctor",
+                'Run more tasks with: vesta route "<task>" --record',
+                "See the full report: vesta savings --markdown",
+                "Share your savings: vesta share --markdown",
+                "Check readiness anytime: vesta doctor",
             ],
         }
     )
@@ -2289,9 +2289,9 @@ def cmd_savings(args: argparse.Namespace) -> int:
 def cmd_release(args: argparse.Namespace) -> int:
     """Reproducible release-candidate preflight, dry-run, and rollback (#32).
 
-    ``opai release preflight`` assembles every release check into one
+    ``vesta release preflight`` assembles every release check into one
     deterministic readiness verdict from a clean checkout and exits non-zero
-    when anything blocks. ``opai release rollback`` prints (or, with --execute,
+    when anything blocks. ``vesta release rollback`` prints (or, with --execute,
     performs) the steps to restore the previous tested artifact without touching
     user state.
     """
@@ -2705,7 +2705,7 @@ def cmd_benchmark(args: argparse.Namespace) -> int:
             print_json(
                 {
                     "status": "missing",
-                    "message": "No benchmark history yet. Run 'opai benchmark run --suite local --mode both'.",
+                    "message": "No benchmark history yet. Run 'vesta benchmark run --suite local --mode both'.",
                 }
             )
             return 1
@@ -2722,7 +2722,7 @@ def cmd_benchmark(args: argparse.Namespace) -> int:
             print_json(
                 {
                     "status": "missing",
-                    "message": "No benchmark history yet. Run 'opai benchmark run --suite local --mode both'.",
+                    "message": "No benchmark history yet. Run 'vesta benchmark run --suite local --mode both'.",
                 }
             )
             return 1
@@ -2933,7 +2933,7 @@ def cmd_team(args: argparse.Namespace) -> int:
 
 
 def _models_overrides_command(args: argparse.Namespace) -> int:
-    """Manage the user-owned model list (`opai models add/hide/reset`).
+    """Manage the user-owned model list (`vesta models add/hide/reset`).
 
     The built-in registry is a table compiled into the release, so a model a
     provider ships tomorrow is unreachable until Vesta itself is updated. These
@@ -3126,7 +3126,7 @@ def cmd_models(args: argparse.Namespace) -> int:
                 {
                     "status": "unknown_model",
                     "model_id": args.model_id,
-                    "hint": "Run `opai models list` to see selectable model IDs.",
+                    "hint": "Run `vesta models list` to see selectable model IDs.",
                 }
             )
             return 2
@@ -3284,7 +3284,7 @@ def cmd_publish(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="opai",
+        prog="vesta",
         description=(
             f"{current_release_identity().display_name}: "
             "local-first AI coding cost firewall."
@@ -3304,7 +3304,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser(
         "new",
-        help="Scaffold a runnable app from a description (free boilerplate, then iterate with opai build)",
+        help="Scaffold a runnable app from a description (free boilerplate, then iterate with vesta build)",
     )
     p.add_argument(
         "description", help='What to build, e.g. "a todo app with dark mode"'
@@ -3604,7 +3604,7 @@ def build_parser() -> argparse.ArgumentParser:
         "task",
         nargs="?",
         default=None,
-        help='Optional task to pre-load the prompt with, e.g. opai gui "fix the login bug"',
+        help='Optional task to pre-load the prompt with, e.g. vesta gui "fix the login bug"',
     )
     p.add_argument("--project", default=None, help="Project root")
     p.add_argument(

@@ -14,5 +14,5 @@ Rules:
 Validate after editing:
 
 ```sh
-opai hub validate --registry workflows
+vesta hub validate --registry workflows
 ```

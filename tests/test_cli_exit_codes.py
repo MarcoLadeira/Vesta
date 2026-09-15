@@ -41,7 +41,7 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(len(codes), len(set(codes)))
 
     def test_success_is_zero_and_nothing_else_is(self) -> None:
-        # Keeps the ordinary idiom working: `if ! opai ask ...` behaves exactly
+        # Keeps the ordinary idiom working: `if ! vesta ask ...` behaves exactly
         # as it did before this contract existed.
         self.assertEqual(exit_code_for(RunState.COMPLETED), 0)
         for state in TERMINAL_STATES - {RunState.COMPLETED}:

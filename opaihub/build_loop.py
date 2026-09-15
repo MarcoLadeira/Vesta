@@ -1,6 +1,6 @@
 """The Vesta Build customization loop (#276): scaffold → cheap targeted edits.
 
-``opai build "make the heading purple"`` turns a request into a small, cheap
+``vesta build "make the heading purple"`` turns a request into a small, cheap
 model call and a safe, deterministic file write:
 
 1. **Select context** — only the app files relevant to the request are sent
@@ -881,7 +881,7 @@ def run_build_request(
             "ok": False,
             "status": "not_an_app",
             "error": (
-                f"{root} has no {MANIFEST_NAME}. Scaffold with `opai new` first."
+                f"{root} has no {MANIFEST_NAME}. Scaffold with `vesta new` first."
             ),
         }
     if not dry_run:
@@ -948,7 +948,7 @@ def run_build_request(
         allow_cloud=allow_cloud,
         allow_limit=allow_limit,
         resume_context=resume_context,
-        # `opai build` drives the same pipeline as chat, and the
+        # `vesta build` drives the same pipeline as chat, and the
         # canonical record should say which one asked (#818 AC2).
         surface="automation",
         defer_checkpoint_finalization=True,

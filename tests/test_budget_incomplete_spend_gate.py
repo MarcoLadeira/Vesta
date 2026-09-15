@@ -26,7 +26,7 @@ deliberate exclusions, both pinned by tests below:
   confirmation for every paid route forever, with no way to clear it. A
   permanent prompt is not a safety feature — it trains people to click
   through. They are still *reported* by ``budget_status`` and
-  ``opai savings``, which is the half that costs nothing.
+  ``vesta savings``, which is the half that costs nothing.
 
 Isolation note: these set ``OPAI_HUB_ROOT``. ``loader.hub_root`` otherwise
 falls back to the packaged ``opaihub/data/hub``, and a fixture written

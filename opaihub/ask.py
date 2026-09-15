@@ -1,4 +1,4 @@
-"""`opai ask`: actually answer cheap tasks locally (open issue #13).
+"""`vesta ask`: actually answer cheap tasks locally (open issue #13).
 
 Pipeline: classify with the model-intelligence taxonomy, check the local result
 cache (a near-duplicate task in the same repo state is free), otherwise run a
@@ -298,7 +298,7 @@ def run_ask(
         **base,
         "status": "no_local_model",
         "hint": "Start Ollama (`ollama serve`) or set LOCAL_MODEL_URL to a loopback endpoint, then retry.",
-        "next_command": "opai models discover-local",
+        "next_command": "vesta models discover-local",
     }
 
 

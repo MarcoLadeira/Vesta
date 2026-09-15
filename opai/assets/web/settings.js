@@ -943,7 +943,7 @@
     }
     h += '<div class="cb">• Every task tries free tiers first: deterministic tools, the local cache, then a local model.</div>';
     h += '<div class="cb">• Cloud models are considered only when those tiers cannot do the job; the cloud gate can require a confirmation for every paid call.</div>';
-    h += '<div class="cb">• Run <span class="mono">opai why</span> on a task to see exactly why a route was chosen; every decision is in the local ledger.</div>';
+    h += '<div class="cb">• Run <span class="mono">vesta why</span> on a task to see exactly why a route was chosen; every decision is in the local ledger.</div>';
     return h;
   }
 
@@ -1549,7 +1549,7 @@
       "</span></div>" +
       // One plain sentence, from the backend. No timings, no cache provenance,
       // no shell commands: those are diagnostics and live in
-      // `opai update doctor`.
+      // `vesta update doctor`.
       '<div class="update-desc">' + esc(summary.message || description) + "</div>" +
       '<div class="actions"><button class="btn ghost" id="settingsCheckUpdate">Check now</button>' +
       (state === "unsupported_install" && applyAllowed

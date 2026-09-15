@@ -15,8 +15,8 @@ it even carries the right sentence:
 
 That machinery was adopted by ``opaihub/usage.py`` (Settings -> Model Usage)
 and by nothing else. In particular ``summarize_ledger`` — which backs
-``opai savings``, the surface the run receipt explicitly points users to
-("See the full ledger with: opai savings") — never asked. Reproduced before
+``vesta savings``, the surface the run receipt explicitly points users to
+("See the full ledger with: vesta savings") — never asked. Reproduced before
 the fix, with one dispatched-and-lost call plus one completed call:
 
     summarize_ledger:      estimated_actual_spend_usd = 0.5

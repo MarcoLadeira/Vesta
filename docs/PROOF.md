@@ -44,12 +44,12 @@ real repo with hundreds of such tasks a week, the avoided spend compounds.
 ## Reproduce it yourself
 
 ```sh
-opai route "show git status and summarize the diff" --record
-opai route "write a commit message for the staged changes" --record
-opai route "fix the failing unit test in the auth module" --record
-opai route "add a small helper function with a docstring" --record
-opai route "review this pull request before I open it" --record
-opai savings --markdown
+vesta route "show git status and summarize the diff" --record
+vesta route "write a commit message for the staged changes" --record
+vesta route "fix the failing unit test in the auth module" --record
+vesta route "add a small helper function with a docstring" --record
+vesta route "review this pull request before I open it" --record
+vesta savings --markdown
 ```
 
 ## How the estimate is built (honest math)
@@ -66,7 +66,7 @@ opai savings --markdown
 ## Per-client before/after
 
 Vesta activates the same firewall in front of every client. After
-`opai activate`, `opai doctor` confirms each one:
+`vesta activate`, `vesta doctor` confirms each one:
 
 | Client | Without Vesta | With Vesta |
 | --- | --- | --- |
@@ -77,5 +77,5 @@ Vesta activates the same firewall in front of every client. After
 | Cline | unrouted prompts | `.clinerules/opai.md` |
 
 ```sh
-opai doctor   # readiness: active / broken / missing per client, with repair
+vesta doctor   # readiness: active / broken / missing per client, with repair
 ```

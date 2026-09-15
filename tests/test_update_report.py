@@ -182,7 +182,7 @@ class UserFacingCopyTests(unittest.TestCase):
 
     def test_no_user_facing_copy_mentions_timing_or_internals(self) -> None:
         # The structural guard. Every state, checked against the vocabulary
-        # that belongs in `opai update doctor` rather than in front of someone
+        # that belongs in `vesta update doctor` rather than in front of someone
         # who wants the new version.
         from opai.update.report import _USER_MESSAGES, _USER_TITLES, user_facing
 

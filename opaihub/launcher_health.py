@@ -13,7 +13,7 @@ the app does not know.
 
 This module makes that answerable. It reads the interpreter each installed
 launcher has baked in and checks whether that file is really there, so
-``opai doctor`` can name a dead icon instead of leaving the user to guess.
+``vesta doctor`` can name a dead icon instead of leaving the user to guess.
 
 It reports only what it read. A launcher whose bytes cannot be parsed is
 ``UNREADABLE``, not "fine": the one thing this module must never do is

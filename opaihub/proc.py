@@ -134,7 +134,7 @@ _ENV_DENY_PREFIXES: dict[str, tuple[str, ...]] = {
 
 # Marker exported into every provider CLI's environment. Any `opai` process an
 # agent then launches from its own shell (e.g. by following a CLAUDE.md /
-# AGENTS.md "run `opai route ...`" recipe) inherits it and can refuse the
+# AGENTS.md "run `vesta route ...`" recipe) inherits it and can refuse the
 # recursive self-invocation (F12). See opai.cli._refuse_if_nested_agent_session.
 AGENT_SESSION_ENV = "OPAI_AGENT_SESSION"
 # Where the one-shot command-approval handshake lives, pinned for every provider

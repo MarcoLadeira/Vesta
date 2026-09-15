@@ -1,9 +1,9 @@
 """#818 review finding 1: the process running a background run owns it.
 
 The journal lease named whoever *first* saved a run. For a background run that
-is ``opai automation enqueue``, which exits at once; ``opai automation run``
+is ``vesta automation enqueue``, which exits at once; ``vesta automation run``
 executes it in a second process that never took the lease over. A concurrent
-``opai automation recover`` then asked "is the owner alive?", got "no", and
+``vesta automation recover`` then asked "is the owner alive?", got "no", and
 wrote "failed: the owning session ended before it finished" onto a run that
 was running -- the false record the liveness check was added to prevent.
 

@@ -13,7 +13,7 @@ therefore safe *today*.
 
 The validator's job is to keep it safe tomorrow. A journal is append-only and
 nothing prunes it, so a secret written into one outlives disconnects, token
-rotations and ``opai github disconnect`` alike -- and would sit in a second
+rotations and ``vesta github disconnect`` alike -- and would sit in a second
 file with its own permissions that no existing cleanup path knows about. So
 the mirror refuses any record carrying a credential-shaped key rather than
 duplicating it. Refusing to record is the right failure direction here; these

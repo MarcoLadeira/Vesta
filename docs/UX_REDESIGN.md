@@ -11,7 +11,7 @@ React/Tailwind/Playwright layer._
 
 ## Design principle (deliberate)
 
-`opai gui` stays a **calm, Claude-desktop-style chat**: sidebar + conversation +
+`vesta gui` stays a **calm, Claude-desktop-style chat**: sidebar + conversation +
 composer. We add **control and clarity without a busy IDE pane**. Power lives in
 a command palette and keyboard shortcuts, not in always-on side panels.
 

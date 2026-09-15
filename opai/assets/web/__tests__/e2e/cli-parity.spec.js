@@ -4,7 +4,7 @@ import { openApp } from "./helpers/app.js";
 import { pythonCanImport, runCli } from "./helpers/cli.js";
 
 
-test("opai help exposes the primary product surfaces", () => {
+test("vesta help exposes the primary product surfaces", () => {
   const result = runCli(["--help"]);
   expect(result.status).toBe(0);
   expect(result.stdout).toContain("ask");
@@ -43,13 +43,13 @@ test("CLI output never leaks unrelated environment secrets", () => {
   expect(result.stderr).not.toContain(secret);
 });
 
-test("Inspector CLI mirror only emits flags supported by opai ask", async ({ page }) => {
+test("Inspector CLI mirror only emits flags supported by vesta ask", async ({ page }) => {
   await openApp(page);
   await page.selectOption("#modelSel", "account:codex:gpt-5.5");
   await page.selectOption("#modeSel", "plan");
   const mirror = await page.locator("#cliMirrorCmd").innerText();
   const help = runCli(["ask", "--help"]).stdout;
-  expect(mirror).toContain("opai ask");
+  expect(mirror).toContain("vesta ask");
   expect(help).toContain("--model");
   expect(help).toContain("--mode");
 });

@@ -17,8 +17,8 @@ firewall.
 - Local max benchmark proof loop:
 
 ```sh
-opai benchmark run --suite max --mode both
-opai benchmark gate --min-effectiveness-index 95 --require-risk-blocks
+vesta benchmark run --suite max --mode both
+vesta benchmark gate --min-effectiveness-index 95 --require-risk-blocks
 ```
 
 - Team governance, policy, audit, signed evidence, and benchmark docs from the
@@ -34,11 +34,11 @@ onboarding.
 Then run:
 
 ```sh
-opai quickstart
-opai doctor
-opai benchmark run --suite max --mode both
-opai benchmark gate --min-effectiveness-index 95 --require-risk-blocks
-opai savings --markdown
+vesta quickstart
+vesta doctor
+vesta benchmark run --suite max --mode both
+vesta benchmark gate --min-effectiveness-index 95 --require-risk-blocks
+vesta savings --markdown
 ```
 
 ## Caveats
