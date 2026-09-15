@@ -18,11 +18,19 @@ class VestaFinishTests(unittest.TestCase):
         self.assertEqual(__release_stage__, "alpha.1")
 
     def test_install_project_creates_local_state_without_network(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            tempfile.TemporaryDirectory() as home_tmp,
+        ):
             root = Path(tmp)
+            home = Path(home_tmp).resolve()
             result = install_project(
-                root, install_tools=False, install_superpowers=False
+                root, install_tools=False, install_superpowers=False, home=home
             )
+
+            # Activation resolves home even with global integrations off;
+            # it must be the throwaway home, never the developer's real one.
+            self.assertEqual(Path(result["activation"]["home"]).resolve(), home)
 
             self.assertEqual(result["brand"], "Vesta")
             self.assertEqual(result["version"], "0.2.1a1")
