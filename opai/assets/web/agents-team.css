@@ -153,6 +153,7 @@
 .app.team-access.panel-hidden { --team-inspector-width: 0px; }
 .app.team-access.team-open { --team-inspector-width: 320px; }
 .app.team-access.team-collapsed .inspector { display: block; }
+.app.settings-active.team-collapsed > .inspector { display: none; }
 .app.team-access .agents-team-strip { grid-column: 4; grid-row: 2; position: static; width: auto; min-height: 0; display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3) var(--space-1); border-radius: 0; }
 .team-strip-open { flex: none; min-height: 32px; align-content: center; border-radius: var(--r-md); }
 .team-strip-open:hover { background: var(--glass-hi); color: var(--ink); }

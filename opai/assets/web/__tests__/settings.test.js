@@ -122,28 +122,85 @@ describe("doctorSummary (#237)", () => {
 describe("section registry (#236)", () => {
   it("exposes the target taxonomy in order", () => {
     expect(OPaiSettings.sections.map((s) => s.id)).toEqual([
-      "overview",
-      "providers",
-      "balance",
-      "models",
-      "firewall",
-      "usage",
-      "permissions",
-      // Prompt Library and the Insights dashboards left the sidebar and land
-      // here, so Settings is where you go looking for them now.
-      "tools",
-      "privacy",
+      "general",
       "appearance",
-      "about",
+      "models",
+      "agents",
+      "usage",
+      "workspace",
+      "connections",
+      "safety",
+      "advanced",
+    ]);
+    expect(OPaiSettings.sections.map((s) => s.group)).toEqual([
+      "Vesta",
+      "Vesta",
+      "AI",
+      "AI",
+      "AI",
+      "Development",
+      "Development",
+      "Trust",
+      "System",
     ]);
   });
 
-  it("every section has a title, keywords, and a render function", () => {
+  it("every section has a unique id, title, keywords, and a render function", () => {
+    expect(new Set(OPaiSettings.sections.map((section) => section.id)).size).toBe(
+      OPaiSettings.sections.length,
+    );
     for (const section of OPaiSettings.sections) {
       expect(section.title).toBeTruthy();
       expect(section.keywords).toBeTruthy();
       expect(typeof section.render).toBe("function");
     }
+  });
+
+  it("keeps historical Settings links mapped to their canonical destination", () => {
+    expect(OPaiSettings.resolveSettingsTarget("overview")).toEqual({
+      sectionId: "general",
+      subsectionId: "defaults",
+    });
+    expect(OPaiSettings.resolveSettingsTarget("providers")).toEqual({
+      sectionId: "connections",
+      subsectionId: "connections",
+    });
+    expect(OPaiSettings.resolveSettingsTarget("balance")).toEqual({
+      sectionId: "usage",
+      subsectionId: "balances",
+    });
+    expect(OPaiSettings.resolveSettingsTarget("firewall")).toEqual({
+      sectionId: "usage",
+      subsectionId: "budgets",
+    });
+    expect(OPaiSettings.resolveSettingsTarget("permissions")).toEqual({
+      sectionId: "safety",
+      subsectionId: "permissions",
+    });
+    expect(OPaiSettings.resolveSettingsTarget("privacy")).toEqual({
+      sectionId: "safety",
+      subsectionId: "privacy",
+    });
+    expect(OPaiSettings.resolveSettingsTarget("tools")).toEqual({
+      sectionId: "advanced",
+      subsectionId: "tools",
+    });
+    expect(OPaiSettings.resolveSettingsTarget("about")).toEqual({
+      sectionId: "advanced",
+      subsectionId: "about",
+    });
+  });
+
+  it("indexes old product language without indexing credential values", () => {
+    const terms = Object.fromEntries(
+      OPaiSettings.sections.map((section) => [section.id, section.keywords]),
+    );
+    expect(terms.connections).toMatch(/provider.*api key|api key.*provider/);
+    expect(terms.usage).toMatch(/balance/);
+    expect(terms.usage).toMatch(/firewall/);
+    expect(terms.safety).toMatch(/permissions/);
+    expect(terms.safety).toMatch(/privacy/);
+    expect(Object.values(terms).join(" ")).not.toMatch(/secret|token value|credential value/i);
   });
 });
 
@@ -160,15 +217,86 @@ describe("Appearance response preferences", () => {
   it("renders a distinct Compact, Balanced, Detailed response density control", () => {
     const html = section().render({ prefs: { response_density: "detailed" } }, ctx);
     expect(html).toContain('data-appearance-key="response_density"');
-    expect(html).toMatch(/data-value="detailed"[^>]*aria-pressed="true"/);
+    expect(html).toMatch(/data-value="detailed"[^>]*aria-checked="true"/);
     expect(html).toContain(">Balanced<");
   });
 
   it("reads composer style from either persisted snake_case or boot camelCase", () => {
     const raw = section().render({ prefs: { composer_style: "single" } }, ctx);
     const boot = section().render({ prefs: { composerStyle: "command" } }, ctx);
-    expect(raw).toMatch(/data-value="single"[^>]*aria-pressed="true"/);
-    expect(boot).toMatch(/data-value="command"[^>]*aria-pressed="true"/);
+    expect(raw).toMatch(/data-value="single"[^>]*aria-checked="true"/);
+    expect(boot).toMatch(/data-value="command"[^>]*aria-checked="true"/);
+  });
+});
+
+describe("Appearance theme picker", () => {
+  const esc = (s) =>
+    String(s == null ? "" : s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  const ctx = { esc, state: { boot: {} } };
+  const section = () => OPaiSettings.sections.find((s) => s.id === "appearance");
+  const picker = (html) => html.match(/<div class="theme-choices"[\s\S]*?<\/button><\/div>/)[0];
+  const tile = (html, value) => html.match(new RegExp(`data-value="${value}"[\\s\\S]*?</button>`))[0];
+
+  afterEach(() => {
+    delete globalThis.OPaiTheme;
+  });
+
+  it("offers Light, Viber Coder, Dark, Vesta and System as one radio group on the appearance key", () => {
+    const html = picker(section().render({ prefs: { theme: "light" } }, ctx));
+    expect(html).toContain('role="radiogroup" aria-label="Theme" data-appearance-key="theme"');
+    expect(Array.from(html.matchAll(/data-value="([\w-]+)" role="radio"/g), (match) => match[1])).toEqual([
+      "light",
+      "viber-coder",
+      "dark",
+      "vesta",
+      "system",
+    ]);
+    expect(html).toMatch(/data-value="light" role="radio" aria-checked="true" tabindex="0"/);
+    expect(html).toMatch(/data-value="dark" role="radio" aria-checked="false" tabindex="-1"/);
+    for (const label of ["Light", "Viber Coder", "Dark", "Vesta", "System"]) expect(html).toContain(">" + label + "<");
+  });
+
+  it("previews each option in its own palette, and System in the two it switches between", () => {
+    const html = picker(section().render({ prefs: { theme: "dark" } }, ctx));
+    const panes = (value) =>
+      Array.from(tile(html, value).matchAll(/theme-preview-pane" data-theme="([\w-]+)"/g), (match) => match[1]);
+    expect(panes("light")).toEqual(["light"]);
+    expect(panes("viber-coder")).toEqual(["viber-coder"]);
+    expect(panes("dark")).toEqual(["dark"]);
+    expect(panes("vesta")).toEqual(["vesta"]);
+    expect(panes("system")).toEqual(["light", "viber-coder"]);
+    expect(html).toContain('class="theme-preview" aria-hidden="true"');
+  });
+
+  it("shows the default Viber Coder theme for a missing or unknown preference", () => {
+    expect(picker(section().render({ prefs: {} }, ctx))).toMatch(/data-value="viber-coder" role="radio" aria-checked="true"/);
+    expect(picker(section().render({ prefs: { theme: "neon" } }, ctx))).toMatch(/data-value="viber-coder" role="radio" aria-checked="true"/);
+  });
+
+  it("falls back to the theme the window is wearing when the payload has none", () => {
+    globalThis.OPaiTheme = { current: () => ({ preference: "system", theme: "light" }) };
+    expect(picker(section().render({ prefs: {} }, ctx))).toMatch(/data-value="system" role="radio" aria-checked="true"/);
+    // A saved value still wins over what is applied.
+    expect(picker(section().render({ prefs: { theme: "light" } }, ctx))).toMatch(/data-value="light" role="radio" aria-checked="true"/);
+  });
+
+  it("is the first appearance row and replaces the old read-only theme status", () => {
+    const html = section().render({ prefs: {} }, ctx);
+    expect(html.indexOf('data-appearance-key="theme"')).toBeLessThan(html.indexOf("Composer style"));
+    expect(html).not.toContain("Dark (default)");
+    expect(html).not.toContain("not shipped");
+  });
+
+  it("is findable from Settings search by every theme's name and the usual phrases", () => {
+    const theme = section().searchItems.find((item) => item.label === "Theme");
+    expect(theme.selector).toBe('[data-appearance-key="theme"]');
+    for (const phrase of ["light mode", "dark mode", "night mode", "midnight", "viber coder", "system"]) {
+      expect(theme.keywords).toContain(phrase);
+    }
   });
 });
 
@@ -180,7 +308,7 @@ describe("Credits & Balance section", () => {
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
   const ctx = { esc, state: { boot: {} } };
-  const section = () => OPaiSettings.sections.find((s) => s.id === "balance");
+  const section = () => OPaiSettings.sections.find((s) => s.id === "usage");
   const sample = () => ({
     providerBalances: [
       { provider: "claude", displayName: "Claude", status: "ok", amount: 85, currency: "EUR", percent: 100, source: "manual", supportsLiveBalance: false, checkedAt: null, rechargeHint: "x", configured: true },
@@ -224,8 +352,10 @@ describe("Credits & Balance section", () => {
     expect(html).toContain('id="balanceRefresh"');
   });
 
-  it("renders nothing when the payload has no balances (older backend)", () => {
-    expect(section().render({}, ctx)).toBe("");
+  it("omits balance cards when an older backend has no balance payload", () => {
+    const html = section().render({}, ctx);
+    expect(html).toContain("Usage &amp; Budgets");
+    expect(html).not.toContain("data-balance-provider");
   });
 });
 
@@ -237,7 +367,7 @@ describe("About page: update status (mandatory-update system)", () => {
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
   const ctx = { esc, state: { boot: {} } };
-  const section = () => OPaiSettings.sections.find((s) => s.id === "about");
+  const section = () => OPaiSettings.sections.find((s) => s.id === "advanced");
   const base = {
     version: "0.2.1a1",
     release_stage: "alpha.1",
@@ -441,14 +571,14 @@ describe("Model Usage section", () => {
 
   it("renders a discoverable empty state when nothing is connected", () => {
     const html = section().render({ providerUsage: [] }, ctx);
-    expect(html).toContain("Model Usage");
+    expect(html).toContain("Usage &amp; Budgets");
     expect(html).toContain("No providers connected yet");
     expect(html).not.toContain("undefined");
   });
 
   it("degrades gracefully when the payload predates providerUsage", () => {
     const html = section().render({}, ctx);
-    expect(html).toContain("Model Usage");
+    expect(html).toContain("Usage &amp; Budgets");
     expect(html).not.toContain("undefined");
   });
 });

@@ -3,16 +3,17 @@ import { test, expect } from "@playwright/test";
 import { openApp, openNav } from "./helpers/app.js";
 
 
-// Permissions & Safety + Privacy & Data pages (#239): honest run-mode
-// comparison + factual privacy stance + a gated destructive clear.
+// Safety & Privacy keeps permission rules, cloud boundaries, local data, and
+// the gated destructive clear together without changing their behavior.
 
 const seen = { useInnerText: true };
 const goto = async (page, id) => {
   await openNav(page, "Settings");
-  await page.locator(`.settings-rail-item[data-rail-target="${id}"]`).click();
+  await page.locator('.settings-rail-item[data-rail-target="safety"]').click();
+  await page.locator(`[data-settings-subsection="${id}"]`).scrollIntoViewIfNeeded();
 };
 
-test("Permissions page shows current-mode rules and a run-mode comparison", async ({ page }) => {
+test("Safety & Privacy shows current-mode rules and a run-mode comparison", async ({ page }) => {
   await openApp(page);
   await goto(page, "permissions");
   const settings = page.locator("#settingsPage");
@@ -30,7 +31,7 @@ test("Permissions page shows current-mode rules and a run-mode comparison", asyn
   await expect(page.locator(".mode-row", { hasText: "Bypass permissions" })).toContainText("9 allowed");
 });
 
-test("Privacy page states the factual data stance", async ({ page }) => {
+test("Safety & Privacy states the factual data stance", async ({ page }) => {
   await openApp(page);
   await goto(page, "privacy");
   const settings = page.locator("#settingsPage");

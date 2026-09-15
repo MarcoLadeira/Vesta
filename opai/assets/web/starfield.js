@@ -85,6 +85,9 @@
     let height = 0;
     let dpr = 1;
     let colour = "255,255,255";
+    // The theme's multiplier on the still stars' opacity: on a pale ground a
+    // star has to be drawn more strongly to be seen at all.
+    let strength = 1;
     let reduced = false;
 
     let field = null; // pre-rendered static starfield
@@ -114,7 +117,7 @@
         const x = Math.random() * width;
         const y = Math.random() * height;
         const r = pick(config.starRadius);
-        const a = pick(config.starOpacity);
+        const a = Math.min(1, pick(config.starOpacity) * strength);
         bx.beginPath();
         bx.arc(x, y, r, 0, Math.PI * 2);
         bx.fillStyle = "rgba(" + colour + "," + a.toFixed(3) + ")";
@@ -241,14 +244,18 @@
         ctx.scale(dpr, dpr);
         buildField();
       },
-      setColour(value) { colour = value; buildField(); },
+      setColour(value, starStrength) {
+        colour = value;
+        strength = Number.isFinite(starStrength) && starStrength > 0 ? starStrength : 1;
+        buildField();
+      },
       setReduced(value) { reduced = value; },
       frame(dt) { step(dt); draw(); },
       // Test seam. Where a star is born and which way it travels cannot be
       // asserted from pixels without being flaky -- the sky is deliberately
       // almost always empty -- and it is the part of this file most likely to
       // be changed by eye and broken by accident.
-      __debug() { return { width, height, reduced, elapsed, nextSpawn, pool }; },
+      __debug() { return { width, height, reduced, elapsed, nextSpawn, pool, colour, strength }; },
     };
   }
 
@@ -290,11 +297,11 @@
       "let renderer=null,loop=null;\n" +
       "self.onmessage=(e)=>{const m=e.data;\n" +
       " if(m.type==='init'){const ctx=m.canvas.getContext('2d');renderer=createRenderer(ctx,CONFIG);" +
-      "  renderer.setColour(m.colour);renderer.setReduced(m.reduced);renderer.resize(m.width,m.height,m.dpr);" +
+      "  renderer.setColour(m.colour,m.strength);renderer.setReduced(m.reduced);renderer.resize(m.width,m.height,m.dpr);" +
       "  loop=createLoop(renderer,CONFIG,requestAnimationFrame,cancelAnimationFrame);loop.start();return;}\n" +
       " if(!renderer)return;\n" +
       " if(m.type==='resize')renderer.resize(m.width,m.height,m.dpr);\n" +
-      " else if(m.type==='colour')renderer.setColour(m.colour);\n" +
+      " else if(m.type==='colour')renderer.setColour(m.colour,m.strength);\n" +
       " else if(m.type==='reduced')renderer.setReduced(m.reduced);\n" +
       " else if(m.type==='play')loop.start();\n" +
       " else if(m.type==='pause')loop.stop();\n" +
@@ -320,11 +327,16 @@
 
   function readColour(host) {
     // Derived from the theme rather than hard-coded, so the field belongs to
-    // whatever palette the app is wearing. --space-star is already the colour
-    // the dark stage uses for a point of light.
+    // whatever palette the app is wearing: --space-star is each theme's colour
+    // for a point of light.
     const raw = getComputedStyle(host).getPropertyValue("--space-star").trim();
     const match = raw.match(/(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
     return match ? match[1] + "," + match[2] + "," + match[3] : "226,238,252";
+  }
+
+  function readStrength(host) {
+    const value = parseFloat(getComputedStyle(host).getPropertyValue("--space-star-strength"));
+    return Number.isFinite(value) && value > 0 ? value : 1;
   }
 
   function mount(canvas) {
@@ -339,6 +351,7 @@
     let height = canvas.clientHeight || 1;
     let dpr = dprOf();
     const colour = readColour(canvas);
+    const strength = readStrength(canvas);
 
     // Try the worker, but only when it can actually be built.
     //
@@ -363,7 +376,7 @@
         offscreen.width = Math.max(1, Math.round(width * dpr));
         offscreen.height = Math.max(1, Math.round(height * dpr));
         worker.postMessage(
-          { type: "init", canvas: offscreen, width, height, dpr, colour, reduced: motion.matches },
+          { type: "init", canvas: offscreen, width, height, dpr, colour, strength, reduced: motion.matches },
           [offscreen],
         );
         state.worker = worker;
@@ -378,7 +391,7 @@
       canvas.width = Math.max(1, Math.round(width * dpr));
       canvas.height = Math.max(1, Math.round(height * dpr));
       state.renderer = createRenderer(ctx, CONFIG);
-      state.renderer.setColour(colour);
+      state.renderer.setColour(colour, strength);
       state.renderer.setReduced(motion.matches);
       state.renderer.resize(width, height, dpr);
       state.loop = createLoop(
@@ -446,6 +459,15 @@
         if (state.destroyed) return;
         if (state.worker) { send({ type: active ? "play" : "pause" }); return; }
         if (active) state.loop.start(); else state.loop.stop();
+      },
+      // The theme changed: re-read the starlight tokens and redraw the field
+      // in them, rather than keeping the sky the canvas was mounted with.
+      refreshColour() {
+        if (state.destroyed) return;
+        const next = readColour(canvas);
+        const nextStrength = readStrength(canvas);
+        if (state.worker) { send({ type: "colour", colour: next, strength: nextStrength }); return; }
+        state.renderer.setColour(next, nextStrength);
       },
       get usingWorker() { return !!state.worker; },
       get __renderer() { return state.renderer; },

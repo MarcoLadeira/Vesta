@@ -42,6 +42,7 @@ test("the Providers page opens with an honest health summary that tracks live ch
   await page.locator('[data-test-account="claude"]').click();
   await expect(summary).toContainText("1 of 3 connections need attention");
   await expect(summary).toHaveClass(/warn/);
+  await expect(page.locator('[data-doctor-provider="claude"] [data-doctor-diagnostic]')).toBeVisible();
 });
 
 test("background Codex discovery clears a stale degraded connection card", async ({ page }) => {
@@ -103,6 +104,7 @@ test("disconnect asks with a styled inline confirm, then signs out and updates t
   page.on("dialog", async (dialog) => { dialogs += 1; await dialog.dismiss(); });
   await openApp(page);
   await openSettings(page, "providers");
+  await page.locator('[data-doctor-provider="claude"] summary').click();
   await page.locator('[data-disconnect-account="claude"]').click();
   // Confirmation is an in-place card, never a native dialog (#151).
   await expect(page.locator(".inline-confirm").first()).toBeVisible();
@@ -150,6 +152,7 @@ test("successful Codex sign-in refreshes the model catalog", async ({ page }) =>
 test("cancelling the disconnect confirmation leaves the account untouched", async ({ page }) => {
   await openApp(page);
   await openSettings(page, "providers");
+  await page.locator('[data-doctor-provider="claude"] summary').click();
   await page.locator('[data-disconnect-account="claude"]').click();
   await page.locator('.inline-confirm [data-ic="cancel"]').first().click();
   expect(await page.evaluate(() => window.__mock.disconnects)).toEqual([]);
@@ -178,8 +181,8 @@ test("connect accounts action delegates to the safe native tool", async ({ page 
 test("panic action delegates without performing a provider call", async ({ page }) => {
   await openApp(page);
   await openSettings(page, "providers");
-  await page.locator('.settings-rail-item[data-rail-target="firewall"]').click();
-  await page.getByRole("button", { name: "Enable panic" }).click();
+  await page.locator('.settings-rail-item[data-rail-target="safety"]').click();
+  await page.getByRole("button", { name: "Use local only" }).click();
   expect(await page.evaluate(() => window.__mock.runTools)).toEqual(["panic"]);
   expect(await page.evaluate(() => window.__mock.sendCount)).toBe(0);
 });
@@ -252,8 +255,8 @@ test("settings shows an accessible usage bar and saves a soft limit", async ({ p
     },
   });
   await openSettings(page, "providers");
-  // Usage limits live on the Cost Firewall page (#238).
-  await page.locator('.settings-rail-item[data-rail-target="firewall"]').click();
+  // Usage limits live with budgets and consumption.
+  await page.locator('.settings-rail-item[data-rail-target="usage"]').click();
   const card = page.locator(`[data-model-id="${modelId}"]`);
   await expect(card).toContainText("2,500 / 5,000 tokens");
   await expect(card.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "50");

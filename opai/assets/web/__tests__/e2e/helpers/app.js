@@ -61,6 +61,10 @@ export async function finishRequest(page, requestId, result = {}) {
     ({ id, value }) => window.__mock.emitReply(id, value),
     { id: requestId, value: payload },
   );
+  await page.waitForFunction(
+    (id) => window.__opai?.state?.currentRequest !== id,
+    requestId,
+  );
 }
 
 export async function emitActivity(page, requestId, event) {
@@ -150,20 +154,55 @@ export async function emitScenarioBatch(page, requestId, events) {
   return events;
 }
 
-// Settings lands on the Overview page (settings redesign); specs that target a
-// specific page open it through the rail, exactly like a user.
+const SETTINGS_TARGETS = {
+  overview: "general",
+  providers: "connections",
+  balance: "usage",
+  firewall: "usage",
+  permissions: "safety",
+  privacy: "safety",
+  tools: "advanced",
+  about: "advanced",
+};
+
+// Specs may still use historical destinations to exercise compatibility, but
+// they click the canonical seven-page navigation a current user sees.
 export async function openSettings(page, id) {
-  await page.locator("#headerSettings").click();
-  if (id) await page.locator(`.settings-rail-item[data-rail-target="${id}"]`).click();
+  await openNav(page, "Settings");
+  if (id) {
+    const target = SETTINGS_TARGETS[id] || id;
+    await page.locator(`.settings-rail-item[data-rail-target="${target}"]`).click();
+  }
 }
+
+const SETTINGS_TOOL_ROUTES = {
+  "Prompt Library": ["plugins", "prompts"],
+  Agents: ["agents", "agents"],
+  Workflows: ["agents", "workflows"],
+  "Proof Bundle": ["agents", "proof"],
+  "Money Saved": ["advanced", "home"],
+  "Cost Firewall": ["advanced", "firewall"],
+  "Context Waste": ["advanced", "context"],
+  Benchmark: ["advanced", "benchmark"],
+};
 
 export async function openNav(page, label) {
   // Do what a user does. The sidebar is the chat list now, so most destinations
   // are reached from the header or from Settings -> Tools & Insights rather
   // than from a nav row.
   if (label === "Settings") {
-    await page.locator("#headerSettings").click();
+    const headerSettings = page.locator("#headerSettings");
+    if (await headerSettings.isVisible().catch(() => false)) {
+      await headerSettings.click();
+    } else {
+      await page.locator("#sidebarToggle").click();
+      await page.locator("#footSettings").click();
+    }
     return;
+  }
+  if (await page.locator("#view-settings").isVisible().catch(() => false)) {
+    await page.locator("#settingsBack").click();
+    await expect(page.locator("#view-chat")).toBeVisible();
   }
   if (label === "Chat") {
     await page.locator("#headerNewChat").click();
@@ -174,10 +213,14 @@ export async function openNav(page, label) {
     await target.click();
     return;
   }
-  // Prompt Library and the Insights dashboards live in Settings now.
-  await page.locator("#headerSettings").click();
-  await page.locator('.settings-rail-item[data-rail-target="tools"]').click();
-  await page.locator(`[data-go-view] >> text=${label}`).first().click();
+  // Secondary destinations live in their related Settings category.
+  const route = SETTINGS_TOOL_ROUTES[label] || ["advanced", null];
+  await openNav(page, "Settings");
+  await page.locator(`.settings-rail-item[data-rail-target="${route[0]}"]`).click();
+  const destination = route[1]
+    ? page.locator(`[data-go-view="${route[1]}"]`)
+    : page.locator(`[data-go-view]:visible`).filter({ hasText: label }).first();
+  await destination.click();
 }
 
 export function expectNoFatalErrors(diagnostics) {

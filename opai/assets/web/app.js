@@ -10,7 +10,9 @@ const esc = (s) =>
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 const uiIcon = (name, options) => window.OPaiIcons.icon(name, options);
 
-const PROVIDER_COLOR = { claude: "#e0937a", codex: "#6cc1e8", auto: "#98a2b0", local: "#34d399" };
+// Tokens, not hex: each theme gives a provider the shade that reads on its
+// ground (design-tokens.css), and a theme change recolours what is on screen.
+const PROVIDER_COLOR = { claude: "var(--claude)", codex: "var(--codex)", auto: "var(--provider-auto)", local: "var(--provider-local)" };
 const MODE_PRESENTATION_LABELS = {
   ask: "Ask",
   plan: "Plan",
@@ -277,6 +279,10 @@ function applyResponseDensity(shell, responseDensity) {
 function applyAppearance(prefs) {
   const p = prefs || {};
   const root = document.documentElement;
+  // Theme first, so everything below lands in the right palette. theme.js owns
+  // the attribute, the "system" listener and the cross-fade; an absent pref
+  // (an older boot payload) is the default dark theme.
+  if (window.OPaiTheme) window.OPaiTheme.apply(p.theme);
   root.classList.toggle("density-compact", (p.density || "comfortable") === "compact");
   const requestedResponseDensity = p.responseDensity || p.response_density;
   const responseDensity = window.OPaiChatComponents.normalizeResponseDensity(requestedResponseDensity);
@@ -402,6 +408,7 @@ function applyModelCatalog(catalog) {
       bridge.savePref("default_model", fallback.id);
     }
   }
+  renderComposerSelects();
 }
 
 function boot() {
@@ -1262,6 +1269,12 @@ function mountStarfield() {
   starfield = global0().OPaiStarfield.mount(document.getElementById("starfall"));
 }
 
+// The sky is drawn on a canvas, not with CSS, so a theme change has to tell it
+// to pick up the new starlight token.
+window.addEventListener("opai:themechange", () => {
+  if (starfield && starfield.refreshColour) starfield.refreshColour();
+});
+
 function global0() { return window; }
 
 function stageRoot() { return document.getElementById("app"); }
@@ -1435,7 +1448,7 @@ function renderComposerContext() {
       if (target === "mode") $("#modeSel").focus();
       else if (target === "model") $("#modelSel").focus();
       else {
-        try { window.history.replaceState(null, "", "#settings/firewall"); } catch (_e) { /* best-effort deep link */ }
+        try { window.history.replaceState(null, "", "#settings/usage"); } catch (_e) { /* best-effort deep link */ }
         switchView("settings");
       }
     };
@@ -1772,6 +1785,126 @@ function renderStatus(st) {
 }
 
 /* ---------- views ---------- */
+let refreshSettingsPageScrollbar = () => {};
+
+function wireSettingsPageScrollbar() {
+  const scroller = $("#settingsScroll");
+  const page = $("#settingsPage");
+  const scrollbar = $("#settingsPageScrollbar");
+  const track = $("#settingsPageScrollbarTrack");
+  const thumb = $("#settingsPageScrollbarThumb");
+  const up = $("#settingsScrollUp");
+  const down = $("#settingsScrollDown");
+  if (!scroller || !page || !scrollbar || !track || !thumb || !up || !down) return;
+
+  let frame = 0;
+  let drag = null;
+
+  const paint = () => {
+    frame = 0;
+    const maximum = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+    const overflowing = maximum > 2;
+    scrollbar.hidden = !overflowing;
+    if (!overflowing) {
+      scroller.scrollTop = 0;
+      thumb.setAttribute("aria-valuemax", "0");
+      thumb.setAttribute("aria-valuenow", "0");
+      return;
+    }
+
+    const trackHeight = track.clientHeight;
+    const thumbHeight = Math.max(58, Math.round(trackHeight * scroller.clientHeight / scroller.scrollHeight));
+    const travel = Math.max(0, trackHeight - thumbHeight);
+    const thumbTop = maximum ? Math.round((scroller.scrollTop / maximum) * travel) : 0;
+    thumb.style.height = `${Math.min(trackHeight, thumbHeight)}px`;
+    thumb.style.transform = `translateY(${thumbTop}px)`;
+    thumb.setAttribute("aria-valuemax", String(Math.round(maximum)));
+    thumb.setAttribute("aria-valuenow", String(Math.round(scroller.scrollTop)));
+  };
+
+  const schedulePaint = () => {
+    if (frame) return;
+    frame = requestAnimationFrame(paint);
+  };
+  refreshSettingsPageScrollbar = schedulePaint;
+
+  const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const moveBy = (amount) => {
+    scroller.scrollBy({ top: amount, behavior: reducedMotion() ? "auto" : "smooth" });
+  };
+  const pageAmount = () => Math.max(160, Math.round(scroller.clientHeight * 0.72));
+
+  up.addEventListener("click", () => moveBy(-pageAmount()));
+  down.addEventListener("click", () => moveBy(pageAmount()));
+  track.addEventListener("pointerdown", (event) => {
+    if (event.target === thumb) return;
+    const rect = thumb.getBoundingClientRect();
+    moveBy(event.clientY < rect.top ? -pageAmount() : pageAmount());
+  });
+  thumb.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const maximum = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+    const travel = Math.max(1, track.clientHeight - thumb.offsetHeight);
+    drag = {
+      id: event.pointerId,
+      startY: event.clientY,
+      startScroll: scroller.scrollTop,
+      maximum,
+      travel,
+    };
+    thumb.classList.add("dragging");
+    thumb.setPointerCapture(event.pointerId);
+  });
+  thumb.addEventListener("pointermove", (event) => {
+    if (!drag || event.pointerId !== drag.id) return;
+    const delta = (event.clientY - drag.startY) / drag.travel;
+    scroller.scrollTop = drag.startScroll + delta * drag.maximum;
+  });
+  const finishDrag = (event) => {
+    if (!drag || event.pointerId !== drag.id) return;
+    drag = null;
+    thumb.classList.remove("dragging");
+    if (thumb.hasPointerCapture(event.pointerId)) thumb.releasePointerCapture(event.pointerId);
+  };
+  thumb.addEventListener("pointerup", finishDrag);
+  thumb.addEventListener("pointercancel", finishDrag);
+  thumb.addEventListener("keydown", (event) => {
+    const keyMoves = {
+      ArrowUp: -56,
+      ArrowDown: 56,
+      PageUp: -pageAmount(),
+      PageDown: pageAmount(),
+    };
+    if (Object.prototype.hasOwnProperty.call(keyMoves, event.key)) {
+      event.preventDefault();
+      moveBy(keyMoves[event.key]);
+    } else if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      scroller.scrollTo({
+        top: event.key === "Home" ? 0 : scroller.scrollHeight,
+        behavior: reducedMotion() ? "auto" : "smooth",
+      });
+    }
+  });
+
+  scroller.addEventListener("scroll", schedulePaint, { passive: true });
+  window.addEventListener("resize", schedulePaint);
+  if (typeof ResizeObserver === "function") {
+    const resizeObserver = new ResizeObserver(schedulePaint);
+    resizeObserver.observe(scroller);
+    resizeObserver.observe(page);
+  }
+  const mutationObserver = new MutationObserver(schedulePaint);
+  mutationObserver.observe(page, {
+    attributes: true,
+    childList: true,
+    subtree: true,
+    attributeFilter: ["class", "hidden", "style"],
+  });
+  schedulePaint();
+}
+
 function switchView(id) {
   if (state.view !== id) state.teamOpen = false;
   clearTimeout(state.agentsPollTimer);
@@ -1780,6 +1913,8 @@ function switchView(id) {
   state.view = id;
   applyPanel();
   closeMobileSidebar();
+  const app = $("#app");
+  if (app) app.classList.toggle("settings-active", id === "settings");
   // If the destination lives inside a folded group, unfold it so the active
   // item is visible (e.g. jumping to an Insights page from the palette).
   const navBtn = $(`.nav-item[data-id="${id}"]`);
@@ -1799,6 +1934,7 @@ function switchView(id) {
   else if (id === "prompts") loadPrompts();
   else if (id === "settings") renderSettings();
   else $("#input").focus();
+  refreshSettingsPageScrollbar();
   updateTeamComposerClearance();
 }
 
@@ -2918,8 +3054,8 @@ function openModelPicker() {
   }, 0);
 }
 
-function openSettingsPage(pageId = "overview") {
-  const target = String(pageId || "overview").replace(/[^\w-]/g, "") || "overview";
+function openSettingsPage(pageId = "general") {
+  const target = String(pageId || "general").replace(/[^\w-]/g, "") || "general";
   try { window.history.replaceState(null, "", `#settings/${target}`); } catch (_e) { /* best-effort deep link */ }
   switchView("settings");
 }
@@ -3253,6 +3389,8 @@ function updateDoctorCard(provider, result) {
   if (!card) return;
   const healthValue = connectionHealth(result);
   const signedIn = healthValue === "verified";
+  const details = card.querySelector(".doctor-details");
+  if (details && ["failed", "degraded"].includes(healthValue)) details.open = true;
   const status = card.querySelector(`[data-account-status="${CSS.escape(String(provider || ""))}"]`);
   const health = card.querySelector("[data-doctor-health]");
   const diagnostic = card.querySelector("[data-doctor-diagnostic]");
@@ -3272,8 +3410,19 @@ function updateDoctorCard(provider, result) {
 
 // #238: a default changed in Settings shows up in the composer immediately —
 // same state, same renderers the composer's own selects use.
+function applyMultiAgentEnabled(enabled) {
+  state.multiAgentEnabled = enabled === true && state.boot.agentsRuntime?.supported !== false;
+  state.teamOpen = state.multiAgentEnabled && ((state.agentsSnapshot || {}).objectives || []).length > 0;
+  applyPanel();
+  if (!state.multiAgentEnabled) state.agentsAllowCloud = false;
+  if (state.boot && state.boot.prefs) state.boot.prefs.multiAgentEnabled = state.multiAgentEnabled;
+  if (window.OPaiComposer) window.OPaiComposer.refresh();
+}
+
 function applyDefaults(key, value) {
-  if (key === "default_model") {
+  if (key === "multi_agent_enabled") {
+    applyMultiAgentEnabled(value);
+  } else if (key === "default_model") {
     const m = (state.boot.models || []).find((x) => x.id === value);
     if (m) state.model = { id: m.id, label: m.label, advancedLabel: m.advanced_label, kind: m.kind, provider: m.provider };
   } else if (key === "default_mode") {
@@ -4981,7 +5130,7 @@ function runCommand(id) {
     case "savings": switchView("home"); break;
     case "firewall": switchView("firewall"); break;
     case "settings": switchView("settings"); break;
-    case "doctor": openSettingsPage("providers"); break;
+    case "doctor": openSettingsPage("connections"); break;
     case "connect": switchView("chat"); bridge.runTool("connect"); break;
     case "shortcuts": toast("Ctrl+K palette · Ctrl+N new · Ctrl+L focus · Ctrl+P prompts · Ctrl+I panel · Ctrl+O folder · Ctrl+M model · Ctrl+B sidebar · Esc stop · ? shortcuts"); break;
   }
@@ -5153,6 +5302,7 @@ function historyReset() {
 }
 
 function wire() {
+  wireSettingsPageScrollbar();
   if (isCompactShell()) $("#sidebarToggle").setAttribute("aria-expanded", "false");
   const chatScroll = $("#chatScroll");
   chatScroll.addEventListener("scroll", () => {
@@ -5270,13 +5420,8 @@ if (typeof window !== "undefined") {
     // sync (F16/F4) and the derived next-run agent mode preview (F21).
     applyBootSelection: (b) => applyBootSelection(b),
     setMultiAgentEnabled: (enabled) => {
-      state.multiAgentEnabled = enabled === true && state.boot.agentsRuntime?.supported !== false;
-      state.teamOpen = state.multiAgentEnabled && ((state.agentsSnapshot || {}).objectives || []).length > 0;
-      applyPanel();
-      if (!state.multiAgentEnabled) state.agentsAllowCloud = false;
-      if (state.boot && state.boot.prefs) state.boot.prefs.multiAgentEnabled = state.multiAgentEnabled;
+      applyMultiAgentEnabled(enabled);
       if (bridge && bridge.savePref) bridge.savePref("multi_agent_enabled", String(state.multiAgentEnabled));
-      if (window.OPaiComposer) window.OPaiComposer.refresh();
     },
     setAgentsAllowCloud: (enabled) => {
       state.agentsAllowCloud = state.multiAgentEnabled && enabled === true;

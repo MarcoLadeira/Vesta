@@ -32,6 +32,7 @@ REQUIRED_WEB_ASSETS = (
     "run-result.js",
     "settings.js",
     "styles.css",
+    "theme.js",
     "vendor/markdown-it-14.1.0.min.js",
     "vendor/markdown-it.LICENSE.txt",
 )

@@ -3,7 +3,7 @@
   const esc = (v) => String(v == null ? "" : v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   const rows = (v) => Array.isArray(v) ? v : [];
   const names = ["Alex", "Sam", "Taylor", "Riley", "Jordan", "Morgan", "Casey", "Robin"];
-  const palettes = [["#bde9f6", "#b87850", "#242e43"], ["#dacdf8", "#f0c39c", "#2e243b"], ["#c8e6e5", "#e0a77c", "#32333b"], ["#ffe1b2", "#9d613f", "#29242d"]];
+  const palettes = [["var(--team-avatar-1-background)", "var(--team-avatar-1-skin)", "var(--team-avatar-1-hair)"], ["var(--team-avatar-2-background)", "var(--team-avatar-2-skin)", "var(--team-avatar-2-hair)"], ["var(--team-avatar-3-background)", "var(--team-avatar-3-skin)", "var(--team-avatar-3-hair)"], ["var(--team-avatar-4-background)", "var(--team-avatar-4-skin)", "var(--team-avatar-4-hair)"]];
   const profileIndex = (agent, index) => Number.isInteger(agent.avatar_index) && agent.avatar_index >= 0 && agent.avatar_index < 32 ? agent.avatar_index : index;
   const name = (agent, index) => agent.display_name || names[profileIndex(agent, index) % names.length] + (profileIndex(agent, index) >= names.length ? " " + (Math.floor(profileIndex(agent, index) / names.length) + 1) : "");
   const actorId = (agent) => agent.agent_id || agent.assignment_id;

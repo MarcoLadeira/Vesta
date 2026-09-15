@@ -100,37 +100,42 @@
     );
   }
 
+  function settingsContext(ctx, options) {
+    var next = {};
+    Object.keys(ctx || {}).forEach(function (key) {
+      next[key] = ctx[key];
+    });
+    Object.keys(options || {}).forEach(function (key) {
+      next[key] = options[key];
+    });
+    return next;
+  }
+
+  function settingsSubsection(esc, id, title, content) {
+    if (!content) return "";
+    return (
+      '<section class="settings-subsection" data-settings-subsection="' +
+      esc(id) +
+      '" data-settings-title="' +
+      esc(title) +
+      '">' +
+      content +
+      "</section>"
+    );
+  }
+
   // ---- Settings redesign (Vesta Settings design doc) ----------------------- //
   // Every page opens with its own title, a one-sentence purpose, and scope
   // chips that state where the setting lives. Chips are facts, not marketing:
   // blue = app-wide, accent = this project, muted = stored locally only.
-  var HERO_CHIPS = {
-    app: { label: "App-wide", tone: "blue" },
-    project: { label: "This project", tone: "accent" },
-    local: { label: "Local only", tone: "muted" },
-    instant: { label: "Saved instantly", tone: "accent" },
-  };
-
   function heroHtml(esc, title, desc, chips) {
-    var h = '<div class="pane-hero"><div class="pane-title">' + esc(title) + "</div>";
+    var h =
+      '<div class="pane-hero"><h1 class="pane-title" tabindex="-1">' +
+      esc(title) +
+      "</h1>";
     if (desc) h += '<div class="pane-desc">' + esc(desc) + "</div>";
-    if (chips && chips.length) {
-      h +=
-        '<div class="pane-chips">' +
-        chips
-          .map(function (id) {
-            var chip = HERO_CHIPS[id];
-            return (
-              '<span class="pane-chip ' +
-              chip.tone +
-              '"><span class="pane-chip-dot" aria-hidden="true"></span>' +
-              esc(chip.label) +
-              "</span>"
-            );
-          })
-          .join("") +
-        "</div>";
-    }
+    var scope = { General: "Task defaults for this project", Agents: "Team defaults for this project", "Models & Routing": "Default model for this project · Model availability across all projects" }[title];
+    if (scope) h += '<div class="settings-scope-note">' + esc(scope) + '</div>';
     return h + "</div>";
   }
 
@@ -194,165 +199,6 @@
         });
   }
 
-  // Overview (Settings redesign): the landing page answers "am I safe,
-  // connected, and able to keep working?" from the same payload the other
-  // pages render — nothing here is invented or cached separately.
-  function overviewHtml(d, ctx) {
-    var esc = ctx.esc;
-    var firewall = d.firewall || {};
-    var prefs = d.prefs || {};
-    var doctorItems = doctorItemsOf(d);
-    var summary = doctorSummary(
-      doctorItems.map(function (item) {
-        return item.health;
-      })
-    );
-    var connected = doctorItems.filter(function (item) {
-      return item.health === "verified" || item.health === "detected";
-    }).length;
-    var root = (ctx.state.boot.workspace && ctx.state.boot.workspace.root) || "";
-
-    var h = heroHtml(
-      esc,
-      "Settings",
-      "Control how Vesta routes work, spends, and keeps you safe — without getting in your way.",
-      ["app", "project", "local"]
-    );
-    if (root) h += '<div class="pane-meta mono">' + esc(root) + "</div>";
-
-    h += '<div class="set-head">Vesta status</div>';
-    h += '<div class="stat-grid">';
-    h += statTile(esc, {
-      label: "Protection",
-      value: firewall.panic
-        ? "Panic — local only"
-        : firewall.cloud_gate
-          ? "Cloud gate: confirm"
-          : "Cloud gate: open",
-      sub: firewall.panic ? "Cloud calls refused" : "Firewall active",
-      tone: firewall.panic ? "red" : "green",
-    });
-    h += statTile(esc, {
-      label: "Routing profile",
-      value: firewall.profile || "—",
-      sub: "Local-first",
-    });
-    h += statTile(esc, {
-      label: "Providers",
-      value: connected + " connected",
-      sub: !doctorItems.length
-        ? "None detected yet"
-        : summary.attention
-          ? summary.attention + " need" + (summary.attention === 1 ? "s" : "") + " attention"
-          : "All look good",
-      tone: !doctorItems.length ? "" : summary.attention ? "amber" : "green",
-    });
-    h += statTile(esc, {
-      label: "Default run mode",
-      value: modePresentationLabel(prefs.default_mode, MODE_LABELS[prefs.default_mode]),
-      sub: "For new tasks",
-    });
-    h += "</div>";
-
-    // Honest attention items only: each one is derived from a real signal in
-    // the payload and links to the page where it can be acted on.
-    var attention = [];
-    if (summary.attention) {
-      attention.push({
-        tone: "warn",
-        title:
-          summary.attention +
-          " connection" +
-          (summary.attention === 1 ? "" : "s") +
-          " need" +
-          (summary.attention === 1 ? "s" : "") +
-          " attention",
-        body: "A provider is unavailable, not signed in, or not configured. Routing works around it where it can.",
-        go: "providers",
-        action: "Review connections",
-      });
-    }
-    if (firewall.panic) {
-      attention.push({
-        tone: "warn",
-        title: "Panic mode is on — every cloud call is refused",
-        body: "Routing is local-only until you disable panic mode.",
-        go: "firewall",
-        action: "Review",
-      });
-    }
-    if (d.codexConfig && d.codexConfig.repairable) {
-      attention.push({
-        tone: "warn",
-        title: "Codex configuration needs repair",
-        body: d.codexConfig.message || "Invalid Codex configuration detected.",
-        go: "providers",
-        action: "Repair",
-      });
-    }
-    (d.usage || []).forEach(function (usage) {
-      if (usage.limit != null && +usage.percent >= 90) {
-        attention.push({
-          tone: "warn",
-          title: "A model is near its usage limit",
-          body: Math.round(+usage.percent) + "% of the soft limit for this window is used.",
-          go: "firewall",
-          action: "Review usage",
-        });
-      }
-    });
-    h += '<div class="set-head">Needs attention</div>';
-    if (attention.length) {
-      h += attention
-        .map(function (item) {
-          return (
-            '<div class="attn-item ' +
-            item.tone +
-            '"><div class="attn-body"><div class="attn-title">' +
-            esc(item.title) +
-            '</div><div class="attn-text">' +
-            esc(item.body) +
-            "</div></div>" +
-            '<button class="btn ghost" type="button" data-go-page="' +
-            esc(item.go) +
-            '">' +
-            esc(item.action) +
-            "</button></div>"
-          );
-        })
-        .join("");
-    } else {
-      h +=
-        '<div class="attn-item ok"><div class="attn-body"><div class="attn-title">Nothing needs your attention right now</div>' +
-        '<div class="attn-text">Anything that does — a failing connection, a tripped safety switch, a usage limit — will appear here, never hidden.</div></div></div>';
-    }
-
-    h += '<div class="set-head">Quick controls</div>';
-    var quick = [
-      { go: "models", title: "Models & routing", sub: "Default model, run mode, local-first order" },
-      { go: "firewall", title: "Budgets & usage", sub: "Caps, spend, per-model limits" },
-      { go: "permissions", title: "Permissions & safety", sub: "What Vesta may do on its own" },
-      { go: "providers", title: "Connections", sub: "Accounts, API keys & health checks" },
-    ];
-    h +=
-      '<div class="quick-grid">' +
-      quick
-        .map(function (tile) {
-          return (
-            '<button class="quick-tile" type="button" data-go-page="' +
-            esc(tile.go) +
-            '"><span class="quick-body"><span class="quick-title">' +
-            esc(tile.title) +
-            '</span><span class="quick-sub">' +
-            esc(tile.sub) +
-            "</span></span></button>"
-          );
-        })
-        .join("") +
-      "</div>";
-    return h;
-  }
-
   // One honest sentence for the top of the Providers page (#237). Shared by
   // the render path and app.js's live updater so the wording can never drift.
   function doctorSummary(healths) {
@@ -382,12 +228,14 @@
         return item.health;
       })
     );
-    var h = heroHtml(
-      esc,
-      "Providers & Connections",
-      "Keep your model providers healthy. Connection Doctor tests each one safely — it never reads or shows a secret.",
-      ["app", "local"]
-    );
+    var h = ctx.settingsBodyOnly
+      ? ""
+      : heroHtml(
+          esc,
+          "Connections",
+          "Connect AI services and resolve problems where they occur.",
+          ["app", "local"]
+        );
     h +=
       '<div class="doctor-summary ' +
       (summary.attention ? "warn" : "ok") +
@@ -416,7 +264,7 @@
         '" data-doctor-health>' +
         esc(connectionHealthLabel(item.health)) +
         "</span></div>" +
-        '<div class="doctor-meta"><span>Credential <b>' +
+        '<details class="settings-disclosure doctor-details"' + (item.health === "failed" ? " open" : "") + '><summary>Connection details</summary><div class="doctor-meta"><span>Credential <b>' +
         esc(item.credentialSourceLabel || "Not configured") +
         "</b></span>" +
         (isAccount
@@ -456,7 +304,14 @@
             esc(authStatusLabel(item.authStatus)) +
             "</span></div>"
           : "") +
-        '<div class="doctor-actions">' +
+        (isAccount && (item.detected || actions.includes("disconnect"))
+          ? '<button class="btn ghost" data-disconnect-account="' +
+            esc(id) +
+            '" data-account-label="' +
+            esc(item.displayName || id) +
+            '">Disconnect</button>'
+          : "") +
+        '</details><div class="doctor-actions">' +
         (isAccount && item.cliInstalled !== false
           ? '<button class="btn ghost" data-test-account="' +
             esc(id) +
@@ -471,13 +326,6 @@
             esc(item.displayName || id) +
             "</button>"
           : "") +
-        (isAccount && (item.detected || actions.includes("disconnect"))
-          ? '<button class="btn ghost" data-disconnect-account="' +
-            esc(id) +
-            '" data-account-label="' +
-            esc(item.displayName || id) +
-            '">Disconnect</button>'
-          : "") +
         (id === "codex" && d.codexConfig && d.codexConfig.repairable
           ? '<button class="btn" id="repairCodex">Repair Codex config</button>'
           : "") +
@@ -491,7 +339,7 @@
         "</div></article>";
     });
     h += "</div></section>";
-    h += '<div class="actions"><button class="btn primary" id="setConnect">Connect CLI accounts…</button><span class="set-note">Opens a guided sign-in in Chat for CLI accounts (Claude, Codex, Copilot). API-key providers are managed above.</span></div>';
+    h += '<div class="actions settings-connect-action"><button class="btn" id="setConnect">Connect an account</button><span class="set-note">Guided sign-in for Claude, Codex, or Copilot.</span></div>';
     if (
       d.codexConfig &&
       d.codexConfig.repairable &&
@@ -516,7 +364,7 @@
       var ghReady = !!gh.ready_for_push;
       h += '<div class="set-head">GitHub · pushes &amp; pull requests</div>';
       h +=
-        '<div class="set-note">Controls whether Vesta may run <b>git push</b> and open pull requests for you. This is the only place pushes &amp; PRs are enabled — there is no other push or git setting.</div>';
+        '<div class="set-note">Connect GitHub, then choose whether Vesta may push branches and open pull requests.</div>';
       h += '<div class="provider-key-card github-card" data-github-card>';
       h +=
         '<div class="provider-key-head"><span>GitHub' +
@@ -822,6 +670,7 @@
     var esc = ctx.esc;
     var prefs = d.prefs || {};
     var boot = (ctx.state && ctx.state.boot) || {};
+    var part = ctx.settingsPart || "all";
     // Editable defaults (#238): persisted through the same savePref slot the
     // composer uses, and reflected there instantly via ctx.applyDefaults.
     var selectRow = function (label, key, options, selected, hint) {
@@ -885,24 +734,36 @@
     var formatOptions = (boot.outputFormats || []).map(function (m) {
       return { id: m.id, label: m.label };
     });
-    var h = heroHtml(
-      esc,
-      "Models & Routing",
-      "Defaults for new tasks and the order Vesta tries routes. Changes reflect in the composer instantly.",
-      ["project"]
-    );
-    h += '<div class="set-head">Defaults</div>';
-    h += selectRow("Default model", "default_model", modelOptions, prefs.default_model || "auto");
+    var h = ctx.settingsBodyOnly
+      ? ""
+      : heroHtml(
+          esc,
+          "Models & Routing",
+          "Choose the models Vesta can use and understand its routing order.",
+          ["project"]
+        );
+    if (part !== "routing") {
+      h += '<div class="set-head">Defaults for new tasks</div>';
+      h += selectRow(
+        "Default run mode",
+        "default_mode",
+        modeOptions,
+        MODE_LABELS[prefs.default_mode] ? prefs.default_mode : "safe-auto",
+        "The approval mode Vesta starts with for each new task."
+      );
+      h += selectRow("Task focus", "default_task_mode", focusOptions, ctx.state.focus);
+      h += selectRow("Output format", "default_output_format", formatOptions, ctx.state.format);
+      h += '<div class="set-note">Saved for this workspace and reflected in the composer immediately.</div>';
+    }
+    if (part === "general" || part === "defaults") return h;
+    h += '<div class="set-head">Default intelligence</div>';
     h += selectRow(
-      "Default run mode",
-      "default_mode",
-      modeOptions,
-      MODE_LABELS[prefs.default_mode] ? prefs.default_mode : "safe-auto",
-      "Whatever you pick here is what Vesta starts in, every time."
+      "Default model",
+      "default_model",
+      modelOptions,
+      prefs.default_model || "auto",
+      "Auto chooses an eligible route for each task; you can always override it in the composer."
     );
-    h += selectRow("Task focus", "default_task_mode", focusOptions, ctx.state.focus);
-    h += selectRow("Output format", "default_output_format", formatOptions, ctx.state.format);
-    h += '<div class="set-note">Changes apply to the composer immediately and persist for this workspace.</div>';
     h += '<div class="set-head">Your model picker</div>';
     h += '<div class="set-note">Global · ' + esc(modelOverrides.path || "~/.opai/models.json") + '. Show or hide models everywhere. Availability stays separate: unavailable models keep their reason.</div>';
     if ((modelOverrides.errors || []).length) {
@@ -928,8 +789,9 @@
       var provider = String(m.provider || "").toLowerCase();
       if (m.kind === "account" && provider && providerNames.indexOf(provider) < 0) providerNames.push(provider);
     });
-    h += '<div class="set-row"><span class="default-label"><span class="k">Add a custom model</span><span class="hint">Use a provider already available to this Vesta install.</span></span></div>';
-    h += '<div class="set-row"><select data-custom-provider aria-label="Custom model provider">' + providerNames.map(function (provider) { return '<option value="' + esc(provider) + '">' + esc(provider) + "</option>"; }).join("") + '</select><input data-custom-model aria-label="Custom model ID" placeholder="Model ID"><input data-custom-label aria-label="Custom model label" placeholder="Label"><select data-custom-capability aria-label="Custom model capability"><option value="balanced">Balanced</option><option value="fast">Fast</option><option value="best">Best</option></select><button type="button" class="btn" data-add-custom-model>Add model</button></div>';
+    h += '<details class="settings-disclosure"><summary>Add a custom model</summary><div class="set-note">Use a provider already available to Vesta.</div>';
+    h += '<div class="set-row model-custom-form"><select data-custom-provider aria-label="Custom model provider">' + providerNames.map(function (provider) { return '<option value="' + esc(provider) + '">' + esc(provider) + "</option>"; }).join("") + '</select><input data-custom-model aria-label="Custom model ID" placeholder="Model ID"><input data-custom-label aria-label="Custom model label" placeholder="Label"><select data-custom-capability aria-label="Custom model capability"><option value="balanced">Balanced</option><option value="fast">Fast</option><option value="best">Best</option></select><button type="button" class="btn" data-add-custom-model>Add model</button></div>';
+    h += '</details>';
     Object.keys(modelOverrides.providers || {}).sort().forEach(function (provider) {
       ((modelOverrides.providers[provider] || {}).models || []).forEach(function (entry) {
         h += '<div class="set-row"><span class="k">' + esc(provider + " · " + (entry.display || entry.id)) + '</span><button type="button" class="btn" data-remove-custom-provider="' + esc(provider) + '" data-remove-custom-id="' + esc(entry.id) + '">Remove</button></div>';
@@ -952,6 +814,7 @@
     var firewall = d.firewall || {};
     var caps = firewall.caps || {};
     var remaining = firewall.remaining || {};
+    var part = ctx.settingsPart || "all";
     var money = function (value) {
       return value == null ? null : "$" + (+value).toFixed(2);
     };
@@ -960,54 +823,53 @@
       if (money(cap) && left != null) value += " · " + money(left) + " left";
       return row(esc, label, value);
     };
-    var h = heroHtml(
-      esc,
-      "Cost Firewall",
-      "See what you've spent and where the limits are. Spend is estimated locally from the usage ledger; nothing is transmitted.",
-      ["project", "local"]
-    );
-    h += '<div class="set-head">Cost firewall</div>';
-    h += '<div class="stat-grid">';
-    h += statTile(esc, {
-      label: "Spent today",
-      value: money(firewall.spent_today || 0),
-      sub: "Vesta tracked",
-      mono: true,
-    });
-    h += statTile(esc, {
-      label: "Spent this month",
-      value: money(firewall.spent_month || 0),
-      sub: "Vesta tracked",
-      mono: true,
-    });
-    h += statTile(esc, {
-      label: "Profile",
-      value: firewall.profile || "—",
-      sub: firewall.panic ? "Panic — local only" : "Guarding spend",
-      tone: firewall.panic ? "red" : "green",
-    });
-    h += "</div>";
-    h += '<div class="set-head">Budgets</div>';
-    h += capRow("Daily cap", caps.daily_usd_limit, remaining.today_usd);
-    h += capRow("Monthly cap", caps.monthly_usd_limit, remaining.month_usd);
-    h += capRow("Per-task cap", caps.per_task_hard_limit_usd, null);
-    h += '<div class="set-note">Spend is estimated locally from the usage ledger; nothing is transmitted.</div>';
-    h += '<div class="set-head">Model usage limits</div>';
-    h += usageCardsHtml(d, ctx);
-    h += '<div class="set-head">Safety switches</div>';
-    h +=
-      '<div class="panic-card' +
-      (firewall.panic ? " on" : "") +
-      '"><div class="panic-body"><div class="panic-title">' +
-      (firewall.panic ? "Panic mode is ON — cloud calls paused" : "Panic mode is off") +
-      "</div>" +
-      '<div class="panic-desc">Panic mode refuses every cloud call and forces local-only routing until you disable it. Local models keep working.</div>' +
-      '<div class="panic-facts"><span>Pauses: all paid cloud calls</span><span>Keeps: local models, saved work, history</span></div></div>' +
-      '<button class="btn danger" id="setPanic">' +
-      (firewall.panic ? "Disable panic" : "Enable panic") +
-      "</button></div>";
-    h += row(esc, "Cloud gate", firewall.cloud_gate ? "confirm" : "open");
-    h += '<div class="cb">• Confirm asks before each paid cloud call; open sends without a per-call confirmation.</div>';
+    var h = ctx.settingsBodyOnly
+      ? ""
+      : heroHtml(
+          esc,
+          "Usage & Budgets",
+          "Understand local usage estimates, provider allowances, and spend boundaries.",
+          ["project", "local"]
+        );
+    if (part !== "safety") {
+      h += '<div class="set-head">Current spend</div>';
+      h += '<div class="stat-grid two">';
+      h += statTile(esc, {
+        label: "Spent today",
+        value: money(firewall.spent_today || 0),
+        sub: "Estimated from Vesta's local ledger",
+        mono: true,
+      });
+      h += statTile(esc, {
+        label: "Spent this month",
+        value: money(firewall.spent_month || 0),
+        sub: "Estimated from Vesta's local ledger",
+        mono: true,
+      });
+      h += "</div>";
+      h += '<div class="set-head">Budgets &amp; limits</div>';
+      h += capRow("Daily cap", caps.daily_usd_limit, remaining.today_usd);
+      h += capRow("Monthly cap", caps.monthly_usd_limit, remaining.month_usd);
+      h += capRow("Per-task cap", caps.per_task_hard_limit_usd, null);
+      h += '<div class="set-note">Spend estimates stay on this device. An unavailable value is never treated as zero.</div>';
+      h += '<div class="set-head">Per-model limits</div>';
+      h += usageCardsHtml(d, ctx);
+    }
+    if (part !== "financial") {
+      h += '<div class="set-head">Cloud boundaries</div>';
+      h +=
+        '<div class="panic-card' +
+        (firewall.panic ? " on" : "") +
+        '"><div class="panic-body"><div class="panic-title">' +
+        (firewall.panic ? "Local-only mode is on" : "Local-only mode is off") +
+        "</div>" +
+        '<div class="panic-desc">When on, every cloud call is refused while local models and saved work remain available.</div></div>' +
+        '<button class="btn danger" id="setPanic">' +
+        (firewall.panic ? "Allow cloud routes" : "Use local only") +
+        "</button></div>";
+      h += row(esc, "Paid cloud requests", firewall.cloud_gate ? "Ask every time" : "Allowed");
+      h += '<div class="set-note">This reflects the current cloud-gate policy; change it from the active task when Vesta requests authority.</div>';
+    }
     return h;
   }
 
@@ -1203,12 +1065,14 @@
   function modelUsageHtml(d, ctx) {
     var esc = ctx.esc;
     var usage = Array.isArray(d.providerUsage) ? d.providerUsage : [];
-    var h = heroHtml(
-      esc,
-      "Model Usage",
-      "How much of each provider's own usage window you've used — Claude's 5-hour session, daily free-tier limits, prepaid credit, and more. Official figures come straight from the provider; Vesta never invents a number.",
-      ["local"]
-    );
+    var h = ctx.settingsBodyOnly
+      ? ""
+      : heroHtml(
+          esc,
+          "Usage & Budgets",
+          "Understand local usage estimates, provider allowances, and spend boundaries.",
+          ["project", "local"]
+        );
     if (!usage.length) {
       h +=
         '<div class="callout-card"><div class="callout-body">No providers connected yet. Connect Claude, Codex, Gemini, Kimi, or another provider under ' +
@@ -1235,12 +1099,14 @@
     var active = (d.modePermissions || []).filter(function (mode) {
       return mode.active;
     })[0];
-    var h = heroHtml(
-      esc,
-      "Permissions & Safety",
-      "Choose how much Vesta can do on its own. Every step up the ladder grants more authority — you can change it any time.",
-      ["project"]
-    );
+    var h = ctx.settingsBodyOnly
+      ? ""
+      : heroHtml(
+          esc,
+          "Safety & Privacy",
+          "Control approvals, cloud access, and your data.",
+          ["project", "local"]
+        );
     h +=
       '<div class="mode-hero"><div class="mode-hero-body"><div class="mode-hero-label">Current mode for this project</div>' +
       '<div class="mode-hero-value">' +
@@ -1312,18 +1178,20 @@
     return h;
   }
 
-  // Prompt Library and the seven Insights dashboards used to sit in the
-  // sidebar, above the user's own chat history. They are places you visit
-  // occasionally, not while you work, so they live here now -- still one click
-  // away, and still routable from the command palette and deep links.
+  // Prompt Library and the seven Insights dashboards used to sit in the app
+  // sidebar. They now live in the related Plugins, Agents, or Advanced
+  // destination while remaining routable from search and deep links.
   function toolsHtml(d, ctx) {
     var esc = ctx.esc;
-    var h = heroHtml(
-      esc,
-      "Tools & Insights",
-      "The prompt library and the data-backed views, kept out of the sidebar so the chat list stays yours.",
-      []
-    );
+    var settingsPart = ctx.settingsPart || "all";
+    var h = ctx.settingsBodyOnly
+      ? ""
+      : heroHtml(
+          esc,
+          "Advanced",
+          "Diagnostics, supporting tools, updates, and build information.",
+          ["app", "local"]
+        );
     var groups = [
       {
         head: "Library",
@@ -1345,10 +1213,21 @@
       },
     ];
     groups.forEach(function (group) {
-      h += '<div class="set-head">' + esc(group.head) + "</div>";
+      var items = group.items.filter(function (item) {
+        if (settingsPart === "agents") {
+          return ["agents", "workflows", "proof"].indexOf(item.go) >= 0;
+        }
+        if (settingsPart === "plugins") return item.go === "prompts";
+        if (settingsPart === "advanced") {
+          return ["agents", "workflows", "proof", "prompts"].indexOf(item.go) < 0;
+        }
+        return true;
+      });
+      if (!items.length) return;
+      h += '<div class="set-head">' + esc(settingsPart === "agents" ? "Team workspace" : group.head) + "</div>";
       h +=
         '<div class="quick-grid">' +
-        group.items
+        items
           .map(function (tile) {
             return (
               '<button class="quick-tile" type="button" data-go-view="' +
@@ -1374,9 +1253,14 @@
       "Raw prompts are never stored; the local ledger keeps one-way task hashes and counts only.",
       "Local-first routing; cloud only on confirmation.",
     ];
-    var h = heroHtml(esc, "Privacy & Data", "Local by default. No telemetry unless you enable it.", [
-      "local",
-    ]);
+    var h = ctx.settingsBodyOnly
+      ? ""
+      : heroHtml(
+          esc,
+          "Safety & Privacy",
+          "Control approvals, cloud access, and your data.",
+          ["project", "local"]
+        );
     h +=
       '<div class="callout-card accent"><div class="callout-title">Data stays on this device</div>' +
       '<div class="callout-body">Redacted saved chat, the ledger, and audit history are kept locally, per workspace.</div></div>';
@@ -1414,7 +1298,9 @@
     var activityCopy = pref("activity_copy", "activityCopy") === "off" ? "off" : "on";
     var seg = function (key, current, options) {
       return (
-        '<div class="seg" role="group" data-appearance-key="' +
+        '<div class="seg" role="radiogroup" aria-label="' +
+        esc(key.replace(/_/g, " ")) +
+        '" data-appearance-key="' +
         esc(key) +
         '">' +
         options
@@ -1423,8 +1309,10 @@
             return (
               '<button type="button" data-value="' +
               esc(option.id) +
-              '" aria-pressed="' +
+              '" role="radio" aria-checked="' +
               (active ? "true" : "false") +
+              '" tabindex="' +
+              (active ? "0" : "-1") +
               '"' +
               (active ? ' class="active"' : "") +
               ">" +
@@ -1445,15 +1333,17 @@
     // controller instead of the document-root appearance handler.
     var composerSeg = function (current, options) {
       return (
-        '<div class="seg" role="group" data-composer-style-key="composer_style">' +
+        '<div class="seg" role="radiogroup" aria-label="Composer style" data-composer-style-key="composer_style">' +
         options
           .map(function (option) {
             var active = option.id === current;
             return (
               '<button type="button" data-value="' +
               esc(option.id) +
-              '" aria-pressed="' +
+              '" role="radio" aria-checked="' +
               (active ? "true" : "false") +
+              '" tabindex="' +
+              (active ? "0" : "-1") +
               '"' +
               (active ? ' class="active"' : "") +
               ">" +
@@ -1468,10 +1358,17 @@
     var h = heroHtml(
       esc,
       "Appearance",
-      "Tune the cockpit to your eyes. These are low-risk — they apply instantly and are saved for this workspace.",
+      "Choose how Vesta looks and presents work.",
       ["app", "instant"]
     );
     h += '<div class="set-head">Appearance</div>';
+    // The saved choice, or -- when a payload predates the theme -- whatever
+    // the window is actually wearing, so the picker never contradicts it.
+    var appliedTheme = global.OPaiTheme ? global.OPaiTheme.current().preference : null;
+    h +=
+      '<div class="appearance-row appearance-row-theme"><div class="appearance-label"><span class="k">Theme</span><span class="hint">Light is soft daylight. Viber Coder is Vesta\'s original night sky. Dark is midnight: all black and grey, no colour. Vesta is warm cream with the logo\'s dusty rose and sky blue. System follows your OS: Light by day, Viber Coder by night.</span></div>' +
+      themeChoices(esc, pref("theme", "theme") || appliedTheme) +
+      "</div>";
     h +=
       '<div class="appearance-row"><div class="appearance-label"><span class="k">Composer style</span><span class="hint">How the prompt box is arranged. Toolbar keeps everything one click away; Single line is the smallest footprint; Command bar is keyboard-first with #file, /mode, and @model tokens.</span></div>' +
       composerSeg(composerStyle, [
@@ -1510,9 +1407,55 @@
         { id: "off", label: "Off" },
       ]) +
       "</div>";
-    h +=
-      '<div class="appearance-row"><div class="appearance-label"><span class="k">Theme</span><span class="hint">Dark is the only complete theme; a light theme is not shipped yet.</span></div><span class="v">Dark (default)</span></div>';
     return h;
+  }
+
+  // The theme picker. Each option previews the palette it names by wearing it:
+  // the tile sets data-theme on itself, so design-tokens.css paints it with
+  // the real tokens and the preview can never drift from the theme. System is
+  // the two it switches between, split on a diagonal.
+  var THEME_CHOICES = [
+    { id: "light", label: "Light", panes: ["light"] },
+    { id: "viber-coder", label: "Viber Coder", panes: ["viber-coder"] },
+    { id: "dark", label: "Dark", panes: ["dark"] },
+    { id: "vesta", label: "Vesta", panes: ["vesta"] },
+    { id: "system", label: "System", panes: ["light", "viber-coder"] },
+  ];
+
+  function normalizeTheme(value) {
+    for (var i = 0; i < THEME_CHOICES.length; i += 1) {
+      if (THEME_CHOICES[i].id === value) return value;
+    }
+    return "viber-coder";
+  }
+
+  function themeChoices(esc, value) {
+    var current = normalizeTheme(value);
+    var pane = function (theme) {
+      return (
+        '<span class="theme-preview-pane" data-theme="' + esc(theme) + '">' +
+        '<span class="tp-rail"></span>' +
+        '<span class="tp-main"><span class="tp-accent"></span><span class="tp-line"></span><span class="tp-line tp-short"></span>' +
+        '<span class="tp-composer"><span class="tp-send"></span></span></span>' +
+        "</span>"
+      );
+    };
+    return (
+      '<div class="theme-choices" role="radiogroup" aria-label="Theme" data-appearance-key="theme">' +
+      THEME_CHOICES.map(function (option) {
+        var active = option.id === current;
+        return (
+          '<button type="button" class="theme-choice' + (active ? " active" : "") +
+          '" data-value="' + esc(option.id) +
+          '" role="radio" aria-checked="' + (active ? "true" : "false") +
+          '" tabindex="' + (active ? "0" : "-1") + '">' +
+          '<span class="theme-preview" aria-hidden="true">' + option.panes.map(pane).join("") + "</span>" +
+          '<span class="theme-choice-label">' + esc(option.label) + "</span>" +
+          "</button>"
+        );
+      }).join("") +
+      "</div>"
+    );
   }
 
   // Read-only Settings projection of the canonical application-wide updater.
@@ -1580,7 +1523,8 @@
     var option = function (value, label, active, disabled) {
       return (
         '<button type="button" class="seg-btn' + (active ? " active" : "") + '"' +
-        ' data-value="' + value + '" aria-pressed="' + (active ? "true" : "false") + '"' +
+        ' data-value="' + value + '" role="radio" aria-checked="' + (active ? "true" : "false") + '"' +
+        ' tabindex="' + (active ? "0" : "-1") + '"' +
         (disabled ? ' disabled aria-disabled="true"' : "") + '>' +
         esc(label) + "</button>"
       );
@@ -1589,14 +1533,14 @@
       '<div class="appearance-row" data-update-policy="automatic_downloads">' +
       '<div class="appearance-label"><span class="k">Automatic downloads</span>' +
       '<span class="hint">' + esc(downloadHint) + "</span></div>" +
-      '<div class="seg" role="group" aria-label="Automatic updates">' +
+      '<div class="seg" role="radiogroup" aria-label="Automatic updates">' +
       option("off", "Off", !on) +
       option("on", "On", on) +
       "</div></div>" +
       '<div class="appearance-row" data-update-policy="automatic_install_on_quit">' +
       '<div class="appearance-label"><span class="k">Install on quit</span>' +
       '<span class="hint">Explicit opt-in. Requires automatic downloads, installs only at a safe quit boundary, and active work is never interrupted silently.</span></div>' +
-      '<div class="seg" role="group" aria-label="Install updates on quit">' +
+      '<div class="seg" role="radiogroup" aria-label="Install updates on quit">' +
       option("off", "Off", !install, false) + option("on", "On", install, !on) +
       "</div></div>"
     );
@@ -1619,13 +1563,20 @@
       .filter(Boolean)
       .join(" · ");
     return (
-      heroHtml(esc, "About", "Version and release information for this build.", null) +
+      (ctx.settingsBodyOnly
+        ? ""
+        : heroHtml(
+            esc,
+            "Advanced",
+            "Diagnostics, supporting tools, updates, and build information.",
+            ["app", "local"]
+          )) +
       '<div class="set-head">About</div>' +
       '<div class="stat-grid two">' +
       statTile(esc, { label: "Version", value: d.about.version, mono: true }) +
       statTile(esc, { label: "Release stage", value: d.about.release_stage || "—" }) +
       "</div>" +
-      '<div class="set-head">Runtime build</div>' +
+      '<details class="settings-disclosure" data-settings-build-details><summary>Build & runtime details</summary><div class="set-head">Runtime build</div>' +
       '<div class="stat-grid two">' +
       statTile(esc, {
         label: "Build identity",
@@ -1656,7 +1607,7 @@
           esc(build.assetCount || 0) +
           " hosted files</div>"
         : "") +
-      '<div class="set-head">Updates</div>' +
+      '</details><div class="set-head">Updates</div>' +
       '<div id="settingsUpdateCard">' +
       updateStatusHtml(esc, d.about.update) +
       "</div>" +
@@ -1668,6 +1619,417 @@
     );
   }
 
+  function generalHtml(d, ctx) {
+    return (
+      heroHtml(
+        ctx.esc,
+        "General",
+        "Choose how new tasks start in this project.",
+        ["project", "instant"]
+      ) +
+      settingsSubsection(
+        ctx.esc,
+        "defaults",
+        "Defaults for new tasks",
+        modelsHtml(d, settingsContext(ctx, { settingsBodyOnly: true, settingsPart: "general" }))
+      )
+    );
+  }
+
+  function modelsRoutingHtml(d, ctx) {
+    var firewall = d.firewall || {};
+    var profile =
+      '<div class="set-head">Routing preference</div>' +
+      '<div class="default-row"><div class="default-label"><span class="k">Current profile</span>' +
+      '<span class="hint">The active policy that balances capability, availability, and cost.</span></div>' +
+      '<span class="v">' +
+      ctx.esc(firewall.profile || "Not reported") +
+      "</span></div>";
+    return (
+      heroHtml(
+        ctx.esc,
+        "Models & Routing",
+        "Choose your default model and the models available to Auto.",
+        ["project", "local"]
+      ) +
+      settingsSubsection(ctx.esc, "routing", "Routing preference", profile) +
+      settingsSubsection(
+        ctx.esc,
+        "models",
+        "Models",
+        modelsHtml(d, settingsContext(ctx, { settingsBodyOnly: true, settingsPart: "routing" }))
+      )
+    );
+  }
+
+  function connectionsHtml(d, ctx) {
+    return (
+      heroHtml(
+        ctx.esc,
+        "Integrations",
+        "Manage your AI accounts, providers, and connected tools.",
+        ["app", "local"]
+      ) +
+      settingsSubsection(
+        ctx.esc,
+        "connections",
+        "Provider connections",
+        providersHtml(d, settingsContext(ctx, { settingsBodyOnly: true }))
+      ) +
+      settingsSubsection(
+        ctx.esc,
+        "built-in-tools",
+        "Reusable tools",
+        toolsHtml(d, settingsContext(ctx, { settingsBodyOnly: true, settingsPart: "plugins" }))
+      )
+    );
+  }
+
+  function usageBudgetsHtml(d, ctx) {
+    return (
+      heroHtml(
+        ctx.esc,
+        "Usage & Budgets",
+        "Track usage and keep spending within your limits.",
+        ["project", "local"]
+      ) +
+      settingsSubsection(
+        ctx.esc,
+        "budgets",
+        "Budgets & limits",
+        firewallHtml(
+          d,
+          settingsContext(ctx, { settingsBodyOnly: true, settingsPart: "financial" })
+        )
+      ) +
+      settingsSubsection(
+        ctx.esc,
+        "provider-usage",
+        "Provider usage",
+        modelUsageHtml(d, settingsContext(ctx, { settingsBodyOnly: true }))
+      ) +
+      settingsSubsection(
+        ctx.esc,
+        "balances",
+        "Provider balances",
+        balanceHtml(d, settingsContext(ctx, { settingsBodyOnly: true }))
+      )
+    );
+  }
+
+  function safetyPrivacyHtml(d, ctx) {
+    return (
+      heroHtml(
+        ctx.esc,
+        "Safety & Privacy",
+        "Control approvals, cloud access, and your data.",
+        ["project", "local"]
+      ) +
+      settingsSubsection(
+        ctx.esc,
+        "cloud",
+        "Cloud boundaries",
+        firewallHtml(d, settingsContext(ctx, { settingsBodyOnly: true, settingsPart: "safety" }))
+      ) +
+      settingsSubsection(
+        ctx.esc,
+        "permissions",
+        "Agent permissions",
+        permissionsHtml(d, settingsContext(ctx, { settingsBodyOnly: true }))
+      ) +
+      settingsSubsection(
+        ctx.esc,
+        "privacy",
+        "Data & privacy",
+        privacyHtml(d, settingsContext(ctx, { settingsBodyOnly: true }))
+      )
+    );
+  }
+
+  function agentsHtml(d, ctx) {
+    var boot = ctx.state.boot || {};
+    var enabled = typeof ctx.state.multiAgentEnabled === "boolean" ? ctx.state.multiAgentEnabled : (d.prefs || {}).multi_agent_enabled === true;
+    var unavailable = boot.agentsRuntime && boot.agentsRuntime.supported === false;
+    return (
+      heroHtml(
+        ctx.esc,
+        "Agents",
+        "Let Vesta coordinate a team. Stay in control of what it can do.",
+        ["project", "local"]
+      ) +
+      '<div class="set-head">Team defaults</div><label class="default-row settings-team-default"><span class="default-label"><span class="k">Use an AI team</span><span class="hint">Automatically divide new tasks between agents when useful.</span></span>' +
+      '<input type="checkbox" role="switch" id="settingsTeamEnabled" aria-label="Use an AI team"' + (enabled ? ' checked' : '') + (unavailable ? ' disabled' : '') + '></label>' +
+      (unavailable ? '<p class="set-note">' + ctx.esc(boot.agentsRuntime.reason || "Teams are unavailable in this runtime.") + '</p>' : '') +
+      '<div class="settings-info-row"><div><strong>Permissions & approvals</strong><p>Every agent follows your current permission rules.</p></div><button class="btn ghost" type="button" data-settings-target="safety">Manage permissions</button></div>' +
+      '<div class="settings-info-row"><div><strong>Spending limits</strong><p>Your team shares the objective budget. Cloud access still needs consent.</p></div><button class="btn ghost" type="button" data-settings-target="usage">Manage budgets</button></div>' +
+      '<div class="settings-info-row"><div><strong>Models & team composition</strong><p>Vesta chooses automatically. Change individual agents from your team workspace.</p></div></div>' +
+      settingsSubsection(
+        ctx.esc,
+        "agent-tools",
+        "Team workspace",
+        toolsHtml(
+          d,
+          settingsContext(ctx, { settingsBodyOnly: true, settingsPart: "agents" })
+        )
+      )
+    );
+  }
+
+  function workspaceHtml(d, ctx) {
+    var esc = ctx.esc;
+    var state = ctx.state || {};
+    var boot = state.boot || {};
+    var workspace = boot.workspace || {};
+    var prefs = d.prefs || {};
+    var github = d.github || {};
+    var accounts = d.accounts || boot.accounts || [];
+    var connectedCount = accounts.filter(function (account) {
+      return !!account.connected;
+    }).length;
+    var activeMode = (boot.modes || []).find(function (mode) {
+      return mode.id === (prefs.default_mode || boot.selectedMode || "safe-auto");
+    });
+    var projectName = workspace.label || workspace.name || "Current project";
+    var projectRoot = workspace.root || "No project selected";
+    var branch = workspace.branch || "Not reported";
+    var fileCount = Number(workspace.file_count || workspace.fileCount || 0);
+    var modeLabel = modePresentationLabel(
+      activeMode && activeMode.id,
+      activeMode && activeMode.label
+    );
+    var githubValue = github.connected
+      ? github.login
+        ? "Connected as " + github.login
+        : "Connected"
+      : "Not connected";
+
+    function workspaceRow(label, hint, value, action) {
+      return (
+        '<div class="workspace-setting-row"><div class="workspace-setting-copy"><span class="k">' +
+        esc(label) +
+        '</span><span class="hint">' +
+        esc(hint) +
+        '</span></div><div class="workspace-setting-control"><span class="v">' +
+        esc(value) +
+        "</span>" +
+        (action || "") +
+        "</div></div>"
+      );
+    }
+
+    var tabs = [
+      ["projects", "general", "Projects"],
+      ["terminal", "advanced", "Terminal"],
+      ["git", "models", "Git & GitHub"],
+      ["rules", "safety", "Rules"],
+      ["environment", "plugins", "Environment"],
+    ];
+    var tabHtml =
+      '<nav class="workspace-tabs" id="workspaceTabs" aria-label="Workspace settings">' +
+      tabs
+        .map(function (tab, index) {
+          return (
+            '<button class="workspace-tab' +
+            (index === 0 ? " active" : "") +
+            '" type="button" data-workspace-tab="' +
+            esc(tab[0]) +
+            '" aria-pressed="' +
+            (index === 0 ? "true" : "false") +
+            '"><span class="workspace-tab-icon" aria-hidden="true">' +
+            (ICONS[tab[1]] || "") +
+            "</span>" +
+            esc(tab[2]) +
+            "</button>"
+          );
+        })
+        .join("") +
+      "</nav>";
+
+    return (
+      heroHtml(
+        esc,
+        "Workspace",
+        "Configure your development environment and how Vesta works with your code."
+      ) +
+      tabHtml +
+      settingsSubsection(
+        esc,
+        "projects",
+        "Projects",
+        '<div class="set-head">Projects</div><div class="set-note">Set up how Vesta opens and identifies your projects.</div>' +
+          workspaceRow(
+            "Current project",
+            projectName,
+            projectRoot,
+            '<button class="btn" id="settingsOpenWorkspace" type="button">Browse</button>'
+          ) +
+          workspaceRow("Current branch", "Reported by Git", branch, "")
+      ) +
+      settingsSubsection(
+        esc,
+        "terminal",
+        "Terminal",
+        '<div class="set-head">Terminal</div><div class="set-note">Choose how Vesta approaches command-line work.</div>' +
+          workspaceRow("Default shell", "Inherited from this device", "System default", "") +
+          workspaceRow(
+            "Command approval mode",
+            "Controls when Vesta pauses before running commands.",
+            modeLabel || "Auto",
+            '<button class="btn ghost" type="button" data-settings-target="safety">Review rules</button>'
+          )
+      ) +
+      settingsSubsection(
+        esc,
+        "git",
+        "Git & GitHub",
+        '<div class="set-head">Git &amp; GitHub</div><div class="set-note">Repository identity and remote collaboration.</div>' +
+          workspaceRow("Repository branch", "Current checkout", branch, "") +
+          workspaceRow(
+            "GitHub",
+            "Push and pull request access is managed as a connection.",
+            githubValue,
+            '<button class="btn ghost" type="button" data-settings-target="connections">Manage</button>'
+          )
+      ) +
+      settingsSubsection(
+        esc,
+        "rules",
+        "Rules",
+        '<div class="set-head">Rules</div><div class="set-note">Project permissions remain explicit and reviewable.</div>' +
+          workspaceRow(
+            "Active run mode",
+            "Applied to new tasks in this project.",
+            modeLabel || "Auto",
+            '<button class="btn ghost" type="button" data-settings-target="safety">Open Safety &amp; Privacy</button>'
+          )
+      ) +
+      settingsSubsection(
+        esc,
+        "environment",
+        "Environment",
+        '<div class="set-head">Environment</div><div class="set-note">A concise view of the local project context Vesta can use.</div>' +
+          workspaceRow("Indexed files", "Available project context", fileCount ? String(fileCount) : "Not indexed", "") +
+          workspaceRow("AI connections", "Available provider accounts", String(connectedCount), "")
+      )
+    );
+  }
+
+  function advancedHtml(d, ctx) {
+    return heroHtml(ctx.esc, "Advanced", "Updates, diagnostics, and supporting tools.", ["app"]) +
+      settingsSubsection(ctx.esc, "about", "About & updates", aboutHtml(d, settingsContext(ctx, { settingsBodyOnly: true }))) +
+      settingsSubsection(ctx.esc, "tools", "Tools & Insights", '<details class="settings-disclosure" data-settings-tools><summary>Tools & insights</summary>' + toolsHtml(d, settingsContext(ctx, { settingsBodyOnly: true, settingsPart: "advanced" })) + '</details>');
+  }
+
+  var SEARCH_ITEMS = {
+    general: [
+      { label: "Default run mode", group: "Task defaults", selector: '[data-default-pref="default_mode"]', keywords: "approval autonomy ask plan safe auto" },
+      { label: "Task focus", group: "Task defaults", selector: '[data-default-pref="default_task_mode"]', keywords: "coding writing general" },
+      { label: "Output format", group: "Task defaults", selector: '[data-default-pref="default_output_format"]', keywords: "concise normal response" },
+    ],
+    models: [
+      { label: "Default model", group: "Models", selector: '[data-default-pref="default_model"]', keywords: "model intelligence auto provider" },
+      { label: "Routing preference", group: "Routing", subsectionId: "routing", keywords: "profile cost balanced highest intelligence firewall" },
+      { label: "Model picker", group: "Models", subsectionId: "models", keywords: "show hide available provider models" },
+      { label: "Add a custom model", group: "Models", selector: "[data-add-custom-model]", keywords: "custom model id capability" },
+      { label: "Reset model picker", group: "Models", selector: "[data-reset-model-overrides]", keywords: "restore models defaults" },
+      { label: "Route order", group: "Routing", subsectionId: "models", keywords: "local first fallback provider priority" },
+    ],
+    agents: [
+      { label: "Use an AI team", group: "Team defaults", selector: '#settingsTeamEnabled', keywords: "multiple multi agent automatic team enable default" },
+      { label: "Agents", group: "Agent tools", selector: '[data-go-view="agents"]', keywords: "background runs outcomes delegation" },
+      { label: "Workflows", group: "Agent tools", selector: '[data-go-view="workflows"]', keywords: "repeatable multi step tasks automation" },
+      { label: "Proof Bundle", group: "Agent tools", selector: '[data-go-view="proof"]', keywords: "evidence handoff results" },
+    ],
+    workspace: [
+      { label: "Current project", group: "Projects", subsectionId: "projects", keywords: "workspace folder directory browse files" },
+      { label: "Terminal", group: "Terminal", subsectionId: "terminal", keywords: "shell command approval" },
+      { label: "Git & GitHub", group: "Git & GitHub", subsectionId: "git", keywords: "repository branch push pull request" },
+      { label: "Rules", group: "Rules", subsectionId: "rules", keywords: "permission run mode project" },
+      { label: "Environment", group: "Environment", subsectionId: "environment", keywords: "indexed files providers local context" },
+    ],
+    connections: [
+      { label: "Prompt Library", group: "Reusable tools", selector: '[data-go-view="prompts"]', keywords: "plugins saved prompt template reusable" },
+      { label: "Provider connections", group: "Connections", subsectionId: "connections", keywords: "provider account api key credential sign in connect subscription" },
+      { label: "Connection Doctor", group: "Connections", selector: ".connection-doctor", keywords: "health test repair failed degraded cli" },
+      { label: "GitHub connection", group: "Connections", selector: "[data-github-card]", keywords: "github push pull request pat" },
+      { label: "Disconnect provider", group: "Connections", selector: "[data-disconnect-account]", keywords: "remove sign out account" },
+    ],
+    usage: [
+      { label: "Current spend", group: "Usage", subsectionId: "budgets", keywords: "spent today month estimate cost" },
+      { label: "Daily cap", group: "Budgets & limits", subsectionId: "budgets", keywords: "firewall daily budget spending limit" },
+      { label: "Monthly cap", group: "Budgets & limits", subsectionId: "budgets", keywords: "firewall monthly budget spending limit" },
+      { label: "Per-task cap", group: "Budgets & limits", subsectionId: "budgets", keywords: "firewall task budget spending limit" },
+      { label: "Per-model limits", group: "Budgets & limits", selector: "[data-model-id]", keywords: "usage token soft limit model" },
+      { label: "Provider usage", group: "Usage", subsectionId: "provider-usage", keywords: "quota allowance rate window reset requests tokens" },
+      { label: "Provider balances", group: "Usage", subsectionId: "balances", keywords: "balance credit remaining top up recharge funds money" },
+      { label: "Manual balance", group: "Provider balances", selector: "[data-save-balance]", keywords: "enter currency save tracked" },
+    ],
+    safety: [
+      { label: "Local-only mode", group: "Cloud boundaries", selector: "#setPanic", keywords: "panic firewall block cloud offline local" },
+      { label: "Paid cloud requests", group: "Cloud boundaries", subsectionId: "cloud", keywords: "cloud gate confirm network paid" },
+      { label: "Bypass permissions", group: "Agent permissions", selector: "#setBypassPermissions", keywords: "permissions skip confirmation autonomy dangerous" },
+      { label: "Tool permissions", group: "Agent permissions", subsectionId: "permissions", keywords: "allow ask block file edit shell command network push" },
+      { label: "Run modes", group: "Agent permissions", subsectionId: "permissions", keywords: "ask plan manual auto accept edits" },
+      { label: "Data storage", group: "Data & privacy", subsectionId: "privacy", keywords: "privacy local telemetry prompts history redacted" },
+      { label: "Clear previous chats", group: "Data & privacy", selector: "#settingsClearRecents", keywords: "delete saved chat recents history" },
+    ],
+    appearance: [
+      { label: "Theme", group: "Appearance", selector: '[data-appearance-key="theme"]', keywords: "light mode dark mode night mode midnight black oled viber coder vesta cream rose pink sky blue pastel warm system theme colour color day bright" },
+      { label: "Composer style", group: "Appearance", selector: '[data-composer-style-key="composer_style"]', keywords: "toolbar single line command bar" },
+      { label: "Response detail", group: "Appearance", selector: '[data-appearance-key="response_density"]', keywords: "compact balanced detailed output" },
+      { label: "Density", group: "Appearance", selector: '[data-appearance-key="density"]', keywords: "comfortable compact spacing" },
+      { label: "Reduced motion", group: "Appearance", selector: '[data-appearance-key="reduced_motion"]', keywords: "animation accessibility system" },
+      { label: "Copy activity", group: "Appearance", selector: '[data-appearance-key="activity_copy"]', keywords: "select log work" },
+    ],
+    advanced: [
+      { label: "Insights", group: "Tools & Insights", selector: "[data-settings-tools]", keywords: "money saved context benchmark dashboard" },
+      { label: "Update status", group: "About & updates", selector: "#settingsUpdateCard", keywords: "update version latest check restart" },
+      { label: "Automatic downloads", group: "About & updates", selector: '[data-update-policy="automatic_downloads"]', keywords: "update download policy" },
+      { label: "Install on quit", group: "About & updates", selector: '[data-update-policy="automatic_install_on_quit"]', keywords: "update restart policy" },
+      { label: "Build information", group: "About & updates", selector: "[data-settings-build-details]", keywords: "about version release artifact fingerprint runtime source" },
+      { label: "Replay tour", group: "About & updates", selector: "#settingsReplayTour", keywords: "onboarding welcome help" },
+    ],
+  };
+
+  var SECTION_ALIASES = {
+    plugins: { sectionId: "connections", subsectionId: "built-in-tools" },
+    integrations: { sectionId: "connections", subsectionId: "connections" },
+    overview: { sectionId: "general", subsectionId: "defaults" },
+    providers: { sectionId: "connections", subsectionId: "connections" },
+    balance: { sectionId: "usage", subsectionId: "balances" },
+    firewall: { sectionId: "usage", subsectionId: "budgets" },
+    permissions: { sectionId: "safety", subsectionId: "permissions" },
+    privacy: { sectionId: "safety", subsectionId: "privacy" },
+    tools: { sectionId: "advanced", subsectionId: "tools" },
+    about: { sectionId: "advanced", subsectionId: "about" },
+  };
+
+  function resolveSettingsTarget(id) {
+    var clean = String(id || "").toLowerCase().replace(/[^\w-]/g, "");
+    if (SECTION_ALIASES[clean]) {
+      return {
+        sectionId: SECTION_ALIASES[clean].sectionId,
+        subsectionId: SECTION_ALIASES[clean].subsectionId,
+      };
+    }
+    var known = [
+      "general",
+      "appearance",
+      "models",
+      "agents",
+      "plugins",
+      "usage",
+      "workspace",
+      "connections",
+      "safety",
+      "advanced",
+    ];
+    return {
+      sectionId: known.indexOf(clean) >= 0 ? clean : "general",
+      subsectionId: null,
+    };
+  }
+
   // Rail icons (static, self-authored SVG — the one trusted-html escape hatch).
   var svg = function (paths) {
     return (
@@ -1677,124 +2039,105 @@
     );
   };
   var ICONS = {
-    overview: svg('<rect x="3.5" y="3.5" width="17" height="17" rx="2.5"/><path d="M3.5 9h17M9 9v11.5"/>'),
-    providers: svg('<rect x="3.5" y="4" width="17" height="7" rx="2"/><rect x="3.5" y="13" width="17" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>'),
-    balance: svg('<circle cx="12" cy="12" r="9"/><path d="M8.5 10.5a2 2 0 0 1 2-2h1a2 2 0 1 1 0 4h-1a2 2 0 1 0 0 4h1a2 2 0 0 0 2-2M12 7v1.2M12 15.8V17"/>'),
+    back: svg('<path d="m15 18-6-6 6-6"/><path d="M9 12h10"/>'),
+    general: svg('<rect x="3.5" y="3.5" width="17" height="17" rx="2.5"/><path d="M3.5 9h17M9 9v11.5"/>'),
     models: svg('<circle cx="6" cy="6" r="2.2"/><circle cx="18" cy="18" r="2.2"/><path d="M8.2 6H14a4 4 0 0 1 0 8H9.8"/>'),
-    firewall: svg('<path d="M12 3 5 6v5c0 4 3 7 7 8 4-1 7-4 7-8V6l-7-3Z"/><path d="M12.5 8.2h-2a1.3 1.3 0 0 0 0 2.6h1.5a1.3 1.3 0 0 1 0 2.6h-2"/>'),
+    agents: svg('<circle cx="8" cy="9" r="3"/><circle cx="17" cy="8" r="2.5"/><path d="M3.5 19c.5-3.2 2.3-5 4.5-5s4 1.8 4.5 5M13 15c1-.9 2.2-1.3 3.5-1.3 2.1 0 3.5 1.7 4 4.3"/>'),
+    plugins: svg('<path d="M8 3h3v4h2V3h3v4h1.5A2.5 2.5 0 0 1 20 9.5V12h-4v2h4v.5a2.5 2.5 0 0 1-2.5 2.5H14v4h-4v-4H6.5A2.5 2.5 0 0 1 4 14.5V11h4V9H4A2 2 0 0 1 6 7h2V3Z"/>'),
+    workspace: svg('<path d="M3.5 6.5A2.5 2.5 0 0 1 6 4h4l2 2h6A2.5 2.5 0 0 1 20.5 8.5v8A2.5 2.5 0 0 1 18 19H6a2.5 2.5 0 0 1-2.5-2.5v-10Z"/>'),
+    connections: svg('<rect x="3.5" y="4" width="17" height="7" rx="2"/><rect x="3.5" y="13" width="17" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>'),
     usage: svg('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>'),
-    permissions: svg('<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>'),
-    privacy: svg('<path d="M12 3 5 6v5c0 4 3 7 7 8 4-1 7-4 7-8V6l-7-3Z"/><path d="m9 12 2 2 4-4"/>'),
+    safety: svg('<path d="M12 3 5 6v5c0 4 3 7 7 8 4-1 7-4 7-8V6l-7-3Z"/><path d="m9 12 2 2 4-4"/>'),
     appearance: svg('<path d="M4 8h9M4 16h3M17 16h3"/><circle cx="16" cy="8" r="2.4"/><circle cx="10" cy="16" r="2.4"/>'),
-    about: svg('<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.6h.01"/>'),
+    advanced: svg('<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>'),
   };
 
   // The registry: rail label + group + keywords + the section's content
   // builder. Groups become uppercase labels in the rail (Settings redesign).
   var sections = [
     {
-      id: "overview",
-      title: "Overview",
-      keywords: "overview status attention quick spend providers protection run mode",
-      render: overviewHtml,
-    },
-    {
-      id: "providers",
-      title: "Providers & Connections",
-      group: "Connect",
-      keywords: "provider account api key github connection doctor sign in credential codex",
-      render: providersHtml,
-    },
-    {
-      id: "balance",
-      title: "Credits & Balance",
-      group: "Connect",
-      keywords: "balance credit usage remaining left top up recharge funds money euro dollar",
-      render: balanceHtml,
-    },
-    {
-      id: "models",
-      title: "Models & Routing",
-      group: "Connect",
-      keywords: "model usage limit default routing focus format",
-      render: modelsHtml,
-    },
-    {
-      id: "firewall",
-      title: "Cost Firewall",
-      group: "Spend & safety",
-      keywords: "cost firewall panic budget spend cloud gate profile",
-      render: firewallHtml,
-    },
-    {
-      id: "usage",
-      title: "Model Usage",
-      group: "Spend & safety",
-      keywords: "usage limit rate window reset session quota remaining requests tokens weekly daily monthly claude codex gemini kimi",
-      render: modelUsageHtml,
-    },
-    {
-      id: "permissions",
-      title: "Permissions & Safety",
-      group: "Spend & safety",
-      keywords: "permission tool safety mode approve",
-      render: permissionsHtml,
-    },
-    {
-      id: "tools",
-      title: "Tools & Insights",
-      group: "System",
-      keywords: "prompt library insights money saved firewall context benchmark agents proof workflows dashboard",
-      render: toolsHtml,
-    },
-    {
-      id: "privacy",
-      title: "Privacy & Data",
-      group: "System",
-      keywords: "privacy data telemetry redacted local",
-      render: privacyHtml,
+      id: "general",
+      group: "Vesta",
+      title: "General",
+      summary: "Defaults for new tasks",
+      keywords: "general defaults task mode focus output format overview",
+      searchItems: SEARCH_ITEMS.general,
+      render: generalHtml,
     },
     {
       id: "appearance",
+      group: "Vesta",
       title: "Appearance",
-      group: "System",
+      summary: "Layout, density, and motion",
       keywords: "theme density response compact balanced detailed motion animation reduced dark",
+      searchItems: SEARCH_ITEMS.appearance,
       render: appearanceHtml,
     },
     {
-      id: "about",
-      title: "About",
+      id: "models",
+      group: "AI",
+      title: "Models & Routing",
+      summary: "Models, routing, and fallback order",
+      keywords: "model default routing focus profile provider priority fallback local first",
+      searchItems: SEARCH_ITEMS.models,
+      render: modelsRoutingHtml,
+    },
+    {
+      id: "agents",
+      group: "AI",
+      title: "Agents",
+      summary: "Agent work, workflows, and evidence",
+      keywords: "agents background work workflows proof outcomes",
+      searchItems: SEARCH_ITEMS.agents,
+      render: agentsHtml,
+    },
+    {
+      id: "usage",
+      group: "AI",
+      title: "Usage & Budgets",
+      summary: "Consumption, balances, and limits",
+      keywords: "usage balance credit cost firewall budget spend cap quota rate limit remaining requests tokens daily monthly",
+      searchItems: SEARCH_ITEMS.usage,
+      render: usageBudgetsHtml,
+    },
+    {
+      id: "workspace",
+      group: "Development",
+      title: "Workspace",
+      summary: "Projects, terminal, Git, and environment",
+      keywords: "workspace project terminal shell git github rules environment directory folder",
+      searchItems: SEARCH_ITEMS.workspace,
+      render: workspaceHtml,
+    },
+    {
+      id: "connections",
+      group: "Development",
+      title: "Integrations",
+      summary: "Provider accounts, keys, and health",
+      keywords: "integrations plugins provider connection account api key credential sign in github doctor codex",
+      searchItems: SEARCH_ITEMS.connections,
+      render: connectionsHtml,
+    },
+    {
+      id: "safety",
+      group: "Trust",
+      title: "Safety & Privacy",
+      summary: "Approvals, cloud access, and local data",
+      keywords: "permission permissions safety privacy data telemetry local cloud firewall panic approval",
+      searchItems: SEARCH_ITEMS.safety,
+      render: safetyPrivacyHtml,
+    },
+    {
+      id: "advanced",
       group: "System",
-      keywords: "about version release asset build fingerprint runtime source",
-      render: aboutHtml,
+      title: "Advanced",
+      summary: "Tools, updates, and build details",
+      keywords: "advanced tools insights update about version release asset build diagnostics",
+      searchItems: SEARCH_ITEMS.advanced,
+      render: advancedHtml,
     },
   ];
 
-  // ---- search + paned pages ---------------------------------------------- //
-  // Group a pane's children into logical blocks: a boundary (.set-head or the
-  // Connection Doctor card) plus everything up to the next boundary. Search
-  // shows/hides whole blocks, so a matching row keeps its heading (#240).
-  function settingsBlocks(pane) {
-    var blocks = [];
-    var cur = null;
-    Array.prototype.forEach.call(pane.children, function (el) {
-      var isBoundary =
-        el.classList.contains("set-head") || el.classList.contains("connection-doctor");
-      if (isBoundary || !cur) {
-        cur = [];
-        blocks.push(cur);
-      }
-      cur.push(el);
-    });
-    return blocks;
-  }
-
-  // ---- orchestration ----------------------------------------------------- //
-  // Claude-style paned settings: the rail on the left is real page navigation —
-  // one cleanly labelled page visible at a time. Search stays global (#240):
-  // typing switches the layout into a cross-page results mode where every page
-  // shows only its matching blocks (each under its page label), and clearing
-  // the query returns to the active page.
   function render(page, ctx) {
     var d = ctx.d || {};
     var esc = ctx.esc;
@@ -1803,12 +2146,15 @@
       section._html = html;
       return !!html;
     });
-
-    // Each pane carries its own hero title (Settings redesign), so the shared
-    // header is just the global search.
-    var header =
-      '<div class="settings-toolbar"><input id="settingsSearch" type="search" placeholder="Search settings…" aria-label="Search settings" autocomplete="off" spellcheck="false"><span class="settings-noresults" id="settingsNoResults" hidden>No settings match your search.</span></div>';
-
+    var sidebarHeader =
+      '<div class="settings-sidebar-head"><div class="settings-sidebar-brand"><button class="settings-back" id="settingsBack" type="button" aria-label="Back to Chat" title="Back to Chat"><span aria-hidden="true">' +
+      ICONS.back +
+      '</span></button><div class="settings-sidebar-brand-copy"><div class="settings-sidebar-title">Vesta</div>' +
+      '<div class="settings-sidebar-tagline">Code faster together.</div><span class="settings-a11y-label">Settings</span></div>' +
+      '</div><div class="settings-toolbar"><div class="settings-search-field">' +
+      '<input id="settingsSearch" type="search" placeholder="Search settings…" aria-label="Search settings" autocomplete="off" spellcheck="false" aria-controls="settingsSearchResults">' +
+      '<button id="settingsSearchClear" class="settings-search-clear" type="button" aria-label="Clear settings search" title="Clear search" hidden>×</button>' +
+      "</div></div></div>";
     var panesHtml = present
       .map(function (section) {
         return (
@@ -1826,26 +2172,39 @@
         );
       })
       .join("");
-
-    var lastGroup = null;
+    var groupOrder = ["Vesta", "AI", "Development", "Trust", "System"];
     var rail =
       '<nav class="settings-rail" aria-label="Settings pages">' +
-      present
-        .map(function (section) {
-          var groupLabel =
-            section.group && section.group !== lastGroup
-              ? '<div class="settings-rail-group">' + esc(section.group) + "</div>"
-              : "";
-          if (section.group) lastGroup = section.group;
+      groupOrder
+        .map(function (group) {
+          var grouped = present.filter(function (section) {
+            return section.group === group;
+          });
+          if (!grouped.length) return "";
           return (
-            groupLabel +
-            '<button class="settings-rail-item" type="button" data-rail-target="' +
-            esc(section.id) +
-            '"><span class="settings-rail-icon" aria-hidden="true">' +
-            (ICONS[section.id] || "") +
-            '</span><span class="settings-rail-label">' +
-            esc(section.title) +
-            "</span></button>"
+            '<section class="settings-rail-section" aria-label="' +
+            esc(group) +
+            '"><div class="settings-rail-group">' +
+            esc(group) +
+            "</div>" +
+            grouped
+              .map(function (section) {
+                return (
+                  '<button class="settings-rail-item" type="button" data-rail-target="' +
+                  esc(section.id) +
+                  '" aria-controls="set-sec-' +
+                  esc(section.id) +
+                  '"><span class="settings-rail-icon" aria-hidden="true">' +
+                  (ICONS[section.id] || "") +
+                  '</span><span class="settings-rail-copy"><span class="settings-rail-label">' +
+                  esc(section.title) +
+                  '</span><span class="settings-rail-summary">' +
+                  esc(section.summary || "") +
+                  "</span></span></button>"
+                );
+              })
+              .join("") +
+            "</section>"
           );
         })
         .join("") +
@@ -1853,130 +2212,275 @@
 
     page.innerHTML =
       '<div class="settings-layout">' +
+      '<aside class="settings-sidebar">' +
+      sidebarHeader +
       rail +
+      '<div class="settings-search-results" id="settingsSearchResults" aria-label="Settings search results" hidden>' +
+      '<div class="settings-result-list" id="settingsResultList"></div>' +
+      '<div class="settings-noresults" id="settingsNoResults" role="status" aria-live="polite" hidden>' +
+      "<strong>No matching settings</strong><span>Try a label, category, or older term.</span></div></div>" +
+      "</aside>" +
       '<div class="settings-content" id="settingsContent">' +
-      header +
+      '<div class="settings-mobile-bar"><button id="settingsMobileBack" type="button" aria-label="Back to Settings">‹ <span>Settings</span></button>' +
+      '<span id="settingsMobileTitle"></span></div>' +
       panesHtml +
       "</div></div>";
 
     var layout = page.querySelector(".settings-layout");
+    var sidebar = page.querySelector(".settings-sidebar");
     var content = page.querySelector("#settingsContent");
     var panes = Array.prototype.slice.call(content.querySelectorAll(".settings-pane"));
-    var railItems = Array.prototype.slice.call(
-      page.querySelectorAll(".settings-rail-item")
-    );
+    var railItems = Array.prototype.slice.call(page.querySelectorAll(".settings-rail-item"));
+    var search = page.querySelector("#settingsSearch");
+    var clearButton = page.querySelector("#settingsSearchClear");
+    var searchResults = page.querySelector("#settingsSearchResults");
+    var resultList = page.querySelector("#settingsResultList");
+    var noResults = page.querySelector("#settingsNoResults");
+    var mobileTitle = page.querySelector("#settingsMobileTitle");
+    var mobileBack = page.querySelector("#settingsMobileBack");
+    var settingsBack = page.querySelector("#settingsBack");
+    var activeId = "general";
     wire(content, ctx);
 
-    function activate(id, updateHash) {
+    function focusDestination(sectionId, subsectionId, selector, focusHeading) {
+      var pane = content.querySelector('[data-pane="' + sectionId + '"]');
+      if (!pane) return;
+      var target = selector ? pane.querySelector(selector) : null;
+      if (!target && subsectionId) {
+        target = pane.querySelector('[data-settings-subsection="' + subsectionId + '"]');
+      }
+      var heading = pane.querySelector(".pane-title");
+      global.requestAnimationFrame(function () {
+        if (target && typeof target.scrollIntoView === "function") {
+          var disclosure = target.closest("details");
+          while (disclosure) {
+            disclosure.open = true;
+            disclosure = disclosure.parentElement.closest("details");
+          }
+          target.scrollIntoView({ block: "start", inline: "nearest" });
+          target.classList.remove("settings-search-highlight");
+          void target.offsetWidth;
+          target.classList.add("settings-search-highlight");
+        }
+        var focusTarget =
+          target && /^(BUTTON|INPUT|SELECT|A)$/.test(target.tagName) ? target : heading;
+        if (focusHeading !== false && focusTarget && typeof focusTarget.focus === "function") {
+          focusTarget.focus({ preventScroll: true });
+        }
+      });
+    }
+
+    function activate(id, updateHash, options) {
+      var opts = options || {};
+      var resolved = resolveSettingsTarget(id);
+      activeId = resolved.sectionId;
+      var subsectionId =
+        opts.subsectionId !== undefined ? opts.subsectionId : resolved.subsectionId;
       panes.forEach(function (pane) {
-        pane.classList.toggle("active", pane.dataset.pane === id);
+        pane.classList.toggle("active", pane.dataset.pane === activeId);
       });
       railItems.forEach(function (link) {
-        var on = link.dataset.railTarget === id;
+        var on = link.dataset.railTarget === activeId;
         link.classList.toggle("active", on);
         if (on) link.setAttribute("aria-current", "page");
         else link.removeAttribute("aria-current");
       });
-      if (updateHash === false) return;
-      try {
-        global.history &&
-          global.history.replaceState &&
-          global.history.replaceState(null, "", "#settings/" + id);
-      } catch (_e) {
-        /* hash routing is best-effort */
+      var activePane = content.querySelector('[data-pane="' + activeId + '"]');
+      if (mobileTitle && activePane) mobileTitle.textContent = activePane.dataset.paneTitle || "";
+      layout.classList.toggle("mobile-detail", opts.showDetail !== false);
+      if (updateHash !== false) {
+        try {
+          global.history &&
+            global.history.replaceState &&
+            global.history.replaceState(null, "", "#settings/" + activeId);
+        } catch (_e) {
+          /* hash routing is best-effort */
+        }
       }
+      var scroller = page.closest(".scroll");
+      if (scroller) scroller.scrollTop = 0;
+      focusDestination(activeId, subsectionId, opts.selector, opts.focus);
     }
 
-    function applySearch(query) {
-      var q = String(query || "").trim().toLowerCase();
-      var searching = q !== "";
-      layout.classList.toggle("searching", searching);
-      var anyShown = false;
-      panes.forEach(function (pane) {
-        var paneShown = false;
-        settingsBlocks(pane).forEach(function (block) {
-          var text = block
-            .map(function (el) {
-              return el.textContent;
-            })
+    function resultButtons() {
+      return Array.prototype.slice.call(
+        resultList.querySelectorAll("[data-settings-search-result]")
+      );
+    }
+
+    function focusResult(index) {
+      var buttons = resultButtons();
+      if (!buttons.length) return;
+      var next = (index + buttons.length) % buttons.length;
+      buttons[next].focus();
+    }
+
+    function clearSearch(restoreFocus) {
+      if (!search) return;
+      search.value = "";
+      sidebar.classList.remove("searching");
+      searchResults.hidden = true;
+      clearButton.hidden = true;
+      noResults.hidden = true;
+      while (resultList.firstChild) resultList.removeChild(resultList.firstChild);
+      if (restoreFocus) search.focus();
+    }
+
+    function applySearch(value) {
+      var query = String(value || "").trim().toLowerCase();
+      while (resultList.firstChild) resultList.removeChild(resultList.firstChild);
+      var searching = query !== "";
+      sidebar.classList.toggle("searching", searching);
+      searchResults.hidden = !searching;
+      clearButton.hidden = !searching;
+      if (!searching) {
+        noResults.hidden = true;
+        return;
+      }
+      var matches = [];
+      present.forEach(function (section) {
+        (section.searchItems || []).forEach(function (item) {
+          var haystack = [
+            item.label,
+            item.description,
+            item.group,
+            item.keywords,
+            section.title,
+            section.keywords,
+          ]
+            .filter(Boolean)
             .join(" ")
             .toLowerCase();
-          var show = !searching || text.indexOf(q) >= 0;
-          if (show) paneShown = true;
-          block.forEach(function (el) {
-            el.style.display = show ? "" : "none";
+          if (haystack.indexOf(query) >= 0) matches.push({ section: section, item: item });
+        });
+      });
+      matches.slice(0, 16).forEach(function (match, index) {
+        var button = el(
+          "button",
+          {
+            class: "settings-result",
+            type: "button",
+            dataset: { settingsSearchResult: "", resultIndex: String(index) },
+          },
+          [
+            el("span", { class: "settings-result-label", text: match.item.label }),
+            el("span", {
+              class: "settings-result-path",
+              text: match.section.title + " › " + match.item.group,
+            }),
+          ]
+        );
+        button.addEventListener("click", function () {
+          clearSearch(false);
+          activate(match.section.id, true, {
+            showDetail: true,
+            subsectionId: match.item.subsectionId,
+            selector: match.item.selector,
+            focus: true,
           });
         });
-        pane.classList.toggle("no-match", searching && !paneShown);
-        if (paneShown) anyShown = true;
+        button.addEventListener("keydown", function (event) {
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault();
+            focusResult(index + (event.key === "ArrowDown" ? 1 : -1));
+          } else if (event.key === "Escape") {
+            event.preventDefault();
+            clearSearch(true);
+          }
+        });
+        resultList.appendChild(button);
       });
-      var noResults = content.querySelector("#settingsNoResults");
-      if (noResults) noResults.toggleAttribute("hidden", anyShown || !searching);
-      railItems.forEach(function (link) {
-        var pane = content.querySelector('[data-pane="' + link.dataset.railTarget + '"]');
-        link.toggleAttribute(
-          "data-dim",
-          searching && !!pane && pane.classList.contains("no-match")
-        );
-      });
+      noResults.hidden = matches.length > 0;
     }
 
-    var search = content.querySelector("#settingsSearch");
     railItems.forEach(function (link) {
-      link.onclick = function () {
-        if (search && search.value) {
-          search.value = "";
-          applySearch("");
-        }
-        activate(link.dataset.railTarget);
-      };
-    });
-
-    if (search) {
-      search.oninput = function () {
-        applySearch(search.value);
-      };
-      search.onkeydown = function (e) {
-        if (e.key === "Escape") {
-          search.value = "";
-          applySearch("");
-        }
-      };
-    }
-
-    // Overview quick controls and attention items navigate between panes the
-    // same way the rail does (Settings redesign).
-    content.querySelectorAll("[data-go-page]").forEach(function (button) {
-      button.addEventListener("click", function () {
-        if (search && search.value) {
-          search.value = "";
-          applySearch("");
-        }
-        activate(button.dataset.goPage);
-        var scroller = page.closest(".scroll");
-        if (scroller) scroller.scrollTop = 0;
+      link.addEventListener("click", function () {
+        clearSearch(false);
+        activate(link.dataset.railTarget, true, { showDetail: true, focus: true });
       });
     });
-
-    // Tools & Insights leaves Settings entirely: these are top-level views, not
-    // settings panes, so they navigate the app rather than the rail.
+    page.querySelectorAll("[data-settings-target]").forEach(function (link) {
+      link.addEventListener("click", function () {
+        activate(link.dataset.settingsTarget, true, { showDetail: true, focus: true });
+      });
+    });
+    page.querySelectorAll("[data-workspace-tab]").forEach(function (tab) {
+      tab.addEventListener("click", function () {
+        var target = content.querySelector(
+          '[data-pane="workspace"] [data-settings-subsection="' +
+            tab.dataset.workspaceTab +
+            '"]'
+        );
+        page.querySelectorAll("[data-workspace-tab]").forEach(function (item) {
+          var selected = item === tab;
+          item.classList.toggle("active", selected);
+          item.setAttribute("aria-pressed", selected ? "true" : "false");
+        });
+        if (target && typeof target.scrollIntoView === "function") {
+          target.scrollIntoView({ block: "start", inline: "nearest" });
+        }
+      });
+    });
+    var openWorkspace = page.querySelector("#settingsOpenWorkspace");
+    if (openWorkspace && ctx.bridge && ctx.bridge.openWorkspace) {
+      openWorkspace.addEventListener("click", function () {
+        ctx.bridge.openWorkspace();
+      });
+    }
+    if (search) {
+      search.addEventListener("input", function () {
+        applySearch(search.value);
+      });
+      search.addEventListener("keydown", function (event) {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          clearSearch(true);
+        } else if (event.key === "ArrowDown") {
+          event.preventDefault();
+          focusResult(0);
+        }
+      });
+    }
+    if (clearButton) {
+      clearButton.addEventListener("click", function () {
+        clearSearch(true);
+      });
+    }
+    if (settingsBack) {
+      settingsBack.addEventListener("click", function () {
+        if (typeof ctx.switchView === "function") ctx.switchView("chat");
+      });
+    }
+    if (mobileBack) {
+      mobileBack.addEventListener("click", function () {
+        layout.classList.remove("mobile-detail");
+        try {
+          global.history &&
+            global.history.replaceState &&
+            global.history.replaceState(null, "", "#settings");
+        } catch (_e) {
+          /* hash routing is best-effort */
+        }
+        var current = page.querySelector(
+          '.settings-rail-item[data-rail-target="' + activeId + '"]'
+        );
+        if (current) current.focus();
+      });
+    }
     content.querySelectorAll("[data-go-view]").forEach(function (button) {
       button.addEventListener("click", function () {
         if (typeof ctx.switchView === "function") ctx.switchView(button.dataset.goView);
       });
     });
 
-    // Deep link (#settings/<id>) opens that page; otherwise the first page.
     var hash = (global.location && global.location.hash) || "";
     var match = /^#settings\/([\w-]+)$/.exec(hash);
-    var initial =
-      match && content.querySelector('[data-pane="' + match[1] + '"]')
-        ? match[1]
-        : present.length
-          ? present[0].id
-          : "";
-    if (initial) activate(initial, false);
-
+    var initial = resolveSettingsTarget(match ? match[1] : "general");
+    activate(initial.sectionId, false, {
+      showDetail: !!match,
+      subsectionId: initial.subsectionId,
+      focus: false,
+    });
     if (ctx.startDoctorRefresh) ctx.startDoctorRefresh();
   }
 
@@ -1990,6 +2494,14 @@
     var refresh = ctx.refresh;
     var q = function (sel) {
       return page.querySelector(sel);
+    };
+    var setRadioGroup = function (segment, selected) {
+      segment.querySelectorAll('[role="radio"]').forEach(function (option) {
+        var active = option === selected;
+        option.classList.toggle("active", active);
+        option.setAttribute("aria-checked", active ? "true" : "false");
+        option.tabIndex = active ? 0 : -1;
+      });
     };
 
     var pb = q("#setPanic");
@@ -2526,6 +3038,12 @@
       };
     }
     // Editable defaults (#238): persist and reflect in the composer instantly.
+    var teamToggle = page.querySelector("#settingsTeamEnabled");
+    if (teamToggle) teamToggle.onchange = function () {
+      var enabled = teamToggle.checked === true;
+      bridge.savePref("multi_agent_enabled", String(enabled));
+      if (ctx.applyDefaults) ctx.applyDefaults("multi_agent_enabled", enabled);
+    };
     page.querySelectorAll("[data-default-pref]").forEach(function (select) {
       select.onchange = function () {
         bridge.savePref(select.dataset.defaultPref, select.value);
@@ -2621,11 +3139,11 @@
       var key = segment.dataset.appearanceKey;
       segment.querySelectorAll("button").forEach(function (button) {
         button.onclick = function () {
-          segment.querySelectorAll("button").forEach(function (other) {
-            other.classList.toggle("active", other === button);
-            other.setAttribute("aria-pressed", other === button ? "true" : "false");
-          });
+          setRadioGroup(segment, button);
           bridge.savePref(key, button.dataset.value);
+          // Remember the choice in the payload this page re-renders from, not
+          // only on disk, so a re-render cannot show the previous value.
+          if (ctx.d && ctx.d.prefs) ctx.d.prefs[key] = button.dataset.value;
           if (!ctx.applyAppearance) return;
           var current = {};
           page.querySelectorAll("[data-appearance-key]").forEach(function (other) {
@@ -2660,7 +3178,8 @@
                 policySegment.querySelectorAll("button").forEach(function (other) {
                   var active = (other.dataset.value === "on") === enabled;
                   other.classList.toggle("active", active);
-                  other.setAttribute("aria-pressed", active ? "true" : "false");
+                  other.setAttribute("aria-checked", active ? "true" : "false");
+                  other.tabIndex = active ? 0 : -1;
                   if (policyKey === "automatic_install_on_quit" && other.dataset.value === "on") {
                     other.disabled = !result.policy.automatic_downloads;
                     other.setAttribute("aria-disabled", other.disabled ? "true" : "false");
@@ -2683,10 +3202,7 @@
       var key = segment.dataset.composerStyleKey;
       segment.querySelectorAll("button").forEach(function (button) {
         button.onclick = function () {
-          segment.querySelectorAll("button").forEach(function (other) {
-            other.classList.toggle("active", other === button);
-            other.setAttribute("aria-pressed", other === button ? "true" : "false");
-          });
+          setRadioGroup(segment, button);
           bridge.savePref(key, button.dataset.value);
           if (ctx.d && ctx.d.prefs) {
             ctx.d.prefs.composer_style = button.dataset.value;
@@ -2696,6 +3212,42 @@
         };
       });
     });
+
+    page.querySelectorAll('.seg[role="radiogroup"], .theme-choices[role="radiogroup"]').forEach(function (segment) {
+      segment.addEventListener("keydown", function (event) {
+        if (
+          event.key !== "ArrowLeft" &&
+          event.key !== "ArrowRight" &&
+          event.key !== "ArrowUp" &&
+          event.key !== "ArrowDown" &&
+          event.key !== "Home" &&
+          event.key !== "End"
+        ) {
+          return;
+        }
+        var options = Array.prototype.slice
+          .call(segment.querySelectorAll('[role="radio"]'))
+          .filter(function (option) {
+            return !option.disabled;
+          });
+        if (!options.length) return;
+        var current = options.indexOf(document.activeElement);
+        if (current < 0) {
+          current = options.findIndex(function (option) {
+            return option.getAttribute("aria-checked") === "true";
+          });
+        }
+        if (event.key === "Home") current = 0;
+        else if (event.key === "End") current = options.length - 1;
+        else {
+          var delta = event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 1;
+          current = (current + delta + options.length) % options.length;
+        }
+        event.preventDefault();
+        options[current].focus();
+        options[current].click();
+      });
+    });
   }
 
   var api = {
@@ -2703,6 +3255,7 @@
     sections: sections,
     render: render,
     doctorSummary: doctorSummary,
+    resolveSettingsTarget: resolveSettingsTarget,
     MODE_LABELS: MODE_LABELS,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;

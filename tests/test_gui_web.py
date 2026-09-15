@@ -1274,6 +1274,73 @@ class AppearancePreferenceTests(unittest.TestCase):
         self.assertIn("composer_style", _BRIDGE_PREFERENCE_KEYS)
 
 
+class ThemePreferenceTests(unittest.TestCase):
+    """Light mode is an app-wide choice: made in one workspace, it holds in all
+    of them, and reaches both the boot payload and the Settings page."""
+
+    def test_a_fresh_profile_boots_in_the_viber_coder_theme(self):
+        with isolated_home(), tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            self.assertEqual(boot_payload(root)["prefs"]["theme"], "viber-coder")
+
+    def test_a_theme_saved_in_one_workspace_holds_in_every_workspace(self):
+        from opai.gui_web import save_page_preference
+        from opaihub.gui_preferences import load_gui_preferences
+
+        with (
+            isolated_home(),
+            tempfile.TemporaryDirectory() as first,
+            tempfile.TemporaryDirectory() as second,
+        ):
+            here = make_repo(Path(first))
+            there = make_repo(Path(second))
+            save_page_preference(here, "theme", "light")
+
+            self.assertEqual(boot_payload(here)["prefs"]["theme"], "light")
+            self.assertEqual(boot_payload(there)["prefs"]["theme"], "light")
+            # Not written into the project's own preferences at all.
+            self.assertNotIn("theme", load_gui_preferences(here))
+
+    def test_settings_reads_the_app_wide_theme(self):
+        from opai.gui_theme import save_theme
+
+        with isolated_home(), tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            save_theme("system")
+            with mock.patch("opai.gui_web._cached_update_check", return_value={}):
+                payload = settings_payload(root)
+        self.assertEqual(payload["prefs"]["theme"], "system")
+
+    def test_a_theme_that_cannot_be_saved_does_not_break_the_window(self):
+        from opai.gui_web import save_page_preference
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            with (
+                mock.patch("opai.gui_web.save_theme", side_effect=OSError("read-only")),
+                self.assertLogs("opai.gui_web", level="WARNING") as logged,
+            ):
+                save_page_preference(root, "theme", "light")
+        self.assertIn("could not save the GUI theme", logged.output[0])
+
+    def test_project_preferences_keep_their_existing_guards(self):
+        from opai.gui_web import save_page_preference
+        from opaihub.gui_preferences import load_gui_preferences
+
+        with isolated_home(), tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp))
+            save_page_preference(root, "density", "compact")
+            save_page_preference(root, "show_control_panel", "true")
+            save_page_preference(root, "default_mode", "full-auto")
+            save_page_preference(root, "not_a_preference", "x")
+            prefs = load_gui_preferences(root)
+        self.assertEqual(prefs["density"], "compact")
+        self.assertIs(prefs["show_control_panel"], True)
+        # Full Auto is never persisted through the plain slot (#137).
+        self.assertEqual(prefs["default_mode"], "safe-auto")
+        self.assertNotIn("not_a_preference", prefs)
+
+
 @unittest.skipUnless(
     importlib.util.find_spec("PySide6") is not None,
     "PySide6 not installed (desktop GUI extra)",
@@ -1304,6 +1371,21 @@ class RuntimeIndexUrlTests(unittest.TestCase):
             resolved = Path(url.toLocalFile())
             self.assertTrue(resolved.is_file())
             self.assertIn("ok", resolved.read_text(encoding="utf-8"))
+
+    def test_the_launch_copy_opens_in_the_saved_theme(self):
+        # The first frame is painted before the bridge boots, so the theme has
+        # to be on <html> already or a light-theme launch starts dark.
+        from opai.gui_web import _runtime_index_url
+
+        with tempfile.TemporaryDirectory() as tmp:
+            web_dir = Path(tmp)
+            (web_dir / "index.html").write_text(
+                '<html lang="en"><body>ok</body></html>', encoding="utf-8"
+            )
+            html = Path(
+                _runtime_index_url(web_dir, theme="light").toLocalFile()
+            ).read_text(encoding="utf-8")
+        self.assertIn('<html lang="en" data-theme="light">', html)
 
     def test_unwritable_directory_falls_back_to_the_plain_file_not_an_error(self):
         # The narrower except OSError still does its original job: an
