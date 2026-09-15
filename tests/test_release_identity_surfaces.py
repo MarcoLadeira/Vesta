@@ -51,11 +51,14 @@ def test_top_level_version_flag_reports_version_stage_and_build(capsys) -> None:
 
 
 def test_persisted_support_install_and_receipt_surfaces_share_safe_identity() -> None:
-    with tempfile.TemporaryDirectory() as temporary:
+    with (
+        tempfile.TemporaryDirectory() as temporary,
+        tempfile.TemporaryDirectory() as home,
+    ):
         root = make_repo(Path(temporary))
         support = build_support_bundle(root)
         installed = install_project(
-            root, install_tools=False, install_superpowers=False
+            root, install_tools=False, install_superpowers=False, home=Path(home)
         )
         receipt = build_receipt(root, sign=False)
         run_receipt = build_savings_receipt(

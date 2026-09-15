@@ -22,7 +22,15 @@ def install_project(
     timeout: int = 300,
     global_integrations: bool = False,
     install_shell_aliases: bool = False,
+    home: Path | None = None,
 ) -> dict[str, Any]:
+    """Attach, validate, and activate ``project_root``.
+
+    ``home`` is forwarded to :func:`activate_project`; ``None`` means the
+    user's real home. Tests must pass a throwaway directory -- activation
+    resolves (and can write) home-level discovery files even when
+    ``global_integrations`` is off.
+    """
     root = project_root.expanduser().resolve()
     attach = attach_project(root)
     validation = validate_all(root)
@@ -53,6 +61,7 @@ def install_project(
 
     activation = activate_project(
         root,
+        home=home,
         install_global=global_integrations,
         install_shell_aliases=install_shell_aliases,
         install_superpowers=install_superpowers,
