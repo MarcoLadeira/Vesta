@@ -128,36 +128,14 @@
   // Every page opens with its own title, a one-sentence purpose, and scope
   // chips that state where the setting lives. Chips are facts, not marketing:
   // blue = app-wide, accent = this project, muted = stored locally only.
-  var HERO_CHIPS = {
-    app: { label: "App-wide", tone: "blue" },
-    project: { label: "This project", tone: "accent" },
-    local: { label: "Local only", tone: "muted" },
-    instant: { label: "Saved instantly", tone: "accent" },
-  };
-
   function heroHtml(esc, title, desc, chips) {
     var h =
       '<div class="pane-hero"><h1 class="pane-title" tabindex="-1">' +
       esc(title) +
       "</h1>";
     if (desc) h += '<div class="pane-desc">' + esc(desc) + "</div>";
-    if (chips && chips.length) {
-      h +=
-        '<div class="pane-chips">' +
-        chips
-          .map(function (id) {
-            var chip = HERO_CHIPS[id];
-            return (
-              '<span class="pane-chip ' +
-              chip.tone +
-              '"><span class="pane-chip-dot" aria-hidden="true"></span>' +
-              esc(chip.label) +
-              "</span>"
-            );
-          })
-          .join("") +
-        "</div>";
-    }
+    var scope = { General: "Task defaults for this project", Agents: "Team defaults for this project", "Models & Routing": "Default model for this project · Model availability across all projects" }[title];
+    if (scope) h += '<div class="settings-scope-note">' + esc(scope) + '</div>';
     return h + "</div>";
   }
 
@@ -286,7 +264,7 @@
         '" data-doctor-health>' +
         esc(connectionHealthLabel(item.health)) +
         "</span></div>" +
-        '<div class="doctor-meta"><span>Credential <b>' +
+        '<details class="settings-disclosure doctor-details"' + (item.health === "failed" ? " open" : "") + '><summary>Connection details</summary><div class="doctor-meta"><span>Credential <b>' +
         esc(item.credentialSourceLabel || "Not configured") +
         "</b></span>" +
         (isAccount
@@ -326,7 +304,14 @@
             esc(authStatusLabel(item.authStatus)) +
             "</span></div>"
           : "") +
-        '<div class="doctor-actions">' +
+        (isAccount && (item.detected || actions.includes("disconnect"))
+          ? '<button class="btn ghost" data-disconnect-account="' +
+            esc(id) +
+            '" data-account-label="' +
+            esc(item.displayName || id) +
+            '">Disconnect</button>'
+          : "") +
+        '</details><div class="doctor-actions">' +
         (isAccount && item.cliInstalled !== false
           ? '<button class="btn ghost" data-test-account="' +
             esc(id) +
@@ -341,13 +326,6 @@
             esc(item.displayName || id) +
             "</button>"
           : "") +
-        (isAccount && (item.detected || actions.includes("disconnect"))
-          ? '<button class="btn ghost" data-disconnect-account="' +
-            esc(id) +
-            '" data-account-label="' +
-            esc(item.displayName || id) +
-            '">Disconnect</button>'
-          : "") +
         (id === "codex" && d.codexConfig && d.codexConfig.repairable
           ? '<button class="btn" id="repairCodex">Repair Codex config</button>'
           : "") +
@@ -361,7 +339,7 @@
         "</div></article>";
     });
     h += "</div></section>";
-    h += '<div class="actions"><button class="btn primary" id="setConnect">Connect CLI accounts…</button><span class="set-note">Opens a guided sign-in in Chat for CLI accounts (Claude, Codex, Copilot). API-key providers are managed above.</span></div>';
+    h += '<div class="actions settings-connect-action"><button class="btn" id="setConnect">Connect an account</button><span class="set-note">Guided sign-in for Claude, Codex, or Copilot.</span></div>';
     if (
       d.codexConfig &&
       d.codexConfig.repairable &&
@@ -386,7 +364,7 @@
       var ghReady = !!gh.ready_for_push;
       h += '<div class="set-head">GitHub · pushes &amp; pull requests</div>';
       h +=
-        '<div class="set-note">Controls whether Vesta may run <b>git push</b> and open pull requests for you. This is the only place pushes &amp; PRs are enabled — there is no other push or git setting.</div>';
+        '<div class="set-note">Connect GitHub, then choose whether Vesta may push branches and open pull requests.</div>';
       h += '<div class="provider-key-card github-card" data-github-card>';
       h +=
         '<div class="provider-key-head"><span>GitHub' +
@@ -811,8 +789,9 @@
       var provider = String(m.provider || "").toLowerCase();
       if (m.kind === "account" && provider && providerNames.indexOf(provider) < 0) providerNames.push(provider);
     });
-    h += '<div class="set-row"><span class="default-label"><span class="k">Add a custom model</span><span class="hint">Use a provider already available to this Vesta install.</span></span></div>';
+    h += '<details class="settings-disclosure"><summary>Add a custom model</summary><div class="set-note">Use a provider already available to Vesta.</div>';
     h += '<div class="set-row model-custom-form"><select data-custom-provider aria-label="Custom model provider">' + providerNames.map(function (provider) { return '<option value="' + esc(provider) + '">' + esc(provider) + "</option>"; }).join("") + '</select><input data-custom-model aria-label="Custom model ID" placeholder="Model ID"><input data-custom-label aria-label="Custom model label" placeholder="Label"><select data-custom-capability aria-label="Custom model capability"><option value="balanced">Balanced</option><option value="fast">Fast</option><option value="best">Best</option></select><button type="button" class="btn" data-add-custom-model>Add model</button></div>';
+    h += '</details>';
     Object.keys(modelOverrides.providers || {}).sort().forEach(function (provider) {
       ((modelOverrides.providers[provider] || {}).models || []).forEach(function (entry) {
         h += '<div class="set-row"><span class="k">' + esc(provider + " · " + (entry.display || entry.id)) + '</span><button type="button" class="btn" data-remove-custom-provider="' + esc(provider) + '" data-remove-custom-id="' + esc(entry.id) + '">Remove</button></div>';
@@ -1125,7 +1104,7 @@
       : heroHtml(
           esc,
           "Safety & Privacy",
-          "See what Vesta may do, when it asks, and where information may go.",
+          "Control approvals, cloud access, and your data.",
           ["project", "local"]
         );
     h +=
@@ -1245,7 +1224,7 @@
         return true;
       });
       if (!items.length) return;
-      h += '<div class="set-head">' + esc(group.head) + "</div>";
+      h += '<div class="set-head">' + esc(settingsPart === "agents" ? "Team workspace" : group.head) + "</div>";
       h +=
         '<div class="quick-grid">' +
         items
@@ -1279,7 +1258,7 @@
       : heroHtml(
           esc,
           "Safety & Privacy",
-          "See what Vesta may do, when it asks, and where information may go.",
+          "Control approvals, cloud access, and your data.",
           ["project", "local"]
         );
     h +=
@@ -1597,7 +1576,7 @@
       statTile(esc, { label: "Version", value: d.about.version, mono: true }) +
       statTile(esc, { label: "Release stage", value: d.about.release_stage || "—" }) +
       "</div>" +
-      '<div class="set-head">Runtime build</div>' +
+      '<details class="settings-disclosure" data-settings-build-details><summary>Build & runtime details</summary><div class="set-head">Runtime build</div>' +
       '<div class="stat-grid two">' +
       statTile(esc, {
         label: "Build identity",
@@ -1628,7 +1607,7 @@
           esc(build.assetCount || 0) +
           " hosted files</div>"
         : "") +
-      '<div class="set-head">Updates</div>' +
+      '</details><div class="set-head">Updates</div>' +
       '<div id="settingsUpdateCard">' +
       updateStatusHtml(esc, d.about.update) +
       "</div>" +
@@ -1645,7 +1624,7 @@
       heroHtml(
         ctx.esc,
         "General",
-        "Set the defaults Vesta uses when you begin new work.",
+        "Choose how new tasks start in this project.",
         ["project", "instant"]
       ) +
       settingsSubsection(
@@ -1670,7 +1649,7 @@
       heroHtml(
         ctx.esc,
         "Models & Routing",
-        "Choose available intelligence and understand how Vesta selects a route.",
+        "Choose your default model and the models available to Auto.",
         ["project", "local"]
       ) +
       settingsSubsection(ctx.esc, "routing", "Routing preference", profile) +
@@ -1687,8 +1666,8 @@
     return (
       heroHtml(
         ctx.esc,
-        "Connections",
-        "Connect AI services and resolve problems where they occur.",
+        "Integrations",
+        "Manage your AI accounts, providers, and connected tools.",
         ["app", "local"]
       ) +
       settingsSubsection(
@@ -1696,6 +1675,12 @@
         "connections",
         "Provider connections",
         providersHtml(d, settingsContext(ctx, { settingsBodyOnly: true }))
+      ) +
+      settingsSubsection(
+        ctx.esc,
+        "built-in-tools",
+        "Reusable tools",
+        toolsHtml(d, settingsContext(ctx, { settingsBodyOnly: true, settingsPart: "plugins" }))
       )
     );
   }
@@ -1705,7 +1690,7 @@
       heroHtml(
         ctx.esc,
         "Usage & Budgets",
-        "See what is being consumed, which values are estimates, and where limits apply.",
+        "Track usage and keep spending within your limits.",
         ["project", "local"]
       ) +
       settingsSubsection(
@@ -1737,7 +1722,7 @@
       heroHtml(
         ctx.esc,
         "Safety & Privacy",
-        "See what Vesta may do, when it asks, and where information may go.",
+        "Control approvals, cloud access, and your data.",
         ["project", "local"]
       ) +
       settingsSubsection(
@@ -1762,50 +1747,30 @@
   }
 
   function agentsHtml(d, ctx) {
+    var boot = ctx.state.boot || {};
+    var enabled = typeof ctx.state.multiAgentEnabled === "boolean" ? ctx.state.multiAgentEnabled : (d.prefs || {}).multi_agent_enabled === true;
+    var unavailable = boot.agentsRuntime && boot.agentsRuntime.supported === false;
     return (
       heroHtml(
         ctx.esc,
         "Agents",
-        "Review agent work and the repeatable workflows that coordinate it.",
+        "Let Vesta coordinate a team. Stay in control of what it can do.",
         ["project", "local"]
       ) +
+      '<div class="set-head">Team defaults</div><label class="default-row settings-team-default"><span class="default-label"><span class="k">Use an AI team</span><span class="hint">Automatically divide new tasks between agents when useful.</span></span>' +
+      '<input type="checkbox" role="switch" id="settingsTeamEnabled" aria-label="Use an AI team"' + (enabled ? ' checked' : '') + (unavailable ? ' disabled' : '') + '></label>' +
+      (unavailable ? '<p class="set-note">' + ctx.esc(boot.agentsRuntime.reason || "Teams are unavailable in this runtime.") + '</p>' : '') +
+      '<div class="settings-info-row"><div><strong>Permissions & approvals</strong><p>Every agent follows your current permission rules.</p></div><button class="btn ghost" type="button" data-settings-target="safety">Manage permissions</button></div>' +
+      '<div class="settings-info-row"><div><strong>Spending limits</strong><p>Your team shares the objective budget. Cloud access still needs consent.</p></div><button class="btn ghost" type="button" data-settings-target="usage">Manage budgets</button></div>' +
+      '<div class="settings-info-row"><div><strong>Models & team composition</strong><p>Vesta chooses automatically. Change individual agents from your team workspace.</p></div></div>' +
       settingsSubsection(
         ctx.esc,
         "agent-tools",
-        "Agent tools",
+        "Team workspace",
         toolsHtml(
           d,
           settingsContext(ctx, { settingsBodyOnly: true, settingsPart: "agents" })
         )
-      )
-    );
-  }
-
-  function pluginsHtml(d, ctx) {
-    var esc = ctx.esc;
-    return (
-      heroHtml(
-        esc,
-        "Plugins",
-        "Keep reusable tools and connected capabilities in one place.",
-        ["app", "local"]
-      ) +
-      settingsSubsection(
-        esc,
-        "built-in-tools",
-        "Built-in tools",
-        toolsHtml(
-          d,
-          settingsContext(ctx, { settingsBodyOnly: true, settingsPart: "plugins" })
-        )
-      ) +
-      settingsSubsection(
-        esc,
-        "plugin-connections",
-        "Plugin connections",
-        '<div class="set-head">Connected capabilities</div>' +
-          '<div class="set-note">Installable plugin management is not available in this build. Provider and GitHub integrations remain available in Connections.</div>' +
-          '<div class="actions"><button class="btn" type="button" data-settings-target="connections">Open Connections</button></div>'
       )
     );
   }
@@ -1950,29 +1915,9 @@
   }
 
   function advancedHtml(d, ctx) {
-    return (
-      heroHtml(
-        ctx.esc,
-        "Advanced",
-        "Open supporting tools, inspect this build, and manage updates.",
-        ["app", "local"]
-      ) +
-      settingsSubsection(
-        ctx.esc,
-        "tools",
-        "Tools & Insights",
-        toolsHtml(
-          d,
-          settingsContext(ctx, { settingsBodyOnly: true, settingsPart: "advanced" })
-        )
-      ) +
-      settingsSubsection(
-        ctx.esc,
-        "about",
-        "About & updates",
-        aboutHtml(d, settingsContext(ctx, { settingsBodyOnly: true }))
-      )
-    );
+    return heroHtml(ctx.esc, "Advanced", "Updates, diagnostics, and supporting tools.", ["app"]) +
+      settingsSubsection(ctx.esc, "about", "About & updates", aboutHtml(d, settingsContext(ctx, { settingsBodyOnly: true }))) +
+      settingsSubsection(ctx.esc, "tools", "Tools & Insights", '<details class="settings-disclosure" data-settings-tools><summary>Tools & insights</summary>' + toolsHtml(d, settingsContext(ctx, { settingsBodyOnly: true, settingsPart: "advanced" })) + '</details>');
   }
 
   var SEARCH_ITEMS = {
@@ -1990,13 +1935,10 @@
       { label: "Route order", group: "Routing", subsectionId: "models", keywords: "local first fallback provider priority" },
     ],
     agents: [
+      { label: "Use an AI team", group: "Team defaults", selector: '#settingsTeamEnabled', keywords: "multiple multi agent automatic team enable default" },
       { label: "Agents", group: "Agent tools", selector: '[data-go-view="agents"]', keywords: "background runs outcomes delegation" },
       { label: "Workflows", group: "Agent tools", selector: '[data-go-view="workflows"]', keywords: "repeatable multi step tasks automation" },
       { label: "Proof Bundle", group: "Agent tools", selector: '[data-go-view="proof"]', keywords: "evidence handoff results" },
-    ],
-    plugins: [
-      { label: "Prompt Library", group: "Built-in tools", selector: '[data-go-view="prompts"]', keywords: "saved prompt template reusable" },
-      { label: "Connections", group: "Plugin connections", selector: '[data-settings-target="connections"]', keywords: "integration provider github capability" },
     ],
     workspace: [
       { label: "Current project", group: "Projects", subsectionId: "projects", keywords: "workspace folder directory browse files" },
@@ -2006,6 +1948,7 @@
       { label: "Environment", group: "Environment", subsectionId: "environment", keywords: "indexed files providers local context" },
     ],
     connections: [
+      { label: "Prompt Library", group: "Reusable tools", selector: '[data-go-view="prompts"]', keywords: "plugins saved prompt template reusable" },
       { label: "Provider connections", group: "Connections", subsectionId: "connections", keywords: "provider account api key credential sign in connect subscription" },
       { label: "Connection Doctor", group: "Connections", selector: ".connection-doctor", keywords: "health test repair failed degraded cli" },
       { label: "GitHub connection", group: "Connections", selector: "[data-github-card]", keywords: "github push pull request pat" },
@@ -2039,16 +1982,18 @@
       { label: "Copy activity", group: "Appearance", selector: '[data-appearance-key="activity_copy"]', keywords: "select log work" },
     ],
     advanced: [
-      { label: "Insights", group: "Tools & Insights", subsectionId: "tools", keywords: "money saved context benchmark dashboard" },
+      { label: "Insights", group: "Tools & Insights", selector: "[data-settings-tools]", keywords: "money saved context benchmark dashboard" },
       { label: "Update status", group: "About & updates", selector: "#settingsUpdateCard", keywords: "update version latest check restart" },
       { label: "Automatic downloads", group: "About & updates", selector: '[data-update-policy="automatic_downloads"]', keywords: "update download policy" },
       { label: "Install on quit", group: "About & updates", selector: '[data-update-policy="automatic_install_on_quit"]', keywords: "update restart policy" },
-      { label: "Build information", group: "About & updates", subsectionId: "about", keywords: "about version release artifact fingerprint runtime source" },
+      { label: "Build information", group: "About & updates", selector: "[data-settings-build-details]", keywords: "about version release artifact fingerprint runtime source" },
       { label: "Replay tour", group: "About & updates", selector: "#settingsReplayTour", keywords: "onboarding welcome help" },
     ],
   };
 
   var SECTION_ALIASES = {
+    plugins: { sectionId: "connections", subsectionId: "built-in-tools" },
+    integrations: { sectionId: "connections", subsectionId: "connections" },
     overview: { sectionId: "general", subsectionId: "defaults" },
     providers: { sectionId: "connections", subsectionId: "connections" },
     balance: { sectionId: "usage", subsectionId: "balances" },
@@ -2147,15 +2092,6 @@
       render: agentsHtml,
     },
     {
-      id: "plugins",
-      group: "AI",
-      title: "Plugins",
-      summary: "Reusable tools and integrations",
-      keywords: "plugins extensions prompts integrations connected capabilities",
-      searchItems: SEARCH_ITEMS.plugins,
-      render: pluginsHtml,
-    },
-    {
       id: "usage",
       group: "AI",
       title: "Usage & Budgets",
@@ -2176,9 +2112,9 @@
     {
       id: "connections",
       group: "Development",
-      title: "Connections",
+      title: "Integrations",
       summary: "Provider accounts, keys, and health",
-      keywords: "provider connection account api key credential sign in github doctor codex",
+      keywords: "integrations plugins provider connection account api key credential sign in github doctor codex",
       searchItems: SEARCH_ITEMS.connections,
       render: connectionsHtml,
     },
@@ -2316,7 +2252,15 @@
       var heading = pane.querySelector(".pane-title");
       global.requestAnimationFrame(function () {
         if (target && typeof target.scrollIntoView === "function") {
+          var disclosure = target.closest("details");
+          while (disclosure) {
+            disclosure.open = true;
+            disclosure = disclosure.parentElement.closest("details");
+          }
           target.scrollIntoView({ block: "start", inline: "nearest" });
+          target.classList.remove("settings-search-highlight");
+          void target.offsetWidth;
+          target.classList.add("settings-search-highlight");
         }
         var focusTarget =
           target && /^(BUTTON|INPUT|SELECT|A)$/.test(target.tagName) ? target : heading;
@@ -3094,6 +3038,12 @@
       };
     }
     // Editable defaults (#238): persist and reflect in the composer instantly.
+    var teamToggle = page.querySelector("#settingsTeamEnabled");
+    if (teamToggle) teamToggle.onchange = function () {
+      var enabled = teamToggle.checked === true;
+      bridge.savePref("multi_agent_enabled", String(enabled));
+      if (ctx.applyDefaults) ctx.applyDefaults("multi_agent_enabled", enabled);
+    };
     page.querySelectorAll("[data-default-pref]").forEach(function (select) {
       select.onchange = function () {
         bridge.savePref(select.dataset.defaultPref, select.value);

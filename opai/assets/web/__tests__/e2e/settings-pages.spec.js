@@ -24,10 +24,9 @@ test("the rail groups related destinations like the desktop settings reference",
     "Appearance",
     "Models & Routing",
     "Agents",
-    "Plugins",
     "Usage & Budgets",
     "Workspace",
-    "Connections",
+    "Integrations",
     "Safety & Privacy",
     "Advanced",
   ]);
@@ -74,12 +73,12 @@ test("every overflowing Settings page uses the custom right-hand scroll rail", a
     return {
       width: railStyle.width,
       track: railStyle.backgroundColor,
-      thumb: thumbStyle.backgroundImage,
+      thumb: thumbStyle.backgroundColor,
     };
   });
   expect(parseFloat(visuals.width)).toBeGreaterThanOrEqual(18);
   expect(visuals.track).not.toBe("rgba(0, 0, 0, 0)");
-  expect(visuals.thumb).not.toBe("none");
+  expect(visuals.thumb).not.toBe("rgba(0, 0, 0, 0)");
 
   await scroller.evaluate((node) => { node.scrollTop = 0; });
   await down.click();

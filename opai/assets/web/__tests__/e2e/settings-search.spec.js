@@ -22,7 +22,7 @@ for (const [query, destination] of [
   ["balance", "Usage & Budgets"],
   ["firewall", "Usage & Budgets"],
   ["permissions", "Safety & Privacy"],
-  ["api key", "Connections"],
+  ["api key", "Integrations"],
 ]) {
   test(`historical term ${query} resolves to ${destination}`, async ({ page }) => {
     await page.locator("#settingsSearch").fill(query);
@@ -45,7 +45,7 @@ test("a search result navigates to its canonical setting and clears search", asy
 });
 
 for (const [query, label, destination] of [
-  ["prompt library", "Prompt Library", "plugins"],
+  ["prompt library", "Prompt Library", "connections"],
   ["workflows", "Workflows", "agents"],
 ]) {
   test(`${label} search opens its grouped destination`, async ({ page }) => {

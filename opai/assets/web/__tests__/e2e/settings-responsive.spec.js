@@ -8,10 +8,9 @@ const DESTINATIONS = [
   ["appearance", "Appearance"],
   ["models", "Models & Routing"],
   ["agents", "Agents"],
-  ["plugins", "Plugins"],
   ["usage", "Usage & Budgets"],
   ["workspace", "Workspace"],
-  ["connections", "Connections"],
+  ["connections", "Integrations"],
   ["safety", "Safety & Privacy"],
   ["advanced", "Advanced"],
 ];

@@ -4,11 +4,11 @@ This document is the implementation inventory for the second-pass Settings infor
 
 ## Information architecture
 
-The Settings rail has ten task-oriented destinations grouped by similarity:
+The Settings rail has nine task-oriented destinations grouped by similarity:
 
 1. Vesta: General, Appearance
-2. AI: Models & Routing, Agents, Plugins, Usage & Budgets
-3. Development: Workspace, Connections
+2. AI: Models & Routing, Agents, Usage & Budgets
+3. Development: Workspace, Integrations
 4. Trust: Safety & Privacy
 5. System: Advanced
 
@@ -20,7 +20,7 @@ The former Overview dashboard is intentionally removed. Settings now opens at Ge
 | --- | --- | --- | --- |
 | Overview | General | Defaults for new tasks | `#settings/overview` -> `#settings/general` |
 | Models & Routing | Models & Routing | Routing preference; Models | `#settings/models` |
-| Providers & Connections | Connections | Provider connections | `#settings/providers` -> `#settings/connections` |
+| Providers & Connections | Integrations | Provider connections | `#settings/providers` -> `#settings/connections` |
 | Credits & Balance | Usage & Budgets | Provider balances | `#settings/balance` -> `#settings/usage` |
 | Cost Firewall | Usage & Budgets; Safety & Privacy | Budgets & limits; Cloud boundaries | `#settings/firewall` -> `#settings/usage` |
 | Model Usage | Usage & Budgets | Provider usage | `#settings/usage` |
@@ -28,7 +28,7 @@ The former Overview dashboard is intentionally removed. Settings now opens at Ge
 | Privacy & Data | Safety & Privacy | Data & privacy | `#settings/privacy` -> `#settings/safety` |
 | Appearance | Appearance | Appearance | `#settings/appearance` |
 | Tools & Insights | Agents | Agents, Workflows, and Proof Bundle | `#settings/agents` |
-| Tools & Insights | Plugins | Prompt Library and integration guidance | `#settings/plugins` |
+| Plugins / Tools & Insights | Integrations | Prompt Library | `#settings/plugins` -> `#settings/connections` |
 | Tools & Insights | Advanced | Remaining tools and insights | `#settings/tools` -> `#settings/advanced` |
 | Workspace | Workspace | Projects, Terminal, Git & GitHub, Rules, and Environment | `#settings/workspace` |
 | About | Advanced | About & updates | `#settings/about` -> `#settings/advanced` |
@@ -59,7 +59,7 @@ Legacy routes remain aliases only. New navigation writes canonical hashes.
 | Models | Availability and validation messages | Model catalog and override payload | Read-only truth retained |
 | Routing | Local-first route order | Settings payload `firewall.local_first` | Read-only status retained |
 
-### Connections
+### Integrations
 
 | Surface | Control or status | Existing owner | Disposition |
 | --- | --- | --- | --- |
@@ -67,7 +67,7 @@ Legacy routes remain aliases only. New navigation writes canonical hashes.
 | Connection Doctor | Account CLI presence, version, credential source, last check, and diagnostic | Settings payload and discovery events | Retained; no credential values rendered |
 | Connection Doctor | Test account connection | `testAccount` | Retained |
 | Connection Doctor | Sign in to account | `loginAccount` | Retained |
-| Connection Doctor | Disconnect account | `disconnectAccount` | Retained with inline confirmation |
+| Connection Doctor | Disconnect account | `disconnectAccount` | Behind Connection details; retains inline confirmation |
 | Connection Doctor | Repair Codex configuration | `repairCodexConfig` | Retained with confirmation |
 | Connection Doctor | Test API provider | `testProviderCredential` | Retained |
 | CLI accounts | Connect CLI accounts | `connectAccounts` | Retained |
@@ -125,14 +125,15 @@ Every segmented control is exposed as a radio group with one checked, tabbable o
 
 | Surface | Control or status | Existing owner | Disposition |
 | --- | --- | --- | --- |
+| Team defaults | Use an AI team | `savePref("multi_agent_enabled")` and shared composer state | New Settings entry point for the existing preference; does not grant cloud consent |
 | Agent tools | Agents, Workflows, and Proof Bundle | Existing top-level views | Grouped into a dedicated AI destination; navigation retained |
 
-### Plugins
+### Reusable tools in Integrations
 
 | Surface | Control or status | Existing owner | Disposition |
 | --- | --- | --- | --- |
-| Plugin tools | Prompt Library | Existing top-level view | Moved into the Plugins destination; navigation retained |
-| Integrations | Provider and GitHub setup guidance | Connections destination | Cross-link retained without introducing unsupported plugin persistence |
+| Reusable tools | Prompt Library | Existing top-level view | Consolidated into Integrations; legacy Plugins links still work |
+| Integrations | Provider and GitHub setup | Existing connection bridges | Available in the same destination without unsupported plugin persistence |
 
 ### Workspace
 
@@ -231,3 +232,7 @@ The baselines for the Light, Dark and Vesta palettes live in [`theme.spec.js-sna
 - `dark-settings-appearance.png`
 - `dark-settings-connections.png`
 - `dark-settings-safety.png`
+
+## Simplification pass
+
+Settings uses one scope explanation where useful, without permanent save-status badges. Agents now exposes the existing `multi_agent_enabled` preference and shares the composer's runtime handling; cloud consent remains separate. Provider diagnostics and disconnect actions, custom-model setup, build metadata, and supporting tools expand on demand. Search opens the relevant disclosure before focusing its result. The theme-selection component is unchanged.

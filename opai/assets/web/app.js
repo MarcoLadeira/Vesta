@@ -3389,6 +3389,8 @@ function updateDoctorCard(provider, result) {
   if (!card) return;
   const healthValue = connectionHealth(result);
   const signedIn = healthValue === "verified";
+  const details = card.querySelector(".doctor-details");
+  if (details && ["failed", "degraded"].includes(healthValue)) details.open = true;
   const status = card.querySelector(`[data-account-status="${CSS.escape(String(provider || ""))}"]`);
   const health = card.querySelector("[data-doctor-health]");
   const diagnostic = card.querySelector("[data-doctor-diagnostic]");
@@ -3408,8 +3410,19 @@ function updateDoctorCard(provider, result) {
 
 // #238: a default changed in Settings shows up in the composer immediately —
 // same state, same renderers the composer's own selects use.
+function applyMultiAgentEnabled(enabled) {
+  state.multiAgentEnabled = enabled === true && state.boot.agentsRuntime?.supported !== false;
+  state.teamOpen = state.multiAgentEnabled && ((state.agentsSnapshot || {}).objectives || []).length > 0;
+  applyPanel();
+  if (!state.multiAgentEnabled) state.agentsAllowCloud = false;
+  if (state.boot && state.boot.prefs) state.boot.prefs.multiAgentEnabled = state.multiAgentEnabled;
+  if (window.OPaiComposer) window.OPaiComposer.refresh();
+}
+
 function applyDefaults(key, value) {
-  if (key === "default_model") {
+  if (key === "multi_agent_enabled") {
+    applyMultiAgentEnabled(value);
+  } else if (key === "default_model") {
     const m = (state.boot.models || []).find((x) => x.id === value);
     if (m) state.model = { id: m.id, label: m.label, advancedLabel: m.advanced_label, kind: m.kind, provider: m.provider };
   } else if (key === "default_mode") {
@@ -5407,13 +5420,8 @@ if (typeof window !== "undefined") {
     // sync (F16/F4) and the derived next-run agent mode preview (F21).
     applyBootSelection: (b) => applyBootSelection(b),
     setMultiAgentEnabled: (enabled) => {
-      state.multiAgentEnabled = enabled === true && state.boot.agentsRuntime?.supported !== false;
-      state.teamOpen = state.multiAgentEnabled && ((state.agentsSnapshot || {}).objectives || []).length > 0;
-      applyPanel();
-      if (!state.multiAgentEnabled) state.agentsAllowCloud = false;
-      if (state.boot && state.boot.prefs) state.boot.prefs.multiAgentEnabled = state.multiAgentEnabled;
+      applyMultiAgentEnabled(enabled);
       if (bridge && bridge.savePref) bridge.savePref("multi_agent_enabled", String(state.multiAgentEnabled));
-      if (window.OPaiComposer) window.OPaiComposer.refresh();
     },
     setAgentsAllowCloud: (enabled) => {
       state.agentsAllowCloud = state.multiAgentEnabled && enabled === true;
