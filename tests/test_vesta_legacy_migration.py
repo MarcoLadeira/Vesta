@@ -462,6 +462,39 @@ class LegacyGlobalFileTests(_TempHome):
         self.assertFalse(files["instructions"].exists())
         self.assertIn(str(files["ps"]), result["legacy_files_removed"])
 
+    def test_a_profile_saved_in_the_system_code_page_does_not_stop_the_upgrade(self):
+        from vesta import integrations
+
+        self.seed_legacy_files()
+        old_block = (
+            "# OPai managed block: start\n"
+            'function claude { & "%s" @args }\n'
+            "# OPai managed block: end\n"
+        ) % (self.old / "bin" / "opai-claude.ps1")
+        ansi = self.home / "Documents" / "WindowsPowerShell"
+        ansi.mkdir(parents=True)
+        ansi_profile = ansi / "Microsoft.PowerShell_profile.ps1"
+        ansi_profile.write_bytes(("# café\n" + old_block).encode("cp1252"))
+        bashrc = _write(
+            self.home / ".bashrc",
+            "# OPai managed block: start\n"
+            f'claude() {{ "{self.home}/.opai/bin/opai-claude" "$@"; }}\n'
+            "# OPai managed block: end\n",
+        )
+
+        with mock.patch.object(
+            integrations.locale, "getpreferredencoding", return_value="cp1252"
+        ):
+            integrations.install_global_integrations(
+                self.project, home=self.home, targets=["shell"], ensure_superpowers=False
+            )
+
+        raw = ansi_profile.read_bytes()
+        self.assertIn("# café".encode("cp1252"), raw)
+        self.assertIn(b"vesta-claude", raw)
+        self.assertNotIn(b"opai-claude", raw)
+        self.assertIn("vesta-claude", _read(bashrc))
+
     def test_startup_upgrades_an_old_install_end_to_end(self):
         from vesta.bootstrap import _upgrade_legacy_install
 

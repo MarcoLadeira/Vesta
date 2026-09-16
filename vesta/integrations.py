@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import locale
 import os
 import shlex
 import shutil
@@ -780,18 +781,51 @@ gemini() {{ "{posix_bin / "vesta-gemini"}" "$@"; }}
     return posix_block
 
 
+def _read_profile(profile: Path) -> tuple[str, str] | None:
+    """A shell profile's text and the encoding to write it back in.
+
+    Profiles are the user's own files and are often saved in the system code
+    page (Windows PowerShell 5.1 reads BOM-less files that way), so one that
+    is not UTF-8 is rewritten in the encoding it was read with, and one that
+    cannot be decoded at all is left alone rather than stopping the others.
+    """
+
+    try:
+        raw = profile.read_bytes() if profile.exists() else b""
+    except OSError:
+        return None
+    for encoding in ("utf-8", locale.getpreferredencoding(False)):
+        try:
+            return raw.decode(encoding), encoding
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return None
+
+
+def _write_profile(profile: Path, text: str, encoding: str) -> Path | None:
+    try:
+        atomic_write_text(profile, text, encoding=encoding)
+    except (OSError, UnicodeEncodeError):
+        return None
+    return profile
+
+
 def _write_shell_aliases(home: Path) -> list[Path]:
     written = []
-    powershell_block = _powershell_alias_block(home)
-    for profile in _powershell_profiles(home):
-        existing = profile.read_text(encoding="utf-8") if profile.exists() else ""
-        written.append(
-            _write(profile, _replace_shell_block(existing, powershell_block))
-        )
-    posix_block = _posix_alias_block(home)
-    for profile in _posix_profiles(home):
-        existing = profile.read_text(encoding="utf-8") if profile.exists() else ""
-        written.append(_write(profile, _replace_shell_block(existing, posix_block)))
+    for profiles, block in (
+        (_powershell_profiles(home), _powershell_alias_block(home)),
+        (_posix_profiles(home), _posix_alias_block(home)),
+    ):
+        for profile in profiles:
+            read = _read_profile(profile)
+            if read is None:
+                continue
+            existing, encoding = read
+            path = _write_profile(
+                profile, _replace_shell_block(existing, block), encoding
+            )
+            if path is not None:
+                written.append(path)
     return written
 
 
@@ -809,10 +843,10 @@ def _upgrade_legacy_shell_aliases(home: Path) -> list[Path]:
         (_posix_profiles(home), _posix_alias_block(home)),
     ):
         for profile in profiles:
-            try:
-                existing = profile.read_text(encoding="utf-8")
-            except OSError:
+            read = _read_profile(profile) if profile.exists() else None
+            if read is None:
                 continue
+            existing, encoding = read
             current = upgrade_legacy_markers(existing)
             start = current.find(PS_START_MARKER)
             end = current.find(PS_END_MARKER)
@@ -822,7 +856,11 @@ def _upgrade_legacy_shell_aliases(home: Path) -> list[Path]:
                 legacy.LEGACY_PS_START_MARKER not in existing
             ):
                 continue
-            written.append(_write(profile, _replace_shell_block(existing, block)))
+            path = _write_profile(
+                profile, _replace_shell_block(existing, block), encoding
+            )
+            if path is not None:
+                written.append(path)
     return written
 
 
