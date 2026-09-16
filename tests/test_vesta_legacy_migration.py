@@ -647,6 +647,37 @@ class LegacyProjectFileTests(unittest.TestCase):
             "active",
         )
 
+    def test_upgrading_a_project_replaces_the_old_rule_files_it_removes(self):
+        from vesta.integrations import upgrade_legacy_project_blocks
+        from vestahub.context_engine import managed_ignore_lines
+
+        self._old_project_claude_file()
+        cursor = _write(
+            self.root / ".cursor" / "rules" / "opai.mdc",
+            "---\ndescription: Vesta local-first, cost-aware routing and safety "
+            "policy\nalwaysApply: true\n---\n" + GENERATED_BLOCK + "\n",
+        )
+        cline = _write(self.root / ".clinerules" / "opai.md", GENERATED_BLOCK + "\n")
+        ignore = _write(
+            self.root / ".opaiignore",
+            "\n".join(
+                legacy.legacy_spelling(line)
+                for line in [*AI_IGNORE_PATTERNS, "", *managed_ignore_lines()]
+            )
+            + "\n",
+        )
+
+        upgrade_legacy_project_blocks(self.root)
+
+        for old in (cursor, cline, ignore):
+            self.assertFalse(old.exists(), old)
+        self.assertIn(
+            "Vesta managed block",
+            _read(self.root / ".cursor" / "rules" / "vesta.mdc"),
+        )
+        self.assertIn("Vesta managed block", _read(self.root / ".clinerules" / "vesta.md"))
+        self.assertTrue((self.root / ".vestaignore").exists())
+
     def test_an_agent_session_never_rewrites_project_files(self):
         from vesta.bootstrap import _upgrade_legacy_install
 
