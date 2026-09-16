@@ -13,7 +13,7 @@ test.beforeEach(async ({ page }) => openApp(page));
 
 test("primary workspace consistently presents the Vesta identity", async ({ page }) => {
   await expect(page.locator(".header-brand")).toContainText("Vesta");
-  await expect(page.locator("#empty h1")).toHaveText("Better. Faster. Cheaper.");
+  await expect(page.locator("#empty h1")).toHaveText("The Living Flame.");
   await expect(page.locator("#emptySub")).toBeHidden();
 });
 

@@ -1387,6 +1387,37 @@ class RuntimeIndexUrlTests(unittest.TestCase):
             ).read_text(encoding="utf-8")
         self.assertIn('<html lang="en" data-theme="light">', html)
 
+    def test_the_launch_copy_opens_on_this_runs_motto(self):
+        # Same first-frame rule as the theme: the headline has to be in the
+        # markup, or the window opens blank and the motto pops in on boot.
+        from vesta.brand import empty_title
+        from vesta.gui_web import _runtime_index_url
+
+        empty = '<div class="empty" id="empty"><div class="empty-mark"></div><h1></h1></div>'
+        with tempfile.TemporaryDirectory() as tmp:
+            web_dir = Path(tmp)
+            (web_dir / "index.html").write_text(
+                f"<html><body><h1>Other</h1>{empty}</body></html>", encoding="utf-8"
+            )
+            first = Path(_runtime_index_url(web_dir).toLocalFile()).read_text(
+                encoding="utf-8"
+            )
+            again = Path(_runtime_index_url(web_dir).toLocalFile()).read_text(
+                encoding="utf-8"
+            )
+        self.assertIn(f"<h1>{empty_title()}</h1>", first)
+        # Only the empty state's headline; any other <h1> is left alone.
+        self.assertIn("<h1>Other</h1>", first)
+        # A reload or a second window in the same run gets the same line.
+        self.assertIn(f"<h1>{empty_title()}</h1>", again)
+
+    def test_the_stamped_motto_is_escaped_as_text(self):
+        from vesta.gui_web import _stamp_empty_title
+
+        html = '<div class="empty" id="empty"><h1></h1></div>'
+        with mock.patch("vesta.brand.empty_title", return_value="Fire & <Light>"):
+            self.assertIn("<h1>Fire &amp; &lt;Light&gt;</h1>", _stamp_empty_title(html))
+
     def test_unwritable_directory_falls_back_to_the_plain_file_not_an_error(self):
         # The narrower except OSError still does its original job: an
         # existing source file plus a write failure degrades gracefully.

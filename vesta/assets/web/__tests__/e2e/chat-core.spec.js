@@ -49,7 +49,8 @@ test("new chat clears messages and restores the branded empty state", async ({ p
   await finishRequest(page, id);
   await page.locator("#headerNewChat").click();
   await expect(page.locator(".msg")).toHaveCount(0);
-  await expect(page.locator("#empty h1")).toHaveText("Better. Faster. Cheaper.");
+  // The same motto as before the chat: a new chat is not a new launch.
+  await expect(page.locator("#empty h1")).toHaveText("The Living Flame.");
 });
 
 test("starter chip submits exactly one useful prompt", async ({ page }) => {

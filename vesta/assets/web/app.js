@@ -528,7 +528,10 @@ function applyBrand(brand) {
   if (!brand) return;
   state.brand = brand;
   const h1 = $("#empty h1");
-  if (h1 && brand.emptyTitle) h1.textContent = brand.emptyTitle;
+  // The headline is this launch's motto, and the launch copy of index.html
+  // already carries it in the first frame. The payload only fills a headline
+  // that frame did not have: a motto the user has read is never swapped.
+  if (h1 && brand.emptyTitle && !h1.textContent.trim()) h1.textContent = brand.emptyTitle;
   if (brand.composerPlaceholder) $("#input").placeholder = brand.composerPlaceholder;
 }
 

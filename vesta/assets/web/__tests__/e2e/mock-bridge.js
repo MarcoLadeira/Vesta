@@ -41,7 +41,8 @@
     brand: {
       name: "Vesta",
       tagline: "Every step visible. Every dollar accounted.",
-      emptyTitle: "Better. Faster. Cheaper.",
+      // One of brand.VESTA_MOTTOS (tests/test_brand_copy_drift.py holds it to that).
+      emptyTitle: "The Living Flame.",
       composerPlaceholder: "Tell Vesta what to build, fix, or explain…",
     },
     models: [
