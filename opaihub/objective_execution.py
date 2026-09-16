@@ -52,6 +52,7 @@ PLAN_FIELDS = frozenset(
         "priority",
     }
 )
+PLANNING_TIMEOUT_SECONDS = 120
 
 
 def worker_completed(result):
@@ -503,16 +504,49 @@ class ObjectiveExecutor:
         return run_worker_process(packet, directory, cancel, activity)
 
     @contextmanager
-    def _phase(self, objective_id, phase, fence, cancel):
+    def _phase(
+        self,
+        objective_id,
+        phase,
+        fence,
+        cancel,
+        *,
+        parent_cancel=None,
+        timeout_seconds=None,
+    ):
         done = threading.Event()
+        timed_out = threading.Event()
+        started = time.monotonic()
 
         def monitor():
             next_heartbeat = 0
             while not done.wait(0.2):
                 try:
                     snapshot = self.store.snapshot(objective_id)
-                    if snapshot["status"] in {"stopping", "cancelled"}:
+                    if snapshot["status"] in {"stopping", "cancelled"} or (
+                        parent_cancel is not None and parent_cancel.is_set()
+                    ):
                         cancel.set()
+                    if (
+                        timeout_seconds is not None
+                        and time.monotonic() - started >= timeout_seconds
+                        and not cancel.is_set()
+                    ):
+                        timed_out.set()
+                        cancel.set()
+                        self.store.interrupt_execution(
+                            objective_id,
+                            self.owner,
+                            fence,
+                            phase=phase,
+                            reason="Planning timed out; waiting for worker termination",
+                            result={
+                                "error": "Planning timed out. Start a new team or add an agent after the planner stops.",
+                                "completion_state": "timeout",
+                            },
+                        )
+                        self._emit(objective_id)
+                        return
                     if time.monotonic() >= next_heartbeat:
                         self.store.heartbeat_phase(
                             objective_id, phase, self.owner, fence
@@ -531,6 +565,10 @@ class ObjectiveExecutor:
         finally:
             done.set()
             thread.join()
+        if timed_out.is_set():
+            raise TimeoutError(
+                "Planning timed out. Start a new team or add an agent after the planner stops."
+            )
 
     def _record_costs(self, objective_id: str, assignment: dict, result: dict):
         from .execution_scope import assignment_cost_events
@@ -642,6 +680,7 @@ class ObjectiveExecutor:
         reservation = self.store.begin_plan(objective_id, self.owner)
         if reservation is None:
             return self._emit(objective_id)
+        planner_cancel = threading.Event()
         assignment = {
             "assignment_id": None,
             "name": "planner",
@@ -654,18 +693,47 @@ class ObjectiveExecutor:
         termination_unconfirmed = False
         status, rows, detail = "needs-attention", None, {}
         try:
-            with self._phase(objective_id, "planning", reservation["fence"], cancel):
+            self._emit(objective_id)
+            with self._phase(
+                objective_id,
+                "planning",
+                reservation["fence"],
+                planner_cancel,
+                parent_cancel=cancel,
+                timeout_seconds=PLANNING_TIMEOUT_SECONDS,
+            ):
                 lease = self._lease(objective, assignment)
-                if cancel.is_set():
+                if cancel.is_set() or planner_cancel.is_set():
                     raise InterruptedError("Planning cancelled before dispatch")
                 invoked = True
                 result = self._invoke(
-                    objective, assignment, Path(lease.path), cancel, None, planning=True
+                    objective,
+                    assignment,
+                    Path(lease.path),
+                    planner_cancel,
+                    None,
+                    planning=True,
                 )
             if cancel.is_set():
                 raise InterruptedError("Planning cancelled")
+            detail = {
+                key: result[key]
+                for key in (
+                    "routing",
+                    "dispatch_state",
+                    "completion_state",
+                    "stopped_reason",
+                    "completion_verdict",
+                )
+                if key in result
+            }
             if not worker_completed(result):
-                raise ValueError("Planner did not complete successfully")
+                raise ValueError(
+                    result.get("error")
+                    or result.get("stopped_reason")
+                    or (result.get("completion_verdict") or {}).get("reason")
+                    or "Planner did not complete successfully"
+                )
             rows = parse_plan(result.get("answer", ""))
             from .agent_objectives import validate_plan
 
@@ -673,13 +741,35 @@ class ObjectiveExecutor:
             status = "completed"
         except UnconfirmedTerminationError as exc:
             termination_unconfirmed = True
-            detail = {"error": safe_detail(exc, limit=500)}
-            self.store.interrupt_execution(
-                objective_id, self.owner, reservation["fence"], phase="planning"
-            )
+            planning = self.store.snapshot(objective_id)["planning"]
+            detail = {
+                **planning.get("result", {}),
+                "termination_error": safe_detail(exc, limit=500),
+            }
+            detail.setdefault("error", detail["termination_error"])
+            if planning["fence"] == reservation["fence"]:
+                self.store.interrupt_execution(
+                    objective_id,
+                    self.owner,
+                    reservation["fence"],
+                    phase="planning",
+                    result=detail,
+                )
+        except TimeoutError as exc:
+            detail = {
+                "error": safe_detail(exc, limit=500),
+                "completion_state": "timeout",
+            }
         except Exception as exc:
             status = "cancelled" if cancel.is_set() else "needs-attention"
-            detail = {"error": safe_detail(exc, limit=500)}
+            interrupted = self.store.snapshot(objective_id)["planning"].get(
+                "result", {}
+            )
+            detail = (
+                interrupted
+                if interrupted.get("completion_state") == "timeout"
+                else {**detail, "error": safe_detail(exc, limit=500)}
+            )
         finally:
             try:
                 if invoked and self._finalize_costs(objective_id, assignment, result):

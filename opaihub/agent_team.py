@@ -38,7 +38,7 @@ def label(value, field, *, empty=False):
 
 def editable(obj):
     return (
-        obj["status"] not in {"planning", "cancelled", "stopping"}
+        obj["status"] not in {"cancelled", "stopping"}
         and not obj["planning"]["owner"]
         and not obj["integration"]["owner"]
     )
@@ -49,7 +49,7 @@ def projection(obj):
     obj["team_revision"] = obj.get("team_revision", 0)
     obj["team_controls"] = {
         "editable": editable(obj),
-        "can_add": editable(obj) and 0 < len(items) < 32,
+        "can_add": editable(obj) and len(items) < 32,
         "remaining_tasks": 32 - len(items),
     }
     for item in items:
@@ -243,7 +243,7 @@ def control_team(store, objective_id, action, assignment_id, value):
                 source_id=source["assignment_id"], connected=value["connected"]
             )
         else:
-            if not editable(obj) or not items or len(items) >= 32:
+            if not editable(obj) or len(items) >= 32:
                 raise ValueError(
                     "This team cannot accept more work right now (32 tasks per objective)"
                 )

@@ -2838,6 +2838,7 @@ def _run_gui(
                         else safe_detail(exc),
                         "control": {
                             "action": payload.get("action"),
+                            "assignment_id": payload.get("assignment_id"),
                             "revision": payload.get("value", {}).get("revision")
                             if isinstance(payload.get("value"), dict)
                             else None,
