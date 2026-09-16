@@ -13,6 +13,7 @@ honest, technical, protective; never hype, never fake precision.
 from __future__ import annotations
 
 import importlib.resources as _resources
+import random
 from pathlib import Path as _Path
 
 NAME = "Vesta"
@@ -35,11 +36,43 @@ PROMISE = (
 # explaining the mechanism. Nobody reads a mechanism before they have a
 # reason to care.
 #
-# So it is a claim and its proof. The headline says what you get; the line
-# under it says how you will know it is true, which is the one thing this
-# tool can say that the others cannot. The mechanism is still on the screen
-# -- it is the receipt, after the first run, where it means something.
-EMPTY_TITLE = "Better. Faster. Cheaper."
+# Then it was a claim -- "Better. Faster. Cheaper." -- which is what any tool
+# says about itself. The headline is now Vesta's motto: flame, light, and
+# beginnings, drawn from these lines. Edit the list here and nowhere else.
+VESTA_MOTTOS: tuple[str, ...] = (
+    "The Living Flame.",
+    "By a Light That Never Fails.",
+    "Keep the Intelligence Burning.",
+    "Intelligence, Always Burning.",
+    "The Fire Behind Your Work.",
+    "An Undying Intelligence.",
+    "Where Intelligence Comes Alive.",
+    "Intelligence Comes First.",
+    "First, Vesta.",
+    "Where Every Task Begins.",
+    "Conceive of Vesta as naught but the living flame.",
+    "An undying fire is hidden in that temple.",
+    "Vesta guards it, because she sees all things by her light that never fails.",
+    "Guardian of Fire.",
+    "She Occupies the First Place.",
+)
+
+
+def _draw_motto() -> str:
+    """One motto, every line equally likely."""
+    return random.choice(VESTA_MOTTOS)
+
+
+# Drawn once, when this process first imports the brand -- the import lock
+# makes that exactly once. Every window, reload, and re-render in this run
+# reads the same line; closing Vesta and opening it again draws afresh.
+_SESSION_MOTTO = _draw_motto()
+
+
+def empty_title() -> str:
+    """This launch's motto for the empty state, stable for the whole run."""
+    return _SESSION_MOTTO
+
 
 # There is no body and no hint any more, and their absence is the point.
 #
@@ -48,7 +81,7 @@ EMPTY_TITLE = "Better. Faster. Cheaper."
 # yet done the thing the shortcut is for. Neither survives the question this
 # screen should be asked: does this line change what the reader does next?
 #
-# What is left is a mark, a claim, and three things you can click. The one
+# What is left is a mark, a motto, and three things you can click. The one
 # sentence that *does* change what you do next -- that no provider is
 # connected, so nothing will run -- is still shown, by the front end, only
 # when it is true.
@@ -118,7 +151,7 @@ def boot_brand() -> dict[str, str]:
     return {
         "name": NAME,
         "tagline": TAGLINE,
-        "emptyTitle": EMPTY_TITLE,
+        "emptyTitle": empty_title(),
         "composerPlaceholder": COMPOSER_PLACEHOLDER,
     }
 

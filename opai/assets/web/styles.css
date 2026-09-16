@@ -561,6 +561,8 @@ code, pre, kbd, .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas
 }
 .empty h1 {
   font-size: clamp(var(--type-title), 4.4vw, var(--type-display)); font-weight: 760; letter-spacing: -0.035em; line-height: 1.08;
+  /* Some mottos run to a full sentence: wrap them into even lines, never out of the room. */
+  text-wrap: balance; overflow-wrap: break-word;
   background: linear-gradient(180deg, var(--headline-from) 20%, var(--headline-to) 100%);
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
 }

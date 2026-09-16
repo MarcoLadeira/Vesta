@@ -32,6 +32,7 @@ import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from html import escape as html_escape
 from pathlib import Path
 from typing import Any
 
@@ -106,6 +107,27 @@ _RUNTIME_INDEX = ".runtime-index.html"
 
 _ASSET_REF = re.compile(r'(href|src)="([^"]+)"')
 
+# The empty-state headline, which index.html ships blank.
+_EMPTY_TITLE_TAG = re.compile(
+    r'(<div class="empty" id="empty">.*?<h1>).*?(</h1>)', re.S
+)
+
+
+def _stamp_empty_title(html: str) -> str:
+    """Write this launch's motto into the empty-state headline.
+
+    Like the theme stamp, this is about the first frame: the page is painted
+    before the bridge boots, so a headline filled in by the boot payload would
+    open blank and then appear. Stamped here, it is on screen from the start,
+    and it is the same line the payload carries for the rest of the run.
+    """
+    from opai.brand import empty_title
+
+    title = html_escape(empty_title(), quote=False)
+    return _EMPTY_TITLE_TAG.sub(
+        lambda m: f"{m.group(1)}{title}{m.group(2)}", html, count=1
+    )
+
 
 def asset_build_identity(asset_dir: Path = WEB_DIR) -> dict[str, Any]:
     """Identify the exact UI assets served by this Python host.
@@ -169,7 +191,8 @@ def _runtime_index_url(web_dir: Path, theme: str = DEFAULT_THEME) -> "Any":
 
     The copy also carries the resolved ``theme`` on ``<html>``, so the first
     frame is already painted in it instead of starting dark and changing once
-    the bridge boots.
+    the bridge boots -- and this launch's motto in the empty-state headline,
+    for the same reason.
 
     Falls back to plain index.html if the package dir is not writable (e.g. a
     read-only wheel install) — behaviour then matches the pre-change loader.
@@ -197,8 +220,8 @@ def _runtime_index_url(web_dir: Path, theme: str = DEFAULT_THEME) -> "Any":
             sep = "&" if "?" in url else "?"
             return f'{attr}="{url}{sep}v={ver}"'
 
-        html = stamp_theme(
-            _ASSET_REF.sub(_bust, index.read_text(encoding="utf-8")), theme
+        html = _stamp_empty_title(
+            stamp_theme(_ASSET_REF.sub(_bust, index.read_text(encoding="utf-8")), theme)
         )
         out = web_dir / _RUNTIME_INDEX
         out.write_text(html, encoding="utf-8")

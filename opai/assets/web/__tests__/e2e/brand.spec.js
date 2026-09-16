@@ -9,7 +9,9 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("empty state speaks Vesta, not the generic prompt", async ({ page }) => {
-  await expect(page.locator("#empty h1")).toHaveText("Better. Faster. Cheaper.");
+  // The headline is the launch's motto, carried by the boot payload.
+  await expect(page.locator("#empty h1")).toHaveText("The Living Flame.");
+  await expect(page.locator("#empty h1")).not.toContainText("Better. Faster. Cheaper.");
   // The claim stands on its own: no second sentence describing the product
   // to someone already looking at it.
   await expect(page.locator("#emptySub")).toBeHidden();
