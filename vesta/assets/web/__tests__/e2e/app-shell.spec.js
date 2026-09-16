@@ -18,15 +18,26 @@ test("loads the complete Vesta workspace shell", async ({ page }) => {
 
 test("all primary navigation destinations are present and activate", async ({ page }) => {
   await openApp(page);
-  // Simple-by-default IA: dashboards live inside the folded Insights group
-  // (openNav unfolds it like a user would); Settings is the fixed footer row.
-  const labels = [
-    "Chat", "Prompt Library", "Money Saved", "Cost Firewall", "Context Waste",
-    "Benchmark", "Agents", "Proof Bundle", "Workflows",
+  // The sidebar is the chat list: Chat is the header's New chat, and every other
+  // destination opens from the Settings page the redesign placed it on (openNav
+  // goes there like a user would). Each must open its own page.
+  const destinations = [
+    ["Chat", "#view-chat", null],
+    ["Prompt Library", "#view-prompts", "Prompt Library"],
+    ["Money Saved", "#view-dashboard", "Money Saved"],
+    ["Cost Firewall", "#view-dashboard", "Cost Firewall"],
+    ["Context Waste", "#view-dashboard", "Context Waste"],
+    ["Benchmark", "#view-dashboard", "Benchmark Proof"],
+    ["Agents", "#view-dashboard", "Agents"],
+    ["Proof Bundle", "#view-dashboard", "Proof Bundle"],
+    ["Workflows", "#view-dashboard", "Guarded Workflows"],
   ];
-  for (const label of labels) {
+  for (const [label, view, heading] of destinations) {
     await openNav(page, label);
-    await expect(page.getByRole("button", { name: label, exact: true })).toHaveClass(/active/);
+    await expect(page.locator(view), label).toBeVisible();
+    if (heading) {
+      await expect(page.locator(view), label).toContainText(heading);
+    }
   }
   await page.locator("#headerSettings").click();
   await expect(page.locator("#view-settings")).toBeVisible();
@@ -92,7 +103,8 @@ test("palette exposes stop and doctor commands (#400) and they run", async ({ pa
   await expect(page.locator("#paletteList .opt")).toHaveCount(1);
   await page.keyboard.press("Enter");
   await expect(page.locator("#view-settings")).toBeVisible();
-  await expect(page.locator('.settings-pane[data-pane="providers"]')).toHaveClass(/active/);
+  // Providers are part of the Integrations page.
+  await expect(page.locator('.settings-pane[data-pane="connections"]')).toHaveClass(/active/);
   await expect(page.getByRole("region", { name: "Connection Doctor" })).toBeVisible();
 
   // stop is offered as a command (safe no-op when idle).

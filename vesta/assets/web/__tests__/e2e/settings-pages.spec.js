@@ -126,6 +126,8 @@ test("choosing a destination replaces the detail pane and writes a canonical lin
 test("Advanced shows the exact hosted asset build identity", async ({ page }) => {
   await railItem(page, "advanced").click();
   const settings = page.locator("#settingsPage");
+  // Build identity is folded under "Build & runtime details".
+  await page.locator("[data-settings-build-details] > summary").click();
   await expect(settings).toContainText("ASSET BUILD", seen);
   await expect(settings).toContainText("7ac9f12b4e88", seen);
   await expect(settings).toContainText("source checkout", seen);

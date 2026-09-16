@@ -11,9 +11,10 @@ import { openApp, openNav, sendPrompt, finishRequest } from "./helpers/app.js";
 test("dashboard renders through the async request/ready path", async ({ page }) => {
   await openApp(page);
   await openNav(page, "Money Saved");
-  const requests = await page.evaluate(() => window.__mock.dashboardRequests);
+  // The AI Team also polls the agents dashboard in the background.
+  const requests = (await page.evaluate(() => window.__mock.dashboardRequests))
+    .filter((request) => request.requestId.startsWith("dash-"));
   expect(requests.length).toBeGreaterThan(0);
-  expect(requests[0].requestId).toContain("dash-");
   await expect(page.locator("#dashPage .state-card.loading")).toHaveCount(0);
 });
 

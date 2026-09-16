@@ -347,10 +347,13 @@ test('objective signal releases chat only for the active request and workspace',
   await page.evaluate(({ o, id }) => window.__mock.emitObjective({ requestId: id, objective: o, workspaceRoot: '/demo' }), { o: objective, id });
   await expect(page.locator('.agents-chat-card')).toBeVisible();
   expect(await page.evaluate(() => ({ busy: window.__vesta.state.busy, view: window.__vesta.state.view }))).toEqual({ busy: false, view: 'chat' });
+  // The other workspace has no teams. The AI Team rediscovers teams for the
+  // workspace it is in, so none of this workspace's objectives may survive.
+  await page.evaluate(() => window.__mock.updateDashboard('agents', { objectives: [] }));
   await page.evaluate(() => window.__mock.switchWorkspace('/other'));
   await expect.poll(() => page.evaluate(() => window.__vesta.state.boot.workspace.root)).toBe('/other');
   expect(await page.evaluate(() => window.__vesta.state.multiAgentEnabled)).toBe(false);
-  expect(await page.evaluate(() => window.__vesta.state.agentsSnapshot)).toBe(null);
+  expect(await page.evaluate(() => (window.__vesta.state.agentsSnapshot?.objectives || []).length)).toBe(0);
 });
 
 test('older objective and dashboard responses cannot replace a newer request or another view', async ({ page }) => {

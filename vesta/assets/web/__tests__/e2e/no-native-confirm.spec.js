@@ -14,10 +14,16 @@ async function trapNativeConfirm(page) {
   });
 }
 
+// Disconnect lives in an account's folded "Connection details".
+async function openConnectionDetails(page, account) {
+  await page.locator(`[data-account-row="${account}"] .doctor-details > summary`).click();
+}
+
 test("account disconnect uses the styled card, never window.confirm", async ({ page }) => {
   await trapNativeConfirm(page);
   await openApp(page);
   await openSettings(page, "providers");
+  await openConnectionDetails(page, "claude");
   await page.locator('[data-disconnect-account="claude"]').click();
   await expect(page.locator(".inline-confirm").first()).toBeVisible();
   expect(await page.evaluate(() => window.__nativeConfirmCalls)).toBe(0);
@@ -28,6 +34,7 @@ test("the confirm card can be dismissed with Escape (#151)", async ({ page }) =>
   // disconnect is a real remaining confirmation, so the property is unchanged.
   await openApp(page);
   await openSettings(page, "providers");
+  await openConnectionDetails(page, "claude");
   await page.locator('[data-disconnect-account="claude"]').click();
   await expect(page.locator(".inline-confirm").first()).toBeVisible();
   await page.keyboard.press("Escape");

@@ -444,6 +444,10 @@ const SHOT = { animations: "disabled", caret: "hide", maxDiffPixels: 200 };
 async function bootIn(page, palette, viewport, overrides = {}) {
   await page.setViewportSize(viewport);
   await page.emulateMedia({ reducedMotion: "reduce" });
+  // A finished turn is stamped with the time of day it arrived.
+  const morning = new Date();
+  morning.setHours(11, 7, 0, 0);
+  await page.clock.setFixedTime(morning);
   await openApp(page, { ...overrides, boot: { ...(overrides.boot || {}), prefs: { theme: palette, ...((overrides.boot || {}).prefs || {}) } } });
   await page.addStyleTag({ content: "#starfall { display: none !important; }" });
   await page.evaluate(() => document.fonts.ready);

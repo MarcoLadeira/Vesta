@@ -126,6 +126,6 @@ test("New chat hides the strip", async ({ page }) => {
   const id = await sendPrompt(page);
   await finishRequest(page, id, { status: "answered", answer: "ok", receipt: {} });
   await expect(strip(page)).toBeVisible();
-  await page.locator("#newChat").click();
+  await page.locator("#headerNewChat").click();
   await expect(strip(page)).toBeHidden();
 });

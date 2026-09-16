@@ -5,6 +5,11 @@
 // Mirrors vesta.gui_nav.nav_groups(): nothing is listed. The sidebar is the
 // chat list -- Chat, Prompt Library and the Insights dashboards are all
 // routable but unlisted, and New chat is a header action.
+// One moment every time-relative fixture is measured from. A screenshot that
+// shows "last used 18 d ago" or a reset countdown pins the page clock here
+// (page.clock.setFixedTime), so the text never depends on the day it runs.
+export const FIXTURE_NOW_SECONDS = Math.floor(Date.now() / 1000);
+
 export const FULL_NAV = [];
 
 export const MODELS = [
@@ -251,7 +256,7 @@ export const SETTINGS = {
       status: "unavailable",
       window: { type: "rolling", label: "5-hour session window", seconds: 18000, metric: "session" },
       official: { available: false },
-      vestaTracked: { calls: 12, tokens: 48000, tasks: 4, windowLabel: "All time via Vesta", lastUsedAt: Date.now() / 1000 - 18 * 24 * 3600 },
+      vestaTracked: { calls: 12, tokens: 48000, tasks: 4, windowLabel: "All time via Vesta", lastUsedAt: FIXTURE_NOW_SECONDS - 18 * 24 * 3600 },
       detail: "Claude subscriptions meter a rolling 5-hour session window; the exact percentage is only visible in Claude directly. Vesta's own count below only includes messages sent through Vesta's chat — not the claude CLI used directly.",
       checkUrl: "https://claude.ai/settings/usage", supportsRefresh: false,
     },
@@ -262,7 +267,7 @@ export const SETTINGS = {
       official: {
         available: true, source: "provider", metric: "requests",
         limit: 1500, remaining: 1230, used: 270, percent: 18,
-        resetsAt: 4102444800, resetsInSeconds: 7200, observedAt: 4102437600, stale: false,
+        resetsAt: FIXTURE_NOW_SECONDS + 7200, resetsInSeconds: 7200, observedAt: 4102437600, stale: false,
       },
       vestaTracked: { calls: 270, tokens: 120000, tasks: 33, windowLabel: "Today" },
       detail: "Reported by the provider on your recent calls.",

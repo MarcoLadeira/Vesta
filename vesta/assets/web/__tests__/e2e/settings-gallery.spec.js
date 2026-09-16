@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 
 import { openApp, openNav } from "./helpers/app.js";
+import { FIXTURE_NOW_SECONDS } from "./helpers/fixtures.js";
 
 test.describe.configure({ timeout: 60_000 });
 
@@ -19,6 +20,8 @@ const DESTINATIONS = [
 async function bootSettings(page, viewport, overrides = {}) {
   await page.setViewportSize(viewport);
   await page.emulateMedia({ reducedMotion: "reduce" });
+  // Usage shows a live reset countdown and "last used" ages.
+  await page.clock.setFixedTime(FIXTURE_NOW_SECONDS * 1000);
   await openApp(page, overrides);
   await openNav(page, "Settings");
   await expect(page.locator("#settingsPage .settings-layout")).toBeVisible();
