@@ -74,6 +74,11 @@ LEGACY_INSTRUCTIONS_FILENAME = "OPAI.md"
 LEGACY_CLINE_RULE = (".clinerules", "opai.md")
 LEGACY_CURSOR_RULE = (".cursor", "rules", "opai.mdc")
 LEGACY_IGNORE_FILENAME = ".opaiignore"
+# The status page `visibility install` wrote to a project root, and the
+# names it listed in the repository's local git exclude file.
+LEGACY_STATUS_FILENAME = "OPAI_STATUS.md"
+LEGACY_STATUS_JSON = "opai-status.json"
+LEGACY_STATUS_HEADINGS = ("# OPai Status", "# Vesta Status")
 
 # The GitHub repository before it was renamed; GitHub still redirects it.
 LEGACY_REPOSITORY = "MarcoLadeira/OPai"
@@ -486,7 +491,86 @@ def migrate_project_state(project_root: Path) -> str:
         return "failed"
     except Exception:  # noqa: BLE001
         return "failed"
+    _carry_git_excludes(root)
+    _remove_legacy_status_page(root)
     return "migrated"
+
+
+def legacy_project_state_dir(project_root: Path) -> Path:
+    """The pre-rename state directory, still live while its move keeps failing."""
+
+    return Path(project_root) / LEGACY_STATE_DIRNAME
+
+
+def _git_exclude_files(root: Path) -> list[Path]:
+    dot_git = root / ".git"
+    if dot_git.is_dir():
+        return [dot_git / "info" / "exclude"]
+    text = _read(dot_git)
+    if not text or not text.startswith("gitdir:"):
+        return []
+    # A worktree or submodule: git reads info/exclude from the common dir.
+    git_dir = Path(text.splitlines()[0][len("gitdir:"):].strip())
+    if not git_dir.is_absolute():
+        git_dir = root / git_dir
+    common = _read(git_dir / "commondir")
+    if common and common.strip():
+        common_dir = Path(common.strip())
+        git_dir = common_dir if common_dir.is_absolute() else git_dir / common_dir
+    return [git_dir / "info" / "exclude"]
+
+
+def _carry_git_excludes(root: Path) -> None:
+    """Keep the renamed state directory out of git where the old one was.
+
+    ``visibility install`` hid ``.opaihub/`` and its status page through the
+    repository's local exclude file. After the rename those lines match
+    nothing, and the state directory -- ledgers, conversations, team keys --
+    would show up in ``git status`` and be swept into ``git add -A``.
+    """
+
+    for exclude in _git_exclude_files(root):
+        try:
+            text = _read(exclude)
+            if not text:
+                continue
+            lines = [line.strip() for line in text.splitlines()]
+            renamed = []
+            for line in lines:
+                if line.startswith("#") or (
+                    LEGACY_STATE_DIRNAME not in line and line != LEGACY_STATUS_FILENAME
+                ):
+                    continue
+                new = (
+                    line.replace(LEGACY_STATE_DIRNAME, STATE_DIRNAME)
+                    .replace(LEGACY_STATUS_JSON, "vesta-status.json")
+                    .replace(LEGACY_STATUS_FILENAME, "VESTA_STATUS.md")
+                )
+                if new not in lines and new not in renamed:
+                    renamed.append(new)
+            if not renamed:
+                continue
+            suffix = "" if text.endswith("\n") else "\n"
+            with exclude.open("a", encoding="utf-8", newline="") as handle:
+                handle.write(
+                    suffix
+                    + "# Vesta local state (renamed from .opaihub)\n"
+                    + "\n".join(renamed)
+                    + "\n"
+                )
+        except Exception:  # noqa: BLE001 - best effort; never block the move
+            continue
+
+
+def _remove_legacy_status_page(root: Path) -> None:
+    path = root / LEGACY_STATUS_FILENAME
+    text = _read(path)
+    if text is None:
+        return
+    lines = text.splitlines()
+    # Only the page Vesta wrote: it lists the old commands, which no longer exist.
+    if lines and lines[0].strip() in LEGACY_STATUS_HEADINGS and "## Commands" in lines:
+        _unlink(path, [])
 
 
 # --------------------------------------------------------------------------- #
