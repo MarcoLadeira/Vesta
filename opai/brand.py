@@ -60,7 +60,7 @@ VESTA_MOTTOS: tuple[str, ...] = (
 
 def _draw_motto() -> str:
     """One motto, every line equally likely."""
-    return random.choice(VESTA_MOTTOS)
+    return random.choice(VESTA_MOTTOS)  # nosec B311 - display copy, not a secret
 
 
 # Drawn once, when this process first imports the brand -- the import lock
