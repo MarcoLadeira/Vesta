@@ -1,8 +1,8 @@
 from pathlib import Path
 import tempfile
 
-from opai.gui_web import save_page_preference
-from opaihub.gui_preferences import load_gui_preferences
+from vesta.gui_web import save_page_preference
+from vestahub.gui_preferences import load_gui_preferences
 
 
 def test_agents_strip_preference_persists_through_the_native_bridge():

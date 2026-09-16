@@ -58,10 +58,10 @@ until Vesta has actually submitted there.
 python -m unittest discover -s tests
 python -m ruff check .
 python -m ruff format --check .
-python -m opaihub validate
-python -m opai doctor
-python -m opai benchmark run --suite max --mode both
-python -m opai benchmark gate --min-effectiveness-index 95 --require-risk-blocks
+python -m vestahub validate
+python -m vesta doctor
+python -m vesta benchmark run --suite max --mode both
+python -m vesta benchmark gate --min-effectiveness-index 95 --require-risk-blocks
 ```
 
 - Tag release candidate as `v0.2.0-alpha.1` only after checks pass.

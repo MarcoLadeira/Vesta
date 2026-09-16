@@ -24,9 +24,9 @@ ROOT = Path(__file__).resolve().parents[1]
 # The surfaces a new user actually reads first. None may advertise a paid tier.
 USER_FACING = [
     ROOT / "README.md",
-    ROOT / "opaihub" / "editions.py",
-    ROOT / "opai" / "cli.py",
-    ROOT / "opaihub" / "cli.py",
+    ROOT / "vestahub" / "editions.py",
+    ROOT / "vesta" / "cli.py",
+    ROOT / "vestahub" / "cli.py",
     ROOT / "site" / "index.html",
 ]
 

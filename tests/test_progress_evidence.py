@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import unittest
 
-from opaihub.progress_evidence import (
+from vestahub.progress_evidence import (
     SCORE_MUTATION,
     SCORE_NEW_EVIDENCE,
     SCORE_REPEAT,

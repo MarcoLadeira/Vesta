@@ -1,6 +1,6 @@
 # Provider Adapter Conformance
 
-<!-- Generated from the immutable catalog `opaihub/data/provider_catalog/v1.json` by `opaihub.provider_catalog.render_coverage_matrix()`. Do not edit by hand. -->
+<!-- Generated from the immutable catalog `vestahub/data/provider_catalog/v1.json` by `vestahub.provider_catalog.render_coverage_matrix()`. Do not edit by hand. -->
 
 Catalog version: `v1`
 Protocol version: `1`

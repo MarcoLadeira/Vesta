@@ -1,6 +1,6 @@
 """#613 Stage 3: worktree_leases' shadow journal, mirrored against the file it shadows.
 
-Stage 1 named ``opaihub/worktree_leases.py`` JOURNAL_OWNED -- "leases: worktree
+Stage 1 named ``vestahub/worktree_leases.py`` JOURNAL_OWNED -- "leases: worktree
 ownership" -- and this applies Stage 2's shadow-write + dual-read pattern to
 it. The shape differs from Stage 2 in one way that simplifies the migration:
 every lease save here is already a whole-record overwrite (``_save`` always
@@ -26,8 +26,8 @@ from pathlib import Path
 
 from _helpers import make_repo
 
-from opaihub.repository_safety import capture_repository_handle
-from opaihub.worktree_leases import WorktreeManager
+from vestahub.repository_safety import capture_repository_handle
+from vestahub.worktree_leases import WorktreeManager
 
 
 class _LeaseFixture(unittest.TestCase):
@@ -176,13 +176,13 @@ class ReplayDeterminismTests(_LeaseFixture):
     """#613's own acceptance criterion: repeated rebuilds must agree."""
 
     def test_replay_agrees_with_itself_and_with_load(self):
-        from opaihub import run_journal, shadow_journal, worktree_leases
+        from vestahub import run_journal, shadow_journal, worktree_leases
 
         lease = self._create()
         self.manager.heartbeat(lease.lease_id, owner="worker-a")
         self.manager.release(lease.lease_id, owner="worker-a")
 
-        # The journal mechanics moved to opaihub.shadow_journal, which this
+        # The journal mechanics moved to vestahub.shadow_journal, which this
         # module and owner_lease each hand-rolled separately first.
         journal_path = shadow_journal.journal_path_for(
             self.manager._lease_path(lease.lease_id)

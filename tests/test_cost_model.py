@@ -9,8 +9,8 @@ from unittest import mock
 
 from _helpers import make_repo
 
-from opaihub.budget import budget_gate
-from opaihub.cost_model import (
+from vestahub.budget import budget_gate
+from vestahub.cost_model import (
     DEFAULT_COST_MODEL,
     cost_model_status,
     is_degraded,
@@ -26,7 +26,7 @@ class CostModelDegradationTests(unittest.TestCase):
         # The cost model lives in a global package hub; point it at an isolated
         # temp hub so a test never reads or writes the real shipped file.
         self._hub = Path(self._tmp.name) / "hub"
-        self._patch = mock.patch("opaihub.cost_model.hub_root", return_value=self._hub)
+        self._patch = mock.patch("vestahub.cost_model.hub_root", return_value=self._hub)
         self._patch.start()
 
     def tearDown(self) -> None:

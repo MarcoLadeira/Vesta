@@ -34,7 +34,7 @@ from pathlib import Path
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from opaihub.journal_store import (
+from vestahub.journal_store import (
     INTEGRITY_COMPLETE,
     INTEGRITY_DEGRADED,
     JournalStoreError,

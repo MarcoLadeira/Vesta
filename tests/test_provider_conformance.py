@@ -12,12 +12,12 @@ from unittest import mock
 
 from hypothesis import given, strategies as st
 
-from opaihub import accounts, local_runner
-from opaihub.accounts import AccountRunner
-from opaihub.ask import _complete_streaming
-from opaihub.local_runner import FreeAPIRunner, OllamaRunner, OpenAICompatibleRunner
-from opaihub.provider_catalog import PROTOCOL_VERSION, provider_ids, provider_record
-from opaihub.provider_conformance import (
+from vestahub import accounts, local_runner
+from vestahub.accounts import AccountRunner
+from vestahub.ask import _complete_streaming
+from vestahub.local_runner import FreeAPIRunner, OllamaRunner, OpenAICompatibleRunner
+from vestahub.provider_catalog import PROTOCOL_VERSION, provider_ids, provider_record
+from vestahub.provider_conformance import (
     CLAUSE_IDS,
     CLAUSES,
     Outcome,
@@ -25,7 +25,7 @@ from opaihub.provider_conformance import (
     check,
     format_matrix,
 )
-from opaihub.provider_protocol import EventKind, ProtocolViolation, ProviderEvent
+from vestahub.provider_protocol import EventKind, ProtocolViolation, ProviderEvent
 from tests.provider_conformance import (
     MockProviderAdapter,
     Scenario,

@@ -9,7 +9,7 @@ Covers:
   with a generated --settings PreToolUse hook; other modes get neither.
 - Codex Full Auto posture: exec has no hook protocol, so approval is always
   on-request (never auto-approve) plus a prompt-level destructive-action ban.
-- Recursion guard: OPAI_AGENT_SESSION is injected into every provider child
+- Recursion guard: VESTA_AGENT_SESSION is injected into every provider child
   env; inside such a session, route/ask/build/proxy refuse non-zero while
   hooks/version still work.
 - Instruction texts no longer leak the agent-actionable `vesta route` recipe.
@@ -28,8 +28,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opai.cli import claude_pre_tool_decision, main
-from opaihub.accounts import (
+from vesta.cli import claude_pre_tool_decision, main
+from vestahub.accounts import (
     AccountRunner,
     ClaudeHookSettingsError,
     build_claude_hook_settings,
@@ -37,8 +37,8 @@ from opaihub.accounts import (
     claude_hook_settings_path,
     ensure_claude_hook_settings,
 )
-from opaihub.atomic_io import InterprocessLockTimeout
-from opaihub.proc import AGENT_SESSION_ENV, provider_child_env
+from vestahub.atomic_io import InterprocessLockTimeout
+from vestahub.proc import AGENT_SESSION_ENV, provider_child_env
 
 _CLAUDE_CLI = "/fake/claude"
 _CODEX_CLI = "/fake/codex"
@@ -78,7 +78,7 @@ def _hermetic_hub():
             "safe_examples: []\n",
             encoding="utf-8",
         )
-        with mock.patch.dict(os.environ, {"OPAI_HUB_ROOT": str(hub)}):
+        with mock.patch.dict(os.environ, {"VESTA_HUB_ROOT": str(hub)}):
             yield hub
 
 
@@ -86,13 +86,13 @@ def _hermetic_hub():
 def _consent_store():
     """Isolate the cross-process approval handshake (Round 5 finding 1).
 
-    ``opaihub.command_consent`` keeps its one-shot grant and its pending-request
+    ``vestahub.command_consent`` keeps its one-shot grant and its pending-request
     record in a fixed per-user temp directory so a hook subprocess can find them
     with no argument plumbing. These tests redirect it, so they never read or
     write the developer's real approval state.
     """
     with tempfile.TemporaryDirectory() as tmp:
-        with mock.patch.dict(os.environ, {"OPAI_COMMAND_CONSENT_DIR": tmp}):
+        with mock.patch.dict(os.environ, {"VESTA_COMMAND_CONSENT_DIR": tmp}):
             yield Path(tmp)
 
 
@@ -100,14 +100,14 @@ def _consent_store():
 def _push_consent(granted: bool):
     """Pin the GitHub push-consent pair the hook reads (Round 2).
 
-    Consent lives in ``~/.opai/github.json`` plus a stored token, neither of
+    Consent lives in ``~/.vesta/github.json`` plus a stored token, neither of
     which ``_hermetic_hub`` isolates — so these tests state the consent state
     they mean instead of inheriting the developer's real one.
     """
     with (
-        mock.patch("opaihub.github_connector.push_allowed", return_value=granted),
+        mock.patch("vestahub.github_connector.push_allowed", return_value=granted),
         mock.patch(
-            "opaihub.github_connector.stored_github_token",
+            "vestahub.github_connector.stored_github_token",
             return_value=(("tkn", "keychain") if granted else ("", "")),
         ),
     ):
@@ -251,7 +251,7 @@ class ClaudePreToolHookDecisionTests(unittest.TestCase):
         for command in pushes:
             with self.subTest(command=command):
                 with _hermetic_hub(), _push_consent(True), _consent_store():
-                    from opaihub import command_consent
+                    from vestahub import command_consent
 
                     result = claude_pre_tool_decision(_hook_payload(command))
                     self.assertEqual(_decision_of(result), "deny")
@@ -269,10 +269,10 @@ class ClaudePreToolHookDecisionTests(unittest.TestCase):
         """A direct PR comment is outward-facing, but not a dead-end block."""
 
         command = (
-            "gh pr comment 511 --repo MarcoLadeira/OPai --body-file .pr511-comment.md"
+            "gh pr comment 511 --repo MarcoLadeira/Vesta --body-file .pr511-comment.md"
         )
         with _hermetic_hub(), _consent_store():
-            from opaihub import command_consent
+            from vestahub import command_consent
 
             result = claude_pre_tool_decision(_hook_payload(command))
             self.assertEqual(_decision_of(result), "deny")
@@ -291,11 +291,11 @@ class ClaudePreToolHookDecisionTests(unittest.TestCase):
         approval is for.
         """
         command = (
-            "gh pr create --repo MarcoLadeira/OPai --base main "
+            "gh pr create --repo MarcoLadeira/Vesta --base main "
             "--head docs/252-refresh --title 'docs: refresh'"
         )
         with _hermetic_hub(), _consent_store():
-            from opaihub import command_consent
+            from vestahub import command_consent
 
             result = claude_pre_tool_decision(_hook_payload(command))
             self.assertEqual(_decision_of(result), "deny")
@@ -311,7 +311,7 @@ class ClaudePreToolHookDecisionTests(unittest.TestCase):
         """Approve once opens the PR; the next attempt has to ask again."""
         command = "gh pr create --title 'x' --body 'y'"
         with _hermetic_hub(), _consent_store():
-            from opaihub import command_consent
+            from vestahub import command_consent
 
             command_consent.begin_turn(command)
             self.assertEqual(
@@ -331,7 +331,7 @@ class ClaudePreToolHookDecisionTests(unittest.TestCase):
         only ever passed a bare ``gh pr create``, which is why the channel
         looked reachable while being unreachable in practice.
         """
-        repo = 'cd "C:/Users/Frist/Documents/Apps/OPai" && '
+        repo = 'cd "C:/Users/Frist/Documents/Apps/Vesta" && '
         for command in (
             repo + "gh pr create --base main --title 'fix: x'",
             repo + "gh pr merge 703 --squash --delete-branch",
@@ -339,7 +339,7 @@ class ClaudePreToolHookDecisionTests(unittest.TestCase):
         ):
             with self.subTest(command=command):
                 with _hermetic_hub(), _consent_store():
-                    from opaihub import command_consent
+                    from vestahub import command_consent
 
                     result = claude_pre_tool_decision(_hook_payload(command))
                     self.assertEqual(_decision_of(result), "deny")
@@ -360,7 +360,7 @@ class ClaudePreToolHookDecisionTests(unittest.TestCase):
         ):
             with self.subTest(command=command):
                 with _hermetic_hub(), _consent_store():
-                    from opaihub import command_consent
+                    from vestahub import command_consent
 
                     result = claude_pre_tool_decision(_hook_payload(command))
                     self.assertEqual(_decision_of(result), "deny")
@@ -381,13 +381,13 @@ class ClaudePreToolHookDecisionTests(unittest.TestCase):
         """
         for command in (
             "gh pr close 5",
-            "gh repo delete MarcoLadeira/OPai",
+            "gh repo delete MarcoLadeira/Vesta",
             "gh release delete v1",
             "gh api -X DELETE repos/x/y",
         ):
             with self.subTest(command=command):
                 with _hermetic_hub(), _consent_store():
-                    from opaihub import command_consent
+                    from vestahub import command_consent
 
                     result = claude_pre_tool_decision(_hook_payload(command))
                     self.assertEqual(_decision_of(result), "deny")
@@ -402,7 +402,7 @@ class ClaudePreToolHookDecisionTests(unittest.TestCase):
         ):
             with self.subTest(command=command):
                 with _hermetic_hub(), _consent_store():
-                    from opaihub import command_consent
+                    from vestahub import command_consent
 
                     result = claude_pre_tool_decision(_hook_payload(command))
                     self.assertEqual(_decision_of(result), "deny")
@@ -413,7 +413,7 @@ class ClaudePreToolHookDecisionTests(unittest.TestCase):
 
         command = 'gh pr comment 511 --body "Verified git push origin feature/x"'
         with _hermetic_hub(), _consent_store():
-            from opaihub import command_consent
+            from vestahub import command_consent
 
             result = claude_pre_tool_decision(_hook_payload(command))
             self.assertEqual(_decision_of(result), "deny")
@@ -425,7 +425,7 @@ class ClaudePreToolHookDecisionTests(unittest.TestCase):
     def test_approved_pr_comment_runs_once_and_only_once(self):
         command = "gh pr comment 511 --body-file .pr511-comment.md"
         with _hermetic_hub(), _consent_store():
-            from opaihub import command_consent
+            from vestahub import command_consent
 
             command_consent.begin_turn(command)
             self.assertEqual(
@@ -439,7 +439,7 @@ class ClaudePreToolHookDecisionTests(unittest.TestCase):
         # The other half of the handshake: "Approve once" arms a one-shot grant,
         # the hook spends it, and the very next push has to ask again.
         with _hermetic_hub(), _push_consent(True), _consent_store():
-            from opaihub import command_consent
+            from vestahub import command_consent
 
             command_consent.begin_turn("git push")
             first = claude_pre_tool_decision(_hook_payload("git push -u origin feat/x"))
@@ -453,7 +453,7 @@ class ClaudePreToolHookDecisionTests(unittest.TestCase):
         # A plain-push approval authorizes plain pushes only. Force/delete/mirror
         # and URL-remote forms are not "plain", so the grant cannot reach them.
         with _hermetic_hub(), _push_consent(True), _consent_store():
-            from opaihub import command_consent
+            from vestahub import command_consent
 
             for command in (
                 "git push --force origin main",
@@ -469,7 +469,7 @@ class ClaudePreToolHookDecisionTests(unittest.TestCase):
         # Ordering matters: with consent OFF there is nothing to approve, so the
         # user must be sent to the Settings control, not offered an approval card.
         with _hermetic_hub(), _push_consent(False), _consent_store():
-            from opaihub import command_consent
+            from vestahub import command_consent
 
             result = claude_pre_tool_decision(_hook_payload("git push origin main"))
             self.assertEqual(_decision_of(result), "deny")
@@ -522,7 +522,7 @@ class ClaudePreToolHookDecisionTests(unittest.TestCase):
         with (
             _hermetic_hub(),
             mock.patch(
-                "opaihub.github_connector.push_allowed", side_effect=OSError("boom")
+                "vestahub.github_connector.push_allowed", side_effect=OSError("boom")
             ),
         ):
             result = claude_pre_tool_decision(_hook_payload("git push"))
@@ -601,9 +601,9 @@ class ClaudePreToolHookCliTests(unittest.TestCase):
 # 2. Hook settings emission + claude build_command posture
 # ---------------------------------------------------------------------------
 class ClaudeHookSettingsTests(unittest.TestCase):
-    def test_hook_command_invokes_opai_hooks_subcommand(self):
+    def test_hook_command_invokes_vesta_hooks_subcommand(self):
         command = claude_hook_command()
-        self.assertIn("-m opai", command)
+        self.assertIn("-m vesta", command)
         self.assertIn("hooks", command)
         self.assertIn("claude-pre-tool", command)
 
@@ -667,7 +667,7 @@ class _RotatingHookCommand:
         with self._lock:
             self._calls += 1
             serial = self._calls
-        return f'"python" -m opai hooks claude-pre-tool --refresh {serial} ' + (
+        return f'"python" -m vesta hooks claude-pre-tool --refresh {serial} ' + (
             "x" * self._filler
         )
 
@@ -692,7 +692,7 @@ class ClaudeHookSettingsPublicationTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
-        self.target = Path(self._tmp.name) / "opai-claude-hooks.json"
+        self.target = Path(self._tmp.name) / "vesta-claude-hooks.json"
 
     # -- concurrent reader/writer ------------------------------------------
     def test_concurrent_readers_never_observe_partial_settings(self):
@@ -742,7 +742,7 @@ class ClaudeHookSettingsPublicationTests(unittest.TestCase):
             except BaseException as exc:  # pragma: no cover - reported below
                 failures.append(exc)
 
-        with mock.patch("opaihub.accounts.claude_hook_command", _RotatingHookCommand()):
+        with mock.patch("vestahub.accounts.claude_hook_command", _RotatingHookCommand()):
             reader_threads = [
                 threading.Thread(target=read_loop, daemon=True) for _ in range(readers)
             ]
@@ -816,8 +816,8 @@ class ClaudeHookSettingsPublicationTests(unittest.TestCase):
     # -- failed refresh -----------------------------------------------------
     def _previous_valid_document(self) -> str:
         with mock.patch(
-            "opaihub.accounts.claude_hook_command",
-            lambda: '"python" -m opai hooks claude-pre-tool',
+            "vestahub.accounts.claude_hook_command",
+            lambda: '"python" -m vesta hooks claude-pre-tool',
         ):
             text = (
                 json.dumps(build_claude_hook_settings(), indent=2, sort_keys=True)
@@ -829,7 +829,7 @@ class ClaudeHookSettingsPublicationTests(unittest.TestCase):
     def test_failed_publish_keeps_the_previous_verified_document(self):
         previous = self._previous_valid_document()
         with mock.patch(
-            "opaihub.accounts.atomic_write_text", side_effect=OSError("disk full")
+            "vestahub.accounts.atomic_write_text", side_effect=OSError("disk full")
         ):
             returned = ensure_claude_hook_settings(self.target)
         self.assertEqual(returned, self.target)
@@ -840,7 +840,7 @@ class ClaudeHookSettingsPublicationTests(unittest.TestCase):
     def test_lock_timeout_keeps_the_previous_verified_document(self):
         previous = self._previous_valid_document()
         with mock.patch(
-            "opaihub.accounts.interprocess_transaction",
+            "vestahub.accounts.interprocess_transaction",
             side_effect=InterprocessLockTimeout("busy"),
         ):
             returned = ensure_claude_hook_settings(self.target)
@@ -850,7 +850,7 @@ class ClaudeHookSettingsPublicationTests(unittest.TestCase):
     def test_failed_publish_clears_invalid_content(self):
         self.target.write_text('{"hooks": {"PreToolU', encoding="utf-8")
         with mock.patch(
-            "opaihub.accounts.atomic_write_text", side_effect=OSError("disk full")
+            "vestahub.accounts.atomic_write_text", side_effect=OSError("disk full")
         ):
             returned = ensure_claude_hook_settings(self.target)
         self.assertEqual(returned, self.target)
@@ -861,7 +861,7 @@ class ClaudeHookSettingsPublicationTests(unittest.TestCase):
         self.target.write_text('{"hooks": {"PreToolU', encoding="utf-8")
         with (
             mock.patch(
-                "opaihub.accounts.atomic_write_text", side_effect=OSError("disk full")
+                "vestahub.accounts.atomic_write_text", side_effect=OSError("disk full")
             ),
             mock.patch.object(Path, "unlink", side_effect=OSError("in use")),
             self.assertRaises(ClaudeHookSettingsError),
@@ -874,7 +874,7 @@ class ClaudeHookSettingsPublicationTests(unittest.TestCase):
         # valid to fall back on, the path is left empty and the CLI fails
         # closed on a missing --settings file.
         self.target.write_text('{"hooks": {"PreToolU', encoding="utf-8")
-        with mock.patch("opaihub.accounts.atomic_write_text"):
+        with mock.patch("vestahub.accounts.atomic_write_text"):
             returned = ensure_claude_hook_settings(self.target)
         self.assertEqual(returned, self.target)
         self.assertFalse(self.target.exists())
@@ -882,7 +882,7 @@ class ClaudeHookSettingsPublicationTests(unittest.TestCase):
     def test_current_settings_are_republished_without_taking_the_lock(self):
         ensure_claude_hook_settings(self.target)
         with mock.patch(
-            "opaihub.accounts.interprocess_transaction",
+            "vestahub.accounts.interprocess_transaction",
             side_effect=AssertionError("took the lock for an up-to-date file"),
         ):
             self.assertEqual(ensure_claude_hook_settings(self.target), self.target)
@@ -936,8 +936,8 @@ class ClaudeFullAutoPostureTests(unittest.TestCase):
             stdout='{"result":"ok","total_cost_usd":0.0}', stderr="", returncode=0
         )
         with (
-            mock.patch("opaihub.accounts.ensure_claude_hook_settings") as ensure,
-            mock.patch("opaihub.accounts._hidden_run", return_value=ret),
+            mock.patch("vestahub.accounts.ensure_claude_hook_settings") as ensure,
+            mock.patch("vestahub.accounts._hidden_run", return_value=ret),
         ):
             result = runner.complete("ship it", mode="full-auto")
         self.assertEqual(result["text"], "ok")
@@ -947,8 +947,8 @@ class ClaudeFullAutoPostureTests(unittest.TestCase):
         runner = self._runner()
         ret = mock.Mock(stdout='{"result":"ok"}', stderr="", returncode=0)
         with (
-            mock.patch("opaihub.accounts.ensure_claude_hook_settings") as ensure,
-            mock.patch("opaihub.accounts._hidden_run", return_value=ret),
+            mock.patch("vestahub.accounts.ensure_claude_hook_settings") as ensure,
+            mock.patch("vestahub.accounts._hidden_run", return_value=ret),
         ):
             runner.complete("explain it", mode="safe-auto")
         ensure.assert_not_called()
@@ -959,10 +959,10 @@ class ClaudeFullAutoPostureTests(unittest.TestCase):
         runner = self._runner()
         with (
             mock.patch(
-                "opaihub.accounts.ensure_claude_hook_settings",
+                "vestahub.accounts.ensure_claude_hook_settings",
                 side_effect=ClaudeHookSettingsError("cannot publish"),
             ),
-            mock.patch("opaihub.accounts._hidden_run") as run,
+            mock.patch("vestahub.accounts._hidden_run") as run,
         ):
             result = runner.complete("ship it", mode="full-auto")
         run.assert_not_called()
@@ -973,10 +973,10 @@ class ClaudeFullAutoPostureTests(unittest.TestCase):
         runner = self._runner()
         with (
             mock.patch(
-                "opaihub.accounts.ensure_claude_hook_settings",
+                "vestahub.accounts.ensure_claude_hook_settings",
                 side_effect=ClaudeHookSettingsError("cannot publish"),
             ),
-            mock.patch("opaihub.accounts._popen") as popen,
+            mock.patch("vestahub.accounts._popen") as popen,
         ):
             result = runner.stream("ship it", mode="full-auto")
         popen.assert_not_called()
@@ -1057,11 +1057,11 @@ class RecursionGuardEnvTests(unittest.TestCase):
         # one-shot push grant from disk. If it resolved a different directory —
         # a child with its own TMP — the grant would be invisible and an approved
         # push would be denied forever. Pin the path instead of assuming.
-        from opaihub.command_consent import consent_dir
-        from opaihub.proc import COMMAND_CONSENT_DIR_ENV
+        from vestahub.command_consent import consent_dir
+        from vestahub.proc import COMMAND_CONSENT_DIR_ENV
 
         with tempfile.TemporaryDirectory() as tmp:
-            with mock.patch.dict(os.environ, {"OPAI_COMMAND_CONSENT_DIR": tmp}):
+            with mock.patch.dict(os.environ, {"VESTA_COMMAND_CONSENT_DIR": tmp}):
                 env, _removed = provider_child_env("claude", {"PATH": "x"})
                 self.assertEqual(env[COMMAND_CONSENT_DIR_ENV], str(consent_dir()))
                 self.assertEqual(env[COMMAND_CONSENT_DIR_ENV], tmp)
@@ -1079,7 +1079,7 @@ class RecursionGuardCliTests(unittest.TestCase):
     REFUSAL = "recursive self-invocation is disabled"
 
     def test_route_refuses_inside_agent_session(self):
-        with mock.patch("opai.cli.route_task") as route_task:
+        with mock.patch("vesta.cli.route_task") as route_task:
             code, _out, err = _run_cli(
                 ["route", "fetch issue 219"], env={AGENT_SESSION_ENV: "1"}
             )
@@ -1138,7 +1138,7 @@ class RecursionGuardCliTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 class InstructionTextTests(unittest.TestCase):
     def test_instruction_texts_drop_the_self_invocation_recipe(self):
-        from opai.integrations import (
+        from vesta.integrations import (
             codex_skill_text,
             copilot_instruction_text,
             instruction_text,
@@ -1160,7 +1160,7 @@ class InstructionTextTests(unittest.TestCase):
                 self.assertIn("recursive self-invocation", text)
 
     def test_instruction_texts_keep_branding_and_policy(self):
-        from opai.integrations import (
+        from vesta.integrations import (
             STATUS_TEXT,
             instruction_text,
             project_instruction_text,
@@ -1178,18 +1178,18 @@ class InstructionTextTests(unittest.TestCase):
 @contextlib.contextmanager
 def _autonomy(level: str | None):
     """Set (or clear) the run-mode marker the spawner publishes to the hook."""
-    previous = os.environ.get("OPAI_AUTONOMY")
+    previous = os.environ.get("VESTA_AUTONOMY")
     if level is None:
-        os.environ.pop("OPAI_AUTONOMY", None)
+        os.environ.pop("VESTA_AUTONOMY", None)
     else:
-        os.environ["OPAI_AUTONOMY"] = level
+        os.environ["VESTA_AUTONOMY"] = level
     try:
         yield
     finally:
         if previous is None:
-            os.environ.pop("OPAI_AUTONOMY", None)
+            os.environ.pop("VESTA_AUTONOMY", None)
         else:
-            os.environ["OPAI_AUTONOMY"] = previous
+            os.environ["VESTA_AUTONOMY"] = previous
 
 
 class HookHonoursTheRunModeTests(unittest.TestCase):
@@ -1287,7 +1287,7 @@ class SpawnPublishesTheRunModeTests(unittest.TestCase):
     """The child (and therefore its hook) has to be told which mode it serves."""
 
     def test_child_env_carries_the_normalised_level(self):
-        from opaihub.proc import AUTONOMY_ENV
+        from vestahub.proc import AUTONOMY_ENV
 
         env, _removed = provider_child_env("claude", autonomy="full-auto")
         self.assertEqual(env[AUTONOMY_ENV], "bypass")
@@ -1298,7 +1298,7 @@ class SpawnPublishesTheRunModeTests(unittest.TestCase):
     def test_omitting_the_level_strips_any_inherited_value(self):
         # env is copied from this process, so a parent running as bypass must
         # not hand that level to a child whose caller never asked for it.
-        from opaihub.proc import AUTONOMY_ENV
+        from vestahub.proc import AUTONOMY_ENV
 
         with _autonomy("bypass"):
             env, _removed = provider_child_env("claude")

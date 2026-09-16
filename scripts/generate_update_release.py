@@ -16,8 +16,8 @@ if str(ROOT) not in sys.path:
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat  # noqa: E402
 
-from opai.update.models import InstallType  # noqa: E402
-from opai.update.release import (  # noqa: E402
+from vesta.update.models import InstallType  # noqa: E402
+from vesta.update.release import (  # noqa: E402
     ReleaseArtifact,
     ReleaseError,
     generate_release_files,

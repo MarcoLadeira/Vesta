@@ -11,25 +11,25 @@ import re
 import unittest
 from pathlib import Path
 
-from opaihub.autonomy import MODE_LABELS
+from vestahub.autonomy import MODE_LABELS
 
 ROOT = Path(__file__).resolve().parents[1]
-WEB = ROOT / "opai" / "assets" / "web"
+WEB = ROOT / "vesta" / "assets" / "web"
 STYLES = WEB / "styles.css"
 # Colour/type/spacing tokens live in design-tokens.css (#388); styles.css
 # consumes them, so both files ship together and both define custom properties.
 DESIGN_TOKENS = WEB / "design-tokens.css"
 APP_JS = WEB / "app.js"
 SETTINGS_JS = WEB / "settings.js"
-GUI_CONTROLS = ROOT / "opai" / "gui_controls.py"
+GUI_CONTROLS = ROOT / "vesta" / "gui_controls.py"
 DESIGN_DOC = ROOT / "docs" / "DESIGN_SYSTEM.md"
 
 # Files that used to keep their own hardcoded run-mode label dict; they must now
-# consume the single source in opaihub/autonomy.py instead.
+# consume the single source in vestahub/autonomy.py instead.
 MODE_LABEL_CONSUMERS = [
-    ROOT / "opai" / "gui_web.py",
-    ROOT / "opaihub" / "gui_pipeline.py",
-    ROOT / "opai" / "gui_desktop.py",
+    ROOT / "vesta" / "gui_web.py",
+    ROOT / "vestahub" / "gui_pipeline.py",
+    ROOT / "vesta" / "gui_desktop.py",
 ]
 
 
@@ -107,7 +107,7 @@ class SingleModeLabelSourceTests(unittest.TestCase):
         self.assertEqual(
             js_labels,
             dict(MODE_LABELS),
-            "settings.js MODE_LABELS drifted from opaihub/autonomy.py MODE_LABELS",
+            "settings.js MODE_LABELS drifted from vestahub/autonomy.py MODE_LABELS",
         )
 
 
@@ -115,7 +115,7 @@ class ModeLabelSourceBehaviourTests(unittest.TestCase):
     """Exercise the single label source and its consumers (not just static text)."""
 
     def test_mode_label_maps_known_modes_and_falls_back(self):
-        from opaihub.autonomy import mode_label
+        from vestahub.autonomy import mode_label
 
         for mode, label in MODE_LABELS.items():
             with self.subTest(mode=mode):
@@ -124,13 +124,13 @@ class ModeLabelSourceBehaviourTests(unittest.TestCase):
         self.assertEqual(mode_label("nonexistent-mode"), "nonexistent-mode")
 
     def test_effective_label_uses_the_shared_source(self):
-        from opaihub.autonomy import effective_mode
+        from vestahub.autonomy import effective_mode
 
         decision = effective_mode("plan", {})
         self.assertEqual(decision.effective_label, MODE_LABELS["plan"])
 
     def test_pipeline_mode_label_consumes_autonomy(self):
-        from opaihub.gui_pipeline import _mode_label
+        from vestahub.gui_pipeline import _mode_label
 
         self.assertEqual(_mode_label("full-auto"), MODE_LABELS["full-auto"])
         self.assertEqual(_mode_label("ask"), MODE_LABELS["ask"])

@@ -16,11 +16,11 @@ import unittest
 from unittest import mock
 from pathlib import Path
 
-from opaihub import journal_runtime
-from opaihub.journal_runtime import record_admission, record_terminal
-from opaihub.journal_store import open_store
-from opaihub.cancellation_lifecycle import CancelPhase, CancellationTracker, is_terminal
-from opaihub.run_state import RunState, canonical_for_cancel_phase
+from vestahub import journal_runtime
+from vestahub.journal_runtime import record_admission, record_terminal
+from vestahub.journal_store import open_store
+from vestahub.cancellation_lifecycle import CancelPhase, CancellationTracker, is_terminal
+from vestahub.run_state import RunState, canonical_for_cancel_phase
 
 
 class _Temp(unittest.TestCase):
@@ -380,8 +380,8 @@ class CancellationPhasesReachTheCanonicalJournalTests(unittest.TestCase):
         other test here green, because they construct the tracker themselves.
         """
 
-        from opaihub import background_runs
-        from opaihub.run_state import RunState
+        from vestahub import background_runs
+        from vestahub.run_state import RunState
 
         run = background_runs.enqueue_automation(
             self.root, "refactor", "a task", run_id="bg-run"

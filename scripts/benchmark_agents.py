@@ -15,8 +15,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from opaihub.agent_objectives import ObjectiveStore  # noqa: E402
-from opaihub.objective_execution import ObjectiveExecutor  # noqa: E402
+from vestahub.agent_objectives import ObjectiveStore  # noqa: E402
+from vestahub.objective_execution import ObjectiveExecutor  # noqa: E402
 
 CASES = {
     "independent_bugs": {
@@ -57,13 +57,13 @@ def _git(root, *args):
 
 def run_case(name: str, *, parallel: int, worker_seconds: float = 1.0) -> dict:
     files = CASES[name]
-    with tempfile.TemporaryDirectory(prefix="opai-agents-benchmark-") as temp:
+    with tempfile.TemporaryDirectory(prefix="vesta-agents-benchmark-") as temp:
         root = Path(temp) / "repo"
         root.mkdir()
         _git(root, "init")
         _git(root, "config", "user.email", "benchmark@localhost")
         _git(root, "config", "user.name", "Local qualification")
-        (root / ".gitignore").write_text(".opaihub/\n__pycache__/\n", encoding="utf-8")
+        (root / ".gitignore").write_text(".vestahub/\n__pycache__/\n", encoding="utf-8")
         (root / "pyproject.toml").write_text(
             "[project]\nname='orchestration-fixture'\nversion='0.0.0'\n",
             encoding="utf-8",
@@ -89,7 +89,7 @@ def run_case(name: str, *, parallel: int, worker_seconds: float = 1.0) -> dict:
         policy["checks"][0]["command"] = [
             sys.executable,
             "-c",
-            "import ast; from pathlib import Path; [ast.parse(p.read_text()) for p in Path('.').rglob('*.py') if '.opaihub' not in p.parts]",
+            "import ast; from pathlib import Path; [ast.parse(p.read_text()) for p in Path('.').rglob('*.py') if '.vestahub' not in p.parts]",
         ]
         policy["checks"].extend(
             [
@@ -101,7 +101,7 @@ def run_case(name: str, *, parallel: int, worker_seconds: float = 1.0) -> dict:
                     "command": [
                         sys.executable,
                         "-c",
-                        "from pathlib import Path; assert all(line == line.rstrip() for p in Path('.').rglob('*.py') if '.opaihub' not in p.parts for line in p.read_text().splitlines())",
+                        "from pathlib import Path; assert all(line == line.rstrip() for p in Path('.').rglob('*.py') if '.vestahub' not in p.parts for line in p.read_text().splitlines())",
                     ],
                 },
                 {
@@ -113,7 +113,7 @@ def run_case(name: str, *, parallel: int, worker_seconds: float = 1.0) -> dict:
                 },
             ]
         )
-        (root / "opai-verification-policy.yaml").write_text(
+        (root / "vesta-verification-policy.yaml").write_text(
             json.dumps(policy), encoding="utf-8"
         )
         for path in files:

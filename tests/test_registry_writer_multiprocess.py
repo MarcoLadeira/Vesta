@@ -1,6 +1,6 @@
 """Concurrent tool-registry additions never lose a tool (#459).
 
-The tool registry is a hub-global file, so the test pins OPAI_HUB_ROOT to an
+The tool registry is a hub-global file, so the test pins VESTA_HUB_ROOT to an
 isolated temp hub — it never touches the shipped registry.
 """
 
@@ -21,7 +21,7 @@ import sys
 import time
 from pathlib import Path
 
-from opaihub.registry_writer import add_tool_entry
+from vestahub.registry_writer import add_tool_entry
 
 barrier = Path(sys.argv[1])
 worker = sys.argv[2]
@@ -51,7 +51,7 @@ class RegistryWriterMultiprocessTests(unittest.TestCase):
             barrier = base / "barrier"
             barrier.mkdir()
 
-            env = {**os.environ, "OPAI_HUB_ROOT": str(hub)}
+            env = {**os.environ, "VESTA_HUB_ROOT": str(hub)}
             processes = [
                 subprocess.Popen(  # nosec B603 - fixed hermetic Python argv
                     [sys.executable, "-c", _CHILD, str(barrier), str(index)],

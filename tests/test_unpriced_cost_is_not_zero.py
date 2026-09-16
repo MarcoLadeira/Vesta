@@ -5,7 +5,7 @@ unavailable and cannot evaluate to zero."
 
 ``cost_model.tier_cost_per_1k`` returns ``0.0`` for a tier it has never heard
 of, which is exactly what it returns for a tier that genuinely costs nothing
-(``L1``, local execution). Those are opposite facts. ``opaihub.budget._spent``
+(``L1``, local execution). Those are opposite facts. ``vestahub.budget._spent``
 sums ``estimated_actual_usd`` without consulting anything else, so a paid call
 at an unpriced tier contributed ``$0.00`` to the Cost Firewall's daily and
 monthly totals — the cap silently stopped applying to it, and nothing said so.
@@ -20,9 +20,9 @@ Two ways to reach an unpriced tier, neither exotic:
    ``load_cost_model`` shallow-merges over the defaults, so a partial table
    replaces the whole thing rather than filling gaps.
 
-These tests set ``OPAI_HUB_ROOT`` to a temp directory. That matters: the
+These tests set ``VESTA_HUB_ROOT`` to a temp directory. That matters: the
 config resolves through ``loader.hub_root``, which falls back to the
-*packaged* ``opaihub/data/hub`` when no ``hub/`` directory is found above the
+*packaged* ``vestahub/data/hub`` when no ``hub/`` directory is found above the
 project. Writing a fixture without redirecting it edits the shipped default —
 which is exactly what happened while investigating this, and briefly made
 seven unrelated usage tests fail.
@@ -37,15 +37,15 @@ import unittest
 import unittest.mock as mock
 from pathlib import Path
 
-from opaihub.budget import budget_status
-from opaihub.cost_model import DEFAULT_COST_MODEL, tier_cost, tier_price_known
-from opaihub.ledger import ledger_path, read_events, record_model_call
+from vestahub.budget import budget_status
+from vestahub.cost_model import DEFAULT_COST_MODEL, tier_cost, tier_price_known
+from vestahub.ledger import ledger_path, read_events, record_model_call
 
 PARTIAL_TIER_TABLE = {"L3": 0.02}
 
 
 class _IsolatedHub:
-    """A temp OPAI_HUB_ROOT with an optional cost model, restored on exit."""
+    """A temp VESTA_HUB_ROOT with an optional cost model, restored on exit."""
 
     def __init__(self, cost_model: dict | None = None) -> None:
         self._tmp = tempfile.TemporaryDirectory()
@@ -60,7 +60,7 @@ class _IsolatedHub:
             (directory / "cost_model.yaml").write_text(
                 json.dumps(self._cost_model), encoding="utf-8"
             )
-        self._patch = mock.patch.dict(os.environ, {"OPAI_HUB_ROOT": str(hub)})
+        self._patch = mock.patch.dict(os.environ, {"VESTA_HUB_ROOT": str(hub)})
         self._patch.start()
         return Path(self._tmp.name)
 

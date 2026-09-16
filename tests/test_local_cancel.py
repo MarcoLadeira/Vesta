@@ -20,9 +20,9 @@ from unittest import mock
 
 from _helpers import FakeLocalRunner, make_repo
 
-from opaihub.ask import run_ask
-from opaihub.gui_pipeline import handle_gui_message
-from opaihub.local_runner import (
+from vestahub.ask import run_ask
+from vestahub.gui_pipeline import handle_gui_message
+from vestahub.local_runner import (
     FreeAPIRunner,
     LocalRunCancelled,
     OllamaRunner,
@@ -36,12 +36,12 @@ class EditableUpgradeCompatibilityTests(unittest.TestCase):
 import sys
 import types
 
-stale = types.ModuleType("opaihub.local_runner")
+stale = types.ModuleType("vestahub.local_runner")
 stale.LocalRunner = type("LocalRunner", (), {})
 stale.detect_local_runner = lambda *args, **kwargs: None
-sys.modules["opaihub.local_runner"] = stale
+sys.modules["vestahub.local_runner"] = stale
 
-import opaihub.ask
+import vestahub.ask
 """
         completed = subprocess.run(
             [sys.executable, "-c", script],
@@ -194,13 +194,13 @@ class FreeTierCancelTests(unittest.TestCase):
 
 class FreeTierPipelineCancelTests(unittest.TestCase):
     def test_cancelled_free_call_never_records_spend_or_savings(self):
-        from opaihub.ledger import read_events
+        from vestahub.ledger import read_events
 
         events: list[dict] = []
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
             with mock.patch(
-                "opai.app_state.ask",
+                "vesta.app_state.ask",
                 return_value={"status": "cancelled", "answer": ""},
             ):
                 result = handle_gui_message(
@@ -270,7 +270,7 @@ class PipelineLocalCancelTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
             with mock.patch(
-                "opaihub.ask.run_ask",
+                "vestahub.ask.run_ask",
                 return_value={"status": "cancelled", "answer": ""},
             ):
                 result = handle_gui_message(

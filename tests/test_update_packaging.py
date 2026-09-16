@@ -7,11 +7,11 @@ from xml.etree import ElementTree
 
 import pytest
 
-from opai._generated_release import APPLICATION_VERSION, RELEASE_CHANNEL
-from opai.asset_identity import asset_manifest
-from opai.compatibility import runtime_compatibility_payload
-from opai.update.models import InstallType
-from opai.update.packaging import (
+from vesta._generated_release import APPLICATION_VERSION, RELEASE_CHANNEL
+from vesta.asset_identity import asset_manifest
+from vesta.compatibility import runtime_compatibility_payload
+from vesta.update.models import InstallType
+from vesta.update.packaging import (
     prepare_macos_sparkle_bundle,
     prepare_msix_layout,
     render_msix_manifest,
@@ -19,7 +19,7 @@ from opai.update.packaging import (
     validate_trust_store,
     write_runtime_configuration,
 )
-from opai.update.release import ReleaseError
+from vesta.update.release import ReleaseError
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -45,13 +45,13 @@ def _identity(install_type: InstallType, **overrides: object) -> dict[str, objec
         if install_type is InstallType.WINDOWS_MSIX
         else "arm64",
         "install_type": install_type,
-        "package_identity": "OPai.Desktop"
+        "package_identity": "Vesta.Desktop"
         if install_type is InstallType.WINDOWS_MSIX
-        else "com.opai.desktop",
+        else "com.vesta.desktop",
         "publisher_identity": "CN=Vesta"
         if install_type is InstallType.WINDOWS_MSIX
         else "ABCDE12345",
-        "assets": asset_manifest(ROOT / "opai" / "assets"),
+        "assets": asset_manifest(ROOT / "vesta" / "assets"),
     }
     values.update(overrides)
     return runtime_identity(**values)
@@ -61,8 +61,8 @@ def _windows_bundle(tmp_path: Path) -> Path:
     bundle = tmp_path / "bundle"
     (bundle / "gui").mkdir(parents=True)
     (bundle / "cli").mkdir()
-    (bundle / "gui" / "OPai.exe").write_bytes(b"gui")
-    (bundle / "cli" / "opai.exe").write_bytes(b"cli")
+    (bundle / "gui" / "Vesta.exe").write_bytes(b"gui")
+    (bundle / "cli" / "vesta.exe").write_bytes(b"cli")
     return bundle
 
 
@@ -81,16 +81,16 @@ def _assets(tmp_path: Path) -> Path:
 
 def _mac_bundle(tmp_path: Path) -> tuple[Path, Path]:
     bundle = tmp_path / "bundle"
-    app = bundle / "gui" / "OPai.app"
+    app = bundle / "gui" / "Vesta.app"
     resources = app / "Contents" / "Resources"
     executable = app / "Contents" / "MacOS"
     resources.mkdir(parents=True)
     executable.mkdir()
-    (executable / "OPai").write_bytes(b"gui")
+    (executable / "Vesta").write_bytes(b"gui")
     with (app / "Contents" / "Info.plist").open("wb") as stream:
-        plistlib.dump({"CFBundleIdentifier": "com.opai.desktop"}, stream)
+        plistlib.dump({"CFBundleIdentifier": "com.vesta.desktop"}, stream)
     (bundle / "cli").mkdir()
-    (bundle / "cli" / "opai").write_bytes(b"cli")
+    (bundle / "cli" / "vesta").write_bytes(b"cli")
     sparkle = tmp_path / "sparkle.app"
     (sparkle / "Contents" / "MacOS").mkdir(parents=True)
     (sparkle / "Contents" / "MacOS" / "sparkle").write_bytes(b"helper")
@@ -102,7 +102,7 @@ def test_runtime_identity_is_canonical_and_package_typed():
     assert value["schema_version"] == 1
     assert value["install_type"] == "windows_msix"
     assert value["updater_protocol_version"] == 1
-    assert value["assets"] == asset_manifest(ROOT / "opai" / "assets")
+    assert value["assets"] == asset_manifest(ROOT / "vesta" / "assets")
     assert value["compatibility"] == runtime_compatibility_payload()
 
 
@@ -137,7 +137,7 @@ def test_macos_runtime_configuration_is_inside_app_resources(tmp_path: Path):
     identity_path, trust_path = write_runtime_configuration(
         bundle, identity=_identity(InstallType.MACOS_SPARKLE), trust=_trust()
     )
-    assert "OPai.app" in identity_path.parts
+    assert "Vesta.app" in identity_path.parts
     assert identity_path.parent.name == "Resources"
     assert trust_path.parent == identity_path.parent
 
@@ -145,7 +145,7 @@ def test_macos_runtime_configuration_is_inside_app_resources(tmp_path: Path):
 def test_msix_manifest_ships_gui_and_cli_alias_together():
     root = ElementTree.fromstring(
         render_msix_manifest(
-            package_identity="OPai.Desktop",
+            package_identity="Vesta.Desktop",
             publisher_identity="CN=Vesta",
             version="0.3.0",
             architecture="x86_64",
@@ -160,9 +160,9 @@ def test_msix_manifest_ships_gui_and_cli_alias_together():
     alias = next(
         node for node in root.iter() if node.tag.rsplit("}", 1)[-1] == "ExecutionAlias"
     )
-    assert application.attrib["Executable"] == "gui\\OPai.exe"
-    assert extension.attrib["Executable"] == "cli\\opai.exe"
-    assert alias.attrib["Alias"] == "opai.exe"
+    assert application.attrib["Executable"] == "gui\\Vesta.exe"
+    assert extension.attrib["Executable"] == "cli\\vesta.exe"
+    assert alias.attrib["Alias"] == "vesta.exe"
 
 
 def test_msix_layout_contains_complete_bundle_manifest_and_assets(tmp_path: Path):
@@ -171,26 +171,26 @@ def test_msix_layout_contains_complete_bundle_manifest_and_assets(tmp_path: Path
     manifest = prepare_msix_layout(
         bundle,
         layout,
-        package_identity="OPai.Desktop",
+        package_identity="Vesta.Desktop",
         publisher_identity="CN=Vesta",
         version="0.3.0",
         architecture="x86_64",
         assets=_assets(tmp_path),
     )
     assert manifest.is_file()
-    assert (layout / "gui" / "OPai.exe").read_bytes() == b"gui"
-    assert (layout / "cli" / "opai.exe").read_bytes() == b"cli"
+    assert (layout / "gui" / "Vesta.exe").read_bytes() == b"gui"
+    assert (layout / "cli" / "vesta.exe").read_bytes() == b"cli"
     assert (layout / "Assets" / "StoreLogo.png").is_file()
 
 
 def test_msix_layout_refuses_missing_cli(tmp_path: Path):
     bundle = _windows_bundle(tmp_path)
-    (bundle / "cli" / "opai.exe").unlink()
+    (bundle / "cli" / "vesta.exe").unlink()
     with pytest.raises(ReleaseError, match="GUI or CLI"):
         prepare_msix_layout(
             bundle,
             tmp_path / "layout",
-            package_identity="OPai.Desktop",
+            package_identity="Vesta.Desktop",
             publisher_identity="CN=Vesta",
             version="0.3.0",
             architecture="x86_64",
@@ -208,9 +208,9 @@ def test_sparkle_preparation_embeds_helper_cli_and_feed_identity(tmp_path: Path)
         sparkle_public_key="cHVibGlj",
     )
     resources = app / "Contents" / "Resources"
-    assert (resources / "opai").read_bytes() == b"cli"
+    assert (resources / "vesta").read_bytes() == b"cli"
     assert (
-        resources / "OPaiUpdater" / "sparkle.app" / "Contents" / "MacOS" / "sparkle"
+        resources / "VestaUpdater" / "sparkle.app" / "Contents" / "MacOS" / "sparkle"
     ).is_file()
     with (app / "Contents" / "Info.plist").open("rb") as stream:
         value = plistlib.load(stream)

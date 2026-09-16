@@ -16,9 +16,9 @@ from unittest import mock
 
 from tests._helpers import make_repo
 
-from opaihub.ledger import record_model_call
-from opaihub.local_runner import FreeAPIRunner
-from opaihub.usage import build_usage_snapshots
+from vestahub.ledger import record_model_call
+from vestahub.local_runner import FreeAPIRunner
+from vestahub.usage import build_usage_snapshots
 
 
 def _tool_turn(name: str, args: dict) -> dict:

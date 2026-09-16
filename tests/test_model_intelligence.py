@@ -4,9 +4,9 @@ import sys
 import unittest
 from pathlib import Path
 
-from opaihub.model_intelligence import recommend_model
-from opaihub.loader import registry_items
-from opaihub.skills import skill_items, skill_registry
+from vestahub.model_intelligence import recommend_model
+from vestahub.loader import registry_items
+from vestahub.skills import skill_items, skill_registry
 
 
 class ModelIntelligenceTests(unittest.TestCase):
@@ -43,12 +43,12 @@ class ModelIntelligenceTests(unittest.TestCase):
         self.assertTrue(result["requires_confirmation"])
         self.assertIn("security", result["matched_signals"])
 
-    def test_opai_models_recommend_cli_outputs_json(self):
+    def test_vesta_models_recommend_cli_outputs_json(self):
         completed = subprocess.run(
             [
                 sys.executable,
                 "-m",
-                "opai",
+                "vesta",
                 "models",
                 "recommend",
                 "fix failing tests cheaply",

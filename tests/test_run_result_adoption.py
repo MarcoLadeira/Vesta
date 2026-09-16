@@ -30,11 +30,11 @@ ROOT = Path(__file__).resolve().parent.parent
 #: Packages that ship to users. `tests/` and `scripts/` are excluded on
 #: purpose: a test calling the projection is exactly the false green this guard
 #: exists to reject.
-PRODUCTION_PACKAGES = ("opai", "opaihub", "opcoding")
+PRODUCTION_PACKAGES = ("vesta", "vestahub", "opcoding")
 
 #: The module that defines the projection. Its own internal use is not
 #: adoption, so it can never satisfy the guard on its own.
-DEFINING_MODULE = "opaihub/run_result_projection.py"
+DEFINING_MODULE = "vestahub/run_result_projection.py"
 
 CANONICAL_BUILDERS = ("project_run_result", "project_run_result_for_background_run")
 

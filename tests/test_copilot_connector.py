@@ -22,8 +22,8 @@ from pathlib import Path
 from unittest import mock
 
 from _helpers import FakeAccountRunner, isolated_home, make_repo
-from opaihub import accounts
-from opaihub.accounts import (
+from vestahub import accounts
+from vestahub.accounts import (
     ACCOUNT_SPECS,
     COPILOT_MODELS,
     AccountRunner,
@@ -31,9 +31,9 @@ from opaihub.accounts import (
     list_connected_accounts,
     runner_for_account,
 )
-from opaihub.gui_pipeline import handle_gui_message
-from opaihub.ledger import EVENT_MODEL_CALL, read_events
-from opaihub.proxy import SUPPORTED_AGENTS, proxy_run
+from vestahub.gui_pipeline import handle_gui_message
+from vestahub.ledger import EVENT_MODEL_CALL, read_events
+from vestahub.proxy import SUPPORTED_AGENTS, proxy_run
 
 # Env vars the copilot detector treats as a "connected" signal. Tests scrub
 # these so a real token on the developer's box (or a CI runner) can't make an
@@ -395,7 +395,7 @@ class CopilotAppStateAskTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_ask_routes_account_copilot_choice(self):
-        from opai import app_state as A
+        from vesta import app_state as A
 
         fake = FakeAccountRunner(account_id="copilot", model="gpt-5.4", text="hello")
         result = A.ask(
@@ -409,7 +409,7 @@ class CopilotAppStateAskTests(unittest.TestCase):
         self.assertEqual(len(fake.calls), 1)
 
     def test_copilot_edit_request_fails_before_runner_launch(self):
-        from opai import app_state as A
+        from vesta import app_state as A
 
         fake = FakeAccountRunner(account_id="copilot", text="should not run")
         result = A.ask(
@@ -428,7 +428,7 @@ class CopilotAppStateAskTests(unittest.TestCase):
         self.assertEqual(read_events(self.root), [])
 
     def test_scoped_capable_copilot_can_run_an_edit_request(self):
-        from opai import app_state as A
+        from vesta import app_state as A
 
         fake = FakeAccountRunner(account_id="copilot", text="edited")
         fake.supports_scoped_editing = lambda: True

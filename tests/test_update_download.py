@@ -7,8 +7,8 @@ from urllib.error import HTTPError
 
 import pytest
 
-from opai.update.download import DownloadError, SecureDownloader
-from opai.update.models import InstallType, UpdateCandidate
+from vesta.update.download import DownloadError, SecureDownloader
+from vesta.update.models import InstallType, UpdateCandidate
 
 
 CONTENT = b"0123456789abcdef"
@@ -24,7 +24,7 @@ def _candidate(**overrides: object) -> UpdateCandidate:
         "platform": "windows",
         "architecture": "x86_64",
         "install_type": InstallType.WINDOWS_MSIX,
-        "artifact_url": "https://updates.example.test/v0.3.0/OPai.msix",
+        "artifact_url": "https://updates.example.test/v0.3.0/Vesta.msix",
         "artifact_sha256": hashlib.sha256(CONTENT).hexdigest(),
         "artifact_size": len(CONTENT),
         "publisher_identity": "CN=Vesta",
@@ -49,7 +49,7 @@ class Response(io.BytesIO):
         self._url = url
 
     def geturl(self) -> str:
-        return self._url or "https://updates.example.test/v0.3.0/OPai.msix"
+        return self._url or "https://updates.example.test/v0.3.0/Vesta.msix"
 
     def __enter__(self):
         return self
@@ -75,7 +75,7 @@ def test_secure_download_is_operation_scoped_and_hash_verified(tmp_path: Path):
 def test_secure_download_resumes_with_range_when_server_supports_it(tmp_path: Path):
     operation = tmp_path / "op-1"
     operation.mkdir()
-    (operation / "OPai.msix.part").write_bytes(CONTENT[:5])
+    (operation / "Vesta.msix.part").write_bytes(CONTENT[:5])
     ranges: list[str] = []
 
     def open_url(request, timeout):
@@ -100,7 +100,7 @@ def test_secure_download_resumes_with_range_when_server_supports_it(tmp_path: Pa
 def test_server_ignoring_range_restarts_cleanly_instead_of_appending(tmp_path: Path):
     operation = tmp_path / "op-1"
     operation.mkdir()
-    (operation / "OPai.msix.part").write_bytes(CONTENT[:5])
+    (operation / "Vesta.msix.part").write_bytes(CONTENT[:5])
 
     target = SecureDownloader(
         open_url=lambda *_: Response(CONTENT, status=200)
@@ -175,7 +175,7 @@ def test_staging_rejects_source_substitution_after_download(tmp_path: Path):
 
 def test_signed_redirect_origin_allows_verified_release_asset_download(tmp_path: Path):
     candidate = _candidate(
-        artifact_url="https://github.com/owner/repo/releases/download/v0.3.0/OPai.msix",
+        artifact_url="https://github.com/owner/repo/releases/download/v0.3.0/Vesta.msix",
         native={
             "allowed_redirect_origins": ["https://release-assets.githubusercontent.com"]
         },

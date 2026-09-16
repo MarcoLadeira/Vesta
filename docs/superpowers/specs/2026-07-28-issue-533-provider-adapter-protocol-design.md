@@ -25,9 +25,9 @@ missing gate or credential is a reported skip, never a passing probe.
 
 ## Current-state assessment
 
-`opaihub.provider_adapters.ProviderAdapter` already provides a useful narrow
+`vestahub.provider_adapters.ProviderAdapter` already provides a useful narrow
 wrapper for provider kind, CLI command construction, event parsing, probes,
-and usage extraction. `opaihub.provider_capabilities.ProviderProfile` gives
+and usage extraction. `vestahub.provider_capabilities.ProviderProfile` gives
 GUI, CLI, and doctor a partial shared capability view. However, both expose
 untyped dictionaries, derive truth from provider kind in several places, lack
 a protocol/catalog version, merge readiness facts into a single health view,
@@ -44,11 +44,11 @@ An all-at-once rewrite of provider runners is intentionally out of scope.
 
 ### 1. Versioned protocol model
 
-`opaihub/provider_protocol.py` defines protocol version `1` and frozen,
+`vestahub/provider_protocol.py` defines protocol version `1` and frozen,
 JSON-safe data models for:
 
 - `AdapterRequest`: provider/model identity, requested capabilities, request
-  correlation, cancellation deadline, and existing OPai policy context.
+  correlation, cancellation deadline, and existing Vesta policy context.
 - `ProviderEvent`: one ordered event carrying a declared kind, sequence,
   monotonic timestamp, adapter/catalog/protocol versions, and safe metadata.
   Allowed kinds are `started`, `text_delta`, `tool_call`, `structured_output`,
@@ -60,7 +60,7 @@ JSON-safe data models for:
   existing `CompletionState`/`CompletionVerdict` from #295. The protocol may
   report evidence and a typed provider failure, but cannot create a new
   completion vocabulary or pronounce a model's prose verified.
-- `ProviderFailure`: only canonical error codes from `opai.provider_contract`,
+- `ProviderFailure`: only canonical error codes from `vesta.provider_contract`,
   with retryability and safe user action. Raw provider/SDK text stays diagnostic
   input and cannot set cost, authority, verification, or completion truth.
 - `CapabilityStatus`: `supported`, `partial`, `unsupported`, or `unknown`.
@@ -74,8 +74,8 @@ existing runtime contract.
 
 ### 2. Version-pinned provider catalog
 
-`opaihub/provider_catalog.py` loads the package catalog snapshot
-`opaihub/data/provider_catalog/v1.json`. The catalog has a schema version,
+`vestahub/provider_catalog.py` loads the package catalog snapshot
+`vestahub/data/provider_catalog/v1.json`. The catalog has a schema version,
 protocol-version compatibility range, source/provenance, publication date, and
 one explicit record per supported provider. Each record declares capabilities,
 requirements, measurement semantics, cancellation mode, stream mode, known
@@ -180,13 +180,13 @@ must not fall back to stale provider data.
 
 ## File-level implementation boundary
 
-- Create `opaihub/provider_protocol.py` for data models, validation, SLO
+- Create `vestahub/provider_protocol.py` for data models, validation, SLO
   evaluation, and protocol/version compatibility checks.
-- Create `opaihub/provider_catalog.py` and
-  `opaihub/data/provider_catalog/v1.json` for one authoritative provider
+- Create `vestahub/provider_catalog.py` and
+  `vestahub/data/provider_catalog/v1.json` for one authoritative provider
   snapshot.
-- Modify `opaihub/provider_adapters.py` and
-  `opaihub/provider_capabilities.py` to use the catalog/protocol while
+- Modify `vestahub/provider_adapters.py` and
+  `vestahub/provider_capabilities.py` to use the catalog/protocol while
   preserving existing public functions.
 - Modify the existing model/doctor payload builders only as necessary so GUI,
   CLI, and doctor carry the canonical record and degraded version state.

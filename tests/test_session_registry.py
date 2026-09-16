@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 import unittest
 
-from opaihub.session_registry import (
+from vestahub.session_registry import (
     CANCELLED,
     DONE,
     RUNNING,
@@ -125,15 +125,15 @@ class PipelineIntegrationTests(unittest.TestCase):
 
         from _helpers import make_repo
 
-        from opaihub import session_registry
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub import session_registry
+        from vestahub.gui_pipeline import handle_gui_message
 
         fresh = session_registry.SessionRegistry()
         with mock.patch.object(session_registry, "_SHARED", fresh):
             with tempfile.TemporaryDirectory() as tmp:
                 root = make_repo(Path(tmp))
                 with mock.patch(
-                    "opaihub.ask.run_ask",
+                    "vestahub.ask.run_ask",
                     return_value={"status": "answered_locally", "answer": "ok"},
                 ):
                     res = handle_gui_message(

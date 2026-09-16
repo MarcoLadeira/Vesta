@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
-from opaihub.command_runner import run_policy_command
+from vestahub.command_runner import run_policy_command
 
 
 IGNORED_DIRS = {

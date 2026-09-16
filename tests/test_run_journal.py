@@ -16,7 +16,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub import run_journal as journal
+from vestahub import run_journal as journal
 
 
 def _empty() -> dict:

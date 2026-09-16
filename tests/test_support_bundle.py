@@ -16,10 +16,10 @@ from unittest import mock
 
 from _helpers import make_repo
 
-from opai.cli import main
-from opaihub import support_bundle as sb
-from opaihub.audit import GUARD_DENY, record_audit_event
-from opaihub.ledger import record_route_decision
+from vesta.cli import main
+from vestahub import support_bundle as sb
+from vestahub.audit import GUARD_DENY, record_audit_event
+from vestahub.ledger import record_route_decision
 
 
 class BuildSupportBundleTests(unittest.TestCase):
@@ -32,7 +32,7 @@ class BuildSupportBundleTests(unittest.TestCase):
 
     def test_an_empty_project_still_produces_a_valid_bundle(self) -> None:
         bundle = sb.build_support_bundle(self.root)
-        self.assertEqual(bundle["report"], "opai-support-bundle")
+        self.assertEqual(bundle["report"], "vesta-support-bundle")
         self.assertEqual(bundle["audit"]["events"], [])
         self.assertEqual(bundle["ledger_events"], [])
         self.assertFalse(bundle["truncated"]["audit_events"])
@@ -115,12 +115,12 @@ class SupportBundleCliTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_no_out_flag_prints_the_bundle_instead_of_writing_a_file(self) -> None:
-        with mock.patch("opai.cli.print_json") as fake_print:
+        with mock.patch("vesta.cli.print_json") as fake_print:
             rc = main(["support-bundle", "--project", str(self.root)])
         self.assertEqual(rc, 0)
         fake_print.assert_called_once()
         printed = fake_print.call_args.args[0]
-        self.assertEqual(printed["report"], "opai-support-bundle")
+        self.assertEqual(printed["report"], "vesta-support-bundle")
 
     def test_out_flag_writes_a_readable_json_bundle(self) -> None:
         record_audit_event(self.root, GUARD_DENY, actor="agent", operation="x")
@@ -128,7 +128,7 @@ class SupportBundleCliTests(unittest.TestCase):
         rc = main(["support-bundle", "--project", str(self.root), "--out", str(out)])
         self.assertEqual(rc, 0)
         written = json.loads(out.read_text(encoding="utf-8"))
-        self.assertEqual(written["report"], "opai-support-bundle")
+        self.assertEqual(written["report"], "vesta-support-bundle")
         self.assertEqual(len(written["audit"]["events"]), 1)
         self.assertIn("version", written)
 

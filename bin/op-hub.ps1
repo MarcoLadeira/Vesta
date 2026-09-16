@@ -5,4 +5,4 @@ param(
 
 $Root = Split-Path -Parent $PSScriptRoot
 $env:PYTHONPATH = "$Root;$env:PYTHONPATH"
-python -m opaihub @Args
+python -m vestahub @Args

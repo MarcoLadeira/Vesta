@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def _load_module():
     path = ROOT / "scripts" / "check_runner_health.py"
-    spec = importlib.util.spec_from_file_location("opai_runner_health", path)
+    spec = importlib.util.spec_from_file_location("vesta_runner_health", path)
     if spec is None or spec.loader is None:
         raise AssertionError("Could not load runner health check")
     module = importlib.util.module_from_spec(spec)
@@ -28,7 +28,7 @@ def _runner(
 ) -> dict:
     return {
         "id": 7,
-        "name": "opai-desktop-runner",
+        "name": "vesta-desktop-runner",
         "status": status,
         "busy": busy,
         "labels": [{"name": label} for label in labels],

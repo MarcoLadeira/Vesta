@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 from unittest import mock
 
-from opaihub.objective_worker import main
+from vestahub.objective_worker import main
 
 
 def reply(root, prompt, **kwargs):
@@ -45,7 +45,7 @@ def reply(root, prompt, **kwargs):
 if __name__ == "__main__":
     with (
         mock.patch(
-            "opai.app_state.available_models",
+            "vesta.app_state.available_models",
             return_value={
                 "models": [
                     {"id": "account:codex:test", "kind": "account", "available": True}
@@ -53,8 +53,8 @@ if __name__ == "__main__":
             },
         ),
         mock.patch(
-            "opaihub.objective_routing.provider_usage.usage_overview", return_value=[]
+            "vestahub.objective_routing.provider_usage.usage_overview", return_value=[]
         ),
-        mock.patch("opaihub.gui_pipeline.handle_gui_message", side_effect=reply),
+        mock.patch("vestahub.gui_pipeline.handle_gui_message", side_effect=reply),
     ):
         raise SystemExit(main(sys.argv[1:]))

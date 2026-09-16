@@ -6,14 +6,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub.aci import AgentComputerInterface, Observation
-from opaihub.agent_runtime import AgentRuntime, AgentWorkbench, RuntimePhase
-from opaihub.safety_gates import evaluate_safety_gates
-from opaihub.task_packet import build_task_packet
-from opaihub.test_loop import TestLoop, parse_test_failure
-from opaihub.provider_adapters import ExecutionRequest, adapter_for
-from opaihub.workflow_ledger import WorkflowLedger
-from opaihub.workflow_templates import workflow_templates
+from vestahub.aci import AgentComputerInterface, Observation
+from vestahub.agent_runtime import AgentRuntime, AgentWorkbench, RuntimePhase
+from vestahub.safety_gates import evaluate_safety_gates
+from vestahub.task_packet import build_task_packet
+from vestahub.test_loop import TestLoop, parse_test_failure
+from vestahub.provider_adapters import ExecutionRequest, adapter_for
+from vestahub.workflow_ledger import WorkflowLedger
+from vestahub.workflow_templates import workflow_templates
 
 
 def _concurrent_transition_worker(
@@ -264,7 +264,7 @@ class TaskPacketTests(unittest.TestCase):
             repo={"path": "C:/repo", "branch": "codex/fix", "remote": "origin"},
             issue={"number": 42, "title": "Broken picker"},
             dirty={"status": "unrelated", "unrelated_paths": ["notes.md"]},
-            relevant_files=("opai/gui.py",),
+            relevant_files=("vesta/gui.py",),
             constraints=("no force push",),
             allowed_actions=("edit", "test", "open_pr"),
             forbidden_actions=("force_push",),
@@ -378,8 +378,8 @@ class WorkflowLedgerAndSafetyTests(unittest.TestCase):
 
     def test_safety_gates_are_deterministic_and_fail_closed(self):
         report = evaluate_safety_gates(
-            changed_files=("opai/auth.py", ".env"),
-            intended_files=("opai/auth.py",),
+            changed_files=("vesta/auth.py", ".env"),
+            intended_files=("vesta/auth.py",),
             command=("git", "push", "--force"),
             diff_text="+API_KEY=sk-abcdefghijklmnopqrst",
             tests_pass=False,

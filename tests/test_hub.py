@@ -1,7 +1,7 @@
 import unittest
 from pathlib import Path
 
-from opaihub.loader import hub_root, registry_items
+from vestahub.loader import hub_root, registry_items
 
 
 class HubRegistryTests(unittest.TestCase):

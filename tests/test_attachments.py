@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from opaihub.attachments import (
+from vestahub.attachments import (
     MAX_BYTES,
     RETENTION_SECONDS,
     AttachmentError,
@@ -44,7 +44,7 @@ def test_a_pasted_png_becomes_a_workspace_relative_reference(tmp_path: Path):
     """
     stored = store_image(tmp_path, encode(PNG), name="Screenshot.png")
 
-    assert stored.relative_path.startswith(".opaihub/attachments/")
+    assert stored.relative_path.startswith(".vestahub/attachments/")
     assert stored.relative_path.endswith(".png")
     assert (tmp_path / stored.relative_path).read_bytes() == PNG
     assert stored.bytes_written == len(PNG)
@@ -80,7 +80,7 @@ def test_a_hostile_filename_cannot_choose_a_destination(tmp_path: Path):
     """The name is a label. The path is generated, so there is nothing to escape."""
     stored = store_image(tmp_path, encode(PNG), name="../../../../.ssh/authorized_keys")
 
-    assert stored.relative_path.startswith(".opaihub/attachments/")
+    assert stored.relative_path.startswith(".vestahub/attachments/")
     assert "/" not in stored.name and ".." not in stored.name
     assert (tmp_path / stored.relative_path).is_file()
     assert not (tmp_path.parent / ".ssh").exists()
@@ -133,10 +133,10 @@ def test_two_pastes_of_the_same_image_do_not_collide(tmp_path: Path):
 
 
 def test_attachments_live_where_git_will_not_see_them(tmp_path: Path):
-    """`.opaihub/` is already ignored. An attachment must never reach a diff."""
+    """`.vestahub/` is already ignored. An attachment must never reach a diff."""
     stored = store_image(tmp_path, encode(PNG))
 
-    assert stored.relative_path.split("/")[0] == ".opaihub"
+    assert stored.relative_path.split("/")[0] == ".vestahub"
 
 
 def test_old_attachments_are_swept_and_recent_ones_are_not(tmp_path: Path):

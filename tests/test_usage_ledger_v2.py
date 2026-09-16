@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from opaihub import ledger
-from opaihub.atomic_io import atomic_write_text
-from opaihub.ledger import (
+from vestahub import ledger
+from vestahub.atomic_io import atomic_write_text
+from vestahub.ledger import (
     EVENT_MODEL_CALL,
     EVENT_MODEL_CALL_NOT_DISPATCHED,
     EVENT_MODEL_CALL_STARTED,
@@ -31,7 +31,7 @@ from opaihub.ledger import (
     pending_model_call_observations,
     unresolved_model_calls,
 )
-from opaihub.usage_report import ProviderTurnUsage
+from vestahub.usage_report import ProviderTurnUsage
 
 
 MODEL = "account:claude:opus-4.8"

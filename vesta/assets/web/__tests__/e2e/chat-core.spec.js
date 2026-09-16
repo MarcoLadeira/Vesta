@@ -1,0 +1,141 @@
+import { test, expect } from "@playwright/test";
+
+import {
+  emitToken,
+  expectNoRawProviderIds,
+  expectNoUiSentinels,
+  finishRequest,
+  openApp,
+  sendPrompt,
+} from "./helpers/app.js";
+
+
+test.beforeEach(async ({ page }) => openApp(page));
+
+test("sends a prompt, streams one response, and accepts a follow-up", async ({ page }) => {
+  const first = await sendPrompt(page, "Explain <main> & test safety");
+  await emitToken(page, first, "First answer");
+  await finishRequest(page, first, { answer: "First answer" });
+  await expect(page.locator(".msg.user")).toHaveCount(1);
+  await expect(page.locator(".msg.bot")).toHaveCount(1);
+  await expect(page.locator(".msg.bot .body")).toContainText("First answer");
+
+  const second = await sendPrompt(page, "Now add the edge cases");
+  await finishRequest(page, second, { answer: "Second answer" });
+  await expect(page.locator(".msg.user")).toHaveCount(2);
+  await expect(page.locator(".msg.bot")).toHaveCount(2);
+  expect(await page.evaluate(() => window.__mock.sendCount)).toBe(2);
+});
+
+test("empty and whitespace-only prompts never create requests", async ({ page }) => {
+  await page.fill("#input", "   ");
+  await expect(page.getByRole("button", { name: "Send" })).toBeDisabled();
+  await page.press("#input", "Enter");
+  expect(await page.evaluate(() => window.__mock.sendCount)).toBe(0);
+  await expect(page.locator(".msg")).toHaveCount(0);
+});
+
+test("long and hostile-looking text stays inert and readable", async ({ page }) => {
+  const prompt = `<script>window.pwned=true</script> & "quotes" ` + "x".repeat(3000);
+  const id = await sendPrompt(page, prompt);
+  await finishRequest(page, id, { answer: "Handled safely." });
+  await expect(page.locator(".msg.user script")).toHaveCount(0);
+  await expect(page.locator(".msg.user")).toContainText("<script>");
+  expect(await page.evaluate(() => window.pwned)).toBeUndefined();
+});
+
+test("new chat clears messages and restores the branded empty state", async ({ page }) => {
+  const id = await sendPrompt(page, "temporary conversation");
+  await finishRequest(page, id);
+  await page.locator("#headerNewChat").click();
+  await expect(page.locator(".msg")).toHaveCount(0);
+  // The same motto as before the chat: a new chat is not a new launch.
+  await expect(page.locator("#empty h1")).toHaveText("The Living Flame.");
+});
+
+test("starter chip submits exactly one useful prompt", async ({ page }) => {
+  await page.getByRole("button", { name: "Explain this repo" }).click();
+  await expect(page.locator(".msg.user")).toContainText("high-level tour");
+  expect(await page.evaluate(() => window.__mock.sendCount)).toBe(1);
+});
+
+test("selected model and mode reach the native bridge request", async ({ page }) => {
+  await page.selectOption("#modelSel", "account:codex:gpt-5.5");
+  await page.selectOption("#modeSel", "plan");
+  await sendPrompt(page, "Plan a safe migration");
+  const request = await page.evaluate(() => window.__mock.lastRequest);
+  expect(request.model).toBe("account:codex:gpt-5.5");
+  expect(request.mode).toBe("plan");
+  expect(request.text).toBe("Plan a safe migration");
+});
+
+test("normal chat hides route IDs and broken-value sentinels", async ({ page }) => {
+  const id = await sendPrompt(page, "keep details human");
+  await finishRequest(page, id, { answer: "Vesta chose the safest capable route." });
+  await expectNoRawProviderIds(page);
+  await expectNoUiSentinels(page);
+});
+
+test("Auto fallback names the model and only starts cloud after confirmation", async ({ page }) => {
+  await openApp(page, { boot: { selectedModel: "auto" } });
+  await page.fill("#input", "Explain the project");
+  await page.getByRole("button", { name: "Send" }).click();
+  // The first message in a fresh chat waits for the composer to fly down
+  // before the request goes out, so wait for the run to start.
+  await expect(page.locator(".gen-stop")).toBeVisible();
+  const first = await page.evaluate(() => window.__mock.lastRequest);
+  await page.evaluate((id) => window.__mock.emitReply(id, {
+    status: "needs_auto_confirmation",
+    answer: "No local model is running. Continue with Groq · GPT-OSS 120B?",
+    fallbackModelId: "free:groq:openai/gpt-oss-120b",
+    fallbackModelLabel: "Groq · GPT-OSS 120B",
+    cloudStarted: false,
+  }), first.requestId);
+  await expect(page.getByText("Continue with Groq · GPT-OSS 120B")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Retry" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Confirm Groq · GPT-OSS 120B" }).click();
+  const second = await page.evaluate(() => window.__mock.lastRequest);
+  expect(second.model).toBe("free:groq:openai/gpt-oss-120b");
+  expect(second.allowCloud).toBe(true);
+  expect(await page.evaluate(() => window.__mock.sendCount)).toBe(2);
+});
+
+test("Auto with no eligible provider directs model selection without retrying", async ({ page }) => {
+  await openApp(page, { boot: { selectedModel: "auto" } });
+  await page.fill("#input", "Explain the project");
+  await page.getByRole("button", { name: "Send" }).click();
+  // The first message in a fresh chat waits for the composer to fly down
+  // before the request goes out, so wait for the run to start.
+  await expect(page.locator(".gen-stop")).toBeVisible();
+  const first = await page.evaluate(() => window.__mock.lastRequest);
+  await page.evaluate((id) => window.__mock.emitReply(id, {
+    status: "needs_model",
+    answer: "Auto has no available model. Choose a configured model, or connect a free API, account, or local model in Settings.",
+  }), first.requestId);
+
+  await expect(page.getByRole("button", { name: "Retry" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Switch model" }).click();
+  await expect(page.getByRole("button", { name: "Model: Auto" })).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByRole("menu")).toBeVisible();
+  await expect(page.getByRole("menuitemradio", { name: /Auto/ })).toBeFocused();
+  expect(await page.evaluate(() => window.__mock.sendCount)).toBe(1);
+});
+
+test("usage limit warning resends only after explicit confirmation", async ({ page }) => {
+  await openApp(page);
+  await page.fill("#input", "Continue working");
+  await page.getByRole("button", { name: "Send" }).click();
+  // The first message in a fresh chat waits for the composer to fly down
+  // before the request goes out, so wait for the run to start.
+  await expect(page.locator(".gen-stop")).toBeVisible();
+  const first = await page.evaluate(() => window.__mock.lastRequest);
+  await page.evaluate((id) => window.__mock.emitReply(id, {
+    status: "needs_limit_confirmation",
+    answer: "Claude Haiku reached your 5,000 token soft limit.",
+    usage: { percent: 100, used: 5000, limit: 5000 },
+  }), first.requestId);
+  await page.getByRole("button", { name: "Continue past limit" }).click();
+  const second = await page.evaluate(() => window.__mock.lastRequest);
+  expect(second.allowLimit).toBe(true);
+  expect(await page.evaluate(() => window.__mock.sendCount)).toBe(2);
+});

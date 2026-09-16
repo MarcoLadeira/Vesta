@@ -1,8 +1,8 @@
-# OPai QA Bug Report — Cowork remote-control session
+# Vesta QA Bug Report — Cowork remote-control session
 
 **Date:** 2026-07-23
 **Build tested:** `0.2.1a1` (alpha.1) — via Settings → About
-**Tester persona:** Brand-new user, using OPai's desktop GUI only (no `opai` CLI), remote-controlled by Claude in Cowork mode
+**Tester persona:** Brand-new user, using Vesta's desktop GUI only (no `vesta` CLI), remote-controlled by Claude in Cowork mode
 **Repos touched:** `website/MarcoLadeiraWebsite` (browsed only, not modified), `website/QuotePack` (https://github.com/MarcoLadeira/QuotePack — used for all file/git/PR testing, on branch `feature/define-pricing-architecture-112`)
 **Areas covered:** first-run tour, all 9 Settings pages, file creation, git commit, git push, PR creation, delete request, model/provider switching, run-mode switching, adversarial input testing
 
@@ -18,13 +18,13 @@ This is not a one-off. It happened on 5 separate turns, across 3 different provi
 
 Repro:
 1. Open a project with git history, be in **Full Auto** mode (Settings confirms "Run any command: Allow", "Run safe commands: Allow" for this mode).
-2. Ask OPai to do something that mutates the repo, e.g. *"Run git add and git commit for file X."*
+2. Ask Vesta to do something that mutates the repo, e.g. *"Run git add and git commit for file X."*
 3. The model internally decides it is in an "Explain / read-only" capability scope and refuses — it prints the git commands for you to run yourself instead of running them.
-4. The status card at the bottom of the same message still shows **"✓ Completed — Objective verified from OPai-observed evidence."**
+4. The status card at the bottom of the same message still shows **"✓ Completed — Objective verified from Vesta-observed evidence."**
 
 Verbatim example from the transcript (Claude Sonnet 4.6, after I explicitly told it "you have full tool permissions... Run any command is set to Allow"):
 
-> "I have inspected the repository and verified that 'opai-test-notes.md' exists. However, I am restricted to a read-only mode and cannot execute git commands such as 'add' or 'commit' as requested."
+> "I have inspected the repository and verified that 'vesta-test-notes.md' exists. However, I am restricted to a read-only mode and cannot execute git commands such as 'add' or 'commit' as requested."
 
 Task card directly under that text: **Explain — Completed — Read-only task completed.**
 
@@ -43,8 +43,8 @@ Task card: **Completed.**
 ## Bug 2 — `git push` is permanently blocked with no discoverable way to approve it
 
 Repro:
-1. On the QuotePack repo, ask OPai (Claude Sonnet 4.6, Full Auto) to push the current branch.
-2. Activity log shows: `Ran command: git push -u origin feature/define-pricing-architecture-112 — failed. OPai safety gate: this command is classified as destructive or confirmation-only (Requires explicit user confirmation before execution.) It needs explicit user confirmation in the OPai UI. Do not retry.`
+1. On the QuotePack repo, ask Vesta (Claude Sonnet 4.6, Full Auto) to push the current branch.
+2. Activity log shows: `Ran command: git push -u origin feature/define-pricing-architecture-112 — failed. Vesta safety gate: this command is classified as destructive or confirmation-only (Requires explicit user confirmation before execution.) It needs explicit user confirmation in the Vesta UI. Do not retry.`
 3. **No confirmation dialog, banner, badge, or notification ever appeared anywhere in the app.** I checked: the branch/project selector, the hamburger sidebar toggle, the run-mode dropdown (Ask / Plan only / Ask before edits / Approve edits / Auto-apply), and the top-right icon row. Nothing.
 4. I tried typing "I approve the git push, please proceed" directly in chat. Same block, verbatim same error, on a fresh $0.15 model call.
 5. Even Full Auto — the single most permissive run mode, which the Permissions & Safety page explicitly lists as allowing "Run any command" without asking — cannot get past this gate.
@@ -53,16 +53,16 @@ Repro:
 
 This exact wall appears to be pre-existing: the QuotePack chat history already had entries titled *"no i waant you to trigger a pr di..."* and *"try to make a test pr called test..."* from an earlier session, suggesting this is a known, previously-hit, still-unresolved blocker.
 
-**Suggested fix:** either (a) implement the missing confirmation UI (a toast/modal with Approve/Deny for gated commands), or (b) if push is meant to be entirely manual for now, say so plainly in the chat response instead of "needs explicit user confirmation in the OPai UI" — that phrasing promises a control that doesn't exist yet.
+**Suggested fix:** either (a) implement the missing confirmation UI (a toast/modal with Approve/Deny for gated commands), or (b) if push is meant to be entirely manual for now, say so plainly in the chat response instead of "needs explicit user confirmation in the Vesta UI" — that phrasing promises a control that doesn't exist yet.
 
 ---
 
 ## Bug 3 — Verification system gives false "Partial" results on edits that actually succeeded
 
-First request of the session: *"Create opai-test-notes.md with the text 'Hello from OPai QA test'."* (routed to `free:gemini:gemini-3.1-flash-lite`)
+First request of the session: *"Create vesta-test-notes.md with the text 'Hello from Vesta QA test'."* (routed to `free:gemini:gemini-3.1-flash-lite`)
 
-- Result banner: **⚠ Partial — "OPai received a response but no changed-file or diff evidence verifies the requested edit."**
-- Body text directly below it: **"Created opai-test-notes.md at the repository root with the required content and committed the change."**
+- Result banner: **⚠ Partial — "Vesta received a response but no changed-file or diff evidence verifies the requested edit."**
+- Body text directly below it: **"Created vesta-test-notes.md at the repository root with the required content and committed the change."**
 - Ground truth (checked via File Explorer): the file *was* created, at the correct path, with exactly the correct 23-byte content. It was *not* committed (that took several more turns — see Bug 1/2 above).
 
 So the "Partial" banner was itself wrong (the file write fully succeeded), while the model's own summary sentence was *also* wrong in the other direction (claiming a commit that hadn't happened). Two different, contradictory, both-incorrect status signals shown on the same message. A user has no reliable signal to trust here.
@@ -97,11 +97,11 @@ Settings → Permissions & Safety, Full Auto mode: **"Delete files"** is set to 
 
 ## Bug 10 — Stray/incorrectly-named file left over from a previous QA session
 
-While checking the current test's output in File Explorer, I found `Documents\website\...\geminii-opai-test.md` (note the misspelling — "geminii," not "gemini"), 75 bytes, dated over a week before this session. This strongly suggests the file-naming/hallucination issue in Bug 3 is a repeat occurrence with the Gemini route specifically, and that these stray artifacts aren't being cleaned up or surfaced anywhere for the user to notice.
+While checking the current test's output in File Explorer, I found `Documents\website\...\geminii-vesta-test.md` (note the misspelling — "geminii," not "gemini"), 75 bytes, dated over a week before this session. This strongly suggests the file-naming/hallucination issue in Bug 3 is a repeat occurrence with the Gemini route specifically, and that these stray artifacts aren't being cleaned up or surfaced anywhere for the user to notice.
 
 ## Bug 11 — Onboarding tour's step 3 runs a real task against whatever project happens to be open
 
-Settings → About → "Replay tour," step 3 ("Earn your first receipt") defaults to the prompt *"Summarize my uncommitted changes"* and a **"Send my first task"** button — and it runs this against whatever project is currently active, not a sandboxed demo repo. When I opened the tour, the active project was the real `website/MarcoLadeiraWebsite` site with 5 real uncommitted changes. A genuinely new user clicking through the tour on their real work folder would kick off a real (paid-model-eligible) task on real uncommitted work before they've had a chance to understand what OPai does. I skipped this step rather than risk it.
+Settings → About → "Replay tour," step 3 ("Earn your first receipt") defaults to the prompt *"Summarize my uncommitted changes"* and a **"Send my first task"** button — and it runs this against whatever project is currently active, not a sandboxed demo repo. When I opened the tour, the active project was the real `website/MarcoLadeiraWebsite` site with 5 real uncommitted changes. A genuinely new user clicking through the tour on their real work folder would kick off a real (paid-model-eligible) task on real uncommitted work before they've had a chance to understand what Vesta does. I skipped this step rather than risk it.
 
 ## Minor / cosmetic
 

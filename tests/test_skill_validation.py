@@ -1,7 +1,7 @@
 """Skill catalogue validation.
 
-`opaihub validate` gated five registries in CI; skills were the one it did not
-cover, and `opaihub skills doctor` checked only that each file exists. A skill
+`vestahub validate` gated five registries in CI; skills were the one it did not
+cover, and `vestahub skills doctor` checked only that each file exists. A skill
 is instruction text a model acts on, so two failures were unguarded: frontmatter
 drifting out of sync with the registry (the skill still exists, still passes an
 existence check, and silently never activates again), and a state-changing skill
@@ -17,7 +17,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub.skill_validation import (
+from vestahub.skill_validation import (
     MAX_DESCRIPTION_CHARS,
     MUTATING_CATEGORIES,
     validate_skills,
@@ -259,7 +259,7 @@ class ShippedCatalogueTests(unittest.TestCase):
         self.assertGreater(report["count"], 0)
 
     def test_validate_all_now_covers_skills(self) -> None:
-        from opaihub.validator import validate_all
+        from vestahub.validator import validate_all
 
         root = Path(__file__).resolve().parent.parent
         names = {r["registry"] for r in validate_all(root)["registries"]}

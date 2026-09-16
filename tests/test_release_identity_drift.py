@@ -9,18 +9,18 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _validation_module():
-    return importlib.import_module("opai.release_validation")
+    return importlib.import_module("vesta.release_validation")
 
 
 def _fixture(tmp_path: Path) -> Path:
     root = tmp_path / "repository"
-    (root / "opai").mkdir(parents=True)
-    (root / "opaihub").mkdir()
+    (root / "vesta").mkdir(parents=True)
+    (root / "vestahub").mkdir()
     shutil.copy2(ROOT / "pyproject.toml", root / "pyproject.toml")
     for relative in (
-        Path("opai/_generated_release.py"),
-        Path("opai/__init__.py"),
-        Path("opaihub/__init__.py"),
+        Path("vesta/_generated_release.py"),
+        Path("vesta/__init__.py"),
+        Path("vestahub/__init__.py"),
     ):
         shutil.copy2(ROOT / relative, root / relative)
     return root
@@ -32,7 +32,7 @@ def test_current_repository_has_no_release_identity_drift() -> None:
 
 def test_generated_projection_drift_is_actionable(tmp_path: Path) -> None:
     root = _fixture(tmp_path)
-    generated = root / "opai" / "_generated_release.py"
+    generated = root / "vesta" / "_generated_release.py"
     generated.write_text(
         generated.read_text(encoding="utf-8").replace('"0.2.1a1"', '"9.9.9"', 1),
         encoding="utf-8",
@@ -53,7 +53,7 @@ def test_generated_projection_drift_is_actionable(tmp_path: Path) -> None:
 
 def test_new_human_edited_runtime_version_source_is_rejected(tmp_path: Path) -> None:
     root = _fixture(tmp_path)
-    duplicate = root / "opai" / "version.py"
+    duplicate = root / "vesta" / "version.py"
     duplicate.write_text('APPLICATION_VERSION = "9.9.9"\n', encoding="utf-8")
 
     drift = _validation_module().validate_release_identity(root)
@@ -71,7 +71,7 @@ def test_tool_release_field_cannot_return_as_a_second_source(tmp_path: Path) -> 
     pyproject = root / "pyproject.toml"
     pyproject.write_text(
         pyproject.read_text(encoding="utf-8")
-        + '\n[tool.opai.release_identity]\napplication_version = "9.9.9"\n',
+        + '\n[tool.vesta.release_identity]\napplication_version = "9.9.9"\n',
         encoding="utf-8",
     )
 
@@ -86,7 +86,7 @@ def test_drift_cli_prints_expected_actual_surface_and_remediation(
     tmp_path: Path, capsys
 ) -> None:
     root = _fixture(tmp_path)
-    generated = root / "opai" / "_generated_release.py"
+    generated = root / "vesta" / "_generated_release.py"
     generated.write_text(
         generated.read_text(encoding="utf-8").replace('"0.2.1a1"', '"9.9.9"', 1),
         encoding="utf-8",
@@ -106,7 +106,7 @@ def test_current_documentation_identity_drift_is_actionable(tmp_path: Path) -> N
     root = _fixture(tmp_path)
     (root / "docs").mkdir()
     (root / "site").mkdir()
-    module = importlib.import_module("opai.release_identity")
+    module = importlib.import_module("vesta.release_identity")
     release = module.read_project_release(root / "pyproject.toml")
     readme = module.render_documentation_projection(release, surface="README.md")
     install_projection = module.render_documentation_projection(
@@ -137,7 +137,7 @@ def test_site_release_identity_drift_is_actionable(tmp_path: Path) -> None:
     root = _fixture(tmp_path)
     (root / "docs").mkdir()
     (root / "site").mkdir()
-    module = importlib.import_module("opai.release_identity")
+    module = importlib.import_module("vesta.release_identity")
     release = module.read_project_release(root / "pyproject.toml")
     for surface in ("README.md", "docs/INSTALL_PROOF.md", "site/index.html"):
         path = root / surface

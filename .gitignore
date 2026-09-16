@@ -16,7 +16,7 @@ playwright-report/
 .playwright/
 .opcoding-tools/
 .opcoding-tool-cache/
-.opaihub/
+.vestahub/
 
 cache/*
 logs/*
@@ -35,11 +35,11 @@ logs/*
 *.pem
 id_rsa*
 
-# Generated per-launch cache-busted GUI index (opai/gui_web.py)
-opai/assets/web/.runtime-index.html
+# Generated per-launch cache-busted GUI index (vesta/gui_web.py)
+vesta/assets/web/.runtime-index.html
 
 # Generated only inside wheel/sdist staging by setup.py.
-opai/_embedded_build.json
+vesta/_embedded_build.json
 .worktrees
 
 # #618: machine-readable Playwright result, read by ci_local for diagnostics.

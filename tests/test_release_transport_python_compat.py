@@ -29,7 +29,7 @@ _TRANSPORT = (
 
 
 def _load_transport():
-    spec = spec_from_file_location("opai_release_transport_compat_test", _TRANSPORT)
+    spec = spec_from_file_location("vesta_release_transport_compat_test", _TRANSPORT)
     if spec is None or spec.loader is None:  # pragma: no cover - defensive
         raise AssertionError("Could not load desktop_release_transport.py")
     module = module_from_spec(spec)
@@ -74,7 +74,7 @@ class ReadsTheProjectVersionWithoutTomllibTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "pyproject.toml"
             path.write_text(
-                '[project]\nname = "opai"\n\n[tool.x]\nversion = "9.9.9"\n',
+                '[project]\nname = "vesta"\n\n[tool.x]\nversion = "9.9.9"\n',
                 encoding="utf-8",
             )
 

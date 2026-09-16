@@ -24,8 +24,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub import journal_runtime
-from opaihub.journal_runtime import (
+from vestahub import journal_runtime
+from vestahub.journal_runtime import (
     EVENT_ADMITTED,
     EVENT_CANCELLED,
     EVENT_FINISHED,
@@ -34,7 +34,7 @@ from opaihub.journal_runtime import (
     record_event,
     record_terminal,
 )
-from opaihub.journal_store import open_store, read_events
+from vestahub.journal_store import open_store, read_events
 
 NOW = "2026-08-23T12:00:00+00:00"
 

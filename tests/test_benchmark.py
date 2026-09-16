@@ -9,9 +9,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opai.cli import main
-from opaihub.audit import BENCHMARK_RUN, read_audit
-from opaihub.benchmark import (
+from vesta.cli import main
+from vestahub.audit import BENCHMARK_RUN, read_audit
+from vestahub.benchmark import (
     benchmark_gate,
     benchmark_history_path,
     compare_benchmark_reports,
@@ -61,7 +61,7 @@ class BenchmarkTests(unittest.TestCase):
                 "terminal-bench",
                 "aider-polyglot",
                 "promptfoo",
-                "opai-governance",
+                "vesta-governance",
             },
             alignments,
         )
@@ -74,7 +74,7 @@ class BenchmarkTests(unittest.TestCase):
                 "category": "security_review",
                 "prompt": secret_prompt,
                 "baseline_context_bytes": 12_000,
-                "opai_context_bytes": 800,
+                "vesta_context_bytes": 800,
             }
         ]
 
@@ -82,7 +82,7 @@ class BenchmarkTests(unittest.TestCase):
             root = Path(tmp)
             report = run_benchmark(root, suite="local", mode="both", tasks=tasks)
 
-            self.assertEqual("opai-benchmark", report["kind"])
+            self.assertEqual("vesta-benchmark", report["kind"])
             self.assertEqual("local", report["suite"])
             self.assertEqual("both", report["mode"])
             self.assertGreaterEqual(
@@ -140,7 +140,7 @@ class BenchmarkTests(unittest.TestCase):
             self.assertIn("context_reduction_ratio", failing["failed"][0]["metric"])
             self.assertFalse(index_failing["ok"], index_failing)
             self.assertIn(
-                "opai_effectiveness_index", index_failing["failed"][0]["metric"]
+                "vesta_effectiveness_index", index_failing["failed"][0]["metric"]
             )
 
     def test_max_suite_reaches_top_local_control_plane_grade(self) -> None:
@@ -151,7 +151,7 @@ class BenchmarkTests(unittest.TestCase):
             self.assertEqual("max", report["suite"])
             self.assertGreaterEqual(report["task_count"], 16)
             self.assertEqual(
-                100.0, report["efficiency_score"]["opai_effectiveness_index"]
+                100.0, report["efficiency_score"]["vesta_effectiveness_index"]
             )
             self.assertEqual("A+", report["efficiency_score"]["leaderboard_grade"])
             self.assertEqual(
@@ -172,7 +172,7 @@ class BenchmarkTests(unittest.TestCase):
                         "category": "planning",
                         "prompt": "Plan carefully.",
                         "baseline_context_bytes": 10_000,
-                        "opai_context_bytes": 500,
+                        "vesta_context_bytes": 500,
                     }
                 ],
             )
@@ -186,7 +186,7 @@ class BenchmarkTests(unittest.TestCase):
                         "category": "planning",
                         "prompt": "Plan carefully.",
                         "baseline_context_bytes": 10_000,
-                        "opai_context_bytes": 5_000,
+                        "vesta_context_bytes": 5_000,
                     }
                 ],
             )
@@ -257,7 +257,7 @@ class BenchmarkTests(unittest.TestCase):
                 )
             self.assertEqual(0, code)
             payload = json.loads(out.getvalue())
-            self.assertEqual("opai-benchmark", payload["kind"])
+            self.assertEqual("vesta-benchmark", payload["kind"])
             self.assertEqual(str(root.resolve()), payload["project"])
             run_id = payload["run_id"]
 

@@ -1,6 +1,6 @@
 """#613 Stage 2: the extracted shadow-journal helper.
 
-``opaihub.shadow_journal`` is the shape ``owner_lease`` and ``worktree_leases``
+``vestahub.shadow_journal`` is the shape ``owner_lease`` and ``worktree_leases``
 each hand-rolled before it existed. These tests pin the properties every
 module that adopts it inherits -- including the two defects the earlier
 hand-rolled versions hit, so a future refactor cannot quietly reintroduce
@@ -15,7 +15,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import mock
 
-from opaihub import run_journal, shadow_journal
+from vestahub import run_journal, shadow_journal
 
 
 class _Fixture(unittest.TestCase):

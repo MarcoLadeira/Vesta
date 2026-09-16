@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub.audit import (
+from vestahub.audit import (
     audit_path,
     GUARD_DENY,
     export_audit,
@@ -14,11 +14,11 @@ from opaihub.audit import (
     summarize_audit,
     verify_chain,
 )
-from opaihub.ci_check import run_policy_check
-from opaihub.guarded import build_evidence_packet, verify_evidence_packet
-from opaihub.signing import resolve_key, sign, sign_payload, verify, verify_payload
-from opaihub.team import team_report
-from opaihub.team_policy import (
+from vestahub.ci_check import run_policy_check
+from vestahub.guarded import build_evidence_packet, verify_evidence_packet
+from vestahub.signing import resolve_key, sign, sign_payload, verify, verify_payload
+from vestahub.team import team_report
+from vestahub.team_policy import (
     apply_team_policy,
     init_team_policy,
     load_team_policy,
@@ -45,7 +45,7 @@ class SigningTests(unittest.TestCase):
     def test_env_key_takes_precedence(self):
         with (
             tempfile.TemporaryDirectory() as tmp,
-            mock.patch.dict(os.environ, {"OPAI_SIGNING_KEY": "envkey"}, clear=False),
+            mock.patch.dict(os.environ, {"VESTA_SIGNING_KEY": "envkey"}, clear=False),
         ):
             key, source = resolve_key(Path(tmp))
             self.assertEqual((key, source), ("envkey", "env"))
@@ -68,7 +68,7 @@ class AuditTrailTests(unittest.TestCase):
             record_audit_event(root, GUARD_DENY, action="git push")
             self.assertTrue(verify_chain(root)["ok"])
             # Tamper with the log on disk.
-            from opaihub.audit import audit_path
+            from vestahub.audit import audit_path
 
             lines = audit_path(root).read_text(encoding="utf-8").splitlines()
             entry = json.loads(lines[0])
@@ -143,7 +143,7 @@ class TeamPolicyTests(unittest.TestCase):
             root = Path(tmp)
             init_team_policy(root)
             apply_team_policy(root)
-            path = root / "opai-team-policy.yaml"
+            path = root / "vesta-team-policy.yaml"
             path.write_text(
                 path.read_text(encoding="utf-8")
                 + "\napproved_mcp_servers: [filesystem]\n",

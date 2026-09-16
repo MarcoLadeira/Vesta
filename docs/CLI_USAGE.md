@@ -1,7 +1,7 @@
 # Vesta CLI Usage
 
 The CLI and the desktop GUI share **one core**: `vesta ask --model …` runs the
-exact same pipeline (`opaihub.gui_pipeline.handle_gui_message`) the GUI chat
+exact same pipeline (`vestahub.gui_pipeline.handle_gui_message`) the GUI chat
 uses — same routing, same safety gates, same ledger, same receipts.
 
 ## Ask (the everyday command)
@@ -17,7 +17,7 @@ vesta ask --model copilot:gpt-5.2 --mode plan "plan the migration"
 vesta ask --model auto "quick question"                    # Vesta routes cheapest
 
 # Machine-readable (for scripts/automation):
-vesta ask --model claude:sonnet --json "list the public API of opai/activity.py"
+vesta ask --model claude:sonnet --json "list the public API of vesta/activity.py"
 ```
 
 What you see while it runs (Claude Code-style activity):
@@ -27,7 +27,7 @@ What you see while it runs (Claude Code-style activity):
 ✓ Read project context  (3 routing step(s))
 ✓ Selected model: account:claude:opus
 ◐ Sending to Claude
-✓ Read file: opai/activity.py
+✓ Read file: vesta/activity.py
 … Waiting for Claude · 16s elapsed (Ctrl+C to stop)
 
 <answer streams here>

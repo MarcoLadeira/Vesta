@@ -12,17 +12,17 @@ from unittest import mock
 
 from _helpers import FakeStreamingRunner, isolated_home, make_repo
 
-from opai import gui_recents, gui_web
-from opai.gui_web import boot_payload
-from opaihub.app_scaffold import scaffold_app
-from opaihub.build_loop import run_build_request
-from opaihub.checkpoints import (
+from vesta import gui_recents, gui_web
+from vesta.gui_web import boot_payload
+from vestahub.app_scaffold import scaffold_app
+from vestahub.build_loop import run_build_request
+from vestahub.checkpoints import (
     create_run_checkpoint,
     finalize_run_checkpoint,
     load_run_checkpoint,
 )
-from opaihub.gui_pipeline import handle_gui_message
-from opaihub.workflow_state import (
+from vestahub.gui_pipeline import handle_gui_message
+from vestahub.workflow_state import (
     WorkflowState,
     load_workflow_state,
     relink_workflow_checkpoint,
@@ -51,7 +51,7 @@ class _ThreadAPI(unittest.TestCase):
         value = getattr(gui_recents, name, None)
         self.assertTrue(
             callable(value),
-            f"opai.gui_recents.{name} is required for resumable threads",
+            f"vesta.gui_recents.{name} is required for resumable threads",
         )
         return value
 
@@ -60,7 +60,7 @@ class _ThreadAPI(unittest.TestCase):
         self.assertIsInstance(
             value,
             int,
-            f"opai.gui_recents.{name} must define the persisted-thread bound",
+            f"vesta.gui_recents.{name} must define the persisted-thread bound",
         )
         self.assertGreater(value, 0)
         return value
@@ -87,7 +87,7 @@ class _ThreadAPI(unittest.TestCase):
             "plan": [
                 {"step": "Persist the thread", "status": "in_progress"},
             ],
-            "changed_files": ["opai/gui_web.py"],
+            "changed_files": ["vesta/gui_web.py"],
         }
         payload.update(overrides)
         return self._callable("save_thread")(root, **payload)
@@ -98,21 +98,21 @@ class ThreadPersistenceTests(_ThreadAPI):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             bounded = root / "private-state"
-            with mock.patch("opaihub.state.state_dir", return_value=bounded):
+            with mock.patch("vestahub.state.state_dir", return_value=bounded):
                 path = self._callable("thread_path")(root)
 
         self.assertEqual(path, bounded / "gui" / "thread.json")
 
     def test_gui_state_symlink_escape_blocks_thread_and_workflow_write_and_delete(self):
-        from opaihub.workflow_state import clear_workflow_state
+        from vestahub.workflow_state import clear_workflow_state
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "repo"
             outside = Path(tmp) / "outside"
             root.mkdir()
             outside.mkdir()
-            (root / ".opaihub").mkdir()
-            gui_link = root / ".opaihub" / "gui"
+            (root / ".vestahub").mkdir()
+            gui_link = root / ".vestahub" / "gui"
             try:
                 gui_link.symlink_to(outside, target_is_directory=True)
             except OSError as exc:
@@ -170,7 +170,7 @@ class ThreadPersistenceTests(_ThreadAPI):
 
         self.assertEqual(
             saved_path,
-            root_a.resolve() / ".opaihub" / "gui" / "thread.json",
+            root_a.resolve() / ".vestahub" / "gui" / "thread.json",
         )
         self.assertEqual(
             restored["schema_version"],
@@ -463,7 +463,7 @@ class ThreadPersistenceTests(_ThreadAPI):
         start_fresh = getattr(gui_web, "start_fresh_payload", None)
         self.assertTrue(
             callable(start_fresh),
-            "opai.gui_web.start_fresh_payload must back the explicit fresh-start action",
+            "vesta.gui_web.start_fresh_payload must back the explicit fresh-start action",
         )
         load_thread = self._callable("load_thread")
         with tempfile.TemporaryDirectory() as tmp:
@@ -572,12 +572,12 @@ class ThreadPersistenceTests(_ThreadAPI):
                 with self.assertRaises(PermissionError):
                     gui_recents.clear_thread(root)
                 with self.assertRaises(PermissionError):
-                    from opaihub.workflow_state import clear_workflow_state
+                    from vestahub.workflow_state import clear_workflow_state
 
                     clear_workflow_state(root)
 
             with mock.patch(
-                "opai.gui_recents.clear_thread",
+                "vesta.gui_recents.clear_thread",
                 side_effect=PermissionError("denied"),
             ):
                 failed = gui_web.start_fresh_payload(root)
@@ -686,7 +686,7 @@ class WorkflowContinuityTests(unittest.TestCase):
                     provider={"diagnostic": anthropic_key},
                 ),
             )
-            path = root / ".opaihub" / "gui" / "workflow.json"
+            path = root / ".vestahub" / "gui" / "workflow.json"
             raw = path.read_text(encoding="utf-8")
             restored = load_workflow_state(root)
 
@@ -826,7 +826,7 @@ class ThreadLifecycleTests(unittest.TestCase):
                         "mode": "implement",
                         "plan_steps": ["Run focused tests"],
                     },
-                    "changed_files": ["opai/gui_web.py"],
+                    "changed_files": ["vesta/gui_web.py"],
                     "tool_trace": [{"source": "must never persist"}],
                 },
                 mode="safe-auto",
@@ -852,7 +852,7 @@ class ThreadLifecycleTests(unittest.TestCase):
                     "status": "applied",
                     "answer": "```file:secret.py\nprivate source\n```",
                     "applied": [
-                        {"path": "opai/assets/web/app.js", "action": "updated"}
+                        {"path": "vesta/assets/web/app.js", "action": "updated"}
                     ],
                 },
                 mode="build",
@@ -1019,7 +1019,7 @@ class BootResumeContractTests(_ThreadAPI):
             self._save(root, task_id="task-active", checkpoint_id=pending.checkpoint_id)
             checkpoint_path = (
                 root
-                / ".opaihub"
+                / ".vestahub"
                 / "agent"
                 / "checkpoints"
                 / f"{pending.checkpoint_id}.json"
@@ -1050,7 +1050,7 @@ class BootResumeContractTests(_ThreadAPI):
             )
             checkpoint_path = (
                 root
-                / ".opaihub"
+                / ".vestahub"
                 / "agent"
                 / "checkpoints"
                 / f"{pending.checkpoint_id}.json"
@@ -1127,7 +1127,7 @@ class BootResumeContractTests(_ThreadAPI):
                 root,
                 older.checkpoint_id,
                 completion_state="answered",
-                changed_files=["opai/old.py"],
+                changed_files=["vesta/old.py"],
             )
             newest = create_run_checkpoint(
                 root,
@@ -1148,15 +1148,15 @@ class BootResumeContractTests(_ThreadAPI):
                     message="Tests were running when Vesta closed",
                     checkpoint_id=newest.checkpoint_id,
                     plan_steps=("Persist state", "Run focused tests"),
-                    changed_files=("opai/gui_web.py",),
+                    changed_files=("vesta/gui_web.py",),
                 ),
             )
             self._save(
                 root,
                 checkpoint_id=newest.checkpoint_id,
-                changed_files=["opai/gui_web.py"],
+                changed_files=["vesta/gui_web.py"],
             )
-            broken = root / ".opaihub" / "agent" / "checkpoints" / "broken.json"
+            broken = root / ".vestahub" / "agent" / "checkpoints" / "broken.json"
             broken.write_text("{bad-checkpoint", encoding="utf-8")
 
             resume = boot_payload(root).get("resume")
@@ -1177,7 +1177,7 @@ class BootResumeContractTests(_ThreadAPI):
             tempfile.TemporaryDirectory() as tmp,
             isolated_home(),
             mock.patch(
-                "opaihub.checkpoints._now", return_value="2026-07-13T08:00:00+00:00"
+                "vestahub.checkpoints._now", return_value="2026-07-13T08:00:00+00:00"
             ),
         ):
             root = make_repo(Path(tmp), commit=True)
@@ -1275,7 +1275,7 @@ class CliResumeParityTests(_ThreadAPI):
         import contextlib as _ctx
         import io
 
-        from opai.cli import main
+        from vesta.cli import main
 
         out = io.StringIO()
         with _ctx.redirect_stdout(out):

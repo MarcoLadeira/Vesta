@@ -1,16 +1,16 @@
 # Run-Scoped Change Attribution Implementation Plan
 
-**Issue:** [#620](https://github.com/MarcoLadeira/OPai/issues/620)
+**Issue:** [#620](https://github.com/MarcoLadeira/Vesta/issues/620)
 
-**Goal:** Replace path-only `git status` comparisons with durable, fail-closed mutation evidence that can distinguish OPai writes from pre-existing or concurrent user changes and bind verification and delivery to the exact attributed snapshot.
+**Goal:** Replace path-only `git status` comparisons with durable, fail-closed mutation evidence that can distinguish Vesta writes from pre-existing or concurrent user changes and bind verification and delivery to the exact attributed snapshot.
 
-**Architecture:** Introduce a versioned `ChangeSet` domain in `opaihub/change_attribution.py`. It captures immutable repository, HEAD, index, and worktree identities around mutation intents; a pure reducer classifies each path from the recorded evidence. Runtime callers persist the canonical object and retain `changed_files` only as a compatibility projection. Any missing, malformed, or contradictory observation produces `uncertain`, never OPai ownership.
+**Architecture:** Introduce a versioned `ChangeSet` domain in `vestahub/change_attribution.py`. It captures immutable repository, HEAD, index, and worktree identities around mutation intents; a pure reducer classifies each path from the recorded evidence. Runtime callers persist the canonical object and retain `changed_files` only as a compatibility projection. Any missing, malformed, or contradictory observation produces `uncertain`, never Vesta ownership.
 
 ## Invariants
 
 - Capture the baseline before the first edit-capable operation and revalidate the repository handle immediately before every mutation.
 - Preserve HEAD tree entries, index stages, worktree kind/mode/content identity, canonical raw path identity, and repository/worktree identity separately.
-- Attribute a transition to OPai only when it is explained by a contiguous chain of successful operation records with matching preconditions and postconditions.
+- Attribute a transition to Vesta only when it is explained by a contiguous chain of successful operation records with matching preconditions and postconditions.
 - Treat unexplained drift, overlap, probe failure, repository/index movement, symlink or junction substitution, cancellation-late writes, and conflicting evidence as external or uncertain.
 - Never reset, clean, delete, or broadly stage user changes. Delivery consumes an explicit authorized manifest and revalidates it before mutation.
 - Bind verification, checkpoint recovery, GUI, CLI, receipt, and PR presentation to one serialized `ChangeSet` digest.
@@ -19,7 +19,7 @@
 
 **Files:**
 
-- Create `opaihub/change_attribution.py`.
+- Create `vestahub/change_attribution.py`.
 - Create `tests/test_change_attribution.py`.
 
 **TDD steps:**
@@ -34,24 +34,24 @@
 
 **Files:**
 
-- Modify `opaihub/change_attribution.py`.
+- Modify `vestahub/change_attribution.py`.
 - Extend `tests/test_change_attribution.py`.
 
 **TDD steps:**
 
-- [ ] Add failing literal-fixture cases for `user_only`, `opai_only`, `overlap`, `concurrent_external`, and `uncertain`.
-- [ ] Require every OPai-owned transition to match operation pre/post identities in order; record reasons and evidence references for every classification.
+- [ ] Add failing literal-fixture cases for `user_only`, `vesta_only`, `overlap`, `concurrent_external`, and `uncertain`.
+- [ ] Require every Vesta-owned transition to match operation pre/post identities in order; record reasons and evidence references for every classification.
 - [ ] Fail closed for missing observations, failed probes, malformed paths, repository/HEAD/index movement, duplicate operation IDs, and late writes after terminal cancellation.
-- [ ] Add deterministic property tests for ordering, serialization, and the invariant that incomplete evidence can never become `opai_only`.
+- [ ] Add deterministic property tests for ordering, serialization, and the invariant that incomplete evidence can never become `vesta_only`.
 - [ ] Run the focused suite and commit the green slice.
 
 ### Task 3: Durable checkpoint and runtime integration
 
 **Files:**
 
-- Modify `opaihub/checkpoints.py`.
-- Modify `opai/app_state.py`.
-- Modify `opaihub/gui_pipeline.py`.
+- Modify `vestahub/checkpoints.py`.
+- Modify `vesta/app_state.py`.
+- Modify `vestahub/gui_pipeline.py`.
 - Extend `tests/test_run_checkpoints.py` and the narrow app-state/GUI integration tests selected during implementation.
 
 **TDD steps:**
@@ -60,14 +60,14 @@
 - [ ] Persist operation intent before mutation and the observed outcome afterward, using repository-handle revalidation as the mutation gate.
 - [ ] Replace `_changed_files`/`_changed_file_identities` ownership decisions with canonical `ChangeSet` capture and classification.
 - [ ] Resume or reconcile interrupted operations without inventing ownership; detect writes observed after cancellation.
-- [ ] Keep `changed_files` as a derived compatibility field containing only authorized OPai-attributed paths.
+- [ ] Keep `changed_files` as a derived compatibility field containing only authorized Vesta-attributed paths.
 - [ ] Run focused checkpoint/runtime suites and commit the green slice.
 
 ### Task 4: Verification snapshot binding
 
 **Files:**
 
-- Modify `opaihub/verification_execution.py`.
+- Modify `vestahub/verification_execution.py`.
 - Extend `tests/test_verification_execution.py`.
 
 **TDD steps:**
@@ -86,7 +86,7 @@
 
 **TDD steps:**
 
-- [ ] Prove pre-existing staged/unstaged/untracked user changes are excluded from OPai delivery.
+- [ ] Prove pre-existing staged/unstaged/untracked user changes are excluded from Vesta delivery.
 - [ ] Stage only an explicit path-and-expected-entry manifest; revalidate the real index immediately before applying it.
 - [ ] Reject stale, overlapping, uncertain, out-of-worktree, symlink-swapped, and post-verification drift.
 - [ ] Prove no failure path invokes reset, clean, broad staging, or deletion of user work.
@@ -96,7 +96,7 @@
 
 **Files:**
 
-- Modify `opaihub/run_result.py`, `opaihub/run_result_projection.py`, and canonical completion/receipt projection modules as required.
+- Modify `vestahub/run_result.py`, `vestahub/run_result_projection.py`, and canonical completion/receipt projection modules as required.
 - Modify GUI/CLI presentation consumers without reimplementing attribution.
 - Extend run-result matrix/property/surface parity tests.
 

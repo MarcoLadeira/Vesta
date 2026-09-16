@@ -2,13 +2,13 @@
 
 ## Scope
 
-Close #136 and #150 as one release-reliability slice. A built OPai wheel must install with its declared runtime dependencies and run the required dependency-light commands from a clean home. The Python suites must produce the same result on clean and provider-configured machines, without consulting real credentials.
+Close #136 and #150 as one release-reliability slice. A built Vesta wheel must install with its declared runtime dependencies and run the required dependency-light commands from a clean home. The Python suites must produce the same result on clean and provider-configured machines, without consulting real credentials.
 
 ## Runtime dependency boundary
 
-PyYAML is a required core dependency because registry loading is core CLI behavior. `load_registry` will parse YAML exactly once and raise an actionable, path-aware `RegistryLoadError` for a missing parser, malformed YAML, or invalid UTF-8. Optional desktop dependencies remain extras because `opai gui --once` is intentionally headless.
+PyYAML is a required core dependency because registry loading is core CLI behavior. `load_registry` will parse YAML exactly once and raise an actionable, path-aware `RegistryLoadError` for a missing parser, malformed YAML, or invalid UTF-8. Optional desktop dependencies remain extras because `vesta gui --once` is intentionally headless.
 
-The isolated-install runner will build OPai and dependency wheels into one wheelhouse, install them with `--no-index` into a fresh virtual environment, and execute `opai --help`, `opai doctor`, `opaihub validate`, and `opai gui --once` outside the source tree under a disposable home. It will continue checking packaged web assets.
+The isolated-install runner will build Vesta and dependency wheels into one wheelhouse, install them with `--no-index` into a fresh virtual environment, and execute `vesta --help`, `vesta doctor`, `vestahub validate`, and `vesta gui --once` outside the source tree under a disposable home. It will continue checking packaged web assets.
 
 ## Hermetic test boundary
 

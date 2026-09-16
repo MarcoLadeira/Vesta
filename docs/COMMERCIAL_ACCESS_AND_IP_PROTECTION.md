@@ -70,6 +70,6 @@ routing policies, governance packs, dashboards, reports, and enterprise tools.
 - Replace `PRIVATE_TEAM_PILOT_APPLY_URL`.
 - Replace `PRIVATE_BENCHMARK_PROOF_URL`.
 - Replace the Cloudflare Web Analytics token.
-- Decide whether `MarcoLadeira/OPai` should be private before launch.
+- Decide whether `MarcoLadeira/Vesta` should be private before launch.
 - If the repo becomes private, replace public install commands with paid/private
   release links.

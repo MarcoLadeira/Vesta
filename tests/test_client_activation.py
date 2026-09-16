@@ -4,28 +4,28 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opai.clients import client_integrations_status, detect_stale_paths
-from opai.integrations import (
+from vesta.clients import client_integrations_status, detect_stale_paths
+from vesta.integrations import (
     activate_project,
     project_status,
-    uninstall_opai,
-    update_opai_source,
+    uninstall_vesta,
+    update_vesta_source,
 )
 
 
 class ClientDetectionTests(unittest.TestCase):
     def test_global_manifest_write_is_atomic(self):
-        from opai import integrations
+        from vesta import integrations
 
         with tempfile.TemporaryDirectory() as tmp:
-            target = Path(tmp) / ".opai" / "global.json"
-            with mock.patch("opai.integrations.atomic_write_text") as atomic_write:
+            target = Path(tmp) / ".vesta" / "global.json"
+            with mock.patch("vesta.integrations.atomic_write_text") as atomic_write:
                 integrations._write(target, "{}\n")
 
         atomic_write.assert_called_once_with(target, "{}\n")
 
     def test_global_install_preserves_previously_registered_targets(self):
-        from opai.integrations import install_global_integrations, load_global_status
+        from vesta.integrations import install_global_integrations, load_global_status
 
         with (
             tempfile.TemporaryDirectory() as ptmp,
@@ -65,8 +65,8 @@ class ClientDetectionTests(unittest.TestCase):
         ):
             proj, home = Path(ptmp), Path(htmp)
             activate_project(proj, home=home, install_global=False)
-            self.assertTrue((proj / ".cursor" / "rules" / "opai.mdc").exists())
-            self.assertTrue((proj / ".clinerules" / "opai.md").exists())
+            self.assertTrue((proj / ".cursor" / "rules" / "vesta.mdc").exists())
+            self.assertTrue((proj / ".clinerules" / "vesta.md").exists())
 
     def test_gemini_memory_is_written_and_preserves_user_content(self):
         with (
@@ -128,7 +128,7 @@ class StalePathTests(unittest.TestCase):
         ):
             proj, home = Path(ptmp), Path(htmp)
             activate_project(proj, home=home, install_global=False)
-            act = proj / ".opaihub" / "activation.json"
+            act = proj / ".vestahub" / "activation.json"
             data = json.loads(act.read_text(encoding="utf-8"))
             data["project_root"] = "C:/old/path/that/moved"
             act.write_text(json.dumps(data), encoding="utf-8")
@@ -155,11 +155,11 @@ class UninstallTests(unittest.TestCase):
         ):
             proj, home = Path(ptmp), Path(htmp)
             activate_project(proj, home=home, install_global=True)
-            result = uninstall_opai(proj, home=home, dry_run=True)
+            result = uninstall_vesta(proj, home=home, dry_run=True)
             self.assertEqual(result["status"], "planned")
             self.assertTrue(result["planned_path_removals"])
             # Nothing actually removed.
-            self.assertTrue((home / ".opai" / "global.json").exists())
+            self.assertTrue((home / ".vesta" / "global.json").exists())
 
     def test_confirm_removes_and_is_idempotent(self):
         with (
@@ -168,11 +168,11 @@ class UninstallTests(unittest.TestCase):
         ):
             proj, home = Path(ptmp), Path(htmp)
             activate_project(proj, home=home, install_global=True)
-            first = uninstall_opai(proj, home=home, dry_run=False)
+            first = uninstall_vesta(proj, home=home, dry_run=False)
             self.assertEqual(first["status"], "removed")
             self.assertTrue(first["removed_paths"])
-            self.assertFalse((home / ".opai" / "global.json").exists())
-            second = uninstall_opai(proj, home=home, dry_run=False)
+            self.assertFalse((home / ".vesta" / "global.json").exists())
+            second = uninstall_vesta(proj, home=home, dry_run=False)
             self.assertEqual(second["removed_paths"], [])
 
     def test_uninstall_preserves_user_content_outside_blocks(self):
@@ -185,7 +185,7 @@ class UninstallTests(unittest.TestCase):
             claude.parent.mkdir(parents=True, exist_ok=True)
             claude.write_text("# My personal notes\nkeep me\n", encoding="utf-8")
             activate_project(proj, home=home, install_global=True)
-            uninstall_opai(proj, home=home, dry_run=False)
+            uninstall_vesta(proj, home=home, dry_run=False)
             remaining = claude.read_text(encoding="utf-8")
         self.assertIn("My personal notes", remaining)
         self.assertNotIn("Vesta managed block", remaining)
@@ -194,7 +194,7 @@ class UninstallTests(unittest.TestCase):
 class UpdateTests(unittest.TestCase):
     def test_update_reports_missing_source_cleanly(self):
         with tempfile.TemporaryDirectory() as htmp:
-            result = update_opai_source(home=Path(htmp))
+            result = update_vesta_source(home=Path(htmp))
         self.assertEqual(result["status"], "missing_source")
 
 

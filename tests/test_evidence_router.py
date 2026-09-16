@@ -4,9 +4,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub.evidence import collect_evidence
-from opaihub.loader import registry_items
-from opaihub.router import (
+from vestahub.evidence import collect_evidence
+from vestahub.loader import registry_items
+from vestahub.router import (
     MAX_CHANGED_FILES,
     MAX_COMPACT_ROUTE_CHARS,
     MAX_DIFF_STAT_LINES,
@@ -262,7 +262,7 @@ class RouteRedactionHardeningTests(unittest.TestCase):
 
     def test_changed_files_cap_applied_in_compact_evidence(self):
         """_compact_evidence passes max_lines=MAX_CHANGED_FILES for changed_files."""
-        from opaihub.router import _compact_evidence
+        from vestahub.router import _compact_evidence
 
         many = "\n".join(f"file_{i}.py" for i in range(MAX_CHANGED_FILES + 50))
         evidence = {
@@ -303,7 +303,7 @@ class RouteRedactionHardeningTests(unittest.TestCase):
 
     def test_diff_stat_cap_applied_in_compact_evidence(self):
         """_compact_evidence passes max_lines=MAX_DIFF_STAT_LINES for diff_stat."""
-        from opaihub.router import _compact_evidence
+        from vestahub.router import _compact_evidence
 
         many_stat = "\n".join(
             f" f_{i}.py | {i} +" for i in range(MAX_DIFF_STAT_LINES + 20)

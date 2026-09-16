@@ -3,9 +3,9 @@ from pathlib import Path
 import pytest
 
 from _helpers import make_repo
-from opaihub.agent_objectives import ObjectiveStore
-from opaihub.journal_store import StaleWriterError
-from opaihub.objective_execution import ObjectiveExecutor
+from vestahub.agent_objectives import ObjectiveStore
+from vestahub.journal_store import StaleWriterError
+from vestahub.objective_execution import ObjectiveExecutor
 
 
 def assignment(name, **extra):
@@ -92,7 +92,7 @@ def test_worker_marks_only_preflight_denials_retryable(
 ):
     import json
     from unittest.mock import Mock
-    from opaihub import objective_worker
+    from vestahub import objective_worker
 
     store = ObjectiveStore(tmp_path)
     obj = store.create("Update", [assignment("a", budget_usd="1")])
@@ -109,7 +109,7 @@ def test_worker_marks_only_preflight_denials_retryable(
     request.write_text("{}")
     monkeypatch.setattr(objective_worker, "authorize_request", lambda *args: packet)
     provider = Mock(side_effect=AssertionError("Provider dispatch is forbidden"))
-    monkeypatch.setattr("opaihub.gui_pipeline.handle_gui_message", provider)
+    monkeypatch.setattr("vestahub.gui_pipeline.handle_gui_message", provider)
     assert objective_worker.main([str(request), str(response)]) == 0
     result = json.loads(response.read_text())
     assert result["dispatch_state"] == "not-dispatched"
@@ -140,7 +140,7 @@ def test_pipeline_cannot_promote_its_blocked_result_to_predispatch_retry(
 ):
     import json
     from unittest.mock import Mock
-    from opaihub import objective_worker
+    from vestahub import objective_worker
 
     store = ObjectiveStore(tmp_path)
     obj = store.create("Update", [assignment("a")])
@@ -162,7 +162,7 @@ def test_pipeline_cannot_promote_its_blocked_result_to_predispatch_retry(
     provider = Mock(
         return_value={"status": "blocked", "dispatch_state": "not-dispatched"}
     )
-    monkeypatch.setattr("opaihub.gui_pipeline.handle_gui_message", provider)
+    monkeypatch.setattr("vestahub.gui_pipeline.handle_gui_message", provider)
     assert objective_worker.main([str(request), str(response)]) == 0
     result = json.loads(response.read_text())
     assert result["status"] == "blocked"
@@ -234,7 +234,7 @@ def test_approval_continuation_transfers_partial_work_before_new_invocation(
     root = tmp_path / "repository"
     root.mkdir()
     make_repo(
-        root, files={"a.txt": "original", ".gitignore": ".opaihub/\n"}, commit=True
+        root, files={"a.txt": "original", ".gitignore": ".vestahub/\n"}, commit=True
     )
     store = ObjectiveStore(root)
     oid = store.create("Update a", [assignment("a")])["objective_id"]
@@ -359,7 +359,7 @@ def test_proof_before_expiration_is_consumed_only_after_owner_loss(tmp_path):
 
 
 def test_legacy_process_group_proof_cannot_release_custody():
-    from opaihub.agent_objectives import StaleWriterError
+    from vestahub.agent_objectives import StaleWriterError
 
     custody = {
         "execution_id": "old-execution",

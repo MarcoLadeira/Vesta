@@ -7,7 +7,7 @@ from unittest import mock
 
 import pytest
 
-from opai import cli
+from vesta import cli
 
 
 def test_agents_list_uses_shared_projection(tmp_path):
@@ -16,7 +16,7 @@ def test_agents_list_uses_shared_projection(tmp_path):
     )
     expected = {"objectives": [{"objective_id": "o", "status": "paused"}]}
     with mock.patch(
-        "opai.agents_bridge.objectives_payload", return_value=expected
+        "vesta.agents_bridge.objectives_payload", return_value=expected
     ) as projection:
         output = io.StringIO()
         with redirect_stdout(output):
@@ -39,7 +39,7 @@ def test_agents_stop_one_uses_same_control_as_desktop(tmp_path):
         ]
     )
     with mock.patch(
-        "opai.agents_bridge.control_objective_payload",
+        "vesta.agents_bridge.control_objective_payload",
         return_value={"ok": True, "objective": {"status": "stopping"}},
     ) as control:
         with redirect_stdout(io.StringIO()):
@@ -84,7 +84,7 @@ def test_agents_approval_and_review_share_desktop_fences(
         ["agents", action, "o", *flags, "--project", str(tmp_path), "--json"]
     )
     with mock.patch(
-        "opai.agents_bridge.control_objective_payload", return_value={"ok": True}
+        "vesta.agents_bridge.control_objective_payload", return_value={"ok": True}
     ) as control:
         with redirect_stdout(io.StringIO()):
             assert args.func(args) == 0
@@ -111,10 +111,10 @@ def test_agents_create_persists_without_implicitly_dispatching(tmp_path):
     )
     with (
         mock.patch(
-            "opai.agents_bridge.create_objective_payload",
+            "vesta.agents_bridge.create_objective_payload",
             return_value={"objective_id": "o", "status": "planning"},
         ) as create,
-        mock.patch("opaihub.objective_execution.ObjectiveExecutor.run") as run,
+        mock.patch("vestahub.objective_execution.ObjectiveExecutor.run") as run,
     ):
         with redirect_stdout(io.StringIO()):
             assert args.func(args) == 0
@@ -127,7 +127,7 @@ def test_agents_run_uses_shared_executor_in_foreground(tmp_path):
     args = cli.build_parser().parse_args(
         ["agents", "run", "o", "--project", str(tmp_path), "--json"]
     )
-    with mock.patch("opaihub.objective_execution.ObjectiveExecutor") as executor:
+    with mock.patch("vestahub.objective_execution.ObjectiveExecutor") as executor:
         executor.return_value.run.return_value = {
             "objective_id": "o",
             "status": "completed",

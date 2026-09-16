@@ -3,8 +3,8 @@
 import unittest
 from pathlib import Path
 
-from opai.cli import build_parser
-from opai.release_identity import read_project_release
+from vesta.cli import build_parser
+from vesta.release_identity import read_project_release
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -19,12 +19,12 @@ class SiteFunnelTests(unittest.TestCase):
             self.assertIn(client, self.html)
 
     def test_free_alpha_has_no_paid_or_private_access_gate(self):
-        self.assertNotIn("raw.githubusercontent.com/MarcoLadeira/OPai", self.html)
+        self.assertNotIn("raw.githubusercontent.com/MarcoLadeira/Vesta", self.html)
         self.assertNotIn("install.ps1", self.html)
         self.assertNotIn("install.sh", self.html)
-        self.assertNotIn('python -m pip install "opai[desktop-gui]"', self.html)
+        self.assertNotIn('python -m pip install "vesta[desktop-gui]"', self.html)
         self.assertIn("Free public alpha", self.html)
-        self.assertIn("pip install opai", self.html)
+        self.assertIn("pip install vesta", self.html)
         for token in [
             "PRIVATE_FOUNDING_PRO_CHECKOUT_URL",
             "PRIVATE_TEAM_PILOT_APPLY_URL",
@@ -108,7 +108,7 @@ class StrategyAndCommandsTests(unittest.TestCase):
     def test_current_onboarding_does_not_claim_an_archived_release_path(self):
         for relative in ["README.md", "docs/QUICKSTART.md"]:
             text = (REPO / relative).read_text(encoding="utf-8")
-            self.assertIn("github.com/MarcoLadeira/OPai/releases", text, relative)
+            self.assertIn("github.com/MarcoLadeira/Vesta/releases", text, relative)
             self.assertIn("no public", text.lower(), relative)
             self.assertNotIn(
                 "current verified release path is described in the release notes",

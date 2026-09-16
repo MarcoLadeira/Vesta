@@ -5,7 +5,7 @@ import pytest
 
 
 def test_host_capacity_is_shared_between_independent_project_workers(tmp_path):
-    from opaihub.objective_capacity import host_slot
+    from vestahub.objective_capacity import host_slot
 
     entered = threading.Event()
     stop = threading.Event()
@@ -26,7 +26,7 @@ def test_host_capacity_is_shared_between_independent_project_workers(tmp_path):
 
 
 def test_host_slot_released_after_worker_failure(tmp_path):
-    from opaihub.objective_capacity import host_slot
+    from vestahub.objective_capacity import host_slot
 
     with pytest.raises(RuntimeError):
         with host_slot(threading.Event(), directory=tmp_path, limit=1):

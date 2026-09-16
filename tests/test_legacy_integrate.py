@@ -9,7 +9,7 @@ class LegacyIntegrateTests(unittest.TestCase):
 
         self.assertEqual(plan["tool"], "copilot")
         self.assertEqual(plan["tool_args"], ["suggest", "tests"])
-        self.assertEqual(plan["opai_args"][0], "launch")
+        self.assertEqual(plan["vesta_args"][0], "launch")
 
     def test_launch_plan_rejects_unknown_tool(self):
         with self.assertRaises(ValueError):

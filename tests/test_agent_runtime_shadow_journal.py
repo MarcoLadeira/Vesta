@@ -1,6 +1,6 @@
 """#613 Stage 2: agent runtime state mirrors into the shadow journal.
 
-``opaihub/agent_runtime.py`` is Stage 1's "runs: agent process state". It is
+``vestahub/agent_runtime.py`` is Stage 1's "runs: agent process state". It is
 the third table shape to adopt the shared helper (after ``leases`` and
 ``operations``), and the first whose record carries an *accumulating* field:
 ``history`` grows with every phase transition.
@@ -20,7 +20,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub.agent_runtime import AgentRuntime, RuntimePhase
+from vestahub.agent_runtime import AgentRuntime, RuntimePhase
 
 
 class AgentRuntimeShadowTests(unittest.TestCase):

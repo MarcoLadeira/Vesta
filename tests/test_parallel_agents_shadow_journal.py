@@ -1,6 +1,6 @@
 """#613 Stage 2: parallel-agent assignments mirror into the shadow journal.
 
-``opaihub/parallel_agents.py`` is Stage 1's "runs: concurrent agent slots".
+``vestahub/parallel_agents.py`` is Stage 1's "runs: concurrent agent slots".
 
 This module was the first migrated one that had **no interprocess locking at
 all** -- ``save_assignment`` hand-rolled a temp-write plus replace. The
@@ -26,7 +26,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
 
-from opaihub.parallel_agents import (
+from vestahub.parallel_agents import (
     AgentAssignment,
     assignment_contradiction_report,
     load_assignment,
@@ -101,7 +101,7 @@ class AssignmentShadowTests(unittest.TestCase):
         """The old temp+replace left `<id>.tmp`; atomic_write_text does not."""
         save_assignment(self.root, _assignment())
 
-        directory = self.root / ".opaihub" / "agent" / "parallel"
+        directory = self.root / ".vestahub" / "agent" / "parallel"
         strays = sorted(p.name for p in directory.iterdir() if p.suffix == ".tmp")
 
         self.assertEqual(strays, [])
@@ -109,7 +109,7 @@ class AssignmentShadowTests(unittest.TestCase):
     def test_an_out_of_band_write_is_reported(self):
         assignment = _assignment()
         save_assignment(self.root, assignment)
-        path = self.root / ".opaihub" / "agent" / "parallel" / "a-1.json"
+        path = self.root / ".vestahub" / "agent" / "parallel" / "a-1.json"
         tampered = {**assignment.to_dict(), "status": "completed", "owner": "someone"}
         path.write_text(json.dumps(tampered), encoding="utf-8")
 

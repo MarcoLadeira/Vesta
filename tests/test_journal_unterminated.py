@@ -35,20 +35,20 @@ from unittest import mock
 
 import sqlite3
 
-from opaihub import (
+from vestahub import (
     journal_liveness,
     journal_runtime,
     journal_store,
     owner_lease,
 )
-from opaihub.journal_runtime import (
+from vestahub.journal_runtime import (
     EVENT_FINISHED,
     record_admission,
     record_terminal,
     unterminated_runs,
     unterminated_summary,
 )
-from opaihub.journal_store import journal_path, open_store
+from vestahub.journal_store import journal_path, open_store
 
 NOW = "2026-08-27T12:00:00+00:00"
 
@@ -56,7 +56,7 @@ NOW = "2026-08-27T12:00:00+00:00"
 #: The child program: admit a run, then die where nothing can clean up.
 _ADMIT_THEN_DIE = """import sys
 sys.path.insert(0, r'{cwd}')
-from opaihub.journal_runtime import record_admission
+from vestahub.journal_runtime import record_admission
 record_admission(r'{root}', task_id='{task_id}', run_id='{run_id}', task='x', now='{now}')
 import os
 os._exit(9)
@@ -172,7 +172,7 @@ class TheRowCarriesWhatARecoveryPassNeedsTests(_PendingFixture):
         fence = self._admit("live")
         store = open_store(self.root)
         try:
-            from opaihub.journal_store import release_lease
+            from vestahub.journal_store import release_lease
 
             release_lease(store, run_id="live", fence=fence, now=NOW)
         finally:
@@ -518,9 +518,9 @@ class ATaskNamesTheConversationItCameFromTests(_PendingFixture):
         """
 
         repo = Path(__file__).resolve().parent.parent
-        pipeline = (repo / "opaihub" / "gui_pipeline.py").read_text(encoding="utf-8")
-        gui = (repo / "opai" / "gui_web.py").read_text(encoding="utf-8")
-        cli = (repo / "opai" / "cli_stream.py").read_text(encoding="utf-8")
+        pipeline = (repo / "vestahub" / "gui_pipeline.py").read_text(encoding="utf-8")
+        gui = (repo / "vesta" / "gui_web.py").read_text(encoding="utf-8")
+        cli = (repo / "vesta" / "cli_stream.py").read_text(encoding="utf-8")
 
         # The conversation comes from the caller that recorded the turn in it.
         # Reading the workspace thread file instead filed every CLI, background
@@ -581,7 +581,7 @@ class ALeaseCanBeRestampedByTheProcessHoldingItTests(_PendingFixture):
         before = self._heartbeat()
         store = open_store(self.root)
         try:
-            store.execute("UPDATE leases SET owner_boot = 'a-different-opai'")
+            store.execute("UPDATE leases SET owner_boot = 'a-different-vesta'")
         finally:
             store.close()
 
@@ -596,7 +596,7 @@ class ALeaseCanBeRestampedByTheProcessHoldingItTests(_PendingFixture):
         fence = self._admit("live")
         store = open_store(self.root)
         try:
-            from opaihub.journal_store import release_lease
+            from vestahub.journal_store import release_lease
 
             release_lease(store, run_id="live", fence=fence, now=NOW)
         finally:
@@ -639,7 +639,7 @@ class ALeaseCanBeRestampedByTheProcessHoldingItTests(_PendingFixture):
         """
 
         source = (
-            Path(__file__).resolve().parent.parent / "opaihub" / "gui_pipeline.py"
+            Path(__file__).resolve().parent.parent / "vestahub" / "gui_pipeline.py"
         ).read_text(encoding="utf-8")
 
         self.assertIn("def _journal_beat(", source)
@@ -688,7 +688,7 @@ class ACountNobodyCouldTakeIsNotZeroTests(_PendingFixture):
         self.assertFalse(summary["available"])
         self.assertEqual(summary["unavailable_reason"], "unreadable")
 
-    def test_a_journal_from_a_newer_opai_says_so_rather_than_corrupt(self):
+    def test_a_journal_from_a_newer_vesta_says_so_rather_than_corrupt(self):
         """Two failures that need different words. "A newer Vesta wrote this"
         points at an upgrade; "unreadable" points at a corrupt file, and
         sending someone to the wrong one wastes their evening."""

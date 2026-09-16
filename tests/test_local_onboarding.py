@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub.local_onboarding import (
+from vestahub.local_onboarding import (
     STATES,
     ProbeResult,
     local_onboarding_status,
@@ -166,12 +166,12 @@ class CliTests(unittest.TestCase):
         import json
         from unittest import mock
 
-        from opai.cli import main
+        from vesta.cli import main
 
         with tempfile.TemporaryDirectory() as tmp:
             # No local runtime installed or reachable -> exit 1, honest guidance.
             with mock.patch(
-                "opaihub.local_onboarding._default_probe",
+                "vestahub.local_onboarding._default_probe",
                 return_value=ProbeResult(False, False),
             ):
                 out = io.StringIO()

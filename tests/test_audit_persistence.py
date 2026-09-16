@@ -9,8 +9,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub import audit
-from opaihub.audit import (
+from vestahub import audit
+from vestahub.audit import (
     audit_path,
     checkpoint_path,
     read_audit,

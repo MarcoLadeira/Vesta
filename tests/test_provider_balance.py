@@ -16,7 +16,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub import provider_balance as pb
+from vestahub import provider_balance as pb
 
 
 class _Root:
@@ -169,7 +169,7 @@ class SnapshotShapeTests(unittest.TestCase):
         """Only numbers, closed slugs, and currency codes may be persisted."""
         with _Root() as root:
             pb.record_exhausted(root, "kimi", source="HTTP 429 sk-secret-token leaked!")
-            raw = (root / ".opaihub" / "health" / "provider_balance.json").read_text(
+            raw = (root / ".vestahub" / "health" / "provider_balance.json").read_text(
                 encoding="utf-8"
             )
             data = json.loads(raw)
@@ -216,7 +216,7 @@ class LiveProbeTests(unittest.TestCase):
     def _with_key(self):
         store = mock.MagicMock()
         store.get.return_value = "test-key"
-        return mock.patch("opaihub.credentials.CredentialStore", return_value=store)
+        return mock.patch("vestahub.credentials.CredentialStore", return_value=store)
 
     def test_probe_updates_amount_and_reference(self):
         with _Root() as root, self._with_key():
@@ -271,7 +271,7 @@ class LiveProbeTests(unittest.TestCase):
             store.get.return_value = ""
             fetch = mock.Mock(return_value=(5.0, "USD"))
             with (
-                mock.patch("opaihub.credentials.CredentialStore", return_value=store),
+                mock.patch("vestahub.credentials.CredentialStore", return_value=store),
                 mock.patch.object(pb, "_probe_moonshot", fetch),
             ):
                 snap = pb.probe_balance(root, "kimi", force=True)
@@ -329,7 +329,7 @@ class BalanceOverviewTests(unittest.TestCase):
             store = mock.MagicMock()
             store.get.return_value = "key"
             with (
-                mock.patch("opaihub.credentials.CredentialStore", return_value=store),
+                mock.patch("vestahub.credentials.CredentialStore", return_value=store),
                 mock.patch.object(pb, "_probe_moonshot", fetch),
             ):
                 pb.balance_overview(
@@ -371,7 +371,7 @@ class RouterExclusionTests(unittest.TestCase):
     }
 
     def test_exhausted_provider_is_excluded_from_the_chain(self):
-        from opaihub.auto_router import resolve_auto_chain
+        from vestahub.auto_router import resolve_auto_chain
 
         with _Root() as root:
             pb.record_exhausted(root, "kimi")
@@ -381,7 +381,7 @@ class RouterExclusionTests(unittest.TestCase):
         self.assertIn("account:claude", ids)
 
     def test_exhausted_account_is_excluded_too(self):
-        from opaihub.auto_router import resolve_auto_chain
+        from vestahub.auto_router import resolve_auto_chain
 
         with _Root() as root:
             pb.record_exhausted(root, "claude")
@@ -389,7 +389,7 @@ class RouterExclusionTests(unittest.TestCase):
         self.assertNotIn("account:claude", ids)
 
     def test_catalog_out_of_credit_flag_excludes_without_store(self):
-        from opaihub.auto_router import resolve_auto_chain
+        from vestahub.auto_router import resolve_auto_chain
 
         catalog = {
             "models": [
@@ -408,7 +408,7 @@ class RouterExclusionTests(unittest.TestCase):
         self.assertEqual(ids, ["auto"])
 
     def test_expired_exhaustion_readmits_the_provider(self):
-        from opaihub.auto_router import resolve_auto_chain
+        from vestahub.auto_router import resolve_auto_chain
 
         with _Root() as root:
             pb.record_exhausted(
@@ -418,7 +418,7 @@ class RouterExclusionTests(unittest.TestCase):
         self.assertIn("free:kimi:kimi-k2.6", ids)
 
     def test_diagnostics_name_the_skipped_providers(self):
-        from opaihub.auto_router import routing_diagnostics
+        from vestahub.auto_router import routing_diagnostics
 
         with _Root() as root:
             pb.record_exhausted(root, "kimi")
@@ -428,7 +428,7 @@ class RouterExclusionTests(unittest.TestCase):
 
 class RunOutcomeRecordingTests(unittest.TestCase):
     def test_quota_error_code_records_exhaustion(self):
-        from opai.app_state import _note_provider_balance
+        from vesta.app_state import _note_provider_balance
 
         with _Root() as root:
             _note_provider_balance(
@@ -439,7 +439,7 @@ class RunOutcomeRecordingTests(unittest.TestCase):
     def test_raw_insufficient_balance_last_error_records_exhaustion(self):
         """The tool loop reports provider_error without normalizing — the raw
         Moonshot suspension text in last_error must still count."""
-        from opai.app_state import _note_provider_balance
+        from vesta.app_state import _note_provider_balance
 
         with _Root() as root:
             _note_provider_balance(
@@ -455,7 +455,7 @@ class RunOutcomeRecordingTests(unittest.TestCase):
             self.assertTrue(pb.is_exhausted(root, "kimi"))
 
     def test_completed_run_clears_exhaustion(self):
-        from opai.app_state import _note_provider_balance
+        from vesta.app_state import _note_provider_balance
 
         with _Root() as root:
             pb.record_exhausted(root, "gemini")
@@ -463,7 +463,7 @@ class RunOutcomeRecordingTests(unittest.TestCase):
             self.assertFalse(pb.is_exhausted(root, "gemini"))
 
     def test_plain_rate_limit_does_not_record_exhaustion(self):
-        from opai.app_state import _note_provider_balance
+        from vesta.app_state import _note_provider_balance
 
         with _Root() as root:
             _note_provider_balance(
@@ -474,7 +474,7 @@ class RunOutcomeRecordingTests(unittest.TestCase):
 
 class InsufficientBalanceClassificationTests(unittest.TestCase):
     def test_moonshot_suspension_classifies_as_quota_exhausted(self):
-        from opai.provider_contract import classify_error_code
+        from vesta.provider_contract import classify_error_code
 
         message = (
             "HTTP 429: Your account org-ab7cea466aa74bafab285ee19a8c2e37 "
@@ -484,7 +484,7 @@ class InsufficientBalanceClassificationTests(unittest.TestCase):
         self.assertEqual(classify_error_code(message), "PROVIDER_QUOTA_EXHAUSTED")
 
     def test_anthropic_low_credit_classifies_as_quota_exhausted(self):
-        from opai.provider_contract import classify_error_code
+        from vesta.provider_contract import classify_error_code
 
         self.assertEqual(
             classify_error_code(
@@ -494,7 +494,7 @@ class InsufficientBalanceClassificationTests(unittest.TestCase):
         )
 
     def test_plain_429_still_classifies_as_rate_limited(self):
-        from opai.provider_contract import classify_error_code
+        from vesta.provider_contract import classify_error_code
 
         self.assertEqual(
             classify_error_code("429 too many requests"), "PROVIDER_RATE_LIMITED"
@@ -503,7 +503,7 @@ class InsufficientBalanceClassificationTests(unittest.TestCase):
 
 class CatalogRemovalTests(unittest.TestCase):
     def test_out_of_credit_model_is_removed_with_explanation(self):
-        from opai.app_state import available_models
+        from vesta.app_state import available_models
 
         with _Root() as root:
             pb.record_exhausted(root, "kimi")
@@ -518,7 +518,7 @@ class CatalogRemovalTests(unittest.TestCase):
             self.assertEqual(model["balance"]["status"], "out")
 
     def test_healthy_provider_keeps_balance_attached(self):
-        from opai.app_state import available_models
+        from vesta.app_state import available_models
 
         with _Root() as root:
             pb.set_manual_balance(root, "gemini", 4.2)
@@ -533,7 +533,7 @@ class CatalogRemovalTests(unittest.TestCase):
         self.assertTrue(gemini[0]["available"])
 
     def test_auto_and_local_entries_carry_no_balance(self):
-        from opai.app_state import available_models
+        from vesta.app_state import available_models
 
         with _Root() as root:
             catalog = available_models(root, discover_local=False)
@@ -544,7 +544,7 @@ class CatalogRemovalTests(unittest.TestCase):
 
 class SettingsPayloadBalanceTests(unittest.TestCase):
     def test_provider_balances_payload_covers_accounts_and_free(self):
-        from opai.gui_web import provider_balances_payload
+        from vesta.gui_web import provider_balances_payload
 
         with _Root() as root:
             pb.set_manual_balance(root, "claude", 85, currency="EUR")
@@ -556,7 +556,7 @@ class SettingsPayloadBalanceTests(unittest.TestCase):
             }
             store = mock.MagicMock()
             store.get.side_effect = lambda p: "key" if p == "kimi" else ""
-            with mock.patch("opaihub.credentials.CredentialStore", return_value=store):
+            with mock.patch("vestahub.credentials.CredentialStore", return_value=store):
                 payload = provider_balances_payload(root, models)
         by_provider = {item["provider"]: item for item in payload}
         # Accounts and every free provider are present, deduped.
@@ -570,14 +570,14 @@ class SettingsPayloadBalanceTests(unittest.TestCase):
         self.assertEqual(by_provider["gemini"]["status"], "not_configured")
 
     def test_payload_build_never_probes_by_default(self):
-        from opai.gui_web import provider_balances_payload
+        from vesta.gui_web import provider_balances_payload
 
         with _Root() as root:
             fetch = mock.Mock(return_value=(5.0, "USD"))
             store = mock.MagicMock()
             store.get.return_value = "key"
             with (
-                mock.patch("opaihub.credentials.CredentialStore", return_value=store),
+                mock.patch("vestahub.credentials.CredentialStore", return_value=store),
                 mock.patch.object(pb, "_probe_moonshot", fetch),
             ):
                 provider_balances_payload(root, {"connections": []})

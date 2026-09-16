@@ -13,8 +13,8 @@ from pathlib import Path
 
 from _helpers import make_repo
 
-from opaihub.app_scaffold import scaffold_app
-from opaihub.build_loop import (
+from vestahub.app_scaffold import scaffold_app
+from vestahub.build_loop import (
     BUILD_LOG_NAME,
     app_receipt,
     apply_edits,
@@ -114,7 +114,7 @@ class RunBuildLogsTests(unittest.TestCase):
     def test_clear_history_scrubs_legacy_raw_build_requests_without_losing_receipt(
         self,
     ):
-        from opai.gui_web import clear_history_payload
+        from vesta.gui_web import clear_history_payload
 
         secret = "sk-" + "ant-api03-" + ("B2_" * 18)
         with tempfile.TemporaryDirectory() as tmp:
@@ -229,8 +229,8 @@ class AppReceiptTests(unittest.TestCase):
 
 
 class CliAppReceiptTests(unittest.TestCase):
-    def test_opai_app_receipt_end_to_end(self):
-        from opai.cli import main
+    def test_vesta_app_receipt_end_to_end(self):
+        from vesta.cli import main
 
         with tempfile.TemporaryDirectory() as tmp:
             root = _scaffold(tmp)
@@ -256,8 +256,8 @@ class CliAppReceiptTests(unittest.TestCase):
             self.assertEqual(payload["builds"], 1)
             self.assertAlmostEqual(payload["spend_usd_actual"], 0.01)
 
-    def test_opai_app_receipt_human_output(self):
-        from opai.cli import main
+    def test_vesta_app_receipt_human_output(self):
+        from vesta.cli import main
 
         with tempfile.TemporaryDirectory() as tmp:
             root = _scaffold(tmp)
@@ -269,8 +269,8 @@ class CliAppReceiptTests(unittest.TestCase):
             self.assertIn("Vesta Build receipt", out)
             self.assertIn("tokens never spent", out)
 
-    def test_opai_app_receipt_on_a_non_app_exits_2(self):
-        from opai.cli import main
+    def test_vesta_app_receipt_on_a_non_app_exits_2(self):
+        from vesta.cli import main
 
         with tempfile.TemporaryDirectory() as tmp:
             buf = io.StringIO()

@@ -2,18 +2,18 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (- [ ]) syntax for tracking.
 
-**Goal:** Build a deterministic, versioned verification-policy resolver whose durable effective-policy artifact is captured before edit-capable OPai runs.
+**Goal:** Build a deterministic, versioned verification-policy resolver whose durable effective-policy artifact is captured before edit-capable Vesta runs.
 
-**Architecture:** Add opaihub.verification_policy as a pure resolver with strict YAML overlays, repository/task classification, source provenance, stable artifact hashing, and atomic local persistence. The GUI pipeline persists and propagates this artifact before dispatch; a new CLI command calls the same resolver without running repository commands.
+**Architecture:** Add vestahub.verification_policy as a pure resolver with strict YAML overlays, repository/task classification, source provenance, stable artifact hashing, and atomic local persistence. The GUI pipeline persists and propagates this artifact before dispatch; a new CLI command calls the same resolver without running repository commands.
 
-**Tech Stack:** Python 3.10+, dataclasses, JSON, PyYAML through opaihub.loader, hashlib, argparse, pytest/unittest.
+**Tech Stack:** Python 3.10+, dataclasses, JSON, PyYAML through vestahub.loader, hashlib, argparse, pytest/unittest.
 
 ---
 
 ### Task 1: Establish policy-engine contracts and red tests
 
 **Files:**
-- Create: opaihub/verification_policy.py
+- Create: vestahub/verification_policy.py
 - Create: tests/test_verification_policy.py
 
 - [ ] **Step 1: Write failing tests for deterministic built-in resolution and human-review requirements.**
@@ -21,7 +21,7 @@
 ~~~python
 from pathlib import Path
 
-from opaihub.verification_policy import resolve_verification_policy
+from vestahub.verification_policy import resolve_verification_policy
 
 
 def test_python_edit_policy_is_deterministic_and_records_provenance(tmp_path: Path) -> None:
@@ -49,7 +49,7 @@ def test_unautomatable_acceptance_is_visible_human_review(tmp_path: Path) -> Non
 
 Run: python -m pytest tests/test_verification_policy.py -q
 
-Expected: collection failure naming opaihub.verification_policy.
+Expected: collection failure naming vestahub.verification_policy.
 
 - [ ] **Step 3: Implement immutable schema and built-in resolution.**
 
@@ -95,22 +95,22 @@ Expected: PASS.
 - [ ] **Step 5: Commit the policy contract.**
 
 ~~~bash
-git add opaihub/verification_policy.py tests/test_verification_policy.py
+git add vestahub/verification_policy.py tests/test_verification_policy.py
 git commit -m "feat(verify): resolve built-in verification policies"
 ~~~
 
 ### Task 2: Add strict overlays, linting, and fail-closed decisions
 
 **Files:**
-- Modify: opaihub/verification_policy.py
-- Modify: opaihub/team_policy.py
+- Modify: vestahub/verification_policy.py
+- Modify: vestahub/team_policy.py
 - Modify: tests/test_verification_policy.py
 
 - [ ] **Step 1: Write failing overlay and linter tests.**
 
 ~~~python
 def test_repository_overlay_cannot_downgrade_inherited_required_check(tmp_path: Path) -> None:
-    (tmp_path / "opai-verification-policy.yaml").write_text(
+    (tmp_path / "vesta-verification-policy.yaml").write_text(
         "schema_version: 1\nchecks:\n  - id: unit\n    requirement: optional\n",
         encoding="utf-8",
     )
@@ -121,7 +121,7 @@ def test_repository_overlay_cannot_downgrade_inherited_required_check(tmp_path: 
 
 
 def test_malformed_repository_policy_never_returns_permissive_policy(tmp_path: Path) -> None:
-    (tmp_path / "opai-verification-policy.yaml").write_text("checks: [", encoding="utf-8")
+    (tmp_path / "vesta-verification-policy.yaml").write_text("checks: [", encoding="utf-8")
     policy = resolve_verification_policy(tmp_path, task="Fix code", mode="implement")
 
     assert policy.status == "blocked"
@@ -138,7 +138,7 @@ Expected: FAIL because overlays are not yet loaded or linted.
 
 ~~~python
 def load_repository_overlay(root: Path) -> PolicyOverlay | PolicyFinding:
-    path = root / "opai-verification-policy.yaml"
+    path = root / "vesta-verification-policy.yaml"
     if not path.exists():
         return PolicyOverlay.empty(source="repository")
     try:
@@ -168,14 +168,14 @@ Expected: PASS.
 - [ ] **Step 5: Commit overlay handling.**
 
 ~~~bash
-git add opaihub/verification_policy.py opaihub/team_policy.py tests/test_verification_policy.py
+git add vestahub/verification_policy.py vestahub/team_policy.py tests/test_verification_policy.py
 git commit -m "feat(verify): lint policy overlays fail closed"
 ~~~
 
 ### Task 3: Persist reproducible effective-policy artifacts
 
 **Files:**
-- Modify: opaihub/verification_policy.py
+- Modify: vestahub/verification_policy.py
 - Modify: tests/test_verification_policy.py
 
 - [ ] **Step 1: Write failing persistence and compatibility tests.**
@@ -235,21 +235,21 @@ Expected: PASS.
 - [ ] **Step 5: Commit artifact durability.**
 
 ~~~bash
-git add opaihub/verification_policy.py tests/test_verification_policy.py
+git add vestahub/verification_policy.py tests/test_verification_policy.py
 git commit -m "feat(verify): persist effective policy artifacts"
 ~~~
 
 ### Task 4: Capture policy before GUI provider dispatch
 
 **Files:**
-- Modify: opaihub/gui_pipeline.py
+- Modify: vestahub/gui_pipeline.py
 - Modify: tests/test_pipeline_routing_and_safety.py
 - Modify: tests/test_verification_policy.py
 
 - [ ] **Step 1: Write a failing pipeline ordering test.**
 
 ~~~python
-from opaihub.verification_policy import (
+from vestahub.verification_policy import (
     PolicyArtifactRef,
     persist_effective_policy as real_persist_effective_policy,
 )
@@ -263,7 +263,7 @@ def test_edit_capable_pipeline_persists_policy_before_provider_dispatch(self) ->
 
     runner = FakeAccountRunner(text="Applied the parser fix.")
     with mock.patch(
-        "opaihub.gui_pipeline.persist_effective_policy", side_effect=remember_policy
+        "vestahub.gui_pipeline.persist_effective_policy", side_effect=remember_policy
     ):
         result = handle_gui_message(
             self.root,
@@ -326,14 +326,14 @@ Expected: PASS.
 - [ ] **Step 5: Commit pipeline capture.**
 
 ~~~bash
-git add opaihub/gui_pipeline.py tests/test_pipeline_routing_and_safety.py tests/test_verification_policy.py
+git add vestahub/gui_pipeline.py tests/test_pipeline_routing_and_safety.py tests/test_verification_policy.py
 git commit -m "feat(verify): capture policy before provider dispatch"
 ~~~
 
 ### Task 5: Expose the pure resolver through CLI and document it
 
 **Files:**
-- Modify: opai/cli.py
+- Modify: vesta/cli.py
 - Modify: tests/test_positioning_and_cli.py
 - Modify: README.md
 - Modify: CHANGELOG.md
@@ -397,16 +397,16 @@ Expected: every command exits 0.
 - [ ] **Step 5: Commit surface and documentation changes.**
 
 ~~~bash
-git add opai/cli.py tests/test_positioning_and_cli.py README.md CHANGELOG.md
+git add vesta/cli.py tests/test_positioning_and_cli.py README.md CHANGELOG.md
 git commit -m "feat(verify): inspect effective policies from CLI"
 ~~~
 
 ### Task 6: Final review and delivery
 
 **Files:**
-- Review: opaihub/verification_policy.py
-- Review: opaihub/gui_pipeline.py
-- Review: opai/cli.py
+- Review: vestahub/verification_policy.py
+- Review: vestahub/gui_pipeline.py
+- Review: vesta/cli.py
 - Review: tests/test_verification_policy.py
 
 - [ ] **Step 1: Inspect for unsafe policy weakening, secret persistence, and command-execution side effects.**

@@ -20,7 +20,7 @@ from pathlib import Path
 import unittest
 from unittest import mock
 
-from opai.update import running_build
+from vesta.update import running_build
 
 
 def _fake_manifest(fingerprint: str):
@@ -110,13 +110,13 @@ class MaintenanceSurfacesStalenessTests(unittest.TestCase):
     def _service(self):
         """A service over a private home, offline.
 
-        It used the real one: a real `~/.opai` update lock, which any Vesta
+        It used the real one: a real `~/.vesta` update lock, which any Vesta
         running on the machine holds -- the tests errored with
         `operation_busy` whenever the app was open -- and a real manifest
         fetch over the network.
         """
 
-        from opai.update.factory import create_update_service
+        from vesta.update.factory import create_update_service
 
         home = __import__("tempfile").TemporaryDirectory()
         self.addCleanup(home.cleanup)
@@ -124,13 +124,13 @@ class MaintenanceSurfacesStalenessTests(unittest.TestCase):
         def offline(url: str) -> bytes:
             raise OSError("tests do not reach the update feed")
 
-        with mock.patch("opai.gui_workspace.load_recent_workspaces", return_value=[]):
+        with mock.patch("vesta.gui_workspace.load_recent_workspaces", return_value=[]):
             return create_update_service(
                 workspaces=[], home=Path(home.name), manifest_fetcher=offline
             )
 
     def test_a_stale_process_lands_in_completed_with_a_restart_message(self) -> None:
-        from opai.update.models import UpdateState
+        from vesta.update.models import UpdateState
 
         service = self._service()
         service.check(force=True)
@@ -146,7 +146,7 @@ class MaintenanceSurfacesStalenessTests(unittest.TestCase):
         service.check(force=True)
 
     def test_a_current_process_is_left_alone(self) -> None:
-        from opai.update.models import UpdateState
+        from vesta.update.models import UpdateState
 
         service = self._service()
         service.check(force=True)

@@ -11,16 +11,16 @@ from unittest import mock
 
 from _helpers import make_repo
 
-from opai import gui_recents, gui_web
-from opaihub.app_scaffold import scaffold_app
-from opaihub.app_verify import scan_balance, verify_app
-from opaihub.build_loop import (
+from vesta import gui_recents, gui_web
+from vestahub.app_scaffold import scaffold_app
+from vestahub.app_verify import scan_balance, verify_app
+from vestahub.build_loop import (
     apply_edits,
     load_app_manifest,
     rollback_edits,
     run_build_request,
 )
-from opaihub.checkpoints import load_run_checkpoint
+from vestahub.checkpoints import load_run_checkpoint
 
 
 class ScanBalanceTests(unittest.TestCase):
@@ -219,7 +219,7 @@ class StrictBuildTests(unittest.TestCase):
         answer = "```file:app.js\nfunction f() { if (x) { doThing(\n```"
         with tempfile.TemporaryDirectory() as tmp:
             root = self._app(tmp)
-            with mock.patch("opaihub.build_loop.rollback_edits", return_value=[]):
+            with mock.patch("vestahub.build_loop.rollback_edits", return_value=[]):
                 report = run_build_request(
                     root,
                     "break it",

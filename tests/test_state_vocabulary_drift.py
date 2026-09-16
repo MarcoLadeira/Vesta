@@ -38,16 +38,16 @@ add it, the same way this file was populated.
 
 from __future__ import annotations
 
-from opaihub.checkpoints import COMPLETION_STATES
-from opaihub.completion import CompletionState, CompletionVerdict
-from opaihub.execution_guard import GuardOutcome
-from opaihub.ledger import OUTCOME_CATEGORIES
-from opaihub.provider_protocol import CapabilityStatus
-from opaihub.session_registry import CANCELLED, DONE, FAILED, RUNNING, SUPERSEDED
-from opaihub.verification_execution import CheckStatus, VerificationVerdict
+from vestahub.checkpoints import COMPLETION_STATES
+from vestahub.completion import CompletionState, CompletionVerdict
+from vestahub.execution_guard import GuardOutcome
+from vestahub.ledger import OUTCOME_CATEGORIES
+from vestahub.provider_protocol import CapabilityStatus
+from vestahub.session_registry import CANCELLED, DONE, FAILED, RUNNING, SUPERSEDED
+from vestahub.verification_execution import CheckStatus, VerificationVerdict
 
-from opai.activity import CHANNELS, STATUSES, TYPES
-from opai.gui_recents import _PLAN_STATUSES, _THREAD_STATUSES
+from vesta.activity import CHANNELS, STATUSES, TYPES
+from vesta.gui_recents import _PLAN_STATUSES, _THREAD_STATUSES
 
 
 def _values(enum_cls: type) -> frozenset[str]:

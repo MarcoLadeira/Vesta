@@ -38,9 +38,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import opaihub.gui_pipeline as gui_pipeline
-from opaihub import journal_runtime, journal_store
-from opaihub.run_state import AWAITING_INPUT_STATUSES
+import vestahub.gui_pipeline as gui_pipeline
+from vestahub import journal_runtime, journal_store
+from vestahub.run_state import AWAITING_INPUT_STATUSES
 
 NOW = "2026-09-10T10:00:00+00:00"
 
@@ -254,7 +254,7 @@ class ThePipelineActuallyPassesTheVerdictTests(unittest.TestCase):
     """
 
     def test_handle_gui_message_hands_over_the_whole_result(self):
-        source = Path("opaihub/gui_pipeline.py").read_text(encoding="utf-8")
+        source = Path("vestahub/gui_pipeline.py").read_text(encoding="utf-8")
 
         self.assertIn("_record_turn_ending(root, result)", source)
         self.assertIn('payload.get("run_state")', source)
@@ -263,7 +263,7 @@ class ThePipelineActuallyPassesTheVerdictTests(unittest.TestCase):
     def test_the_map_has_no_completing_default_left(self):
         """The literal shape of the defect, pinned so it cannot come back."""
 
-        source = Path("opaihub/gui_pipeline.py").read_text(encoding="utf-8")
+        source = Path("vestahub/gui_pipeline.py").read_text(encoding="utf-8")
 
         self.assertNotIn(
             'status, (journal_runtime.EVENT_FINISHED, "completed")',

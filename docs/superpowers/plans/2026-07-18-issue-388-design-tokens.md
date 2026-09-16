@@ -18,7 +18,7 @@
 ### Task 2: One icon system
 
 - [x] Add E2E coverage for inline SVG rendering and decorative accessibility behavior.
-- [x] Add `opai/assets/web/icons.js`, loaded before `app.js`.
+- [x] Add `vesta/assets/web/icons.js`, loaded before `app.js`.
 - [x] Replace chrome emoji/text glyphs with SVG registry calls while retaining labels and selectors.
 - [x] Add E2E accessibility checks plus visual snapshots for the four core surfaces at both densities.
 

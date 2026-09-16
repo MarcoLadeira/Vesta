@@ -9,9 +9,9 @@ import unittest
 from unittest import mock
 
 from _helpers import make_repo
-from opai.agents_bridge import create_objective_payload, control_objective_payload
-from opaihub.agent_objectives import ObjectiveStore
-from opaihub.objective_execution import ObjectiveExecutor
+from vesta.agents_bridge import create_objective_payload, control_objective_payload
+from vestahub.agent_objectives import ObjectiveStore
+from vestahub.objective_execution import ObjectiveExecutor
 
 
 class ObjectiveTeamLifecycleTests(unittest.TestCase):
@@ -24,7 +24,7 @@ class ObjectiveTeamLifecycleTests(unittest.TestCase):
             self.root,
             files={
                 "README.md": "Original documentation\n",
-                ".gitignore": ".opaihub/\n",
+                ".gitignore": ".vestahub/\n",
             },
             commit=True,
         )
@@ -37,12 +37,12 @@ class ObjectiveTeamLifecycleTests(unittest.TestCase):
         )
 
     def executor(self, worker):
-        from opaihub.objective_capacity import host_slot
+        from vestahub.objective_capacity import host_slot
 
         slots = self.root.parent / "slots"
         self.enterContext(
             mock.patch(
-                "opaihub.objective_execution.host_slot",
+                "vestahub.objective_execution.host_slot",
                 side_effect=lambda cancel: host_slot(cancel, directory=slots),
             )
         )
@@ -53,8 +53,8 @@ class ObjectiveTeamLifecycleTests(unittest.TestCase):
         )
 
     def subprocess_worker(self, packet, cancel, activity):
-        from opaihub.objective_execution import run_worker_process
-        from opaihub.state import state_dir
+        from vestahub.objective_execution import run_worker_process
+        from vestahub.state import state_dir
 
         directory = state_dir(self.root) / "objectives" / "workers" / packet["run_id"]
         return run_worker_process(
@@ -87,12 +87,12 @@ class ObjectiveTeamLifecycleTests(unittest.TestCase):
                 }
             ],
         }
-        (self.root / "opai-verification-policy.yaml").write_text(
+        (self.root / "vesta-verification-policy.yaml").write_text(
             json.dumps(policy), encoding="utf-8"
         )
         from test_objective_execution import git
 
-        git(self.root, "add", "opai-verification-policy.yaml")
+        git(self.root, "add", "vesta-verification-policy.yaml")
         git(self.root, "commit", "-m", "Set documentation verification")
         return create_objective_payload(
             self.root,
@@ -157,15 +157,15 @@ class ObjectiveTeamLifecycleTests(unittest.TestCase):
         self.assert_executed(result)
 
     def test_planner_admission_failure_retains_the_actionable_reason(self):
-        from opaihub import objective_worker
-        from opaihub.state import state_dir
+        from vestahub import objective_worker
+        from vestahub.state import state_dir
 
         self.enterContext(
-            mock.patch("opai.app_state.available_models", return_value={"models": []})
+            mock.patch("vesta.app_state.available_models", return_value={"models": []})
         )
         self.enterContext(
             mock.patch(
-                "opaihub.objective_routing.provider_usage.usage_overview",
+                "vestahub.objective_routing.provider_usage.usage_overview",
                 return_value=[],
             )
         )
@@ -229,7 +229,7 @@ class ObjectiveTeamLifecycleTests(unittest.TestCase):
             },
         )
         with (
-            mock.patch("opaihub.objective_execution.PLANNING_TIMEOUT_SECONDS", 0.05),
+            mock.patch("vestahub.objective_execution.PLANNING_TIMEOUT_SECONDS", 0.05),
             mock.patch.object(executor, "_lease", return_value=lease),
         ):
             result = executor.plan(objective["objective_id"])
@@ -272,7 +272,7 @@ class ObjectiveTeamLifecycleTests(unittest.TestCase):
 
         executor.on_event = notify
         with (
-            mock.patch("opaihub.objective_execution.PLANNING_TIMEOUT_SECONDS", 0.01),
+            mock.patch("vestahub.objective_execution.PLANNING_TIMEOUT_SECONDS", 0.01),
             mock.patch.object(executor, "_lease", side_effect=slow_lease),
         ):
             result = executor.plan(objective["objective_id"])
@@ -340,7 +340,7 @@ class ObjectiveTeamLifecycleTests(unittest.TestCase):
         self.assertFalse(self.store.snapshot(objective["objective_id"])["assignments"])
 
     def test_unconfirmed_planner_termination_keeps_ownership_and_explains_failure(self):
-        from opaihub.objective_execution import UnconfirmedTerminationError
+        from vestahub.objective_execution import UnconfirmedTerminationError
 
         objective = self.create()
         executor = self.executor(

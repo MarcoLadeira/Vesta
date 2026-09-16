@@ -29,11 +29,11 @@ from pathlib import Path
 
 import pytest
 
-from opai.gui_permissions import _MODE_RULES
+from vesta.gui_permissions import _MODE_RULES
 
 
 _COMPOSER = (
-    Path(__file__).resolve().parents[1] / "opai" / "assets" / "web" / "composer.js"
+    Path(__file__).resolve().parents[1] / "vesta" / "assets" / "web" / "composer.js"
 )
 
 # "without asking" flips the meaning of the asking word inside it, so it is
@@ -131,8 +131,8 @@ def test_auto_accept_edits_reaches_the_level_that_had_no_mode():
     GUI could reach three of them. The one it could not reach -- local work
     proceeds, shared work still asks -- is the one most people actually want.
     """
-    from opaihub.autonomy import VALID_MODES
-    from opaihub.command_policy import AUTO_EDITS, normalize_autonomy
+    from vestahub.autonomy import VALID_MODES
+    from vestahub.command_policy import AUTO_EDITS, normalize_autonomy
 
     reaching = [m for m in VALID_MODES if normalize_autonomy(m) == AUTO_EDITS]
 
@@ -141,8 +141,8 @@ def test_auto_accept_edits_reaches_the_level_that_had_no_mode():
 
 def test_every_autonomy_level_is_reachable_from_the_menu():
     """A level nobody can select is a promise the product does not keep."""
-    from opaihub.autonomy import VALID_MODES
-    from opaihub.command_policy import AUTONOMY_RULES, normalize_autonomy
+    from vestahub.autonomy import VALID_MODES
+    from vestahub.command_policy import AUTONOMY_RULES, normalize_autonomy
 
     reachable = {normalize_autonomy(mode) for mode in VALID_MODES}
 
@@ -161,8 +161,8 @@ def test_the_panel_row_mirrors_the_matrix_it_claims_to_mirror():
     assertion was left describing the behaviour it replaced: it read the
     *command* matrix and expected the answer for edits.
     """
-    from opaihub.command_policy import ASK, AUTONOMY_RULES, Capability
-    from opai.gui_permissions import _MODE_RULES
+    from vestahub.command_policy import ASK, AUTONOMY_RULES, Capability
+    from vesta.gui_permissions import _MODE_RULES
 
     level = AUTONOMY_RULES["auto-edits"]
     row = _MODE_RULES["auto-edits"]
@@ -184,8 +184,8 @@ def test_modes_are_ordered_from_strict_to_permissive():
     ``safe-auto`` runs, so it is the stricter of the two -- and it was listed
     second, below the looser one, in every surface that enumerates modes.
     """
-    from opaihub.autonomy import VALID_MODES
-    from opai.gui_permissions import CAPABILITIES, _MODE_RULES
+    from vestahub.autonomy import VALID_MODES
+    from vesta.gui_permissions import CAPABILITIES, _MODE_RULES
 
     weight = {"block": 0, "ask": 1, "allow": 2}
     freedom = [

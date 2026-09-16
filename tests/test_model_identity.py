@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from opaihub.model_identity import (
+from vestahub.model_identity import (
     canonical_usage_model_id,
     historical_model_descriptor,
     model_provider,

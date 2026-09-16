@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from opai.gui_modes import (
+from vesta.gui_modes import (
     DEFAULT_OUTPUT_FORMAT,
     DEFAULT_TASK_MODE,
     compose_prompt,
@@ -15,7 +15,7 @@ from opai.gui_modes import (
     task_modes,
     task_summary,
 )
-from opaihub.gui_preferences import MODES
+from vestahub.gui_preferences import MODES
 
 
 class TaskModeTests(unittest.TestCase):
@@ -91,7 +91,7 @@ class ComposePromptTests(unittest.TestCase):
 
 class ParsePlanStepsTests(unittest.TestCase):
     def _parse(self, text):
-        from opai.gui_modes import parse_plan_steps
+        from vesta.gui_modes import parse_plan_steps
 
         return parse_plan_steps(text)
 
@@ -124,7 +124,7 @@ class PipelinePlanPayloadTests(unittest.TestCase):
         from pathlib import Path
 
         from _helpers import FakeStreamingRunner, make_repo
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))

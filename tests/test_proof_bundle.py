@@ -2,14 +2,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub.benchmark import run_benchmark
-from opaihub.ledger import record_route_decision
-from opaihub.proof import (
+from vestahub.benchmark import run_benchmark
+from vestahub.ledger import record_route_decision
+from vestahub.proof import (
     build_proof_bundle,
     render_proof_markdown,
     verify_proof_bundle,
 )
-from opaihub.team_policy import apply_team_policy, init_team_policy
+from vestahub.team_policy import apply_team_policy, init_team_policy
 
 
 def _seed(root: Path) -> None:

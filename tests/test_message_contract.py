@@ -16,11 +16,11 @@ from pathlib import Path
 from unittest import mock
 
 from _helpers import FakeAccountRunner, make_repo
-from opai import app_state as A
-from opaihub.deadlines import TASK_DEADLINE, timeout_event
-from opaihub.gui_pipeline import handle_gui_message
-from opaihub.checkpoints import load_run_checkpoint
-from opaihub.ledger import EVENT_OPERATION_INTENT, read_events
+from vesta import app_state as A
+from vestahub.deadlines import TASK_DEADLINE, timeout_event
+from vestahub.gui_pipeline import handle_gui_message
+from vestahub.checkpoints import load_run_checkpoint
+from vestahub.ledger import EVENT_OPERATION_INTENT, read_events
 
 # Tokens that must never appear in a user-facing answer.
 _BANNED = [
@@ -109,7 +109,7 @@ class AccountStatusContractTests(_Base):
 
         events = []
         with mock.patch(
-            "opaihub.provider_reliability.record_provider_outcome"
+            "vestahub.provider_reliability.record_provider_outcome"
         ) as record_provider_outcome:
             res = handle_gui_message(
                 self.root,
@@ -327,7 +327,7 @@ class AccountStatusContractTests(_Base):
         fake = FakeAccountRunner(text="done", cost=0.01)
 
         with mock.patch(
-            "opaihub.gui_pipeline.resolve_message_contract", return_value=contract
+            "vestahub.gui_pipeline.resolve_message_contract", return_value=contract
         ):
             res = handle_gui_message(
                 self.root,
@@ -392,7 +392,7 @@ class AccountStatusContractTests(_Base):
             "lastErrorCode": None,
         }
         with mock.patch(
-            "opaihub.accounts.test_account_connection", return_value=missing
+            "vestahub.accounts.test_account_connection", return_value=missing
         ):
             res = handle_gui_message(
                 self.root,
@@ -476,7 +476,7 @@ class LocalRouteContractTests(_Base):
     """Drive the Auto/local branch by patching run_ask to each status."""
 
     def _run(self, ask_result):
-        with mock.patch("opaihub.ask.run_ask", return_value=ask_result):
+        with mock.patch("vestahub.ask.run_ask", return_value=ask_result):
             return handle_gui_message(self.root, "x", model_id="auto", mode="ask")
 
     def test_answered_locally_is_clean(self):
@@ -504,7 +504,7 @@ class LocalRouteContractTests(_Base):
                 }
             ]
         }
-        with mock.patch("opai.app_state.available_models", return_value=catalog):
+        with mock.patch("vesta.app_state.available_models", return_value=catalog):
             res = self._run(
                 {"status": "no_local_model", "hint": "h", "next_command": "c"}
             )
@@ -517,7 +517,7 @@ class LocalRouteContractTests(_Base):
         # escalate, so a local "needs a paid tier" result guides the user to
         # connect one. (Pin an empty catalog so the test is independent of any
         # account connected on the host running it.)
-        with mock.patch("opai.app_state.available_models", return_value={"models": []}):
+        with mock.patch("vesta.app_state.available_models", return_value={"models": []}):
             res = self._run({"status": "confirmation_required", "reason": "cloud tier"})
         self.assertEqual(res["status"], "needs_confirmation")
         self.assertClean(res["answer"])

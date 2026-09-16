@@ -12,7 +12,7 @@ from pathlib import Path
 from unittest import mock
 from urllib.parse import parse_qs, urlsplit
 
-from opaihub import github_connector as gc
+from vestahub import github_connector as gc
 
 from tests._helpers import isolated_home
 

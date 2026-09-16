@@ -17,8 +17,8 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
-from opaihub import github_connector
-from opaihub.github_connector import merge_pull_request
+from vestahub import github_connector
+from vestahub.github_connector import merge_pull_request
 
 
 class _Http:
@@ -132,7 +132,7 @@ class MergeToolAutonomyTests(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
 
     def executor(self, autonomy: str) -> Any:
-        from opaihub.provider_tools import RepositoryToolExecutor
+        from vestahub.provider_tools import RepositoryToolExecutor
 
         return RepositoryToolExecutor(
             self.root,
@@ -147,7 +147,7 @@ class MergeToolAutonomyTests(unittest.TestCase):
 
     def test_lower_modes_stop_for_approval_before_merging(self) -> None:
         executor = self.executor("safe-auto")
-        with mock.patch("opaihub.github_connector.merge_pull_request") as merged:
+        with mock.patch("vestahub.github_connector.merge_pull_request") as merged:
             result = executor.invoke("github_merge_pr", {"number": 5})
 
         self.assertEqual(result["error_code"], "COMMAND_NEEDS_APPROVAL")
@@ -156,7 +156,7 @@ class MergeToolAutonomyTests(unittest.TestCase):
     def test_bypass_merges_without_asking(self) -> None:
         executor = self.executor("full-auto")
         with mock.patch(
-            "opaihub.github_connector.merge_pull_request",
+            "vestahub.github_connector.merge_pull_request",
             return_value={"ok": True, "merged": True, "sha": "f00", "message": "ok"},
         ) as merged:
             result = executor.invoke("github_merge_pr", {"number": 5})
@@ -166,7 +166,7 @@ class MergeToolAutonomyTests(unittest.TestCase):
 
     def test_an_invalid_method_is_refused_before_the_connector(self) -> None:
         executor = self.executor("full-auto")
-        with mock.patch("opaihub.github_connector.merge_pull_request") as merged:
+        with mock.patch("vestahub.github_connector.merge_pull_request") as merged:
             result = executor.invoke(
                 "github_merge_pr", {"number": 5, "method": "cherry-pick"}
             )

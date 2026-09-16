@@ -1,13 +1,13 @@
 # QA Round 8 — ultimate novice remote-control campaign
 
 **Date:** 2026-07-25
-**Branch:** `codex/ultimate-opai-qa`
+**Branch:** `codex/ultimate-vesta-qa`
 **Baseline:** merged PR #512 (`e2c37c8`), including the PR #511 safety and status fixes
 **Method:** real Windows desktop interaction, reproducible evidence, test-first fixes, and repeated live retesting
 
 ## Mission
 
-Exercise OPai as a curious first-time user who wants to:
+Exercise Vesta as a curious first-time user who wants to:
 
 - understand an unfamiliar repository;
 - plan and implement coding work;
@@ -30,7 +30,7 @@ Every reproducible product defect belongs in this file before it is fixed. Each 
 
 | Area | Novice journey | Status | Evidence / finding |
 |---|---|---:|---|
-| Launch and workspace | Open OPai, identify current project and branch, switch projects | Pending | |
+| Launch and workspace | Open Vesta, identify current project and branch, switch projects | Pending | |
 | Navigation | Chat, Prompt Library, Insights, Settings, Inspector, sidebar controls | Prompt Library fix verified; deeper coverage pending | QAR8-02 |
 | Composer | Empty prompt, multiline input, context, attachments, send/stop controls | Draft-loading fix verified; deeper coverage pending | QAR8-02 |
 | Run modes | Ask, Plan only, Ask before edits, Approve edits, Auto-apply, Full Auto | Fix verified; deeper coverage pending | QAR8-01 |
@@ -55,7 +55,7 @@ Every reproducible product defect belongs in this file before it is fixed. Each 
 
 **Steps:**
 
-1. Launch OPai in a workspace whose saved mode is Full Auto.
+1. Launch Vesta in a workspace whose saved mode is Full Auto.
 2. Compare the top-bar status, composer mode control, composer summary, and CLI mirror.
 3. Repeat with Safe Auto / Ask before edits.
 
@@ -226,7 +226,7 @@ Cards with a dedicated confirmation action must not offer a generic Retry. The u
 **Steps:**
 
 1. Stop at an Auto cloud-confirmation card without approving it.
-2. Close and relaunch OPai.
+2. Close and relaunch Vesta.
 3. Choose `Resume work`.
 
 **Observed:**
@@ -262,7 +262,7 @@ The durable workflow keeps the exact selected provider, but `restoreSession()` r
 
 **Expected:**
 
-`Preview cleanup` should render the existing read-only cleanup analysis inside OPai. `Generate ignore files` should show a scoped one-time approval before calling the existing additive ignore generator. Denying it must write nothing.
+`Preview cleanup` should render the existing read-only cleanup analysis inside Vesta. `Generate ignore files` should show a scoped one-time approval before calling the existing additive ignore generator. Denying it must write nothing.
 
 **Root-cause evidence:**
 
@@ -286,7 +286,7 @@ The dashboard view model exposes `cleanup_preview` and `generate_ignores`, and `
 
 **Expected:**
 
-The benchmark gate should render the local read-only result in OPai. JSON and Markdown proof exports should name their exact local paths and require one-time approval before writing. The workflow action should copy an unambiguous valid command.
+The benchmark gate should render the local read-only result in Vesta. JSON and Markdown proof exports should name their exact local paths and require one-time approval before writing. The workflow action should copy an unambiguous valid command.
 
 **Root-cause evidence:**
 
@@ -304,7 +304,7 @@ These production action IDs were not handled by either dashboard dispatcher. The
 
 **Observed:**
 
-- OPai immediately called the clear bridge.
+- Vesta immediately called the clear bridge.
 - All recent chats disappeared.
 - The pending recovery session and its Resume choice were also removed.
 - No confirmation or Cancel action appeared.
@@ -323,13 +323,13 @@ The sidebar must disclose that both saved chats and recovery data will be delete
 
 **Steps:**
 
-1. Open OPai with a fresh workspace profile.
+1. Open Vesta with a fresh workspace profile.
 2. Advance to onboarding steps 2 and 3.
 3. Compare their cost-firewall wording with a default Auto task.
 
 **Observed:**
 
-- Step 2 said OPai only asks before a `paid cloud model`.
+- Step 2 said Vesta only asks before a `paid cloud model`.
 - Step 3 said `a paid model always asks first`.
 - A free-tier Gemini handoff correctly required confirmation, so the tutorial taught a narrower boundary than the product enforced.
 
@@ -353,14 +353,14 @@ Both strings were hard-coded before the all-cloud gate was strengthened and had 
 
 **Observed:**
 
-- OPai displayed `Workspace switched`.
+- Vesta displayed `Workspace switched`.
 - The header remained on the parent repository.
 - The parent repository's blocked recovery session reappeared.
 - The generated app's Build-mode composer was not activated.
 
 **Expected:**
 
-An OPai Build manifest identifies the generated directory as an intentional workspace boundary. Opening it must keep that exact directory selected, isolate its workspace history, and activate Build mode even when an enclosing Git worktree exists.
+An Vesta Build manifest identifies the generated directory as an intentional workspace boundary. Opening it must keep that exact directory selected, isolate its workspace history, and activate Build mode even when an enclosing Git worktree exists.
 
 **Root-cause evidence:**
 
@@ -489,7 +489,7 @@ Both entry points called `openModelPicker()` directly. That function toggled the
 
 **Observed:**
 
-OPai opened Settings Overview. The user still had to discover and select Models & Routing manually.
+Vesta opened Settings Overview. The user still had to discover and select Models & Routing manually.
 
 **Expected:**
 
@@ -510,7 +510,7 @@ The composer called a no-argument `openSettings()` bridge helper, and that helpe
 
 **Observed:**
 
-OPai stayed on the previously selected Settings pane. The Connection Doctor and its provider results were not visible.
+Vesta stayed on the previously selected Settings pane. The Connection Doctor and its provider results were not visible.
 
 **Expected:**
 
@@ -532,7 +532,7 @@ The `doctor` command only called `switchView("settings")`, so the existing Setti
 
 **Observed:**
 
-The New app card disappeared, but OPai left the entire central chat canvas blank. The welcome explanation, starter prompts, and keyboard hint did not return.
+The New app card disappeared, but Vesta left the entire central chat canvas blank. The welcome explanation, starter prompts, and keyboard hint did not return.
 
 **Expected:**
 
@@ -558,7 +558,7 @@ Opening New app uses the normal message renderer, which hides `#empty`. Its Canc
 - Routed templates, recent chats, starter chips, initial tasks, stopped-request editing, slash-command clearing, send clearing, build prompts, and plan handoff through it.
 - Red evidence: the populated template case timed out because `#send` remained disabled.
 - Green evidence: all five Prompt Library Playwright cases passed, including immediate Send enablement and warning removal.
-- Live retest: relaunched OPai, selected `Explain this repo`, and observed a focused populated prompt, enabled Send control, and no empty-prompt warning.
+- Live retest: relaunched Vesta, selected `Explain this repo`, and observed a focused populated prompt, enabled Send control, and no empty-prompt warning.
 
 ### QAR8-03
 
@@ -578,7 +578,7 @@ Opening New app uses the normal message renderer, which hides `#empty`. Its Canc
 
 - Auto now stops before every free-tier cloud candidate when no per-turn cloud grant exists. The confirmation names the exact provider, states that task and compact project context will leave the device, and preserves `cloudStarted: false`.
 - Confirmation continues with the exact reviewed model ID instead of recomputing Auto and potentially changing providers after consent.
-- Red evidence: the live default-Auto starter task contacted Gemini immediately; the new contract test then observed `opai.app_state.ask()` being called before any confirmation result could be returned.
+- Red evidence: the live default-Auto starter task contacted Gemini immediately; the new contract test then observed `vesta.app_state.ask()` being called before any confirmation result could be returned.
 - Green evidence: the Auto/routing safety set passed 32/32, and the browser test proved confirmation resends the exact named free model with `allowCloud: true`.
 - Live retest: after a source-build restart, the same Auto prompt stopped at `Needs your confirmation`, named Gemini, explicitly said context would leave the device, and showed no provider response.
 
@@ -603,7 +603,7 @@ Opening New app uses the normal message renderer, which hides `#empty`. Its Canc
 - The recovery summary now prefers the workflow's exact next action over a generic checkpoint fallback, so it no longer says `then retry` beside a card with no Retry.
 - Red evidence: the backend result had no pending action, and the resume browser test could not find the named confirmation button. A second red assertion received the generic `then retry` copy instead of the exact workflow action.
 - Green evidence: 32 Python routing/resume tests plus 3 subtests passed; 17 combined chat/resume browser tests passed; the standalone resume suite passed 7/7 after the copy correction; Ruff passed.
-- Live retest: created a fresh blocked Gemini turn, closed OPai without approval, relaunched, and chose `Resume work`. The exact `Confirm Gemini · 3.1 Flash-Lite (free tier)` card returned with no Retry and no provider call.
+- Live retest: created a fresh blocked Gemini turn, closed Vesta without approval, relaunched, and chose `Resume work`. The exact `Confirm Gemini · 3.1 Flash-Lite (free tier)` card returned with no Retry and no provider call.
 
 ### QAR8-09
 
@@ -617,12 +617,12 @@ Opening New app uses the normal message renderer, which hides `#empty`. Its Canc
 ### QAR8-10
 
 - Connected `Run benchmark gate` to the local benchmark tool so its result renders in chat without starting a model request.
-- Added separate JSON and Markdown proof-export tools. Each names its exact `.opaihub/proof-bundle.*` target, excludes raw prompts/secrets, and enters the shared one-time approval flow before any file write.
-- Replaced the impossible `Copy selected command` workflow action with `Copy workflow list command` and the valid `opai guard list` command.
+- Added separate JSON and Markdown proof-export tools. Each names its exact `.vestahub/proof-bundle.*` target, excludes raw prompts/secrets, and enters the shared one-time approval flow before any file write.
+- Replaced the impossible `Copy selected command` workflow action with `Copy workflow list command` and the valid `vesta guard list` command.
 - Applied the same action dispatch to the web and classic desktop surfaces.
 - Red evidence: the live benchmark and proof buttons only produced the generic terminal toast; two focused browser cases could not find a tool result or approval card; the backend export names were unknown; the workflow view-model assertion received a commandless action.
 - Green evidence: desktop GUI tests passed 50/50; the combined Benchmark, Proof Bundle, and Agents/Workflows browser sweep passed 13 existing cases plus both new production-action cases after correcting a strict test locator; Ruff and diff checks passed.
-- Live retest: after a source-build restart, the benchmark gate rendered the real local `Gate: PASS` result in chat without a model request. JSON proof export named `.opaihub/proof-bundle.json`, disclosed redaction/signing, and stopped at one-time approval; Deny wrote nothing. The workflow action copied the valid `opai guard list` command.
+- Live retest: after a source-build restart, the benchmark gate rendered the real local `Gate: PASS` result in chat without a model request. JSON proof export named `.vestahub/proof-bundle.json`, disclosed redaction/signing, and stopped at one-time approval; Deny wrote nothing. The workflow action copied the valid `vesta guard list` command.
 
 ### QAR8-11
 
@@ -631,18 +631,18 @@ Opening New app uses the normal message renderer, which hides `#empty`. Its Canc
 - The clear bridge is not called until the user selects `Clear history` inside that confirmation; Cancel leaves recents and recovery untouched.
 - Red evidence: three browser regressions could not find a confirmation because the first click immediately cleared state; the live app erased the complete sidebar history and blocked-session recovery in one click.
 - Green evidence: focused confirmation/cancel/failure coverage passed 3/3; the full Folder, Session Resume, and Permissions & Privacy browser sweep passed 21/21.
-- Live retest: after a source-build restart, created `Disposable history safety test` and stopped at the named Gemini confirmation without approving cloud use. Sidebar Clear history displayed the styled warning and exact recovery-data consequence. Cancel kept the recent chat; after closing and relaunching OPai, both the recent entry and `Resume work` recovery card were still present.
+- Live retest: after a source-build restart, created `Disposable history safety test` and stopped at the named Gemini confirmation without approving cloud use. Sidebar Clear history displayed the styled warning and exact recovery-data consequence. Cancel kept the recent chat; after closing and relaunching Vesta, both the recent entry and `Resume work` recovery card were still present.
 
 ### QAR8-12
 
-- Updated both first-run statements to describe the real rule: OPai only uses a cloud model after confirmation, and a cloud model always asks first.
+- Updated both first-run statements to describe the real rule: Vesta only uses a cloud model after confirmation, and a cloud model always asks first.
 - Red evidence: the new browser contract still found `paid cloud model` and `a paid model always asks first`.
 - Green evidence: the focused onboarding Playwright regression passed and Ruff passed.
 - Live retest: relaunched a fresh profile from the patched source. Steps 2 and 3 displayed the all-cloud wording; no task or provider call was started.
 
 ### QAR8-13
 
-- Added a GUI workspace resolver that preserves a directory carrying an OPai Build manifest while retaining the existing Git-top-level behavior for ordinary nested folders.
+- Added a GUI workspace resolver that preserves a directory carrying an Vesta Build manifest while retaining the existing Git-top-level behavior for ordinary nested folders.
 - Web and classic desktop launch/switch paths now share that resolver.
 - Workspace payloads use the exact selected directory for identity and Build-mode detection while separately reporting the enclosing `repo_root` for Git context.
 - Red evidence: the new Python test could not import the resolver, and a nested-scaffold boot contract resolved its workspace root to the parent Git repository.
@@ -653,12 +653,12 @@ Opening New app uses the normal message renderer, which hides `#empty`. Its Canc
 
 - Threaded explicit `allowCloud` and `allowLimit` values from the Build confirmation resend through the web bridge and `run_build_request()` into the shared pipeline.
 - Build retries now retain `build: true`, use `bridge.build`, and preserve the exact reviewed fallback model instead of recomputing Auto or switching to Chat.
-- Build confirmation cards reuse the shared actionable error UI under an `OPai Build` header. Persisted free-model consent is also honored by Build.
+- Build confirmation cards reuse the shared actionable error UI under an `Vesta Build` header. Persisted free-model consent is also honored by Build.
 - Whitelisted safe gate metadata now survives the Build wrapper: exact model ID/label, cloud-started flag, usage gate, receipt, completion verdict, and user-facing recovery fields. Raw provider/tool internals remain excluded.
 - Blocked Build threads persist `mode: build` even when the nested agent policy says Explain, so resume reconstructs a Build approval without storing authority.
 - Red evidence: the backend rejected an `allow_cloud` argument, the live Build produced a dead-end failure, and the focused browser test could not find the named confirmation. The first live repair then exposed the dropped label and Failed/Blocked disagreement.
 - Green evidence: 60 backend Build/resume tests plus 3 subtests passed; all 11 Build-mode browser tests passed; dedicated blocked-Build persistence and resumed-Build browser regressions passed; Ruff passed.
-- Live retest: a fresh Build stopped before Gemini with an amber `Blocked` strip, `OPai Build` header, exact `Confirm Gemini · 3.1 Flash-Lite (free tier)` action, no Retry, and no provider call. Closing and relaunching restored the same named action under `OPai Build`; confirmation was deliberately not clicked.
+- Live retest: a fresh Build stopped before Gemini with an amber `Blocked` strip, `Vesta Build` header, exact `Confirm Gemini · 3.1 Flash-Lite (free tier)` action, no Retry, and no provider call. Closing and relaunching restored the same named action under `Vesta Build`; confirmation was deliberately not clicked.
 
 ### QAR8-15
 
@@ -682,7 +682,7 @@ Opening New app uses the normal message renderer, which hides `#empty`. Its Canc
 - The row identifies the selected workspace label. Its metadata now has a bounded ellipsis treatment with the complete value retained in DOM text and the title attribute.
 - Red evidence: the nested-workspace regression received parent label `sandbox`, parent path semantics, and CSS `text-overflow: clip`.
 - Green evidence: the focused nested-workspace test passed after receiving `sandbox/generated-app`, `@./`, and `text-overflow: ellipsis`; the complete composer suite passed 15/15.
-- Live retest: the restarted source build's row named `OPai-QA-Sandbox-513/a-tiny-offline-quote-pack-web-app-with-add-favor`, kept the long metadata inside the menu with an ellipsis, and inserted the exact `@./` chip for the active generated app.
+- Live retest: the restarted source build's row named `Vesta-QA-Sandbox-513/a-tiny-offline-quote-pack-web-app-with-add-favor`, kept the long metadata inside the menu with an ellipsis, and inserted the exact `@./` chip for the active generated app.
 
 ### QAR8-18
 
@@ -723,11 +723,11 @@ Opening New app uses the normal message renderer, which hides `#empty`. Its Canc
 ### QAR8-23
 
 - An unrun workspace no longer dead-ends behind a `Run benchmark gate` button that only says to use the terminal.
-- Benchmark Proof now offers `Run local benchmark` and `Check latest gate` as two honest, separate actions. The local run enters the shared one-time approval card before writing privacy-safe evidence under `.opaihub`; it stores no raw prompts and contacts no model provider.
+- Benchmark Proof now offers `Run local benchmark` and `Check latest gate` as two honest, separate actions. The local run enters the shared one-time approval card before writing privacy-safe evidence under `.vestahub`; it stores no raw prompts and contacts no model provider.
 - Money Saved chooses `Run local benchmark` for an unrun workspace and `Check latest benchmark gate` once proof exists.
-- Red evidence: the live `Run benchmark gate` action rendered `No run yet. opai benchmark run --suite max --mode both` and performed no run; the new backend contract could not find `benchmark_run`, the premium action contract lacked it, and the browser regression could not find an approval card.
+- Red evidence: the live `Run benchmark gate` action rendered `No run yet. vesta benchmark run --suite max --mode both` and performed no run; the new backend contract could not find `benchmark_run`, the premium action contract lacked it, and the browser regression could not find an approval card.
 - Green evidence: all 62 desktop GUI and benchmark backend tests passed; all 6 Benchmark browser tests passed, including exact approval scope, no pre-approval write, one-time application, and the existing read-only gate action; Ruff passed.
-- Live retest: after a source-build restart, Benchmark Proof showed separate `Run local benchmark` and `Check latest gate` actions. The run disclosed its exact `.opaihub` evidence scope and no-cloud/no-raw-prompt guarantees, then stopped at one-time approval. Approving produced a real offline max-suite result (`100` effectiveness, `50x` reduction, `16` paid calls avoided), refreshed the dashboard to measured proof with `6` risk blocks, and made the independent gate action return PASS. No provider call or spend occurred.
+- Live retest: after a source-build restart, Benchmark Proof showed separate `Run local benchmark` and `Check latest gate` actions. The run disclosed its exact `.vestahub` evidence scope and no-cloud/no-raw-prompt guarantees, then stopped at one-time approval. Approving produced a real offline max-suite result (`100` effectiveness, `50x` reduction, `16` paid calls avoided), refreshed the dashboard to measured proof with `6` risk blocks, and made the independent gate action return PASS. No provider call or spend occurred.
 
 ### QAR8-24
 
@@ -741,18 +741,18 @@ Opening New app uses the normal message renderer, which hides `#empty`. Its Canc
 - Agent Readiness now renders Gemini CLI alongside Claude Code, Codex CLI, GitHub Copilot, Cursor, and Cline, matching the declared six-client support and readiness denominator.
 - Red evidence: the live page subtitle named all six clients but its complete accessibility tree and scrolled card list contained only five; the updated client-set contract received no `gemini` card.
 - Green evidence: 37 focused desktop/client activation tests plus 14 subtests passed; the Agent Readiness capture browser test passed; Ruff passed.
-- Live retest: after a full desktop restart on `codex/ultimate-opai-qa`, Agent Readiness rendered all six client cards in order — Claude Code, Codex CLI, GitHub Copilot, Gemini CLI, Cursor, and Cline — with Gemini CLI showing `ACTIVE` alongside the other ready clients. No repair or account action was run during verification.
+- Live retest: after a full desktop restart on `codex/ultimate-vesta-qa`, Agent Readiness rendered all six client cards in order — Claude Code, Codex CLI, GitHub Copilot, Gemini CLI, Cursor, and Cline — with Gemini CLI showing `ACTIVE` alongside the other ready clients. No repair or account action was run during verification.
 
 ### QAR8-26 — provider consistency: deterministic refusals, blips, and dead ends
 
-The core complaint on this PR ("sometimes OPai works, other times it doesn't")
+The core complaint on this PR ("sometimes Vesta works, other times it doesn't")
 was traced to four *deterministic* refusals stacked behind one another, not to
 randomness. This item fixes the routing behavior that made them look random.
 
-**1. Deterministic refusals are now remembered (`opaihub/provider_blocks.py`).**
+**1. Deterministic refusals are now remembered (`vestahub/provider_blocks.py`).**
 Codex answering `The 'gpt-5.6-terra' model requires a newer version of Codex`
 and Copilot refusing repository write access are not transient — they refuse
-identically on every turn until the user changes something. OPai now records
+identically on every turn until the user changes something. Vesta now records
 them once, with a closed reason vocabulary (`cli_outdated`, `config_invalid`,
 `no_scoped_edits`), a scope (`all` vs `edit`), and a TTL:
 
@@ -762,7 +762,7 @@ them once, with a closed reason vocabulary (`cli_outdated`, `config_invalid`,
 - An `edit`-scoped block only applies to editing turns, so a write-incapable
   provider stays a legitimate Ask/Plan choice.
 - Blocks expire, and any successful call clears one immediately, so a CLI
-  upgraded outside OPai is rediscovered without user action.
+  upgraded outside Vesta is rediscovered without user action.
 - The store holds only provider ids, closed-vocabulary slugs, and timestamps —
   no prompts, no raw provider text, no secrets.
 
@@ -779,7 +779,7 @@ outside Auto too — "I picked Gemini and it randomly failed" is the same bug as
 serve it, the engine names one model that still can (`fallback_offer`, cheapest
 usable first: on-device → free → paid) and the failure card offers it as the
 primary action: **Continue with `<model>`**. Previously the user got a generic
-`Switch model` and had to diagnose a routing problem OPai had already solved.
+`Switch model` and had to diagnose a routing problem Vesta had already solved.
 
 **4. The picker stops offering guaranteed dead ends.** Blocked providers are
 grayed with the exact remedy (including the literal update command, e.g.
@@ -807,14 +807,14 @@ edit-tool set) was cached only in process memory, and model enumeration
 deliberately avoids provider probes. An unknown CLI was therefore resolved
 *optimistically* — `_codex_cli_supports_current_default("")` returns `True`. So
 whether Codex appeared usable depended entirely on whether some earlier code
-path in that same process had happened to probe it. Launch OPai and pick Codex
+path in that same process had happened to probe it. Launch Vesta and pick Codex
 straight away: it looked available and the run hard-failed with
 `The 'gpt-5.6-terra' model requires a newer version of Codex`. Open Settings
 first (which probes), and the same model was correctly grayed out. That is
 literally "sometimes I can do the tasks, other times I can't".
 
 Fix: CLI capability is a property of the machine, so the verdict is now
-persisted next to OPai's other machine-scoped state (`~/.opai/cli_capability.json`),
+persisted next to Vesta's other machine-scoped state (`~/.vesta/cli_capability.json`),
 keyed by the executable's identity (path + size + mtime):
 
 - A cold start reads the last known verdict — honest, and still probe-free.
@@ -858,11 +858,11 @@ paths produce:
 | `HTTP 500: internal error` | `UNKNOWN` | `PROVIDER_UNAVAILABLE` |
 | `the provider was temporarily unavailable` | `UNKNOWN` | `PROVIDER_UNAVAILABLE` |
 
-`UNKNOWN` renders as *"OPai could not complete this request. Retry, or open
+`UNKNOWN` renders as *"Vesta could not complete this request. Retry, or open
 technical details if the problem continues."* — an alarming dead end for what
 was a momentary blip. This is the single biggest contributor to "sometimes my
 messages work, sometimes they don't": the failure was transient, but nothing in
-OPai could tell, so nothing retried and the user saw a hard error. Every code in
+Vesta could tell, so nothing retried and the user saw a hard error. Every code in
 the table is in `TRANSIENT_ERROR_CODES`, so with QAR8-26 these are now absorbed
 by one silent re-attempt.
 
@@ -883,7 +883,7 @@ non-transient.
 
 Auto exhausting its chain used to say *"Auto has no available model. Choose a
 configured model, or connect a free API, account, or local model in Settings."*
-— true but useless when OPai already knows precisely which provider is capped,
+— true but useless when Vesta already knows precisely which provider is capped,
 which CLI is stale, and which cannot take write access. It now lists them:
 
 ```
@@ -893,7 +893,7 @@ Auto could not use any connected model for this request:
 - Groq: Set GROQ_API_KEY env var. Create a free-plan key at console.groq.com
 - Mistral: Set MISTRAL_API_KEY env var. Create a free-mode key at console.mistral.ai
 
-Fix any one of these, or pick a different model — OPai only needs one working route.
+Fix any one of these, or pick a different model — Vesta only needs one working route.
 ```
 
 (That block is real output from this machine, not an illustration.) Each
@@ -963,13 +963,13 @@ to be worded. The report names the defect precisely — *message-shape variance*
 "semantically similar user messages succeed or fail depending on wording,
 length, attached context, tool path, or the model selected".
 
-OPai already classified intent (`agent_policy`), task type
+Vesta already classified intent (`agent_policy`), task type
 (`model_intelligence.classify_task`), and provider order (`auto_router`) — but
 nothing bound them into one decision, and nothing said which runtime *policies*
 followed from it. Two phrasings of the same request could take different tool
 budgets, different fallback behaviour, and different amounts of context.
 
-`opaihub/message_contract.py` assigns every message exactly one lane, and the
+`vestahub/message_contract.py` assigns every message exactly one lane, and the
 lane fixes the policy:
 
 | lane | when | fallback | blip retries | tool calls | wall clock | context |
@@ -988,8 +988,8 @@ Two budgets were deliberately **not** made lane-specific, after review:
 - The **compaction threshold stays shared and conservative**. Raising it for
   long tasks is tempting, but the tool loop only clamps it against the
   provider's real context window when `provider_context_chars` is known, and
-  OPai does not know that for every local model — a raised threshold would
-  silently overflow a small-context model. It stays until OPai can read the
+  Vesta does not know that for every local model — a raised threshold would
+  silently overflow a small-context model. It stays until Vesta can read the
   true window per provider.
 
 The governed lane is the one that matters most for safety. Moving a publish or
@@ -1014,7 +1014,7 @@ What is actually enforced, not merely declared:
 
 **Transparency** (the report's separate point that route quality and route
 *trust* are different problems): every result carries `message_contract`, and
-a governed-lane failure states in the card that OPai will not move the request
+a governed-lane failure states in the card that Vesta will not move the request
 to another model on its own, and why. Without that, a deliberately withheld
 fallback would look exactly like the dead end the rest of this release removed.
 
@@ -1025,8 +1025,8 @@ contract, and paraphrase groups must not split across lanes. Since the defect
 *is* message-shape variance, a paraphrase that changes lane is itself the bug.
 
 Deliberately **not** implemented from the report, and why: custom embeddings and
-the retrieval overhaul (large, and OPai's `semantic_index` is a separate track);
-release channels and online A/B telemetry (needs product infrastructure OPai
+the retrieval overhaul (large, and Vesta's `semantic_index` is a separate track);
+release channels and online A/B telemetry (needs product infrastructure Vesta
 does not have); real-time RL behind Auto (the report itself flags this as the
 part to adopt last, after stable lanes exist — which is what this item builds).
 
@@ -1046,7 +1046,7 @@ part to adopt last, after stable lanes exist — which is what this item builds)
 ### QAR8-32 — a test-only global `time.sleep` mock could exhaust process memory
 
 Found by the full-suite run, not by any individual suite. The QAR8-26 pipeline
-tests patched `opaihub.gui_pipeline.time.sleep`, which resolves to the **stdlib
+tests patched `vestahub.gui_pipeline.time.sleep`, which resolves to the **stdlib
 `time` module** and therefore replaced `time.sleep` process-wide. A pre-existing
 leaked daemon reader thread in `tests/test_cancellation.py` calls
 `time.sleep(0.03)` in an unbounded keep-alive loop; against the mock, every one
@@ -1063,7 +1063,7 @@ running the three affected suites together (28 passed).
 The research report warns that request-level model switching "risks visible
 inconsistency if conversation state, tool permissions, response style, or safety
 policy differ sharply between models", and recommends **no silent mid-thread
-switching**. Checking OPai against that found the opposite of stickiness — an
+switching**. Checking Vesta against that found the opposite of stickiness — an
 active anti-affinity.
 
 `_rank_bucket` ordered equally-healthy providers by least-recently-used, so
@@ -1098,12 +1098,12 @@ turn and one proving stickiness never outranks a failure.
 The research report's prompt-contract item, and the largest remaining source of
 "the same request behaves differently depending on the model".
 
-OPai's **account** models run through their vendor CLIs (`claude`, `codex`,
+Vesta's **account** models run through their vendor CLIs (`claude`, `codex`,
 `copilot`), and those CLIs read the repository's `AGENTS.md` / `CLAUDE.md`
-themselves. OPai's **local and free-tier** models go through `opaihub.ask`,
+themselves. Vesta's **local and free-tier** models go through `vestahub.ask`,
 whose prompt is built from languages, markers, test commands, and git status —
 and `context_pack` explicitly excludes the instruction files as "not useful code
-context". Confirmed by grep: before this change, `opaihub/ask.py` contained no
+context". Confirmed by grep: before this change, `vestahub/ask.py` contained no
 reference to either filename.
 
 So a rule the user wrote in `AGENTS.md` — "always run the tests before claiming
@@ -1111,20 +1111,20 @@ done" — was obeyed by Claude and silently ignored by Gemini, with nothing in t
 request to explain the difference. Rephrasing cannot fix it, which is exactly
 the profile of the reported complaint.
 
-`opaihub/project_instructions.py` loads the project's standing instructions as a
+`vestahub/project_instructions.py` loads the project's standing instructions as a
 prompt layer and both `ask` paths (the plain completion and the tool loop, which
 is where free-tier coding actually runs) now prepend it. Boundaries:
 
 - **Project files only** — `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`,
-  `.opai/rules.md`. A user's global `~/.claude/CLAUDE.md` is personal
+  `.vesta/rules.md`. A user's global `~/.claude/CLAUDE.md` is personal
   configuration that can describe unrelated work and is never read.
 - **Bounded** at 4000 chars, clipped on a line boundary, with no single file
   allowed to starve the others; truncation is labelled `(truncated)` rather
   than hidden, because a silently half-applied rule set is worse than a
   visibly clipped one.
 - **Deterministic** — fixed filename order, no globbing, no clock.
-- **OPai's rules stay first.** The project directs the work; it does not
-  override OPai's safety and honesty rules.
+- **Vesta's rules stay first.** The project directs the work; it does not
+  override Vesta's safety and honesty rules.
 - Unreadable files, directories in place of files, undecodable bytes, and a
   missing root all degrade to "no instructions" rather than failing the turn.
 
@@ -1182,12 +1182,12 @@ cached third-party pages:
 | Repo/PR 404 ⇒ "governance anti-pattern", "restore public access" | The repo is **private** (`gh api … .private = true`). A 404 to anonymous fetch is correct behaviour, not an outage. |
 | README / LICENCE / CONTRIBUTING / SECURITY / CODEOWNERS "unverified ⇒ operationally missing" | All present. `README.md` is 25 KB; `LICENSE` is MIT; `.github/CODEOWNERS` exists. |
 | "CI/CD unverified ⇒ not trustworthy as a merge gate" | Four workflows exist. Hosted CI is manual **by design** (documented in `ci.yml`: Actions minutes are capped on a private repo); the day-to-day gate is `ci-selfhosted.yml` running `scripts/ci_local.py`. |
-| "OPai is a skills repository / workflow library, not an AI IDE" | `hub/skills/` is 36 files totalling 10 KB inside a 10.8 MB product: desktop GUI, 109-module routing engine, CLI, provider adapters, 2674 Python tests, 422 browser tests. |
+| "Vesta is a skills repository / workflow library, not an AI IDE" | `hub/skills/` is 36 files totalling 10 KB inside a 10.8 MB product: desktop GUI, 109-module routing engine, CLI, provider adapters, 2674 Python tests, 422 browser tests. |
 | "Reposition away from competing with Cursor" | Founded on the above misidentification. Not actioned. |
 
 One recommendation survived scrutiny, and it was correct: **skills had no
-validation.** `opaihub validate` gated five registries (tools, agents,
-workflows, mcp_servers, models) and skipped skills entirely, and `opaihub skills
+validation.** `vestahub validate` gated five registries (tools, agents,
+workflows, mcp_servers, models) and skipped skills entirely, and `vestahub skills
 doctor` checked only that each file exists. Two failure shapes were unguarded:
 
 - **Silent deactivation.** A host selects a skill from its frontmatter `name`
@@ -1198,11 +1198,11 @@ doctor` checked only that each file exists. Two failure shapes were unguarded:
   branches, or deploy without explicit confirmation") and `tool-installer` did
   too. Nothing required the next one to.
 
-`opaihub/skill_validation.py` enforces registry↔disk consistency (dangling
+`vestahub/skill_validation.py` enforces registry↔disk consistency (dangling
 entries and unregistered directories), unique kebab-case ids, required registry
-fields including OPai's `cost_policy`, frontmatter presence, `name`/`id` match,
+fields including Vesta's `cost_policy`, frontmatter presence, `name`/`id` match,
 description length bounds, body substance, and a stated boundary for the eight
-state-changing categories. It joins the existing `opaihub validate` gate rather
+state-changing categories. It joins the existing `vestahub validate` gate rather
 than adding a CI step, so it costs nothing against the repo's Actions budget.
 
 Run against the shipped catalogue it found **four real gaps** — skills in
@@ -1222,7 +1222,7 @@ mutating categories with no stated limit:
 - Red evidence: stripping the four boundary sentences fails
   `test_the_real_skill_catalogue_is_valid` with all four named.
 - Green evidence: `tests/test_skill_validation.py` 21 tests + 13 subtests;
-  `opaihub validate` reports `skills count=36 ok=True`; validator/registry sweep
+  `vestahub validate` reports `skills count=36 ok=True`; validator/registry sweep
   146 passed with 50 subtests; Ruff clean.
 
 ### QAR8-37 — the real CI gate was red on `ruff format`
@@ -1316,14 +1316,14 @@ explicitly.
 **2. The amendment's two layers are enforced.** Layer 2 keeps the state names;
 Layer 1 is first-person English — *"I need your OK to run this command."*,
 never `awaiting_approval` — with a guard test asserting no rendered string
-carries internal vocabulary and every ask reads as OPai speaking. The GUI store
+carries internal vocabulary and every ask reads as Vesta speaking. The GUI store
 mirrors the same status list under a parity test, so the two cannot drift and
 leave one turn "waiting" on one surface and "blocked" on the other.
 
 **3. A message typed during a run was silently discarded.** `app.js` read:
 *"Enter sends; while a request is active it is ignored (no duplicate/queue)"* —
 the keystroke vanished with no trace, worst exactly when it matters most, for
-someone correcting or redirecting work in flight. The epic says plainly: "OPai
+someone correcting or redirecting work in flight. The epic says plainly: "Vesta
 must not silently ignore a new instruction because an older run is active."
 
 The text is now held and sent when the run ends. Deliberately a **queue, not a
@@ -1332,7 +1332,7 @@ controllable, and the existing "Enter during generation does not create a
 duplicate request" invariant still passes unchanged. The queued message is
 visible, editable and removable. It is **not** flushed into an awaiting-input
 turn, which would start a fresh run over an approval card the user has not
-answered and lose both the question and the work behind it. OPai also never
+answered and lose both the question and the work behind it. Vesta also never
 infers a cancel from the queued prose — guessing at a destructive action next
 to a real Stop button is not a feature.
 
@@ -1439,7 +1439,7 @@ Phase 0 of the epic is "instrument and freeze semantic drift", and its
 transition rule says there must be one machine-enforced lifecycle: *"No adapter,
 UI component or provider may invent a parallel vocabulary."*
 
-**Measured drift.** OPai had two engine-side lifecycles:
+**Measured drift.** Vesta had two engine-side lifecycles:
 
 - `RunState` (`run_state.py`) — canonical per #379, twelve states. Its
   `transition()` had **no production caller at all**; only `run_state_for_verdict`
@@ -1498,18 +1498,18 @@ contract from #517 to be meaningful, and neither is faked here.
 The gap was already documented, in the resume path's own comment:
 
 > Boot is deliberately read-only. A pending checkpoint can still belong to
-> another live OPai window or CLI run; **without an owner lease, process death
+> another live Vesta window or CLI run; **without an owner lease, process death
 > cannot be inferred safely**. Preserve it verbatim and let the user make the
 > explicit resume/start-fresh choice.
 
-That is the right call while the information is absent — and it means OPai
+That is the right call while the information is absent — and it means Vesta
 could not tell "a sibling window is working on this" from "this died three days
 ago", so it had to present both identically. A crashed run stays
 `state: "running"` forever, pointing at a dead request id. `"interrupted"` was
 already a valid thread state and the resume path already accepted it, but
 nothing ever wrote it.
 
-`opaihub/owner_lease.py` supplies the missing evidence. #295 invariant 4: one
+`vestahub/owner_lease.py` supplies the missing evidence. #295 invariant 4: one
 active owner, each run holding exactly one supervisor lease.
 
 **Liveness is decided by heartbeat, not by pid.** A bare process id is not
@@ -1519,7 +1519,7 @@ restamps its lease while it works, and a lease silent for longer than
 `STALE_AFTER_SECONDS` is stale whatever its pid says; a recycled pid cannot
 refresh a lease it does not know about. The pid and a per-process boot id are
 still recorded for the two narrower jobs they *can* do honestly: recognising
-OPai's own lease so a process never treats its own work as abandoned, and giving
+Vesta's own lease so a process never treats its own work as abandoned, and giving
 a human something to identify in a diagnostic.
 
 The stale window is deliberately several heartbeats wide (90s against a 10s
@@ -1535,7 +1535,7 @@ whitelisted on both write and read, since this file is parsed on every boot.
 
 **Boot stays read-only.** `_resume_payload` now reports what the lease says and
 mutates nothing; the resume/start-fresh decision remains the user's. It simply
-stops OPai having to present an abandoned run and an actively-owned one as the
+stops Vesta having to present an abandoned run and an actively-owned one as the
 same indistinguishable thing.
 
 **A bug my own test caught.** `describe()` checked ownership before staleness,
@@ -1567,7 +1567,7 @@ number that can be proven zero.
 
 Refusals are now recorded on both surfaces — the engine
 (`run_state.illegal_transitions()`) and the GUI store
-(`OPaiMessageState.illegalTransitions()`) — with a bounded tail and an
+(`VestaMessageState.illegalTransitions()`) — with a bounded tail and an
 *unbounded* count, because a capped list that silently drops the earliest
 evidence would recreate the blindness being removed. The `source` label is
 sanitised to `[a-z0-9._-]` since this record is read by diagnostics and must
@@ -1613,9 +1613,9 @@ Gate 4: *"Duplicate side effect: 0 after retry, replay, reconnect or failover."*
 Nothing enforced it. `create_pull_request` POSTed straight to GitHub and
 `comment_pr` straight to the issue thread, so a retried, resumed or reconnected
 turn opened a **second pull request** or posted the same comment twice. Both are
-outward, visible to other people, and not undoable by OPai.
+outward, visible to other people, and not undoable by Vesta.
 
-`opaihub/idempotency.py` supplies operation keys. Two design points carry the
+`vestahub/idempotency.py` supplies operation keys. Two design points carry the
 weight:
 
 **Three states, not two.** The tempting design is a set of completed keys: if

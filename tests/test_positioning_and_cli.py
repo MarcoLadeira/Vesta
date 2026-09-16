@@ -7,7 +7,7 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 
-from opai.cli import build_parser
+from vesta.cli import build_parser
 
 REPO = Path(__file__).resolve().parents[1]
 POSITIONING = "AI coding cost firewall"
@@ -72,16 +72,16 @@ class DocumentedCommandsExistTests(unittest.TestCase):
 
     def test_savings_runs_and_uses_positioning_help(self):
         # The command must execute without error on an empty project.
-        from opai.cli import main
+        from vesta.cli import main
 
         buffer = io.StringIO()
         with redirect_stdout(buffer):
             code = main(["--project", str(REPO), "savings"])
         self.assertEqual(code, 0)
-        self.assertIn("opai-savings", buffer.getvalue())
+        self.assertIn("vesta-savings", buffer.getvalue())
 
     def test_savings_export_is_available_in_the_default_free_alpha(self):
-        from opai.cli import main
+        from vesta.cli import main
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -105,8 +105,8 @@ class DocumentedCommandsExistTests(unittest.TestCase):
 
 class VerificationPolicyCliTests(unittest.TestCase):
     def test_verify_policy_cli_matches_pure_resolver(self):
-        from opai.cli import main
-        from opaihub.verification_policy import resolve_verification_policy
+        from vesta.cli import main
+        from vestahub.verification_policy import resolve_verification_policy
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -142,7 +142,7 @@ class VerificationPolicyCliTests(unittest.TestCase):
 
     def test_verify_run_persists_an_unverified_manifest_for_missing_commands(self):
         from _helpers import make_repo
-        from opai.cli import main
+        from vesta.cli import main
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)

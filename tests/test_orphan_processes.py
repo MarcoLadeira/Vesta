@@ -31,7 +31,7 @@ import time
 import unittest
 from pathlib import Path
 
-from opaihub.process_tree import adopt, isolated_group_kwargs, terminate_tree
+from vestahub.process_tree import adopt, isolated_group_kwargs, terminate_tree
 
 # A worker that heartbeats to a file forever, and — when given a second path —
 # spawns one grandchild that does the same. The grandchild is deliberately NOT
@@ -218,7 +218,7 @@ class OrphanProcessTests(unittest.TestCase):
 _HOST = """
 import subprocess, sys, time
 sys.path.insert(0, sys.argv[1])
-from opaihub.process_tree import adopt, isolated_group_kwargs
+from vestahub.process_tree import adopt, isolated_group_kwargs
 
 proc = adopt(subprocess.Popen(
     [sys.executable, sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]],
@@ -241,7 +241,7 @@ class AppExitTests(unittest.TestCase):
     """
 
     @unittest.skipUnless(sys.platform == "win32", "kill-on-close is a job object")
-    def test_force_killing_opai_takes_the_whole_tree_with_it(self) -> None:
+    def test_force_killing_vesta_takes_the_whole_tree_with_it(self) -> None:
         repo = str(Path(__file__).resolve().parents[1])
         with tempfile.TemporaryDirectory() as tmp:
             tmpdir = Path(tmp)

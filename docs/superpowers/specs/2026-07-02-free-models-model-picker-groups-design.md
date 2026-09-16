@@ -11,15 +11,15 @@
 > and Mistral Small—each eligible for a documented free tier. Provider quotas or
 > billing may still apply, so every public API call remains confirmation-gated.
 > Historical model examples later in this approved design record the original
-> proposal; `opaihub/free_models.py` and its tests are the implementation truth.
+> proposal; `vestahub/free_models.py` and its tests are the implementation truth.
 
 ---
 
 ## Problem
 
-The OPai model picker renders every model as a generic "OPai · Balanced/Fast/Powerful mode" label because `provider_display_name()` in `opai/provider_contract.py` maps all models to just three speed-tier strings. When Claude (3 models) + Codex (4 models) + Copilot (3 models) are all connected, the picker shows 10 nearly identical entries with no way to distinguish them — a usability failure visible in the screenshot provided.
+The Vesta model picker renders every model as a generic "Vesta · Balanced/Fast/Powerful mode" label because `provider_display_name()` in `vesta/provider_contract.py` maps all models to just three speed-tier strings. When Claude (3 models) + Codex (4 models) + Copilot (3 models) are all connected, the picker shows 10 nearly identical entries with no way to distinguish them — a usability failure visible in the screenshot provided.
 
-Additionally, OPai has no free-tier cloud model options. Users either need a paid subscription (Claude/Codex/Copilot) or a local GPU (ollama/lmstudio). Verified free-tier APIs fill that gap.
+Additionally, Vesta has no free-tier cloud model options. Users either need a paid subscription (Claude/Codex/Copilot) or a local GPU (ollama/lmstudio). Verified free-tier APIs fill that gap.
 
 ---
 
@@ -35,30 +35,30 @@ Additionally, OPai has no free-tier cloud model options. Users either need a pai
 
 ### Layer 1 — Python data layer
 
-**`opai/provider_contract.py` — Updated `provider_display_name()`**
+**`vesta/provider_contract.py` — Updated `provider_display_name()`**
 
-Old: maps all models to `"OPai · Balanced/Fast/Powerful mode"`
+Old: maps all models to `"Vesta · Balanced/Fast/Powerful mode"`
 New: returns provider-prefixed labels.
 
 ```python
 # Old output (broken)
-provider_display_name("claude", "sonnet") → "OPai · Balanced mode"
-provider_display_name("codex", "gpt-5.5") → "OPai · Powerful mode"
+provider_display_name("claude", "sonnet") → "Vesta · Balanced mode"
+provider_display_name("codex", "gpt-5.5") → "Vesta · Powerful mode"
 
 # New output (correct)
 provider_display_name("claude", "sonnet") → "Claude · Sonnet 4.6"
 provider_display_name("codex", "gpt-5.5") → "Codex · GPT-5.5"
-provider_display_name("local", None) → "OPai · Local mode"  # unchanged
-provider_display_name("auto", None) → "OPai · Auto mode"   # unchanged
+provider_display_name("local", None) → "Vesta · Local mode"  # unchanged
+provider_display_name("auto", None) → "Vesta · Auto mode"   # unchanged
 ```
 
 Add `model_group(provider: str) -> str` helper returning `"claude"`, `"codex"`, `"copilot"`, `"free"`, `"local"`, or `"routing"`.
 
-**`opaihub/accounts.py` — Add `group` field to all model options**
+**`vestahub/accounts.py` — Add `group` field to all model options**
 
 All entries from `_account_options()` gain `"group": "claude"/"codex"/"copilot"`. The auto entry gets `"group": "routing"`. Local models get `"group": "local"`.
 
-**`opaihub/free_models.py` (new)**
+**`vestahub/free_models.py` (new)**
 
 Defines `FREE_MODEL_SPECS` and `list_free_models()`:
 
@@ -108,7 +108,7 @@ FREE_MODEL_SPECS = [
 
 `list_free_models()` iterates `FREE_MODEL_SPECS`, checks `os.environ.get(spec["env_key"])`, and returns picker entries with `available: bool` and `disabled_reason` when not configured.
 
-**`opai/app_state.py` — `available_models()` updated**
+**`vesta/app_state.py` — `available_models()` updated**
 
 Order: connected account models (Claude | Codex | Copilot) → free models → auto → local models.
 
@@ -119,7 +119,7 @@ if model_choice.startswith("free:"):
     return _ask_free_model(root, task, model_choice, ...)
 ```
 
-### Layer 2 — Execution (`opaihub/local_runner.py`)
+### Layer 2 — Execution (`vestahub/local_runner.py`)
 
 Add `FreeAPIRunner(OpenAICompatibleRunner)`:
 - `__init__`: takes `api_key` (from env var), passes to `Authorization: Bearer` header
@@ -131,9 +131,9 @@ Add `FreeAPIRunner(OpenAICompatibleRunner)`:
 
 `runner_for_model()` handles `free:` prefix by looking up the spec and building a `FreeAPIRunner`.
 
-Free model calls always go through the policy gate (`requires_confirmation=True` since they're public endpoints), consistent with how OPai treats all cloud calls.
+Free model calls always go through the policy gate (`requires_confirmation=True` since they're public endpoints), consistent with how Vesta treats all cloud calls.
 
-### Layer 3 — Frontend (`opai/assets/web/app.js`)
+### Layer 3 — Frontend (`vesta/assets/web/app.js`)
 
 `renderComposerSelects()` replaces the flat `forEach` with group-aware rendering:
 
@@ -143,7 +143,7 @@ const GROUPS = [
   { key: "codex", label: "Codex" },
   { key: "copilot", label: "Copilot" },
   { key: "free", label: "Free models" },
-  { key: "routing", label: "OPai routing" },
+  { key: "routing", label: "Vesta routing" },
   { key: "local", label: "Local models" },
 ];
 
@@ -188,8 +188,8 @@ Models without a `group` field fall into a catch-all render pass after the group
 | Gemini (free) | gemini-2.0-flash | `Gemini · 2.0 Flash (free)` |
 | Groq (free) | llama-3.3-70b | `Groq · Llama 3.3 (free)` |
 | Mistral (free) | mistral-small | `Mistral · Small (free)` |
-| Auto | — | `OPai · Auto mode` (unchanged) |
-| Local | — | `OPai · Local mode` (unchanged) |
+| Auto | — | `Vesta · Auto mode` (unchanged) |
+| Local | — | `Vesta · Local mode` (unchanged) |
 
 ---
 
@@ -212,7 +212,7 @@ Models without a `group` field fall into a catch-all render pass after the group
 - Add: `test_codex_label_format`, `test_free_label_format`, `test_auto_and_local_unchanged`
 
 **`tests/test_provider_connections.py` (updated)**
-- `test_account_picker_is_opai_first_with_advanced_provider_detail` → verify labels start with `"Claude ·"` not `"OPai ·"`
+- `test_account_picker_is_vesta_first_with_advanced_provider_detail` → verify labels start with `"Claude ·"` not `"Vesta ·"`
 
 ### JS / Vitest unit tests
 
@@ -243,8 +243,8 @@ New file or additions to existing test files:
 
 | Test | Change |
 |------|--------|
-| `test_provider_details_are_advanced_only` | `"OPai · Fast mode"` → `"Claude · Haiku 4.5"` |
-| `test_account_picker_is_opai_first_with_advanced_provider_detail` | `startswith("OPai ·")` → `startswith("Claude ·")` |
+| `test_provider_details_are_advanced_only` | `"Vesta · Fast mode"` → `"Claude · Haiku 4.5"` |
+| `test_account_picker_is_vesta_first_with_advanced_provider_detail` | `startswith("Vesta ·")` → `startswith("Claude ·")` |
 | E2E: `"model selector exposes Auto, Claude, Codex, Copilot, and local choices"` | Add assertion for optgroup headings |
 
 These are intentional — the old assertions enforced the broken behavior we are fixing.
@@ -255,15 +255,15 @@ These are intentional — the old assertions enforced the broken behavior we are
 
 | File | Change |
 |------|--------|
-| `opai/provider_contract.py` | Rewrite `provider_display_name()`, add `model_group()` |
-| `opaihub/accounts.py` | Add `group` to all model options |
-| `opaihub/free_models.py` | **New** — `FREE_MODEL_SPECS`, `list_free_models()` |
-| `opaihub/local_runner.py` | Add `FreeAPIRunner`, update `_http_json`, `runner_for_model()` |
-| `opai/app_state.py` | Add free models to `available_models()`, `_ask_free_model()` |
-| `opai/assets/web/app.js` | Grouped `<optgroup>` picker rendering |
+| `vesta/provider_contract.py` | Rewrite `provider_display_name()`, add `model_group()` |
+| `vestahub/accounts.py` | Add `group` to all model options |
+| `vestahub/free_models.py` | **New** — `FREE_MODEL_SPECS`, `list_free_models()` |
+| `vestahub/local_runner.py` | Add `FreeAPIRunner`, update `_http_json`, `runner_for_model()` |
+| `vesta/app_state.py` | Add free models to `available_models()`, `_ask_free_model()` |
+| `vesta/assets/web/app.js` | Grouped `<optgroup>` picker rendering |
 | `tests/test_free_models.py` | **New** — unit tests |
 | `tests/test_provider_contract.py` | Update label assertions |
-| `tests/test_provider_connections.py` | Update OPai-first label assertion |
-| `opai/assets/web/__tests__/e2e/model-mode.spec.js` | Add group/free model assertions |
-| `opai/assets/web/__tests__/e2e/free-models.spec.js` | **New** — free model E2E |
-| `opai/assets/web/__tests__/e2e/helpers/fixtures.js` | Add group fields and free model entries |
+| `tests/test_provider_connections.py` | Update Vesta-first label assertion |
+| `vesta/assets/web/__tests__/e2e/model-mode.spec.js` | Add group/free model assertions |
+| `vesta/assets/web/__tests__/e2e/free-models.spec.js` | **New** — free model E2E |
+| `vesta/assets/web/__tests__/e2e/helpers/fixtures.js` | Add group fields and free model entries |

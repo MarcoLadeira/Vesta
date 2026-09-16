@@ -1,4 +1,4 @@
-from opaihub.cli import main
+from vestahub.cli import main
 import sys
 
 raise SystemExit(main(sys.argv[1:]))

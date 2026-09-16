@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from opaihub.verification_policy import (
+from vestahub.verification_policy import (
     RESOLVER_SEMANTICS_VERSION,
     persist_effective_policy,
     resolve_verification_policy,
@@ -62,7 +62,7 @@ def test_repository_overlay_cannot_downgrade_inherited_required_check(
     (tmp_path / "pyproject.toml").write_text(
         "[project]\nname = 'demo'\n", encoding="utf-8"
     )
-    (tmp_path / "opai-verification-policy.yaml").write_text(
+    (tmp_path / "vesta-verification-policy.yaml").write_text(
         "schema_version: 1\nchecks:\n  - id: unit\n    requirement: optional\n",
         encoding="utf-8",
     )
@@ -81,7 +81,7 @@ def test_repository_overlay_cannot_weaken_inherited_evidence_contract(
     (tmp_path / "pyproject.toml").write_text(
         "[project]\nname = 'demo'\n", encoding="utf-8"
     )
-    (tmp_path / "opai-verification-policy.yaml").write_text(
+    (tmp_path / "vesta-verification-policy.yaml").write_text(
         "schema_version: 1\nchecks:\n  - id: unit\n    evidence: []\n",
         encoding="utf-8",
     )
@@ -98,7 +98,7 @@ def test_repository_overlay_cannot_reduce_inherited_execution_budget(
     (tmp_path / "pyproject.toml").write_text(
         "[project]\nname = 'demo'\n", encoding="utf-8"
     )
-    (tmp_path / "opai-verification-policy.yaml").write_text(
+    (tmp_path / "vesta-verification-policy.yaml").write_text(
         "schema_version: 1\nchecks:\n  - id: unit\n    timeout_seconds: 10\n",
         encoding="utf-8",
     )
@@ -115,7 +115,7 @@ def test_malformed_repository_policy_never_returns_permissive_policy(
     (tmp_path / "pyproject.toml").write_text(
         "[project]\nname = 'demo'\n", encoding="utf-8"
     )
-    (tmp_path / "opai-verification-policy.yaml").write_text(
+    (tmp_path / "vesta-verification-policy.yaml").write_text(
         "checks: [", encoding="utf-8"
     )
 
@@ -132,13 +132,13 @@ def test_team_and_repository_overlays_record_their_source_hierarchy(
     (tmp_path / "pyproject.toml").write_text(
         "[project]\nname = 'demo'\n", encoding="utf-8"
     )
-    (tmp_path / "opai-team-policy.yaml").write_text(
+    (tmp_path / "vesta-team-policy.yaml").write_text(
         "team: demo\nverification_policy:\n  schema_version: 1\n  checks:\n"
         "    - id: security\n      kind: security\n      requirement: required\n"
         "      reason: Team requires security analysis.\n",
         encoding="utf-8",
     )
-    (tmp_path / "opai-verification-policy.yaml").write_text(
+    (tmp_path / "vesta-verification-policy.yaml").write_text(
         "schema_version: 1\nchecks:\n  - id: integration\n    kind: integration\n"
         "    requirement: required\n    reason: Repository requires integration coverage.\n",
         encoding="utf-8",
@@ -169,7 +169,7 @@ def test_persisted_artifact_is_atomic_redacted_and_round_trips(tmp_path: Path) -
     payload = json.loads(reference.path.read_text(encoding="utf-8"))
 
     assert reference.path.is_relative_to(
-        tmp_path / ".opaihub" / "verification-policies"
+        tmp_path / ".vestahub" / "verification-policies"
     )
     assert payload["digest"] == policy.digest == reference.digest
     assert payload["resolver_semantics_version"] == RESOLVER_SEMANTICS_VERSION
@@ -227,7 +227,7 @@ def test_high_risk_change_requires_explicit_human_review(tmp_path: Path) -> None
 
 
 def test_conditional_check_without_condition_blocks_policy(tmp_path: Path) -> None:
-    (tmp_path / "opai-verification-policy.yaml").write_text(
+    (tmp_path / "vesta-verification-policy.yaml").write_text(
         "schema_version: 1\nchecks:\n  - id: browser\n    kind: e2e\n"
         "    requirement: conditional\n    reason: Browser coverage when applicable.\n",
         encoding="utf-8",
@@ -274,7 +274,7 @@ def test_repository_scripts_never_become_policy_commands(tmp_path: Path) -> None
 def test_conditional_repository_check_records_its_explicit_condition(
     tmp_path: Path,
 ) -> None:
-    (tmp_path / "opai-verification-policy.yaml").write_text(
+    (tmp_path / "vesta-verification-policy.yaml").write_text(
         "schema_version: 1\nchecks:\n  - id: browser\n    kind: e2e\n"
         "    requirement: conditional\n    conditions: [frontend_changed]\n"
         "    reason: Browser coverage when the frontend changes.\n",
@@ -292,7 +292,7 @@ def test_conditional_repository_check_records_its_explicit_condition(
 def test_execution_estimate_includes_potential_conditional_checks(
     tmp_path: Path,
 ) -> None:
-    (tmp_path / "opai-verification-policy.yaml").write_text(
+    (tmp_path / "vesta-verification-policy.yaml").write_text(
         "schema_version: 1\nchecks:\n  - id: browser\n    kind: e2e\n"
         "    requirement: conditional\n    conditions: [frontend_changed]\n"
         "    reason: Browser coverage.\n    timeout_seconds: 30\n",
@@ -312,7 +312,7 @@ def test_execution_estimate_includes_potential_conditional_checks(
 def test_unknown_check_field_blocks_policy_instead_of_being_ignored(
     tmp_path: Path,
 ) -> None:
-    (tmp_path / "opai-verification-policy.yaml").write_text(
+    (tmp_path / "vesta-verification-policy.yaml").write_text(
         "schema_version: 1\nchecks:\n  - id: browser\n    kind: e2e\n"
         "    requirement: required\n    reason: Browser coverage.\n    typoed_timeout: 20\n",
         encoding="utf-8",
@@ -325,7 +325,7 @@ def test_unknown_check_field_blocks_policy_instead_of_being_ignored(
 
 
 def test_unknown_conditional_label_blocks_policy_semantics(tmp_path: Path) -> None:
-    (tmp_path / "opai-verification-policy.yaml").write_text(
+    (tmp_path / "vesta-verification-policy.yaml").write_text(
         "schema_version: 1\nchecks:\n  - id: browser\n    kind: e2e\n"
         "    requirement: conditional\n    conditions: [whatever_the_model_says]\n"
         "    reason: Browser coverage.\n",

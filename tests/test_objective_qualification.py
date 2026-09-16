@@ -10,12 +10,12 @@ from unittest import mock
 import pytest
 
 from _helpers import make_repo
-from opaihub.agent_objectives import ObjectiveStore
-from opaihub.journal_store import StaleWriterError
-from opaihub.objective_execution import ObjectiveExecutor, worker_prompt
-from opaihub.objective_worker import authorize_request
-from opaihub.receipt import verify_receipt
-from opaihub.state import state_dir
+from vestahub.agent_objectives import ObjectiveStore
+from vestahub.journal_store import StaleWriterError
+from vestahub.objective_execution import ObjectiveExecutor, worker_prompt
+from vestahub.objective_worker import authorize_request
+from vestahub.receipt import verify_receipt
+from vestahub.state import state_dir
 
 
 def task(name, **extra):
@@ -146,7 +146,7 @@ def test_worker_rejects_changed_launch_identity(tmp_path, changes):
         lease_id="lease",
     )
     with mock.patch(
-        "opaihub.worktree_leases.WorktreeManager.list", return_value=[lease]
+        "vestahub.worktree_leases.WorktreeManager.list", return_value=[lease]
     ):
         authorized = authorize_request(
             packet, directory / "request.json", directory / "response.json"
@@ -192,7 +192,7 @@ def test_dependency_reports_are_bounded_and_exclude_unrelated_answers():
 
 
 def test_incremental_cost_reader_handles_partial_lines_and_late_start_events(tmp_path):
-    from opaihub.ledger import ledger_path
+    from vestahub.ledger import ledger_path
 
     store = ObjectiveStore(tmp_path)
     oid = store.create("Update", [task("a")])["objective_id"]
@@ -300,14 +300,14 @@ def test_objective_waiting_behind_another_continues_without_manual_restart(tmp_p
 def test_worker_process_validates_real_lease_and_returns_attributable_evidence(
     tmp_path,
 ):
-    from opai.agents_bridge import objective_worktree_path
-    from opaihub.objective_execution import run_worker_process
+    from vesta.agents_bridge import objective_worktree_path
+    from vestahub.objective_execution import run_worker_process
 
     make_repo(tmp_path, files={"a.txt": "old"}, commit=True)
     store = ObjectiveStore(tmp_path)
     oid = store.create("Update", [task("a")], mode="plan")["objective_id"]
     script = (
-        "import sys; from opaihub import gui_pipeline, objective_worker, objective_routing; "
+        "import sys; from vestahub import gui_pipeline, objective_worker, objective_routing; "
         "objective_routing.select_worker_route=lambda *a,**kw: "
         "{'allowed':True,'model_id':'fixture:local','provider':'fixture','endpoint':None}; "
         "gui_pipeline.handle_gui_message=lambda root,prompt,**kw: "

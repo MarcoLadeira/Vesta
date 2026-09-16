@@ -1,7 +1,7 @@
 import sqlite3
 import unittest
 
-from opaihub import journal_store
+from vestahub import journal_store
 
 
 class AgentJournalMergeMigrationTests(unittest.TestCase):

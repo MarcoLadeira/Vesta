@@ -4,7 +4,7 @@ Issue: #538, the first implementation dependency of epic #522.
 
 ## Purpose
 
-Before an edit-capable OPai task starts, resolve and persist a deterministic
+Before an edit-capable Vesta task starts, resolve and persist a deterministic
 verification contract. The contract states what must be checked, why each
 requirement applies, which source introduced it, what evidence execution must
 later produce, and whether unresolved human review remains. It is a policy
@@ -20,14 +20,14 @@ exposes structured data to that surface.
 
 ## Architecture
 
-`opaihub.verification_policy` will be the sole resolver. It exposes immutable
+`vestahub.verification_policy` will be the sole resolver. It exposes immutable
 schema objects, policy loading and linting, repository classification,
 acceptance-criteria parsing, effective-policy resolution, and artifact
 persistence. All public payloads are JSON-compatible and include both a
 schema version and resolver-semantics version.
 
-The resolver receives only trusted inputs: explicit OPai task metadata,
-repository metadata captured by OPai, and policy files. Provider prose, prompt
+The resolver receives only trusted inputs: explicit Vesta task metadata,
+repository metadata captured by Vesta, and policy files. Provider prose, prompt
 text, tool output, and package-script labels are untrusted and cannot remove
 or satisfy required checks.
 
@@ -44,7 +44,7 @@ invalid commands, version incompatibility, and attempts to weaken inherited
 requirements produce a blocked policy artifact. The resolver never falls back
 to permissive defaults after a malformed policy is discovered.
 
-Repository policy lives in the committed `opai-verification-policy.yaml`.
+Repository policy lives in the committed `vesta-verification-policy.yaml`.
 Team policy may carry a `verification_policy` overlay. The effective artifact
 lists every contributing source, including the absence of optional overlays.
 
@@ -69,11 +69,11 @@ requirements otherwise.
 An effective-policy artifact contains its digest, policy/resolver versions,
 input classification, source hierarchy, check decisions, acceptance criteria,
 human reviews, lint findings, blocked/degraded status, and storage reference.
-It is atomically persisted under OPai's local task state before an
+It is atomically persisted under Vesta's local task state before an
 edit-capable GUI run dispatches a provider.
 
 The GUI pipeline adds the artifact reference and safe policy summary to the
-task packet and run payload. `opai verify policy --project <path> --task
+task packet and run payload. `vesta verify policy --project <path> --task
 <text> --mode <mode> --delivery <outcome> --json` calls the same pure resolver
 for CLI and CI use. A dry run never executes repository commands.
 

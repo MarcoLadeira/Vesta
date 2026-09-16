@@ -34,7 +34,7 @@ from pathlib import Path
 
 from _helpers import make_repo
 
-from opaihub.provider_tools import RepositoryToolExecutor
+from vestahub.provider_tools import RepositoryToolExecutor
 
 
 def _git(root: Path, *args: str) -> str:
@@ -135,7 +135,7 @@ class GitCommitIdempotencyTests(unittest.TestCase):
         # the *behaviour* on an in-flight key and not the key derivation.
         from unittest import mock
 
-        from opaihub import idempotency
+        from vestahub import idempotency
 
         self._write("x = 2\n")
         with mock.patch.object(
@@ -151,7 +151,7 @@ class GitCommitIdempotencyTests(unittest.TestCase):
         # Receipts and stores are durable; a commit body must not leak into one.
         self._write("secret_value = 'hunter2'\n")
         self._commit("add config")
-        store = self.repo / ".opaihub" / "health" / "operations.json"
+        store = self.repo / ".vestahub" / "health" / "operations.json"
         if store.exists():
             self.assertNotIn("hunter2", store.read_text(encoding="utf-8"))
 

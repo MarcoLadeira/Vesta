@@ -1,6 +1,6 @@
 """#613 Stage 2: operation claims mirror into the shadow journal.
 
-``opaihub/idempotency.py`` is the claim store behind exactly-once external
+``vestahub/idempotency.py`` is the claim store behind exactly-once external
 operations -- the thing that stops a retried push or PR from happening twice.
 Stage 1 classifies it under ``operations``.
 
@@ -21,7 +21,7 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from opaihub import idempotency
+from vestahub import idempotency
 
 
 class OperationClaimShadowTests(unittest.TestCase):

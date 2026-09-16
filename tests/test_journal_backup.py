@@ -27,8 +27,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub import journal_backup
-from opaihub.journal_backup import (
+from vestahub import journal_backup
+from vestahub.journal_backup import (
     REFUSE_DIGEST,
     REFUSE_INCOMPATIBLE,
     REFUSE_MISSING,
@@ -41,8 +41,8 @@ from opaihub.journal_backup import (
     prune_backups,
     restore_backup,
 )
-from opaihub.journal_runtime import EVENT_FINISHED, record_admission, record_terminal
-from opaihub.journal_store import (
+from vestahub.journal_runtime import EVENT_FINISHED, record_admission, record_terminal
+from vestahub.journal_store import (
     SCHEMA_VERSION,
     compatibility_version,
     journal_path,
@@ -309,7 +309,7 @@ class RestoringTests(_BackupFixture):
         self.assertEqual(report.status, RESTORE_REFUSED)
         self.assertEqual(report.reason, REFUSE_UNREADABLE)
 
-    def test_a_backup_from_a_newer_opai_is_incompatible_not_corrupt(self):
+    def test_a_backup_from_a_newer_vesta_is_incompatible_not_corrupt(self):
         """Different failures, different remedies: upgrade, not recover."""
 
         self._runs(1)

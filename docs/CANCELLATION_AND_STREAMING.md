@@ -14,7 +14,7 @@ while the worker kept running and its late reply still rendered. Result: Opus
 
 ## Real cancellation
 
-`AccountRunner.stream()` (`opaihub/accounts.py`) runs the CLI through
+`AccountRunner.stream()` (`vestahub/accounts.py`) runs the CLI through
 `subprocess.Popen` (not `run`) and reads stdout through a queue so it can check
 a **`threading.Event cancel`** ~5×/second. Setting the event triggers
 `_terminate()` → `proc.terminate()`, then `proc.kill()` if it won't exit. The
@@ -23,9 +23,9 @@ process is genuinely stopped, and any partial text is returned.
 The flag is threaded end to end:
 
 ```
-JS Stop → bridge.cancel(requestId)  (opai/gui_web.py)
+JS Stop → bridge.cancel(requestId)  (vesta/gui_web.py)
         → sets the request's threading.Event
-        → handle_gui_message(..., cancel)  (opaihub/gui_pipeline.py)
+        → handle_gui_message(..., cancel)  (vestahub/gui_pipeline.py)
         → app_state.ask(..., cancel) → _ask_account(..., cancel)
         → AccountRunner.stream(..., cancel)  → kills the subprocess
 ```
@@ -42,8 +42,8 @@ Behavior by stage:
 
 Every send gets a unique `requestId` (JS `crypto.randomUUID`). The bridge tags
 every `activity`, `token`, and `replyReady` payload with it. The front-end holds
-`state.currentRequest`; **`OPaiActivity.shouldApply(current, incoming)`** (mirror
-of `opai.activity.should_apply`) gates every incoming signal. On Stop (or a new
+`state.currentRequest`; **`VestaActivity.shouldApply(current, incoming)`** (mirror
+of `vesta.activity.should_apply`) gates every incoming signal. On Stop (or a new
 send) `currentRequest` is set to `null`/the new id, so any late output from the
 old request is dropped — **no stale response can overwrite the current
 message.** This is the primitive that makes double-click stop, retry-after-stop,
@@ -52,7 +52,7 @@ and provider-returns-after-stop all safe.
 ## Streaming lifecycle
 
 - **claude**: `-p --output-format stream-json --verbose` emits JSONL.
-  `opai.activity.parse_claude_line` turns `system`→provider event,
+  `vesta.activity.parse_claude_line` turns `system`→provider event,
   `assistant`→text deltas + `tool_use`→typed events (Read→`file_read`,
   Edit/Write→`file_edit`, Bash→`command_run`, Grep/Glob→`context_read`), and
   `result`→cost + done. Text streams to the bubble live.
@@ -86,9 +86,9 @@ after stop (ignored by the stale guard).
 - **Python** (`tests/test_cancellation.py`): `Popen` is mocked with a scripted
   fake process; asserts `terminate()` is called on cancel/timeout, partial text
   is preserved, and the pipeline returns `cancelled`.
-- **Vitest** (`opai/assets/web/__tests__/activity.test.js`): `shouldApply`
+- **Vitest** (`vesta/assets/web/__tests__/activity.test.js`): `shouldApply`
   stale-guard, thresholds, elapsed formatting, activity store.
-- **Playwright** (`opai/assets/web/__tests__/e2e/activity.spec.js`): a mock
+- **Playwright** (`vesta/assets/web/__tests__/e2e/activity.spec.js`): a mock
   bridge drives streaming/cancellation in Chromium — stop-before-token,
   stop-during-stream (no extra tokens), double-stop, duplicate-submit,
   retry-after-stop, error recovery, slow-model, a11y.

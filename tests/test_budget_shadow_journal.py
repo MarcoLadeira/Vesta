@@ -1,6 +1,6 @@
 """#613 Stage 2: budget caps' shadow journal, and the record that means "no ceiling".
 
-Stage 1 named ``opaihub/budget.py`` JOURNAL_OWNED -- "cost_events: budget
+Stage 1 named ``vestahub/budget.py`` JOURNAL_OWNED -- "cost_events: budget
 ceilings and spend". ``budget.json`` holds the spending ceilings and the panic
 flag, and ``budget_gate`` fails closed on them, so this file decides whether a
 paid route is allowed to happen at all.
@@ -27,7 +27,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub.budget import (
+from vestahub.budget import (
     budget_contradiction_report,
     budget_path,
     budget_shadow_projection,

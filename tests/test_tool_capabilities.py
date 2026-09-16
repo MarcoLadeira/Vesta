@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import unittest
 
-from opaihub.tool_capabilities import (
+from vestahub.tool_capabilities import (
     REGISTRY_PATH,
     CapabilityState,
     check_capability,
@@ -84,7 +84,7 @@ class AlternativeSelectionTests(unittest.TestCase):
         )
         self.assertEqual(
             preferred_alternative(
-                verdict, available=["opai_github_connector", "github_rest_api"]
+                verdict, available=["vesta_github_connector", "github_rest_api"]
             ),
             "github_rest_api",
         )
@@ -94,8 +94,8 @@ class AlternativeSelectionTests(unittest.TestCase):
             "github-cli", "issue_read", detected_version="2.80.0"
         )
         self.assertEqual(
-            preferred_alternative(verdict, available=["opai_github_connector"]),
-            "opai_github_connector",
+            preferred_alternative(verdict, available=["vesta_github_connector"]),
+            "vesta_github_connector",
         )
 
     def test_no_available_alternative_returns_empty_not_a_guess(self) -> None:

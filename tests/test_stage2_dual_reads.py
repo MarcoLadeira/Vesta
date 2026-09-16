@@ -1,8 +1,8 @@
 """#613 Stage 2: the dual reads three mirrored modules were shipped without.
 
 Stage 2 is shadow-write *plus* dual-read. Three modules got the first half and
-not the second: ``session_registry``, ``opai/integrations`` and
-``opai/update/storage`` were each mirroring correctly, with nothing able to ask
+not the second: ``session_registry``, ``vesta/integrations`` and
+``vesta/update/storage`` were each mirroring correctly, with nothing able to ask
 at runtime whether the mirror still agreed with the file. An unverified shadow
 is just a second copy to go stale, and Stage 4 cannot qualify a cutover on real
 traffic without a comparator, so the gap mattered more than it looked.
@@ -26,11 +26,11 @@ from pathlib import Path
 
 from _helpers import isolated_home
 
-from opai import integrations
-from opai.integrations import install_global_integrations, opai_home
-from opai.update.models import UpdatePolicy
-from opai.update.storage import UpdaterPaths, UpdateStore
-from opaihub.session_registry import SessionRegistry
+from vesta import integrations
+from vesta.integrations import install_global_integrations, vesta_home
+from vesta.update.models import UpdatePolicy
+from vesta.update.storage import UpdaterPaths, UpdateStore
+from vestahub.session_registry import SessionRegistry
 
 
 class SessionRegistryDualReadTests(unittest.TestCase):
@@ -142,7 +142,7 @@ class IntegrationsDualReadTests(unittest.TestCase):
 
         with isolated_home() as home:
             self._install(Path(home), ["claude"])
-            manifest_path = opai_home(Path(home)) / "global.json"
+            manifest_path = vesta_home(Path(home)) / "global.json"
             tampered = {
                 **json.loads(manifest_path.read_text(encoding="utf-8")),
                 "targets": ["something-nobody-approved"],

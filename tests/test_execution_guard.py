@@ -6,14 +6,14 @@ import threading
 import unittest
 from pathlib import Path
 
-from opaihub.completion import CompletionState, ProviderBlockedReason
-from opaihub.execution_guard import (
+from vestahub.completion import CompletionState, ProviderBlockedReason
+from vestahub.execution_guard import (
     ExecutionGuard,
     ExecutionGuardContext,
     GuardOutcome,
 )
 
-ROOT = Path("/tmp/opai-guard-tests")
+ROOT = Path("/tmp/vesta-guard-tests")
 
 
 def gate_result(**overrides):

@@ -12,7 +12,7 @@ import sys
 import unittest
 from unittest import mock
 
-from opaihub.process_tree import (
+from vestahub.process_tree import (
     adopt,
     isolated_group_kwargs,
     terminate_tree,
@@ -157,7 +157,7 @@ class TerminateTreeTests(unittest.TestCase):
 
 class PopenIsolationWiringTests(unittest.TestCase):
     def test_streaming_popen_launches_in_its_own_group(self):
-        import opaihub.accounts as accounts
+        import vestahub.accounts as accounts
 
         with mock.patch.object(accounts.subprocess, "Popen") as popen:
             accounts._popen(["claude", "-p"], cwd=None, env={"PATH": "x"})
@@ -170,9 +170,9 @@ class PopenIsolationWiringTests(unittest.TestCase):
             self.assertTrue(kwargs["start_new_session"])
 
     def test_terminate_helper_delegates_to_the_tree_killer(self):
-        import opaihub.accounts as accounts
+        import vestahub.accounts as accounts
 
-        with mock.patch("opaihub.accounts.terminate_tree") as tree:
+        with mock.patch("vestahub.accounts.terminate_tree") as tree:
             accounts._terminate("proc-handle")
         tree.assert_called_once_with("proc-handle")
 
@@ -180,10 +180,10 @@ class PopenIsolationWiringTests(unittest.TestCase):
         # Isolation alone is not enough on Windows: taskkill /T walks the
         # parent link, which is gone once the root crashes. adopt() is what
         # keeps the survivors reachable, so the real spawn path must call it.
-        import opaihub.accounts as accounts
+        import vestahub.accounts as accounts
 
         with mock.patch.object(accounts.subprocess, "Popen", return_value="child"):
-            with mock.patch("opaihub.accounts.adopt", return_value="adopted") as ad:
+            with mock.patch("vestahub.accounts.adopt", return_value="adopted") as ad:
                 got = accounts._popen(["claude", "-p"], cwd=None)
         ad.assert_called_once_with("child")
         self.assertEqual(got, "adopted")  # the adopted handle is what escapes
@@ -199,7 +199,7 @@ class AdoptionTests(unittest.TestCase):
         # A locked-down policy or an old Windows can refuse the job. Refusing
         # to launch would trade a cleanup weakness for an outage.
         proc = _FakeProc()
-        with mock.patch("opaihub.process_tree._kernel32", return_value=None):
+        with mock.patch("vestahub.process_tree._kernel32", return_value=None):
             self.assertIs(adopt(proc), proc)
 
     def test_a_test_double_is_never_adopted(self):
@@ -207,7 +207,7 @@ class AdoptionTests(unittest.TestCase):
         # not spawn would put someone else's process on it. The hazard is
         # concrete: int(MagicMock()) is 1, a real pid on both platforms. So the
         # pid must be a genuine int, not merely coercible to one.
-        from opaihub.process_tree import _JOB_ATTR
+        from vestahub.process_tree import _JOB_ATTR
 
         class _Double:
             pid = mock.MagicMock()
@@ -219,7 +219,7 @@ class AdoptionTests(unittest.TestCase):
         self.assertFalse(hasattr(double, _JOB_ATTR))
 
     def test_terminating_without_a_job_reports_that_it_did_nothing(self):
-        from opaihub.process_tree import _terminate_job
+        from vestahub.process_tree import _terminate_job
 
         self.assertFalse(_terminate_job(_FakeProc()))
 
@@ -227,7 +227,7 @@ class AdoptionTests(unittest.TestCase):
         # The POSIX half of the crash fix. A bare pid becomes unsafe to signal
         # once reaped (the OS may reissue it), but a group recorded at spawn
         # names a group we created — so survivors stay reachable.
-        from opaihub.process_tree import _PGID_ATTR
+        from vestahub.process_tree import _PGID_ATTR
 
         proc = _FakeProc(pid=6100, alive=False)
         proc.returncode = 0  # something already waited on it
@@ -242,16 +242,16 @@ class AdoptionTests(unittest.TestCase):
         # cleaning up — the one mistake here that is unrecoverable.
         import os
 
-        from opaihub.process_tree import _killpg
+        from vestahub.process_tree import _killpg
 
-        with mock.patch("opaihub.process_tree.os.killpg") as killpg:
+        with mock.patch("vestahub.process_tree.os.killpg") as killpg:
             _killpg(os.getpgid(0), 15)
         killpg.assert_not_called()
 
     def test_a_job_is_released_once_and_only_once(self):
         # The handle is kill-on-close, so a double CloseHandle would release a
         # handle number the OS may have already reissued to something else.
-        from opaihub.process_tree import _Job
+        from vestahub.process_tree import _Job
 
         closed: list[tuple[int, bool]] = []
 
@@ -263,7 +263,7 @@ class AdoptionTests(unittest.TestCase):
                 closed.append((handle, False))
 
         job = _Job(77)
-        with mock.patch("opaihub.process_tree._kernel32", return_value=_K()):
+        with mock.patch("vestahub.process_tree._kernel32", return_value=_K()):
             job.close(terminate=True)
             job.close(terminate=True)  # a Stop after a natural exit
             job.close()
@@ -271,16 +271,16 @@ class AdoptionTests(unittest.TestCase):
         self.assertEqual(job.handle, 0)
 
     def test_releasing_a_job_without_kernel32_is_survivable(self):
-        from opaihub.process_tree import _Job
+        from vestahub.process_tree import _Job
 
         job = _Job(5)
-        with mock.patch("opaihub.process_tree._kernel32", return_value=None):
+        with mock.patch("vestahub.process_tree._kernel32", return_value=None):
             job.close(terminate=True)  # must not raise on a non-Windows host
 
     def test_terminate_reaps_the_job_before_touching_the_child(self):
         # Order is the whole fix: the tree is reaped first, so a root that has
         # already exited cannot short-circuit its survivors' cleanup.
-        from opaihub.process_tree import _Job
+        from vestahub.process_tree import _Job
 
         proc = _FakeProc(alive=False)
         seen: list[str] = []
@@ -292,15 +292,15 @@ class AdoptionTests(unittest.TestCase):
             def CloseHandle(self, handle):  # noqa: N802 - Win32 name
                 pass
 
-        setattr(proc, "_opai_job_handle", _Job(9))
-        with mock.patch("opaihub.process_tree._kernel32", return_value=_K()):
+        setattr(proc, "_vesta_job_handle", _Job(9))
+        with mock.patch("vestahub.process_tree._kernel32", return_value=_K()):
             terminate_tree(proc, tree_killer=lambda pid: seen.append("taskkill"))
         # The job covers the whole tree, so no pid-based follow-up is needed.
         self.assertEqual(seen, ["job"])
 
     @unittest.skipUnless(sys.platform == "win32", "job objects are Windows-only")
     def test_a_real_child_is_adopted_and_the_job_is_released_on_terminate(self):
-        from opaihub.process_tree import _JOB_ATTR
+        from vestahub.process_tree import _JOB_ATTR
 
         proc = subprocess.Popen(  # nosec B603 - our own interpreter, argv list
             [sys.executable, "-c", "import time; time.sleep(30)"],

@@ -14,13 +14,13 @@
 
 **Files:**
 - Modify: `pyproject.toml`
-- Modify: `opaihub/loader.py`
+- Modify: `vestahub/loader.py`
 - Create: `tests/test_runtime_dependencies.py`
 
 - [x] Write tests asserting a bounded PyYAML requirement and path-aware errors for missing PyYAML, malformed YAML, and invalid UTF-8.
 - [x] Run `python -m pytest tests/test_runtime_dependencies.py -q` and verify the new assertions fail on current main.
 - [x] Add `PyYAML>=6.0.2,<7` to core dependencies and implement `RegistryLoadError` without the YAML-as-JSON fallback.
-- [x] Run the focused tests and `python -m opaihub validate`.
+- [x] Run the focused tests and `python -m vestahub validate`.
 
 ### Task 2: Artifact smoke contract
 
@@ -32,7 +32,7 @@
 
 - [x] Write tests for dependency wheel collection, disposable home/environment construction, and the four required CLI surfaces.
 - [x] Verify the tests fail because the current wheel build uses `--no-deps` and omits three required commands.
-- [x] Build dependency wheels, sanitize provider variables, redirect home/config directories, and run `opai --help`, `opai doctor`, `opaihub validate`, and `opai gui --once` outside the checkout.
+- [x] Build dependency wheels, sanitize provider variables, redirect home/config directories, and run `vesta --help`, `vesta doctor`, `vestahub validate`, and `vesta gui --once` outside the checkout.
 - [x] Update installation documentation so ordinary installs resolve declared dependencies.
 - [x] Run `python scripts/smoke-install.py` and verify the installed wheel rather than the checkout supplies every command.
 

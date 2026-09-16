@@ -7,16 +7,16 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub.aci import AgentComputerInterface, Observation
-from opaihub.agent_runtime import AgentRuntime, AgentWorkbench, RuntimePhase
-from opaihub.diff_review import (
+from vestahub.aci import AgentComputerInterface, Observation
+from vestahub.agent_runtime import AgentRuntime, AgentWorkbench, RuntimePhase
+from vestahub.diff_review import (
     build_diff_review,
     parse_unified_diff,
     record_diff_decision,
 )
-from opaihub.mcp_runtime import MCPRuntime
-from opaihub.semantic_index import LocalSemanticIndex
-from opaihub.workflow_state import (
+from vestahub.mcp_runtime import MCPRuntime
+from vestahub.semantic_index import LocalSemanticIndex
+from vestahub.workflow_state import (
     WorkflowState,
     load_workflow_state,
     save_workflow_state,
@@ -45,7 +45,7 @@ class SemanticIndexTests(unittest.TestCase):
             raw = index.path.read_text(encoding="utf-8")
             second = index.build()
 
-        self.assertEqual(first["model"], "opai-local-hash-v1")
+        self.assertEqual(first["model"], "vesta-local-hash-v1")
         self.assertGreaterEqual(first["chunks"], 1)
         self.assertEqual(first["index_hash"], second["index_hash"])
         self.assertNotIn("distinctive_secret_free_source", raw)
@@ -73,7 +73,7 @@ class SemanticIndexTests(unittest.TestCase):
         self.assertEqual(matches[0]["start_line"], 1)
         self.assertGreater(matches[0]["score"], 0)
         self.assertLessEqual(len(matches[0]["text"]), 80)
-        self.assertEqual(matches[0]["model"], "opai-local-hash-v1")
+        self.assertEqual(matches[0]["model"], "vesta-local-hash-v1")
         self.assertTrue(matches[0]["content_hash"])
 
     def test_stale_chunks_are_not_returned_until_reindexed(self):
@@ -371,11 +371,11 @@ class DiffReviewTests(unittest.TestCase):
             "files": [{"path": "app.py", "decision": "pending", "hunks": []}],
             "summary": {"files": 1, "pending": 1, "approved": 0, "rejected": 0},
         }
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         with (
             tempfile.TemporaryDirectory() as tmp,
-            mock.patch("opaihub.gui_pipeline.build_diff_review", return_value=review),
+            mock.patch("vestahub.gui_pipeline.build_diff_review", return_value=review),
         ):
             root = make_repo(Path(tmp), commit=True)
             result = handle_gui_message(

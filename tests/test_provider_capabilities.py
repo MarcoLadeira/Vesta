@@ -9,13 +9,13 @@ from __future__ import annotations
 import json
 import unittest
 
-from opaihub.provider_adapters import (
+from vestahub.provider_adapters import (
     ProviderCapabilities,
     SUPPORTED_PROVIDERS,
     adapter_for,
 )
-from opaihub.provider_catalog import all_catalog_records
-from opaihub.provider_capabilities import (
+from vestahub.provider_catalog import all_catalog_records
+from vestahub.provider_capabilities import (
     HEALTH_TRANSITIONS,
     ProviderHealth,
     all_provider_profiles,
@@ -24,7 +24,7 @@ from opaihub.provider_capabilities import (
     health_from_connection,
     provider_profile,
 )
-from opaihub.provider_protocol import ProviderReadiness
+from vestahub.provider_protocol import ProviderReadiness
 
 
 class ProfileTruthTests(unittest.TestCase):
@@ -401,7 +401,7 @@ class DoctorWiringTests(unittest.TestCase):
         ]
 
     def test_entries_get_canonical_health_and_capabilities(self):
-        from opaihub.accounts import provider_connection_doctor
+        from vestahub.accounts import provider_connection_doctor
 
         entries = provider_connection_doctor(
             accounts=self._accounts(),
@@ -429,7 +429,7 @@ class DoctorWiringTests(unittest.TestCase):
         self.assertIsNone(by_id["github"]["capabilities"])
 
     def test_doctor_entries_stay_json_serializable(self):
-        from opaihub.accounts import provider_connection_doctor
+        from vestahub.accounts import provider_connection_doctor
 
         entries = provider_connection_doctor(
             accounts=self._accounts(),

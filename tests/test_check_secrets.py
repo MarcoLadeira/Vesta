@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def _load_module():
     path = ROOT / "scripts" / "check_secrets.py"
-    spec = importlib.util.spec_from_file_location("opai_check_secrets", path)
+    spec = importlib.util.spec_from_file_location("vesta_check_secrets", path)
     if spec is None or spec.loader is None:
         raise AssertionError("Could not load check_secrets.py")
     module = importlib.util.module_from_spec(spec)
@@ -116,9 +116,9 @@ class EnforcingSecretScanTests(unittest.TestCase):
             "playwright-report/index.html",
             ".playwright/chromium/browser.exe",
             "build/lib/example.py",
-            "dist/opai.whl",
-            "opai.egg-info/PKG-INFO",
-            "opai/__pycache__/module.pyc",
+            "dist/vesta.whl",
+            "vesta.egg-info/PKG-INFO",
+            "vesta/__pycache__/module.pyc",
         )
         for path in generated_paths:
             with self.subTest(path=path):

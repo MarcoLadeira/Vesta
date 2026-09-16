@@ -13,7 +13,7 @@
 ### Task 1: Make audit appends and headline reads bounded
 
 **Files:**
-- Modify: `opaihub/audit.py`
+- Modify: `vestahub/audit.py`
 - Test: `tests/test_audit_performance.py`
 
 - [ ] **Step 1: Write failing tests**
@@ -39,7 +39,7 @@ Commit: `perf(audit): make append and summary reads bounded`
 ### Task 2: Coalesce repeated workspace Git probes
 
 **Files:**
-- Modify: `opai/app_state.py`
+- Modify: `vesta/app_state.py`
 - Test: `tests/test_workspace_summary_cache.py`
 
 - [ ] **Step 1: Write failing tests**
@@ -65,8 +65,8 @@ Commit: `perf(workspace): cache unchanged Git summaries`
 ### Task 3: Keep event truncation honest after completion
 
 **Files:**
-- Modify: `opai/assets/web/app.js`
-- Test: `opai/assets/web/__tests__/e2e/event-cap.spec.js`
+- Modify: `vesta/assets/web/app.js`
+- Test: `vesta/assets/web/__tests__/e2e/event-cap.spec.js`
 
 - [ ] **Step 1: Write a failing browser regression**
 
@@ -74,7 +74,7 @@ Complete a capped synthetic turn and assert that the archived activity timeline 
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `npx playwright test opai/assets/web/__tests__/e2e/event-cap.spec.js`
+Run: `npx playwright test vesta/assets/web/__tests__/e2e/event-cap.spec.js`
 
 Expected: the marker disappears when `timelineRows()` freezes the completed activity.
 
@@ -84,7 +84,7 @@ Render the same honest marker in both the live keyed timeline and the completed 
 
 - [ ] **Step 4: Verify and commit**
 
-Run: `npx playwright test opai/assets/web/__tests__/e2e/event-cap.spec.js opai/assets/web/__tests__/e2e/timeline-perf.spec.js`
+Run: `npx playwright test vesta/assets/web/__tests__/e2e/event-cap.spec.js vesta/assets/web/__tests__/e2e/timeline-perf.spec.js`
 
 Commit: `fix(activity): preserve truncation marker after completion`
 
