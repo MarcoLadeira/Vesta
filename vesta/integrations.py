@@ -315,7 +315,29 @@ def upgrade_legacy_project_blocks(project_root: Path) -> list[str]:
                 )
             except (OSError, UnicodeError):
                 continue
-        written.extend(remove_legacy_project_files(root))
+        removed = remove_legacy_project_files(root)
+        written.extend(removed)
+        # A removed old-name file is replaced by its current one, as activation
+        # would write it; otherwise Cursor, Cline and the ignore-aware tools lose
+        # Vesta's rules in a project that is never activated again.
+        replacements = {
+            legacy.LEGACY_CURSOR_RULE[-1]: (
+                root / ".cursor" / "rules" / "vesta.mdc",
+                cursor_rule_text,
+            ),
+            legacy.LEGACY_CLINE_RULE[-1]: (
+                root / ".clinerules" / "vesta.md",
+                cline_rule_text,
+            ),
+        }
+        for name in removed:
+            removed_name = Path(name).name
+            if removed_name == legacy.LEGACY_IGNORE_FILENAME:
+                written.extend(write_ai_ignore_files(root))
+            elif removed_name in replacements:
+                target, render = replacements[removed_name]
+                if not target.exists():
+                    written.append(str(_write(target, render(root))))
     except Exception:  # noqa: BLE001 - startup must never fail here
         pass
     return written
