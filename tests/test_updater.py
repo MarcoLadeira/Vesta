@@ -61,11 +61,106 @@ def _fake_git(
 
 
 class CheckForUpdateTests(unittest.TestCase):
+    def test_single_branch_checkout_discovers_main_with_real_git(self):
+        with _Root() as (root, cache_path):
+            origin = root / "origin"
+            clone = root / "clone"
+            origin.mkdir()
+
+            def run(*args):
+                return subprocess.run(
+                    ["git", *map(str, args)], capture_output=True, text=True, check=True
+                )
+
+            run("init", "--initial-branch=main", origin)
+            (origin / "opai").mkdir()
+            version = origin / "opai" / "_generated_release.py"
+            version.write_text('APPLICATION_VERSION = "0.3.0"\n', encoding="utf-8")
+            run("-C", origin, "add", ".")
+            run(
+                "-C",
+                origin,
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.invalid",
+                "commit",
+                "-m",
+                "base",
+            )
+            run("-C", origin, "branch", "feature")
+            run("clone", "--single-branch", "--branch", "feature", origin, clone)
+            version.write_text('APPLICATION_VERSION = "0.4.0"\n', encoding="utf-8")
+            run("-C", origin, "add", ".")
+            run(
+                "-C",
+                origin,
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.invalid",
+                "commit",
+                "-m",
+                "update",
+            )
+            result = updater.check_for_update(clone, cache_path=cache_path)
+            self.assertTrue(result["checked"])
+            self.assertEqual(result["commits_behind"], 1)
+            self.assertEqual(result["latest_version"], "0.4.0")
+
+    def test_failed_comparison_is_not_reported_as_current(self):
+        with _Root() as (root, cache_path):
+            git = _fake_git(
+                {("rev-list", "--count", "HEAD..origin/main"): _completed(128)}
+            )
+            result = updater.check_for_update(root, git=git, cache_path=cache_path)
+            self.assertFalse(result["checked"])
+            self.assertIn("compare", result["reason"])
+
+    def test_reads_generated_release_version(self):
+        with _Root() as (root, cache_path):
+            git = _fake_git(
+                {
+                    ("rev-list", "--count", "HEAD..origin/main"): _completed(0, "1"),
+                    ("show", "origin/main:opai/_generated_release.py"): _completed(
+                        0, 'APPLICATION_VERSION = "0.4.0"'
+                    ),
+                }
+            )
+            result = updater.check_for_update(root, git=git, cache_path=cache_path)
+            self.assertEqual(result["latest_version"], "0.4.0")
+
+    def test_fetch_populates_main_ref_even_for_single_branch_clone(self):
+        with _Root() as (root, cache_path):
+            calls = []
+
+            def git(root, args):
+                calls.append(tuple(args))
+                return _fake_git(
+                    {("rev-list", "--count", "HEAD..origin/main"): _completed(0, "1")}
+                )(root, args)
+
+            updater.check_for_update(root, git=git, cache_path=cache_path)
+            self.assertIn(
+                (
+                    "fetch",
+                    "--quiet",
+                    "origin",
+                    "refs/heads/main:refs/remotes/origin/main",
+                ),
+                calls,
+            )
+
     def test_up_to_date_reports_zero_behind(self):
         with _Root() as (root, cache_path):
             git = _fake_git(
                 {
-                    ("fetch", "--quiet", "origin", "main"): _completed(0),
+                    (
+                        "fetch",
+                        "--quiet",
+                        "origin",
+                        "refs/heads/main:refs/remotes/origin/main",
+                    ): _completed(0),
                     ("rev-list", "--count", "HEAD..origin/main"): _completed(0, "0\n"),
                     ("show", "origin/main:opai/__init__.py"): _completed(
                         0, '__version__ = "0.2.1a1"\n'
@@ -82,7 +177,12 @@ class CheckForUpdateTests(unittest.TestCase):
         with _Root() as (root, cache_path):
             git = _fake_git(
                 {
-                    ("fetch", "--quiet", "origin", "main"): _completed(0),
+                    (
+                        "fetch",
+                        "--quiet",
+                        "origin",
+                        "refs/heads/main:refs/remotes/origin/main",
+                    ): _completed(0),
                     ("rev-list", "--count", "HEAD..origin/main"): _completed(0, "4\n"),
                     ("show", "origin/main:opai/__init__.py"): _completed(
                         0, '__version__ = "0.3.0"\n'
@@ -106,9 +206,12 @@ class CheckForUpdateTests(unittest.TestCase):
         with _Root() as (root, cache_path):
             git = _fake_git(
                 {
-                    ("fetch", "--quiet", "origin", "main"): _completed(
-                        1, "", "network unreachable"
-                    )
+                    (
+                        "fetch",
+                        "--quiet",
+                        "origin",
+                        "refs/heads/main:refs/remotes/origin/main",
+                    ): _completed(1, "", "network unreachable")
                 }
             )
             result = updater.check_for_update(root, git=git, cache_path=cache_path)
@@ -119,7 +222,12 @@ class CheckForUpdateTests(unittest.TestCase):
         with _Root() as (root, cache_path):
 
             def timing_out(root_arg, args):
-                if tuple(args) == ("fetch", "--quiet", "origin", "main"):
+                if tuple(args) == (
+                    "fetch",
+                    "--quiet",
+                    "origin",
+                    "refs/heads/main:refs/remotes/origin/main",
+                ):
                     raise subprocess.TimeoutExpired(cmd="git", timeout=8.0)
                 return _fake_git({})(root_arg, args)
 
@@ -137,7 +245,12 @@ class CheckForUpdateTests(unittest.TestCase):
                 calls["n"] += 1
                 return _fake_git(
                     {
-                        ("fetch", "--quiet", "origin", "main"): _completed(0),
+                        (
+                            "fetch",
+                            "--quiet",
+                            "origin",
+                            "refs/heads/main:refs/remotes/origin/main",
+                        ): _completed(0),
                         ("rev-list", "--count", "HEAD..origin/main"): _completed(
                             0, "0\n"
                         ),
@@ -160,7 +273,12 @@ class CheckForUpdateTests(unittest.TestCase):
         with _Root() as (root, cache_path):
             git = _fake_git(
                 {
-                    ("fetch", "--quiet", "origin", "main"): _completed(0),
+                    (
+                        "fetch",
+                        "--quiet",
+                        "origin",
+                        "refs/heads/main:refs/remotes/origin/main",
+                    ): _completed(0),
                     ("rev-list", "--count", "HEAD..origin/main"): _completed(0, "0\n"),
                 }
             )
@@ -183,7 +301,12 @@ class ApplyProgressTests(unittest.TestCase):
     def _successful_git(self):
         return _fake_git(
             {
-                ("fetch", "--quiet", "origin", "main"): _completed(0),
+                (
+                    "fetch",
+                    "--quiet",
+                    "origin",
+                    "refs/heads/main:refs/remotes/origin/main",
+                ): _completed(0),
                 ("checkout", "main"): _completed(0),
                 ("merge", "--ff-only", "origin/main"): _completed(0),
             }
@@ -292,7 +415,12 @@ class ApplyUpdateTests(unittest.TestCase):
                 calls.append(tuple(args))
                 return _fake_git(
                     {
-                        ("fetch", "--quiet", "origin", "main"): _completed(0),
+                        (
+                            "fetch",
+                            "--quiet",
+                            "origin",
+                            "refs/heads/main:refs/remotes/origin/main",
+                        ): _completed(0),
                         ("checkout", "main"): _completed(0),
                         ("merge", "--ff-only", "origin/main"): _completed(0),
                     }
@@ -310,7 +438,15 @@ class ApplyUpdateTests(unittest.TestCase):
             self.assertTrue(result["ok"])
             self.assertTrue(result["restart_required"])
             self.assertEqual(result["installed_version"], "0.3.0")
-            self.assertIn(("fetch", "--quiet", "origin", "main"), calls)
+            self.assertIn(
+                (
+                    "fetch",
+                    "--quiet",
+                    "origin",
+                    "refs/heads/main:refs/remotes/origin/main",
+                ),
+                calls,
+            )
             self.assertIn(("checkout", "main"), calls)
             self.assertIn(("merge", "--ff-only", "origin/main"), calls)
 
@@ -318,7 +454,12 @@ class ApplyUpdateTests(unittest.TestCase):
         with _Root() as (root, cache_path):
             git = _fake_git(
                 {
-                    ("fetch", "--quiet", "origin", "main"): _completed(0),
+                    (
+                        "fetch",
+                        "--quiet",
+                        "origin",
+                        "refs/heads/main:refs/remotes/origin/main",
+                    ): _completed(0),
                     ("checkout", "main"): _completed(0),
                     ("merge", "--ff-only", "origin/main"): _completed(
                         1, "", "diverged"
@@ -358,7 +499,12 @@ class ApplyUpdateTests(unittest.TestCase):
                             "-m",
                             "opai-update-autostash",
                         ): _completed(0),
-                        ("fetch", "--quiet", "origin", "main"): _completed(0),
+                        (
+                            "fetch",
+                            "--quiet",
+                            "origin",
+                            "refs/heads/main:refs/remotes/origin/main",
+                        ): _completed(0),
                         ("checkout", "main"): _completed(0),
                         ("merge", "--ff-only", "origin/main"): _completed(0),
                         ("stash", "pop"): _completed(0),
@@ -392,7 +538,12 @@ class ApplyUpdateTests(unittest.TestCase):
                         "-m",
                         "opai-update-autostash",
                     ): _completed(0),
-                    ("fetch", "--quiet", "origin", "main"): _completed(0),
+                    (
+                        "fetch",
+                        "--quiet",
+                        "origin",
+                        "refs/heads/main:refs/remotes/origin/main",
+                    ): _completed(0),
                     ("checkout", "main"): _completed(0),
                     ("merge", "--ff-only", "origin/main"): _completed(0),
                     ("stash", "pop"): _completed(1, "", "conflict"),
@@ -417,7 +568,12 @@ class ApplyUpdateTests(unittest.TestCase):
                 calls.append(tuple(args))
                 return _fake_git(
                     {
-                        ("fetch", "--quiet", "origin", "main"): _completed(0),
+                        (
+                            "fetch",
+                            "--quiet",
+                            "origin",
+                            "refs/heads/main:refs/remotes/origin/main",
+                        ): _completed(0),
                         ("checkout", "main"): _completed(0),
                         ("merge", "--ff-only", "origin/main"): _completed(0),
                     }
@@ -442,7 +598,12 @@ class ApplyUpdateTests(unittest.TestCase):
             )
             git = _fake_git(
                 {
-                    ("fetch", "--quiet", "origin", "main"): _completed(0),
+                    (
+                        "fetch",
+                        "--quiet",
+                        "origin",
+                        "refs/heads/main:refs/remotes/origin/main",
+                    ): _completed(0),
                     ("checkout", "main"): _completed(0),
                     ("merge", "--ff-only", "origin/main"): _completed(0),
                 }

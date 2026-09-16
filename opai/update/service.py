@@ -400,62 +400,14 @@ class UpdateService:
         }
 
     def _auto_fast_forward(self, checking: UpdateOperation, behind: int) -> str | None:
-        """Fast-forward a source checkout automatically, when that is safe.
-
-        A packaged install has had automatic updates for a long time:
-        discovery, staged download, health-gated activation, rollback. A source
-        checkout had none of it. ``maintain()`` re-checked it every few hours,
-        landed in UNSUPPORTED_INSTALL each time, and told the user to run a
-        command -- which is not an automatic update, it is a recurring
-        reminder. That is what "auto-update does not work" meant for anyone
-        running Vesta from source.
-
-        Safety is delegated, not re-implemented. ``apply_source`` already
-        refuses a dirty working tree unless forced, and only ever
-        fast-forwards, so a checkout carrying local commits is left alone
-        rather than rebased behind its owner's back. Calling it with
-        ``force=False`` is therefore the whole guard: an unsafe checkout gets
-        ``ok: False`` and this returns ``None``.
-
-        Two conditions are decided here. Consent: ``check_for_updates`` alone
-        is permission to *look*; ``automatic_downloads`` is the switch that
-        says "act without asking me", and it gates every other automatic path
-        in this service. And quiet: a fast-forward reinstalls the package
-        under a live process, so it waits for the same active-work boundary
-        the packaged path waits for. Refusing on busy costs nothing -- the
-        next maintenance cycle tries again, and the manual button is still
-        right there for anyone who wants it now.
-
-        Calls the adapter rather than ``apply_developer_source`` deliberately:
-        that method re-checks canonical state when it finishes, and this runs
-        inside the caller's ``operation_guard``. The guard is reentrant
-        in-process, so the re-check would not block -- it would quietly take a
-        second lease and advance the fencing token, leaving the check that is
-        still running holding a token that is no longer current. The nested
-        check would then do nothing anyway: ``_begin_check`` refuses a state
-        that is already CHECKING. The surrounding check produces the canonical
-        transition, which is what that re-check was for.
-
-        Progress is published as it goes, against the operation the caller is
-        still holding. The GUI polls the persisted operation every couple of
-        seconds, so the fetch/fast-forward/reinstall stages appear while they
-        run instead of the window sitting frozen through a reinstall that
-        takes seconds and shows nothing. The stages are written with
-        ``replace`` rather than ``transition``: the operation genuinely is
-        still the same check, and inventing CHECKING -> CHECKING to say so
-        would be a lie about the state machine.
-
-        Returns the message to show, or ``None`` -- and on ``None`` the caller
-        reports the manual state exactly as before, so withholding this never
-        removes the button that was already there.
-
-        Deliberately more conservative than Claude Code's updater, which
-        replaces its own managed install and can afford to assume nothing else
-        in the directory matters. This directory is somebody's working tree.
-        """
+        """Apply a source update at quit with explicit automatic-install consent."""
 
         policy = self.policy()
-        if not (policy.check_for_updates and policy.automatic_downloads):
+        if not (
+            policy.check_for_updates
+            and policy.automatic_downloads
+            and policy.automatic_install_on_quit
+        ):
             return None
         if not self.runtime_probe().safe_to_install:
             return None
@@ -494,7 +446,7 @@ class UpdateService:
         )
 
     def _check_developer_source(
-        self, checking: UpdateOperation, *, force: bool
+        self, checking: UpdateOperation, *, force: bool, install_on_quit: bool = False
     ) -> UpdateOperation:
         """Check a source checkout against its own git remote.
 
@@ -536,7 +488,9 @@ class UpdateService:
                 return checking.transition(UpdateState.UP_TO_DATE, **changes)
             plural = "" if behind == 1 else "s"
 
-            applied = self._auto_fast_forward(checking, behind)
+            applied = (
+                self._auto_fast_forward(checking, behind) if install_on_quit else None
+            )
             if applied is not None:
                 return checking.transition(
                     UpdateState.COMPLETED, safe_diagnostic=applied, **changes
@@ -547,7 +501,12 @@ class UpdateService:
                 error_category="manual_update_required",
                 safe_diagnostic=(
                     f"This source checkout is {behind} commit{plural} behind "
-                    "origin/main; update with the explicit developer update command."
+                    "origin/main. "
+                    + (
+                        "Vesta will update when you quit, if no work is active and the checkout is clean. You can also update now."
+                        if self.policy().automatic_install_on_quit
+                        else "An update is available. Choose Update now to install it."
+                    )
                 ),
                 **changes,
             )
@@ -639,16 +598,11 @@ class UpdateService:
                     return self._save(checking.transition(UpdateState.POLICY_BLOCKED))
                 unsupported = self.installed.install_type in _FEEDLESS_INSTALL_TYPES
                 feed_url = str(self.trust.get("feed_url") or "")
+                if isinstance(self.adapter, DeveloperGitUpdateAdapter):
+                    return self._save(
+                        self._check_developer_source(checking, force=force)
+                    )
                 if unsupported and not feed_url:
-                    # No signed feed is configured for this installation, and a
-                    # feed lookup could never yield a transactionally
-                    # installable candidate for it. A source checkout still has
-                    # a real source of truth — its own git remote — so check
-                    # that instead of reporting a misleading feed error.
-                    if isinstance(self.adapter, DeveloperGitUpdateAdapter):
-                        return self._save(
-                            self._check_developer_source(checking, force=force)
-                        )
                     return self._save(
                         checking.transition(
                             UpdateState.UNSUPPORTED_INSTALL,
@@ -1202,6 +1156,34 @@ class UpdateService:
 
     def install_on_quit(self) -> UpdateOperation:
         current = self.store.load_operation()
+        if isinstance(self.adapter, DeveloperGitUpdateAdapter):
+            policy = self.policy()
+            if not (
+                policy.discovery_allowed
+                and policy.automatic_downloads
+                and policy.automatic_install_on_quit
+            ):
+                return current
+            if not self.runtime_probe().safe_to_install:
+                return current
+            try:
+                with self.store.operation_guard():
+                    current = self.store.load_operation()
+                    if current.state not in {
+                        UpdateState.IDLE,
+                        UpdateState.UP_TO_DATE,
+                        UpdateState.UNSUPPORTED_INSTALL,
+                        UpdateState.UNAVAILABLE,
+                    }:
+                        return current
+                    checking = self._save(self._begin_check(current, "quit"))
+                    return self._save(
+                        self._check_developer_source(
+                            checking, force=True, install_on_quit=True
+                        )
+                    )
+            except (InterprocessLockTimeout, UpdateError):
+                return current
         if current.state is not UpdateState.INSTALL_ON_QUIT:
             return current
         return self.install(current.operation_id, mode="on_quit")
