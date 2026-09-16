@@ -14,7 +14,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub.project_instructions import (
+from vestahub.project_instructions import (
     DEFAULT_CHAR_BUDGET,
     INSTRUCTION_FILES,
     build_system_prompt,
@@ -163,7 +163,7 @@ class AskWiringTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_a_local_run_receives_the_projects_rules(self) -> None:
-        from opaihub.ask import run_ask
+        from vestahub.ask import run_ask
 
         seen: dict[str, str] = {}
 

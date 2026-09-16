@@ -23,8 +23,8 @@ from __future__ import annotations
 
 import unittest
 
-from opaihub.accounts import _LEDGER_TOOL_FOR_EVENT, _progress_observation
-from opaihub.progress_evidence import MUTATING_TOOLS, ProgressLedger
+from vestahub.accounts import _LEDGER_TOOL_FOR_EVENT, _progress_observation
+from vestahub.progress_evidence import MUTATING_TOOLS, ProgressLedger
 
 
 PATIENCE = 12
@@ -55,7 +55,7 @@ class WitnessRunTests(unittest.TestCase):
 
         ledger = _run(
             [
-                _event("file_read", f"read opaihub/module_{index}.py", f"body {index}")
+                _event("file_read", f"read vestahub/module_{index}.py", f"body {index}")
                 for index in range(CEILING)
             ]
         )
@@ -157,7 +157,7 @@ class RouteParityTests(unittest.TestCase):
 
         import inspect
 
-        from opaihub import accounts, tool_loop
+        from vestahub import accounts, tool_loop
 
         self.assertIn("ProgressLedger", inspect.getsource(accounts))
         self.assertIn("progress_evidence", inspect.getsource(tool_loop))
@@ -258,10 +258,10 @@ class CeilingAndClockTests(unittest.TestCase):
         import inspect
         import re
 
-        from opaihub import accounts
+        from vestahub import accounts
 
         match = re.search(
-            r'OPAI_NO_PROGRESS_STEP_BUDGET"\s*,\s*(\d+)',
+            r'VESTA_NO_PROGRESS_STEP_BUDGET"\s*,\s*(\d+)',
             inspect.getsource(accounts),
         )
         assert match is not None, "the exploration ceiling default vanished"
@@ -289,7 +289,7 @@ class CeilingAndClockTests(unittest.TestCase):
     def test_the_no_progress_clock_measures_time_without_progress(self) -> None:
         """Not total elapsed time.
 
-        `OPAI_NO_PROGRESS_SECONDS` is named for time *without progress*. It used
+        `VESTA_NO_PROGRESS_SECONDS` is named for time *without progress*. It used
         to compare against total elapsed, so a run learning steadily for ten
         minutes was stopped for taking ten minutes -- the witness was 87 seconds
         from that. The clock must restart whenever the score reaches a new high.
@@ -297,7 +297,7 @@ class CeilingAndClockTests(unittest.TestCase):
 
         import inspect
 
-        from opaihub import accounts
+        from vestahub import accounts
 
         source = inspect.getsource(accounts)
         self.assertIn(
@@ -365,7 +365,7 @@ class StopMessageTests(unittest.TestCase):
         import ast
         import inspect
 
-        from opai import app_state
+        from vesta import app_state
 
         literals = [
             node.value
@@ -382,7 +382,7 @@ class StopMessageTests(unittest.TestCase):
     def test_each_trigger_produces_a_distinct_explanation(self) -> None:
         import inspect
 
-        from opai import app_state
+        from vesta import app_state
 
         source = inspect.getsource(app_state)
         for trigger in ("stagnation", "exploration_ceiling", "time"):
@@ -392,7 +392,7 @@ class StopMessageTests(unittest.TestCase):
     def test_the_account_route_reports_which_guard_fired(self) -> None:
         import inspect
 
-        from opaihub import accounts
+        from vestahub import accounts
 
         self.assertIn(
             '"no_progress_trigger": no_progress_trigger', inspect.getsource(accounts)

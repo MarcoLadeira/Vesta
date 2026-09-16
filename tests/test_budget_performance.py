@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub import budget
+from vestahub import budget
 
 
 class BudgetPerformanceTests(unittest.TestCase):

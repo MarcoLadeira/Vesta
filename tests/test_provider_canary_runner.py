@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def _load_module():
     path = ROOT / "scripts" / "run_provider_canary.py"
-    spec = importlib.util.spec_from_file_location("opai_provider_canary", path)
+    spec = importlib.util.spec_from_file_location("vesta_provider_canary", path)
     if spec is None or spec.loader is None:
         raise AssertionError("Could not load provider canary runner")
     module = importlib.util.module_from_spec(spec)
@@ -25,12 +25,12 @@ def _load_module():
 
 def _environment() -> dict[str, str]:
     return {
-        "OPAI_LIVE_PROVIDER_SMOKE": "1",
-        "OPAI_CONFIRM_CLOUD_TESTS": "YES",
-        "OPAI_LIVE_PROVIDER_SMOKE_PROVIDERS": "groq",
-        "OPAI_LIVE_MODELS": "free:groq:openai/gpt-oss-120b",
-        "OPAI_PROVIDER_CANARY_MAX_USD": "0.25",
-        "OPAI_PROVIDER_CANARY_NON_PRODUCTION": "YES",
+        "VESTA_LIVE_PROVIDER_SMOKE": "1",
+        "VESTA_CONFIRM_CLOUD_TESTS": "YES",
+        "VESTA_LIVE_PROVIDER_SMOKE_PROVIDERS": "groq",
+        "VESTA_LIVE_MODELS": "free:groq:openai/gpt-oss-120b",
+        "VESTA_PROVIDER_CANARY_MAX_USD": "0.25",
+        "VESTA_PROVIDER_CANARY_NON_PRODUCTION": "YES",
     }
 
 
@@ -50,7 +50,7 @@ def _result(**overrides: object) -> dict[str, object]:
 
 
 def _observation(**overrides: object) -> dict[str, object]:
-    from opaihub.ledger import EVENT_MODEL_CALL, task_fingerprint
+    from vestahub.ledger import EVENT_MODEL_CALL, task_fingerprint
 
     value: dict[str, object] = {
         "event_type": EVENT_MODEL_CALL,
@@ -87,14 +87,14 @@ def _payload(
 class StrictProviderCanaryRunnerTests(unittest.TestCase):
     def test_runner_uses_production_owned_canary_contract(self) -> None:
         module = _load_module()
-        production_module = types.ModuleType("opaihub.provider_canary")
+        production_module = types.ModuleType("vestahub.provider_canary")
         run = mock.Mock(return_value=(None, _payload()))
         production_module.run_selected_provider_canary = run
 
         with mock.patch.dict(
             sys.modules,
             {
-                "opaihub.provider_canary": production_module,
+                "vestahub.provider_canary": production_module,
                 "tests.test_live_provider_smoke": None,
             },
         ):
@@ -114,7 +114,7 @@ class StrictProviderCanaryRunnerTests(unittest.TestCase):
         calls: list[tuple[Path, str, dict[str, object]]] = []
 
         def fake_ask(root: Path, task: str, **kwargs: object) -> dict[str, object]:
-            from opaihub.ledger import record_model_call
+            from vestahub.ledger import record_model_call
 
             calls.append((root, task, kwargs))
             record_model_call(
@@ -136,14 +136,14 @@ class StrictProviderCanaryRunnerTests(unittest.TestCase):
         with (
             mock.patch.dict(os.environ, _environment(), clear=True),
             mock.patch(
-                "opaihub.provider_canary.live_provider_prerequisite",
+                "vestahub.provider_canary.live_provider_prerequisite",
                 return_value=None,
             ),
             mock.patch(
-                "opaihub.provider_canary.adapter_prerequisite",
+                "vestahub.provider_canary.adapter_prerequisite",
                 return_value=None,
             ),
-            mock.patch("opai.app_state.ask", side_effect=fake_ask),
+            mock.patch("vesta.app_state.ask", side_effect=fake_ask),
         ):
             unavailable, result = module._run_provider("groq", MODEL_ID)
 
@@ -172,9 +172,9 @@ class StrictProviderCanaryRunnerTests(unittest.TestCase):
         for value in (None, "invalid", "2.00"):
             environment = _environment()
             if value is None:
-                environment.pop("OPAI_PROVIDER_CANARY_MAX_USD")
+                environment.pop("VESTA_PROVIDER_CANARY_MAX_USD")
             else:
-                environment["OPAI_PROVIDER_CANARY_MAX_USD"] = value
+                environment["VESTA_PROVIDER_CANARY_MAX_USD"] = value
             with (
                 self.subTest(value=value),
                 mock.patch.dict(os.environ, environment, clear=True),

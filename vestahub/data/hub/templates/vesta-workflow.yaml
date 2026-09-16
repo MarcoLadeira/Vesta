@@ -1,0 +1,12 @@
+{
+  "id": "example_workflow",
+  "trigger": "explicit command",
+  "inputs": ["project path", "goal"],
+  "steps": ["scan", "collect local evidence", "plan", "verify"],
+  "agents_used": ["hub-router", "cost-controller"],
+  "tools_used": ["vesta-cli"],
+  "cost_policy": "local-first",
+  "permission_policy": "confirm risky actions",
+  "output_artifacts": [".vestahub/logs/example.json"],
+  "failure_handling": "stop on first unsafe or failed step"
+}

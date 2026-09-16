@@ -20,8 +20,8 @@ from __future__ import annotations
 
 import unittest
 
-from opaihub.completion import CompletionVerdict
-from opaihub.run_state import (
+from vestahub.completion import CompletionVerdict
+from vestahub.run_state import (
     NON_TERMINAL_STATES,
     TERMINAL_STATES,
     RunState,
@@ -109,7 +109,7 @@ class CliWiringTests(unittest.TestCase):
         from pathlib import Path
 
         root = Path(__file__).resolve().parents[1]
-        for name in ("opai/cli_stream.py", "opai/cli.py"):
+        for name in ("vesta/cli_stream.py", "vesta/cli.py"):
             with self.subTest(name=name):
                 source = (root / name).read_text(encoding="utf-8")
                 self.assertIn("exit_code_for", source)
@@ -122,7 +122,7 @@ class CliWiringTests(unittest.TestCase):
 
         from _helpers import make_repo
 
-        from opai.cli_stream import stream_ask
+        from vesta.cli_stream import stream_ask
 
         cases = {
             "completed": (
@@ -141,7 +141,7 @@ class CliWiringTests(unittest.TestCase):
                     result = dict(base)
                     result["completion_verdict"] = {"verdict": verdict}
                     with mock.patch(
-                        "opaihub.gui_pipeline.handle_gui_message",
+                        "vestahub.gui_pipeline.handle_gui_message",
                         return_value=result,
                     ):
                         code = stream_ask(
@@ -151,7 +151,7 @@ class CliWiringTests(unittest.TestCase):
 
             # Cancellation has no verdict to read; it still exits distinctly.
             with mock.patch(
-                "opaihub.gui_pipeline.handle_gui_message",
+                "vestahub.gui_pipeline.handle_gui_message",
                 return_value={"status": "cancelled", "answer": ""},
             ):
                 self.assertEqual(

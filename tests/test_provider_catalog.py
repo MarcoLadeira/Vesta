@@ -5,8 +5,8 @@ import unittest
 from importlib import metadata
 from pathlib import Path
 
-from opaihub import provider_catalog
-from opaihub.provider_catalog import render_coverage_matrix
+from vestahub import provider_catalog
+from vestahub.provider_catalog import render_coverage_matrix
 
 
 EXPECTED_PROVIDER_IDS = (
@@ -111,7 +111,7 @@ class ProviderCatalogTests(unittest.TestCase):
         )
 
     def test_test_extra_includes_pytest_and_pinned_hypothesis(self):
-        requirements = metadata.requires("opai") or []
+        requirements = metadata.requires("vesta") or []
 
         self.assertIn('hypothesis==6.160.0; extra == "test"', requirements)
         self.assertIn('pytest==9.0.3; extra == "test"', requirements)

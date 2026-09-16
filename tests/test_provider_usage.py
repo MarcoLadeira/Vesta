@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
 
-from opaihub import provider_usage as pu
+from vestahub import provider_usage as pu
 
 
 class _Root:
@@ -195,7 +195,7 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(snap["status"], "stale")
         self.assertTrue(snap["official"]["stale"])
 
-    def test_opai_tracked_counts_the_provider_window_only(self):
+    def test_vesta_tracked_counts_the_provider_window_only(self):
         now = 1_784_800_000.0
         events = [
             _model_call(
@@ -213,13 +213,13 @@ class SnapshotTests(unittest.TestCase):
         ]
         with _Root() as root:
             snap = pu.usage_snapshot(root, "gemini", events=events, now=now)
-        tracked = snap["opaiTracked"]
+        tracked = snap["vestaTracked"]
         self.assertEqual(tracked["calls"], 3)  # 2 + 1, old one excluded
         self.assertEqual(tracked["tasks"], 2)
         self.assertEqual(tracked["tokens"], 150)
         self.assertEqual(tracked["windowLabel"], "Today")
 
-    def test_opai_tracked_ignores_invalid_token_values(self):
+    def test_vesta_tracked_ignores_invalid_token_values(self):
         """Malformed ledger values must not inflate or crash the usage page."""
         now = 1_784_800_000.0
         events = [
@@ -230,7 +230,7 @@ class SnapshotTests(unittest.TestCase):
         with _Root() as root:
             snap = pu.usage_snapshot(root, "gemini", events=events, now=now)
 
-        self.assertEqual(snap["opaiTracked"]["tokens"], 0)
+        self.assertEqual(snap["vestaTracked"]["tokens"], 0)
 
     def test_account_provider_tracked_count_is_all_time_not_window_bound(self):
         # Regression: Claude's rolling 5-hour window almost never has any
@@ -252,20 +252,20 @@ class SnapshotTests(unittest.TestCase):
         ]
         with _Root() as root:
             snap = pu.usage_snapshot(root, "claude", events=events, now=now)
-        tracked = snap["opaiTracked"]
+        tracked = snap["vestaTracked"]
         self.assertEqual(tracked["calls"], 2)
         self.assertEqual(tracked["tasks"], 2)
         self.assertEqual(tracked["windowLabel"], "All time via Vesta")
         self.assertAlmostEqual(tracked["lastUsedAt"], eighteen_days_ago + 3600, delta=1)
 
-    def test_account_provider_note_clarifies_opai_only_counts_its_own_routing(self):
+    def test_account_provider_note_clarifies_vesta_only_counts_its_own_routing(self):
         model = pu.usage_model("claude")
         self.assertIn("not the claude CLI used directly", model["note"])
 
     def test_kimi_credit_uses_the_balance_snapshot(self):
         now = 1_784_800_000.0
         with _Root() as root:
-            from opaihub import provider_balance as pb
+            from vestahub import provider_balance as pb
 
             pb.set_manual_balance(root, "kimi", 8.42, currency="USD")
             snap = pu.usage_snapshot(root, "kimi", events=[], now=now)
@@ -294,7 +294,7 @@ class ProbeTests(unittest.TestCase):
             with (
                 mock.patch.object(pu, "_probe_headers", return_value=probed) as probe,
                 mock.patch(
-                    "opaihub.credentials.CredentialStore.get", return_value="key"
+                    "vestahub.credentials.CredentialStore.get", return_value="key"
                 ),
             ):
                 first = pu.probe_usage(root, "groq", force=True, now=now)
@@ -309,7 +309,7 @@ class ProbeTests(unittest.TestCase):
             with (
                 mock.patch.object(pu, "_probe_headers", return_value=None),
                 mock.patch(
-                    "opaihub.credentials.CredentialStore.get", return_value="key"
+                    "vestahub.credentials.CredentialStore.get", return_value="key"
                 ),
             ):
                 self.assertIsNone(pu.probe_usage(root, "groq", force=True))

@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import unittest
 
-from opaihub.command_runner import redact
+from vestahub.command_runner import redact
 
 # Realistic shapes only. Values are synthetic but structurally identical to the
 # real thing, because structure is exactly what the patterns match on.
@@ -64,7 +64,7 @@ BENIGN: tuple[str, ...] = (
     "Traceback (most recent call last): File app.py line 42",
     "tokens=15234 input_tokens=9000 output_tokens=6234",
     "AKIA is the AWS access-key prefix",
-    "https://github.com/MarcoLadeira/OPai/pull/660",
+    "https://github.com/MarcoLadeira/Vesta/pull/660",
     "docs/lifecycle-schema.md updated with 8 new mappings",
 )
 
@@ -95,10 +95,10 @@ class CanaryRedactionTests(unittest.TestCase):
             with self.subTest(template=template):
                 self.assertNotIn(secret, redact(template.format(s=secret)))
 
-    def test_providers_opai_asks_the_user_to_configure_are_covered(self) -> None:
+    def test_providers_vesta_asks_the_user_to_configure_are_covered(self) -> None:
         # A leaked credential Vesta itself requested is the worst case: the user
         # gave it to Vesta, so Vesta owns not spilling it into its own records.
-        from opaihub.free_models import FREE_MODEL_SPECS
+        from vestahub.free_models import FREE_MODEL_SPECS
 
         configured = {spec["env_key"] for spec in FREE_MODEL_SPECS}
         self.assertIn("GOOGLE_API_KEY", configured)
@@ -136,11 +136,11 @@ class PersistenceBoundaryCanaryTests(unittest.TestCase):
         import importlib
 
         for module_name in (
-            "opaihub.ledger",
-            "opaihub.checkpoints",
-            "opaihub.audit",
-            "opaihub.receipt",
-            "opaihub.workflow_ledger",
+            "vestahub.ledger",
+            "vestahub.checkpoints",
+            "vestahub.audit",
+            "vestahub.receipt",
+            "vestahub.workflow_ledger",
         ):
             with self.subTest(module=module_name):
                 module = importlib.import_module(module_name)
@@ -156,7 +156,7 @@ class PersistenceBoundaryCanaryTests(unittest.TestCase):
         import tempfile
         from pathlib import Path
 
-        from opaihub.ledger import read_events, record_event
+        from vestahub.ledger import read_events, record_event
 
         secret = CANARIES["google_api_key"]
         with tempfile.TemporaryDirectory() as tmp:
@@ -179,7 +179,7 @@ class PersistenceBoundaryCanaryTests(unittest.TestCase):
         import tempfile
         from pathlib import Path
 
-        from opaihub.ledger import read_events, record_event
+        from vestahub.ledger import read_events, record_event
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

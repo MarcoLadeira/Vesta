@@ -17,15 +17,15 @@ from pathlib import Path
 
 from _helpers import make_repo
 
-from opai.app_state import overview
-from opai.cockpit import build_cockpit
-from opaihub.budget import budget_status
-from opaihub.ledger import (
+from vesta.app_state import overview
+from vesta.cockpit import build_cockpit
+from vestahub.budget import budget_status
+from vestahub.ledger import (
     record_model_call,
     record_route_decision,
     summarize_ledger,
 )
-from opaihub.savings import build_savings_report
+from vestahub.savings import build_savings_report
 
 
 class CostReconciliationTests(unittest.TestCase):

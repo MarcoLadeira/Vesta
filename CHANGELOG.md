@@ -2,39 +2,35 @@
 
 ## Unreleased
 
-### Rebrand: OPai is now Vesta
+### Rebrand: the product formerly called OPai is now Vesta
 
-- The product is named Vesta everywhere people read it: the app window, header
-  and chat, the empty state and composer, Settings, the CLI's messages and
-  help, installed instruction blocks, the website, README and current docs,
-  issue templates, and workflow titles.
-- The Vesta heart replaces the mascot and the app icon: window, taskbar,
-  Alt-Tab, the header, the home screen, the terminal welcome, and the packaged
-  Windows icon. `scripts/make_app_icon.py` now derives the icon from the logo.
-- The command is `vesta` and the desktop app is `Vesta-Desktop` (with
-  `vesta-gui`). Every command shown in the app, CLI help, docs and website
-  reads `vesta …`. The shell integration defines a `vesta` function next to
-  `op`. `opai`, `opai-gui` and `OPai-Desktop` still work as aliases for
-  existing shortcuts, hooks and scripts. Agent instructions forbid both names
-  inside an AI task; the recursion guard is name-independent.
-- Managed blocks written into your files now say "Vesta managed block", and AI
-  ignore rules say "Vesta context-slimming rules". Blocks written before the
-  rebrand are recognised, upgraded in place, and uninstalled as before, never
-  duplicated.
-- The empty state's pulsing ring is gone, and the header shows the heart on its
-  own instead of on the old brand-gradient tile.
-- Unchanged on purpose, because nothing a person reads shows it and changing it
-  would break existing installs, saved credentials or update feeds:
-  - the `opai` Python packages and module (`python -m opai`), and `~/.opai`
-    data;
-  - the `OPai.Desktop` app id;
-  - `OPai.exe`, `OPai.app`, `OPai.msix` and `OPai-<version>-…` release asset
-    names;
-  - the `OPai/free-model-api` keychain entry;
-  - the ProgramData update-policy folder;
-  - the `MarcoLadeira/OPai` repository.
-
-  Earlier entries below keep the name they were written under.
+- The product is called Vesta everywhere: the app window, header and chat, the
+  empty state and composer, Settings, the CLI, installed instruction blocks,
+  the website, README and docs, issue templates and workflow titles.
+- The Vesta heart replaces the mascot and the app icon (window, taskbar,
+  Alt-Tab, header, home screen, terminal welcome, packaged Windows icon).
+  `scripts/make_app_icon.py` derives the icon from the logo. The empty state's
+  pulsing ring is gone, and the header shows the heart on its own.
+- The command is `vesta` and the desktop app is `Vesta-Desktop` (plus
+  `vesta-gui`). The Python packages are `vesta` and `vestahub`, run as
+  `python -m vesta`.
+- Data lives in `~/.vesta`, and project state in `.vestahub/`. Environment
+  variables are `VESTA_*`. The Windows app id is `Vesta.Desktop`, release
+  assets are `Vesta-<version>-…`, and the saved API key lives in
+  `Vesta/free-model-api`. Managed blocks and AI ignore rules say Vesta.
+- Existing installs upgrade automatically on first start (`vesta/legacy.py`):
+  - `~/.opai` moves into `~/.vesta`, except the checkout the app is running
+    from;
+  - a project's `.opaihub` becomes `.vestahub`;
+  - `OPAI_*` variables are adopted as `VESTA_*`;
+  - the saved key moves from the old keychain entry;
+  - old managed blocks, wrappers, skills and rule files are upgraded or
+    removed, and user content is never touched.
+- The GitHub repository is now `MarcoLadeira/Vesta`; GitHub redirects the old
+  `MarcoLadeira/OPai` links. Earlier entries below keep the name they were
+  written under.
+- Saved update settings and machine update policies written by OPai keep
+  applying.
 
 ## 0.2.1 Alpha.1
 
@@ -55,15 +51,15 @@
 
 ### Repository safety
 
-- Added canonical repository handles and fail-closed mutation gates. OPai now
+- Added canonical repository handles and fail-closed mutation gates. Vesta now
   records redacted worktree/Git/remote/dirty-state identity before edit-capable
   work, revalidates it immediately before provider file and Git mutations, and
   blocks stale, unknown, overlapping, conflicted, or unrelated direct writes.
 - Added durable isolated-worktree leases with owner/run/base evidence,
   collision checks, quotas, heartbeat/recovery reporting, and registry/filesystem
-  reconciliation. Recovery and `opai repo worktrees --recover --json` are
+  reconciliation. Recovery and `vesta repo worktrees --recover --json` are
   non-destructive: user-modified or unknown worktrees are preserved for review.
-- Added matching GUI and `opai repo inspect --json` safety receipts, with
+- Added matching GUI and `vesta repo inspect --json` safety receipts, with
   redacted remote identity and no cleanup command exposed by either surface.
 
 ### Verification policy
@@ -73,11 +69,11 @@
   acceptance criteria resolve into a deterministic, redacted artifact with
   source provenance, bounded check requirements, human-review gates, and a
   stable digest before a provider can begin editing.
-  - Added `opai verify policy --task <task> --mode <mode> --json` for the same
+  - Added `vesta verify policy --task <task> --mode <mode> --json` for the same
     read-only effective-policy decision in CLI and CI. This command does not run
     checks or declare completion; structured command evidence and final verdicts
     remain a separate verification-execution responsibility.
-  - Added `opai verify run --task <task> --json`: a canonical-worktree runner
+  - Added `vesta verify run --task <task> --json`: a canonical-worktree runner
     that executes only policy-declared argv, retains retry attempts, bounds and
     redacts diagnostics, writes digest-checked local evidence artifacts, and
     derives verified/non-verified truth without provider self-report.
@@ -100,23 +96,23 @@
   (App-wide / This project / Local only). Every number shown is bound to the
   real settings payload — no invented data.
 - Added a self-update system: a Settings › About card and a shell-wide banner
-  honestly report whether a newer OPai is available (checked against
+  honestly report whether a newer Vesta is available (checked against
   `origin/main`, cached for an hour), with an **Update now** button that
   fetches, fast-forwards, and reinstalls — refusing outright on any
   uncommitted local change — and a **Restart now** action to relaunch on the
-  new version. `opai update` / `opai update --apply` do the same from a
+  new version. `vesta update` / `vesta update --apply` do the same from a
   terminal. When it refuses on uncommitted local changes, an **Update
   anyway** choice stashes them, applies the update, and restores them
   afterward — nothing is discarded, though a genuine conflict between the
   stash and the update leaves the changes safe in the stash for manual
-  resolution. `opai update --apply --force` is the same choice from the CLI.
+  resolution. `vesta update --apply --force` is the same choice from the CLI.
 - Added a **Model Usage** settings page: a per-provider dashboard of each AI
   tool's real usage window — Claude's rolling 5-hour session, free-tier daily
   request limits, prepaid credit, weekly/monthly plan allowances — using the
   period each service actually enforces rather than one fixed shape. Official
   figures come straight from the provider (the rate-limit headers your calls
   return, a safe prompt-free metadata check, or the balance API) with a live
-  reset countdown; OPai's own local activity counts are shown separately and
+  reset countdown; Vesta's own local activity counts are shown separately and
   never presented as the provider's figure. When exact usage can't be
   retrieved (the account CLIs expose none), the card says so plainly, shows
   the verified window definition, and links to the provider's official usage
@@ -130,31 +126,31 @@ and privacy-preserving by default; nothing new phones home.
 
 ### Release engineering
 
-- Added a reproducible **release-candidate preflight** (`opai release preflight`):
+- Added a reproducible **release-candidate preflight** (`vesta release preflight`):
   one deterministic readiness verdict over a clean tree, version/tag/changelog/
   license consistency, the test gate, required docs, and artifact checksums +
   signing — exit 0 only when the release is ready. A **dry-run** path proves
-  publishing is disabled and the network is blocked (`opai release
+  publishing is disabled and the network is blocked (`vesta release
   dry-run-proof`), and **rollback** restores the previous tested release without
-  touching user state (`opai release rollback`). Sanitized preflight/rollback
+  touching user state (`vesta release rollback`). Sanitized preflight/rollback
   evidence is archived by a dedicated CI workflow. See `docs/RELEASE.md`.
 
 ### Desktop app
 
-- Added a windowed `opai-gui` launcher (`[project.gui_scripts]`): on Windows a
+- Added a windowed `vesta-gui` launcher (`[project.gui_scripts]`): on Windows a
   Start-menu/taskbar shortcut now opens the app with **no attached console
-  window**. `opai gui` from a terminal is unchanged.
-- The window, taskbar, and Alt-Tab now show the packaged OPai icon (with a
+  window**. `vesta gui` from a terminal is unchanged.
+- The window, taskbar, and Alt-Tab now show the packaged Vesta icon (with a
   Windows AppUserModelID so the app groups under its own icon, not `pythonw`).
 - Replaced the last native `window.confirm` dialogs with styled, keyboard-
   operable in-app approval cards.
 
 ### Local-first onboarding
 
-- Added `opai models onboard [--smoke]`: a guided readiness state machine
+- Added `vesta models onboard [--smoke]`: a guided readiness state machine
   (not installed → stopped → unreachable → incompatible → no model → ready) for
   Ollama and OpenAI-compatible runtimes. Every non-ready state returns a
-  concrete, consent-gated next command as text — OPai never downloads a model,
+  concrete, consent-gated next command as text — Vesta never downloads a model,
   starts a service, or reaches a public host on its own.
 
 ### Security & privacy
@@ -168,11 +164,11 @@ and privacy-preserving by default; nothing new phones home.
   `validate_mcp_config` to check a config before use.
 - Hardened git operations with reference validation and fail-closed secret
   scanning (a scan error blocks rather than silently passes).
-- Added signed, verifiable savings receipts: `opai receipt verify <file>` reports
+- Added signed, verifiable savings receipts: `vesta receipt verify <file>` reports
   `VERIFIED` / `CONTENT_VERIFIED` / `TAMPERED` from a portable content hash plus
   an HMAC signature.
 - Safe Auto now fails closed when a native provider cannot enforce granular
-  edit permissions; OPai never enables Copilot's unbounded all-tools bypass.
+  edit permissions; Vesta never enables Copilot's unbounded all-tools bypass.
 - Push and pull-request authority now requires an explicit current request and
   is no longer implied by an ordinary implementation task.
 
@@ -196,7 +192,7 @@ and privacy-preserving by default; nothing new phones home.
   completed run could leave its last phase row on an amber "Verifying
   completion evidence" placeholder; the evidence-backed verdict now re-closes
   the same row as "Completed — objective verified".
-- **Auto mode is now capability-, cost-, and reliability-aware.** OPai Auto
+- **Auto mode is now capability-, cost-, and reliability-aware.** Vesta Auto
   builds an ordered fallback chain across every configured model — local first,
   then the cheapest configured free APIs, then (with confirmation) connected
   paid accounts — ranked by recent reliability and least-recently-used so it no
@@ -239,7 +235,7 @@ and privacy-preserving by default; nothing new phones home.
 
 - Full Auto must be explicitly pinned and acknowledged before it can run;
   persisted full-auto is reset until re-pinned. Manage it with
-  `opai autonomy status | pin | unpin`.
+  `vesta autonomy status | pin | unpin`.
 
 ### Developer workflow
 
@@ -266,12 +262,12 @@ that closed the real issue. Fixes in this bundle
   instead of read-only Explain (F18, F5).
 - **Free-model agentic execution:** the free API path (Gemini/Groq/Mistral)
   executes tools instead of narrating them; free providers are also registered
-  in `opai.model_registry` with honest capability metadata, pinned by a
+  in `vesta.model_registry` with honest capability metadata, pinned by a
   consistency test (F6, F2).
 - **Honesty invariants:** no green "Completed/✓ Ran/successfully solved"
   without real output, a diff, or a test artifact; empty command output is
   surfaced as an error, not a success (F8, F11, F14, F19, F24).
-- **Loop & spend guards:** recursive self-invocation (`opai route` from inside
+- **Loop & spend guards:** recursive self-invocation (`vesta route` from inside
   a task) is blocked, repeated identical failures stop the run, and paid spend
   cannot burn with zero progress (F12, F13, F15).
 - **Branded executable (F3):** documented in `docs/BRANDED_EXECUTABLE.md` —
@@ -287,7 +283,7 @@ that closed the real issue. Fixes in this bundle
 - Switched the launch funnel to controlled alpha access: no public GitHub issue
   intake for paid users, team pilots, or benchmark proof reports.
 - Added commercial access and IP protection guidance for private distribution.
-- Promoted OPai to public alpha metadata (`0.2.0a1` package version,
+- Promoted Vesta to public alpha metadata (`0.2.0a1` package version,
   `v0.2.0-alpha.1` release tag).
 - Documented the 30-day go-to-market plan, no-code payment loop, public usage
   signals, and release checklist.
@@ -297,23 +293,23 @@ that closed the real issue. Fixes in this bundle
 ## 0.1.1 Pre-Alpha
 
 - Severely reduced default token and credit usage:
-  - `opai route` now returns compact evidence by default.
-  - `opai route` has an even smaller AI-facing summary path; full evidence is opt-in.
-  - `opai slim` writes AI-client ignore files and removes generated project bloat.
+  - `vesta route` now returns compact evidence by default.
+  - `vesta route` has an even smaller AI-facing summary path; full evidence is opt-in.
+  - `vesta slim` writes AI-client ignore files and removes generated project bloat.
   - AI CLI launch wrappers print a one-line badge by default; welcome graphics are opt-in.
   - Release, deploy, publish, and security tasks start with local preflight instead of strong-model routing.
   - `op ask` no longer stores full prompts by default.
   - Default context cap lowered to 6,000 characters with a 12,000-character hard guard.
   - Default budgets lowered to `$0.50/day`, `$5/month`, and `$0.10` per-task soft limit.
 - Added public repo community files, issue forms, discussion forms, support policy, PR template, and security policy.
-- Updated installer docs around the single-command OPai install.
-- Added OPai skills/model-routing MVP and optional disabled-by-default cost-saving tools.
+- Updated installer docs around the single-command Vesta install.
+- Added Vesta skills/model-routing MVP and optional disabled-by-default cost-saving tools.
 
 ## 0.1.0 Pre-Alpha
 
-- Added OPai local-first AI hub CLI.
-- Added `op` and `opai` command entry points.
+- Added Vesta local-first AI hub CLI.
+- Added `op` and `vesta` command entry points.
 - Added automatic project activation for AI coding clients.
-- Added Superpowers bridge support through OPai activation.
+- Added Superpowers bridge support through Vesta activation.
 - Added packaged hub registries, prompts, docs, MCP examples, and security policy.
 - Added evidence router, safe command runner, security scans, and isolated install smoke test.

@@ -23,7 +23,7 @@ HARD_CONTEXT_MAX_CHARS = 12000
 
 def _context(root: Path, max_chars: int | None = None) -> str:
     requested = max_chars or int(
-        os.environ.get("OPAI_CONTEXT_MAX_CHARS", DEFAULT_CONTEXT_MAX_CHARS)
+        os.environ.get("VESTA_CONTEXT_MAX_CHARS", DEFAULT_CONTEXT_MAX_CHARS)
     )
     max_chars = min(requested, HARD_CONTEXT_MAX_CHARS)
     context_file = root / ".opcoding" / "context.md"
@@ -52,7 +52,7 @@ def _build_prompt(task: str, route: dict[str, Any], context: str) -> str:
 
 
 def _cacheable_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
-    if os.environ.get("OPAI_STORE_PROMPTS") == "1":
+    if os.environ.get("VESTA_STORE_PROMPTS") == "1":
         return bundle
     return {key: value for key, value in bundle.items() if key != "prompt"}
 
@@ -77,7 +77,7 @@ def build_model_bundle(
         "prompt_hash": sha256_text(prompt)[:16],
         "prompt_chars": len(prompt),
         "estimated_prompt_tokens": max(1, len(prompt) // 4),
-        "stored_prompt": os.environ.get("OPAI_STORE_PROMPTS") == "1",
+        "stored_prompt": os.environ.get("VESTA_STORE_PROMPTS") == "1",
         "cache_hit": False,
         "model_executed": False,
         "model_output": "",

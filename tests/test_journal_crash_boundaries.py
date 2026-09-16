@@ -30,13 +30,13 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub import (
+from vestahub import (
     cancellation_lifecycle,
     journal_operations,
     journal_runtime,
     journal_store,
 )
-from opaihub.cancellation_lifecycle import CancelPhase, CancellationTracker
+from vestahub.cancellation_lifecycle import CancelPhase, CancellationTracker
 
 NOW = "2026-09-08T10:00:00+00:00"
 LATER = "2026-09-08T10:05:00+00:00"
@@ -230,7 +230,7 @@ class ProviderTimeoutTests(_JournalledRun):
 class GithubDeliveryTimeoutTests(_JournalledRun):
     """The delivery boundary: did the pull request get created or not?"""
 
-    KEY = "github:pr:MarcoLadeira/OPai:feat-x"
+    KEY = "github:pr:MarcoLadeira/Vesta:feat-x"
 
     def test_the_record_keeps_saying_we_do_not_know(self):
         journal_operations.record_claim(self.root, self.KEY, now=NOW, run_id="run-1")
@@ -255,7 +255,7 @@ class GithubDeliveryTimeoutTests(_JournalledRun):
             self.root,
             self.KEY,
             now=LATER,
-            external_ref="https://github.com/MarcoLadeira/OPai/pull/847",
+            external_ref="https://github.com/MarcoLadeira/Vesta/pull/847",
             run_id="run-1",
         )
 
@@ -526,7 +526,7 @@ class UnevidencedCompletionTests(_JournalledRun):
     verification event, no manifest and no cost -- measured, not inferred.
 
     Refusing the write would be the wrong fix and these tests pin why. The
-    layer that *can* judge a completion is ``opaihub.completion``, which has
+    layer that *can* judge a completion is ``vestahub.completion``, which has
     the answer, the diff and the policy in front of it; a journal that started
     overruling verdicts would be a second opinion on the one question this
     epic exists to give a single answer to. And refusing to record a terminal
@@ -710,7 +710,7 @@ class UnevidencedCompletionTests(_JournalledRun):
         self.assertEqual(report["without_verification"], 0)
 
     def test_doctor_reports_the_criterion_number_too(self):
-        from opai import cli
+        from vesta import cli
 
         fence = self.complete("run-2", "task-2")
         journal_runtime.record_run_cost(
@@ -744,7 +744,7 @@ class UnevidencedCompletionTests(_JournalledRun):
     def test_doctor_actually_asks(self):
         """The seventh piece of machinery nothing called would be this one."""
 
-        from opai import cli
+        from vesta import cli
 
         fence = self.complete("run-2", "task-2")
         self.terminate("run-2", fence)
@@ -875,7 +875,7 @@ class UnconfirmedCancellationTests(_JournalledRun):
         )
 
     def test_doctor_actually_asks(self):
-        from opai import cli
+        from vesta import cli
 
         self.cancel("run-2", self.admit("run-2"))
 

@@ -7,7 +7,7 @@
     "**/*.md",
     "!**/.opcoding-tools/**",
     "!**/.opcoding/**",
-    "!**/.opaihub/**",
+    "!**/.vestahub/**",
     "!prompts/**",
     "!hub/prompts/**",
     "!templates/**"

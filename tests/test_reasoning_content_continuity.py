@@ -7,10 +7,10 @@ continuation. #673 Phase 1 shipped non-thinking mode only, precisely because
 the generic tool-loop message contract did not carry that field. This module
 covers the three layers that close the gap:
 
-* ``opaihub.tool_loop`` — the continuity contract itself: replay, the typed
+* ``vestahub.tool_loop`` — the continuity contract itself: replay, the typed
   ``ReasoningContinuityError`` when a required field is gone, and the A4
   carve-out that only tool-call turns need it.
-* ``opaihub.local_runner.ThinkingControl`` — the model control (#673 A5)
+* ``vestahub.local_runner.ThinkingControl`` — the model control (#673 A5)
   that gates whether thinking is ever requested at all.
 * ``PaidAPIRunner`` — wiring the control into the outbound payload and the
   provider's raw field into ``ChatTurn``, without ever letting it leak past
@@ -28,15 +28,15 @@ import unittest.mock as mock
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from opaihub import local_runner
-from opaihub.completion import CompletionState
-from opaihub.local_runner import (
+from vestahub import local_runner
+from vestahub.completion import CompletionState
+from vestahub.local_runner import (
     FreeAPIRunner,
     PaidAPIRunner,
     ThinkingControl,
     runner_for_model,
 )
-from opaihub.tool_loop import (
+from vestahub.tool_loop import (
     ChatTurn,
     ReasoningContinuityError,
     ToolLoopController,
@@ -88,7 +88,7 @@ def _completed_turn(evidence: tuple[str, ...] = ()) -> ChatTurn:
     import json
 
     payload = {
-        "opai_decision_version": 1,
+        "vesta_decision_version": 1,
         "state": "completed",
         "summary": "done",
         "evidence": list(evidence),
@@ -321,7 +321,7 @@ class ControllerReplayTests(unittest.TestCase):
 
         def chat(messages, *, tools):
             return ChatTurn(
-                content='{"opai_decision_version": 1, "state": "completed", "summary": "ok"}',
+                content='{"vesta_decision_version": 1, "state": "completed", "summary": "ok"}',
                 tool_calls=(),
                 usage={},
                 reasoning_content=None,
@@ -449,7 +449,7 @@ class PrivacyTests(unittest.TestCase):
                 {
                     "message": {
                         "content": (
-                            '{"opai_decision_version": 1, "state": "completed", '
+                            '{"vesta_decision_version": 1, "state": "completed", '
                             '"summary": "done", "evidence": ["c1"]}'
                         ),
                         "reasoning_content": self.SECRET + " turn 2",
@@ -489,14 +489,14 @@ class PrivacyTests(unittest.TestCase):
             with (
                 mock.patch.object(local_runner, "_http_json_cancellable", fake_http),
                 mock.patch(
-                    "opaihub.provider_tools.RepositoryToolExecutor",
+                    "vestahub.provider_tools.RepositoryToolExecutor",
                     return_value=_FakeToolExecutor(),
                 ),
                 mock.patch(
-                    "opaihub.ledger.record_model_call_started", side_effect=_capture
+                    "vestahub.ledger.record_model_call_started", side_effect=_capture
                 ),
                 mock.patch(
-                    "opaihub.ledger.record_model_call_finalized", side_effect=_capture
+                    "vestahub.ledger.record_model_call_finalized", side_effect=_capture
                 ),
             ):
                 outcome = runner.complete_with_tools(
@@ -601,7 +601,7 @@ class PayloadWiringTests(unittest.TestCase):
             with (
                 mock.patch.object(local_runner, "_http_json_cancellable", fake_http),
                 mock.patch(
-                    "opaihub.provider_tools.RepositoryToolExecutor",
+                    "vestahub.provider_tools.RepositoryToolExecutor",
                     return_value=_StubExecutor(),
                 ),
             ):

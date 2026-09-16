@@ -13,7 +13,7 @@ def _isolate_provider_credentials(monkeypatch):
 
     for name in PROVIDER_CREDENTIAL_ENV:
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setattr("opaihub.credentials._default_backend", lambda: None)
+    monkeypatch.setattr("vestahub.credentials._default_backend", lambda: None)
 
 
 @pytest.fixture(autouse=True)

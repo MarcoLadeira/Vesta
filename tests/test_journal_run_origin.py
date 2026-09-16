@@ -24,18 +24,18 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub import gui_pipeline, journal_retirement, journal_runtime, journal_store
+from vestahub import gui_pipeline, journal_retirement, journal_runtime, journal_store
 
 NOW = "2026-09-08T10:00:00+00:00"
 
 #: Every module that drives a turn, and the surface it must name.
 CALLERS = {
-    "opai/gui_web.py": "gui",
-    "opai/gui_desktop.py": "gui",
-    "opai/cli_stream.py": "cli",
-    "opaihub/background_runs.py": "background",
-    "opaihub/build_loop.py": "automation",
-    "opaihub/objective_worker.py": "agent",
+    "vesta/gui_web.py": "gui",
+    "vesta/gui_desktop.py": "gui",
+    "vesta/cli_stream.py": "cli",
+    "vestahub/background_runs.py": "background",
+    "vestahub/build_loop.py": "automation",
+    "vestahub/objective_worker.py": "agent",
 }
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -142,8 +142,8 @@ class EveryCallerNamesItselfTests(unittest.TestCase):
         """A sixth surface must be triaged here, not discovered in a report."""
 
         found = set()
-        for path in sorted((ROOT / "opai").rglob("*.py")) + sorted(
-            (ROOT / "opaihub").rglob("*.py")
+        for path in sorted((ROOT / "vesta").rglob("*.py")) + sorted(
+            (ROOT / "vestahub").rglob("*.py")
         ):
             if path.name == "gui_pipeline.py":
                 continue

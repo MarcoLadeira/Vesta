@@ -10,7 +10,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add verified free-tier API models to OPai's model picker and fix the picker so models are displayed with descriptive provider-prefixed labels ("Claude · Sonnet 4.6") grouped by Claude | Codex | Copilot | Free models | OPai routing | Local models, replacing the broken "OPai · Balanced/Fast/Powerful mode" labels that repeat identically for every model.
+**Goal:** Add verified free-tier API models to Vesta's model picker and fix the picker so models are displayed with descriptive provider-prefixed labels ("Claude · Sonnet 4.6") grouped by Claude | Codex | Copilot | Free models | Vesta routing | Local models, replacing the broken "Vesta · Balanced/Fast/Powerful mode" labels that repeat identically for every model.
 
 **Architecture:** Python data layer adds `FREE_MODEL_SPECS` + `FreeAPIRunner`, `provider_display_name()` returns provider-prefixed labels, all model options carry a `group` field. The JS picker renders `<optgroup>` elements per group. Free API models appear always (grayed when no API key) and route through the policy confirmation gate since they hit public endpoints.
 
@@ -22,18 +22,18 @@
 
 | File | Action | Responsibility |
 |------|--------|---------------|
-| `opaihub/free_models.py` | **Create** | FREE_MODEL_SPECS list, list_free_models(), spec_for_model_id() |
-| `opaihub/local_runner.py` | **Modify** | Add FreeAPIRunner, update _http_json, update runner_for_model |
-| `opai/provider_contract.py` | **Modify** | Fix provider_display_name() to return provider-prefixed labels |
-| `opaihub/accounts.py` | **Modify** | Add group field to all _account_options() entries |
-| `opai/app_state.py` | **Modify** | Add free models to available_models(), add _ask_free_model() |
-| `opai/assets/web/app.js` | **Modify** | renderComposerSelects uses optgroup via PICKER_GROUPS |
+| `vestahub/free_models.py` | **Create** | FREE_MODEL_SPECS list, list_free_models(), spec_for_model_id() |
+| `vestahub/local_runner.py` | **Modify** | Add FreeAPIRunner, update _http_json, update runner_for_model |
+| `vesta/provider_contract.py` | **Modify** | Fix provider_display_name() to return provider-prefixed labels |
+| `vestahub/accounts.py` | **Modify** | Add group field to all _account_options() entries |
+| `vesta/app_state.py` | **Modify** | Add free models to available_models(), add _ask_free_model() |
+| `vesta/assets/web/app.js` | **Modify** | renderComposerSelects uses optgroup via PICKER_GROUPS |
 | `tests/test_free_models.py` | **Create** | Python unit tests for free_models + FreeAPIRunner |
 | `tests/test_provider_contract.py` | **Modify** | Update label assertions to new format |
-| `tests/test_provider_connections.py` | **Modify** | Update OPai-first label assertion |
-| `opai/assets/web/__tests__/e2e/helpers/fixtures.js` | **Modify** | Add group fields, free model entries |
-| `opai/assets/web/__tests__/e2e/model-mode.spec.js` | **Modify** | Add optgroup / group assertions |
-| `opai/assets/web/__tests__/e2e/free-models.spec.js` | **Create** | E2E tests for free model behavior |
+| `tests/test_provider_connections.py` | **Modify** | Update Vesta-first label assertion |
+| `vesta/assets/web/__tests__/e2e/helpers/fixtures.js` | **Modify** | Add group fields, free model entries |
+| `vesta/assets/web/__tests__/e2e/model-mode.spec.js` | **Modify** | Add optgroup / group assertions |
+| `vesta/assets/web/__tests__/e2e/free-models.spec.js` | **Create** | E2E tests for free model behavior |
 
 ---
 
@@ -42,7 +42,7 @@
 - [ ] **Step 1.1: Create feature branch**
 
 ```bash
-cd C:\Users\Frist\.opai\source
+cd C:\Users\Frist\.vesta\source
 git checkout -b feat/free-models-model-picker-groups
 ```
 
@@ -53,7 +53,7 @@ Expected: `Switched to a new branch 'feat/free-models-model-picker-groups'`
 ## Task 2: Free models module (TDD)
 
 **Files:**
-- Create: `opaihub/free_models.py`
+- Create: `vestahub/free_models.py`
 - Create: `tests/test_free_models.py`
 
 - [ ] **Step 2.1: Write the failing tests**
@@ -68,7 +68,7 @@ import os
 import unittest
 from unittest import mock
 
-from opaihub.free_models import (
+from vestahub.free_models import (
     FREE_MODEL_SPECS,
     list_free_models,
     spec_for_model_id,
@@ -182,22 +182,22 @@ if __name__ == "__main__":
 - [ ] **Step 2.2: Run to confirm it fails**
 
 ```bash
-cd C:\Users\Frist\.opai\source
+cd C:\Users\Frist\.vesta\source
 python -m pytest tests/test_free_models.py -v 2>&1 | head -30
 ```
 
-Expected: `ModuleNotFoundError: No module named 'opaihub.free_models'`
+Expected: `ModuleNotFoundError: No module named 'vestahub.free_models'`
 
-- [ ] **Step 2.3: Create `opaihub/free_models.py`**
+- [ ] **Step 2.3: Create `vestahub/free_models.py`**
 
 ```python
-"""Free API model registry for OPai.
+"""Free API model registry for Vesta.
 
 Defines FREE_MODEL_SPECS for providers that offer free API tiers (DeepSeek,
 Google Gemini, Groq, Mistral). Models appear in the picker even without a key
 — grayed with a setup hint — so users can discover free options.
 
-Execution: free models hit public endpoints and always go through OPai's
+Execution: free models hit public endpoints and always go through Vesta's
 confirmation gate (same as other cloud routes). No network calls happen here;
 availability is determined solely by env var presence.
 """
@@ -337,7 +337,7 @@ def spec_for_model_id(model_id: str) -> dict[str, Any] | None:
 - [ ] **Step 2.4: Run tests to verify they pass**
 
 ```bash
-cd C:\Users\Frist\.opai\source
+cd C:\Users\Frist\.vesta\source
 python -m pytest tests/test_free_models.py -v
 ```
 
@@ -346,7 +346,7 @@ Expected: All tests PASS.
 - [ ] **Step 2.5: Commit**
 
 ```bash
-git add opaihub/free_models.py tests/test_free_models.py
+git add vestahub/free_models.py tests/test_free_models.py
 git commit -m "feat(models): add free API model registry (DeepSeek, Gemini, Groq, Mistral)
 
 FREE_MODEL_SPECS defines 5 free-tier models always visible in the picker.
@@ -360,7 +360,7 @@ Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 ## Task 3: FreeAPIRunner (TDD)
 
 **Files:**
-- Modify: `opaihub/local_runner.py`
+- Modify: `vestahub/local_runner.py`
 - Modify: `tests/test_free_models.py` (add runner tests)
 
 - [ ] **Step 3.1: Add runner tests to `tests/test_free_models.py`**
@@ -370,25 +370,25 @@ Append this class at the end of the file (before `if __name__ == "__main__"`):
 ```python
 class FreeAPIRunnerTests(unittest.TestCase):
     def test_runner_available_with_key(self):
-        from opaihub.local_runner import FreeAPIRunner
+        from vestahub.local_runner import FreeAPIRunner
 
         runner = FreeAPIRunner("https://api.deepseek.com/v1", "deepseek-chat", "test-key")
         self.assertTrue(runner.available())
 
     def test_runner_unavailable_without_key(self):
-        from opaihub.local_runner import FreeAPIRunner
+        from vestahub.local_runner import FreeAPIRunner
 
         runner = FreeAPIRunner("https://api.deepseek.com/v1", "deepseek-chat", "")
         self.assertFalse(runner.available())
 
     def test_runner_unavailable_with_whitespace_key(self):
-        from opaihub.local_runner import FreeAPIRunner
+        from vestahub.local_runner import FreeAPIRunner
 
         runner = FreeAPIRunner("https://api.deepseek.com/v1", "deepseek-chat", "   ")
         self.assertFalse(runner.available())
 
     def test_runner_for_free_model_id_with_key(self):
-        from opaihub.local_runner import FreeAPIRunner, runner_for_model
+        from vestahub.local_runner import FreeAPIRunner, runner_for_model
 
         with mock.patch.dict(os.environ, {"DEEPSEEK_API_KEY": "test-key-abc"}):
             runner = runner_for_model("free:deepseek:deepseek-chat")
@@ -397,7 +397,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
         self.assertTrue(runner.available())
 
     def test_runner_for_free_model_id_without_key(self):
-        from opaihub.local_runner import FreeAPIRunner, runner_for_model
+        from vestahub.local_runner import FreeAPIRunner, runner_for_model
 
         with mock.patch.dict(os.environ, {"DEEPSEEK_API_KEY": ""}):
             runner = runner_for_model("free:deepseek:deepseek-chat")
@@ -406,13 +406,13 @@ class FreeAPIRunnerTests(unittest.TestCase):
         self.assertFalse(runner.available())
 
     def test_runner_for_unknown_free_model_returns_none(self):
-        from opaihub.local_runner import runner_for_model
+        from vestahub.local_runner import runner_for_model
 
         runner = runner_for_model("free:unknown:nonexistent")
         self.assertIsNone(runner)
 
     def test_runner_complete_sends_auth_header(self):
-        from opaihub.local_runner import FreeAPIRunner
+        from vestahub.local_runner import FreeAPIRunner
 
         runner = FreeAPIRunner("https://api.deepseek.com/v1", "deepseek-chat", "sk-test-123")
         mock_response = {"choices": [{"message": {"content": "Test response"}}]}
@@ -423,7 +423,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
             captured_headers.update(extra_headers or {})
             return mock_response
 
-        with mock.patch("opaihub.local_runner._http_json", side_effect=fake_http):
+        with mock.patch("vestahub.local_runner._http_json", side_effect=fake_http):
             result = runner.complete("What is 2+2?")
 
         self.assertEqual(result, "Test response")
@@ -431,7 +431,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
         self.assertEqual(captured_headers["Authorization"], "Bearer sk-test-123")
 
     def test_runner_complete_with_system_prompt(self):
-        from opaihub.local_runner import FreeAPIRunner
+        from vestahub.local_runner import FreeAPIRunner
 
         runner = FreeAPIRunner("https://api.groq.com/openai/v1", "llama-3.3-70b-versatile", "key")
         mock_response = {"choices": [{"message": {"content": "OK"}}]}
@@ -441,7 +441,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
             captured_payload.update(payload or {})
             return mock_response
 
-        with mock.patch("opaihub.local_runner._http_json", side_effect=fake_http):
+        with mock.patch("vestahub.local_runner._http_json", side_effect=fake_http):
             runner.complete("Hello", system="You are a coding assistant.")
 
         messages = captured_payload.get("messages", [])
@@ -452,13 +452,13 @@ class FreeAPIRunnerTests(unittest.TestCase):
 - [ ] **Step 3.2: Run to confirm new tests fail**
 
 ```bash
-cd C:\Users\Frist\.opai\source
+cd C:\Users\Frist\.vesta\source
 python -m pytest tests/test_free_models.py::FreeAPIRunnerTests -v
 ```
 
-Expected: `ImportError: cannot import name 'FreeAPIRunner' from 'opaihub.local_runner'`
+Expected: `ImportError: cannot import name 'FreeAPIRunner' from 'vestahub.local_runner'`
 
-- [ ] **Step 3.3: Update `opaihub/local_runner.py`**
+- [ ] **Step 3.3: Update `vestahub/local_runner.py`**
 
 **3.3a: Update `_http_json` to accept `extra_headers`** — find the existing `_http_json` function and replace it:
 
@@ -490,7 +490,7 @@ class FreeAPIRunner(OpenAICompatibleRunner):
 
     Unlike local runners, these reach public endpoints and require an API key
     stored in an env var.  ``available()`` checks key presence only — no network
-    ping — to avoid latency in the model picker.  All calls go through OPai's
+    ping — to avoid latency in the model picker.  All calls go through Vesta's
     policy confirmation gate (``requires_confirmation=True``) because they hit
     a public host.
     """
@@ -563,7 +563,7 @@ Also add `import os` at the top of the file if not already present (check — it
 - [ ] **Step 3.4: Run tests to verify they pass**
 
 ```bash
-cd C:\Users\Frist\.opai\source
+cd C:\Users\Frist\.vesta\source
 python -m pytest tests/test_free_models.py -v
 ```
 
@@ -572,7 +572,7 @@ Expected: All tests PASS.
 - [ ] **Step 3.5: Commit**
 
 ```bash
-git add opaihub/local_runner.py tests/test_free_models.py
+git add vestahub/local_runner.py tests/test_free_models.py
 git commit -m "feat(runner): add FreeAPIRunner for free-tier API models
 
 - _http_json gains optional extra_headers for Authorization support
@@ -587,7 +587,7 @@ Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 ## Task 4: Fix `provider_display_name()` (TDD)
 
 **Files:**
-- Modify: `opai/provider_contract.py`
+- Modify: `vesta/provider_contract.py`
 - Modify: `tests/test_provider_contract.py`
 
 - [ ] **Step 4.1: Update the failing test in `tests/test_provider_contract.py`**
@@ -596,7 +596,7 @@ Replace the existing `test_provider_details_are_advanced_only` method and add ne
 
 ```python
 def test_provider_details_are_advanced_only(self):
-    # Simple label now uses provider prefix, not OPai generic label
+    # Simple label now uses provider prefix, not Vesta generic label
     self.assertEqual(provider_display_name("claude", "haiku"), "Claude · Haiku 4.5")
     # Advanced label is unchanged (full diagnostic string)
     self.assertEqual(
@@ -625,21 +625,21 @@ def test_copilot_model_labels(self):
     )
 
 def test_auto_and_local_labels_unchanged(self):
-    self.assertEqual(provider_display_name("auto"), "OPai · Auto mode")
-    self.assertEqual(provider_display_name(""), "OPai · Auto mode")
-    self.assertEqual(provider_display_name("local"), "OPai · Local mode")
+    self.assertEqual(provider_display_name("auto"), "Vesta · Auto mode")
+    self.assertEqual(provider_display_name(""), "Vesta · Auto mode")
+    self.assertEqual(provider_display_name("local"), "Vesta · Local mode")
 ```
 
 - [ ] **Step 4.2: Run to confirm updated tests fail**
 
 ```bash
-cd C:\Users\Frist\.opai\source
+cd C:\Users\Frist\.vesta\source
 python -m pytest tests/test_provider_contract.py -v
 ```
 
-Expected: `test_provider_details_are_advanced_only` FAILS (expected "Claude · Haiku 4.5", got "OPai · Fast mode").
+Expected: `test_provider_details_are_advanced_only` FAILS (expected "Claude · Haiku 4.5", got "Vesta · Fast mode").
 
-- [ ] **Step 4.3: Rewrite `provider_display_name()` in `opai/provider_contract.py`**
+- [ ] **Step 4.3: Rewrite `provider_display_name()` in `vesta/provider_contract.py`**
 
 Replace the existing `provider_display_name` function (lines ~276-302) with:
 
@@ -701,17 +701,17 @@ def provider_display_name(
         display = _COPILOT_DISPLAY.get(model_id, model or "model")
         return f"Copilot · {display}"
     if provider_id == "local":
-        return "OPai · Local mode"
+        return "Vesta · Local mode"
     if provider_id in {"auto", ""}:
-        return "OPai · Auto mode"
-    # Generic fallback: keeps OPai branding for any unrecognized provider.
-    return f"OPai · {(model or provider or 'model').strip()}"
+        return "Vesta · Auto mode"
+    # Generic fallback: keeps Vesta branding for any unrecognized provider.
+    return f"Vesta · {(model or provider or 'model').strip()}"
 ```
 
 - [ ] **Step 4.4: Run tests to verify they pass**
 
 ```bash
-cd C:\Users\Frist\.opai\source
+cd C:\Users\Frist\.vesta\source
 python -m pytest tests/test_provider_contract.py -v
 ```
 
@@ -720,10 +720,10 @@ Expected: All tests PASS.
 - [ ] **Step 4.5: Commit**
 
 ```bash
-git add opai/provider_contract.py tests/test_provider_contract.py
+git add vesta/provider_contract.py tests/test_provider_contract.py
 git commit -m "feat(ui): fix provider_display_name to return descriptive labels
 
-Before: 'OPai · Balanced mode' for every connected model (broken)
+Before: 'Vesta · Balanced mode' for every connected model (broken)
 After:  'Claude · Sonnet 4.6', 'Codex · GPT-5.5', 'Copilot · Claude Sonnet'
 
 Lookup tables CLAUDE_DISPLAY / CODEX_DISPLAY / COPILOT_DISPLAY map model
@@ -737,12 +737,12 @@ Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 ## Task 5: Add `group` field to account models (TDD)
 
 **Files:**
-- Modify: `opaihub/accounts.py`
+- Modify: `vestahub/accounts.py`
 - Modify: `tests/test_provider_connections.py`
 
 - [ ] **Step 5.1: Update `tests/test_provider_connections.py`**
 
-**Replace** `test_account_picker_is_opai_first_with_advanced_provider_detail` with:
+**Replace** `test_account_picker_is_vesta_first_with_advanced_provider_detail` with:
 
 ```python
 def test_account_picker_has_provider_prefixed_labels(self):
@@ -758,11 +758,11 @@ def test_account_picker_has_provider_prefixed_labels(self):
         "login_hint": "Sign in",
     }
     with mock.patch(
-        "opaihub.accounts.list_connected_accounts", return_value=[account]
+        "vestahub.accounts.list_connected_accounts", return_value=[account]
     ):
         options = account_models()
 
-    # Labels now use provider prefix, not OPai generic labels
+    # Labels now use provider prefix, not Vesta generic labels
     self.assertTrue(
         all(option["label"].startswith("Claude ·") for option in options),
         f"Expected all labels to start with 'Claude ·', got: {[o['label'] for o in options]}",
@@ -782,7 +782,7 @@ def test_account_options_include_group_field(self):
         "login_hint": "Sign in",
     }
     with mock.patch(
-        "opaihub.accounts.list_connected_accounts", return_value=[account]
+        "vestahub.accounts.list_connected_accounts", return_value=[account]
     ):
         options = account_models()
 
@@ -802,7 +802,7 @@ def test_codex_options_have_codex_group(self):
         "login_hint": "Sign in",
     }
     with mock.patch(
-        "opaihub.accounts.list_connected_accounts", return_value=[account]
+        "vestahub.accounts.list_connected_accounts", return_value=[account]
     ):
         options = account_models()
 
@@ -822,7 +822,7 @@ def test_copilot_options_have_copilot_group(self):
         "login_hint": "Sign in",
     }
     with mock.patch(
-        "opaihub.accounts.list_connected_accounts", return_value=[account]
+        "vestahub.accounts.list_connected_accounts", return_value=[account]
     ):
         options = account_models()
 
@@ -833,13 +833,13 @@ def test_copilot_options_have_copilot_group(self):
 - [ ] **Step 5.2: Run to confirm new/updated tests fail**
 
 ```bash
-cd C:\Users\Frist\.opai\source
+cd C:\Users\Frist\.vesta\source
 python -m pytest tests/test_provider_connections.py -v
 ```
 
 Expected: `test_account_picker_has_provider_prefixed_labels` and group tests FAIL.
 
-- [ ] **Step 5.3: Update `opaihub/accounts.py` — add `group` to `_account_options()`**
+- [ ] **Step 5.3: Update `vestahub/accounts.py` — add `group` to `_account_options()`**
 
 In the `_account_options()` function, add `"group": account["id"]` to every returned dict. The account id is `"claude"`, `"codex"`, or `"copilot"`, which are exactly the group keys we need.
 
@@ -933,7 +933,7 @@ return [
 - [ ] **Step 5.4: Run tests to verify they pass**
 
 ```bash
-cd C:\Users\Frist\.opai\source
+cd C:\Users\Frist\.vesta\source
 python -m pytest tests/test_provider_connections.py -v
 ```
 
@@ -942,23 +942,23 @@ Expected: All tests PASS.
 - [ ] **Step 5.5: Run the full Python suite to catch regressions**
 
 ```bash
-cd C:\Users\Frist\.opai\source
+cd C:\Users\Frist\.vesta\source
 python -m pytest tests/ -x -q 2>&1 | tail -20
 ```
 
 Expected: All existing tests pass. If `test_gui_web.py` or `test_desktop_gui.py` fail because they check model labels, update them (see note below Step 5.5).
 
-> **Note on regressions:** If any test asserts the old `"OPai · Balanced mode"` / `"OPai · Fast mode"` / `"OPai · Powerful mode"` label format, update that test to expect the new provider-prefixed format. These are intentional breaking changes to the broken behavior.
+> **Note on regressions:** If any test asserts the old `"Vesta · Balanced mode"` / `"Vesta · Fast mode"` / `"Vesta · Powerful mode"` label format, update that test to expect the new provider-prefixed format. These are intentional breaking changes to the broken behavior.
 
 - [ ] **Step 5.6: Commit**
 
 ```bash
-git add opaihub/accounts.py tests/test_provider_connections.py
+git add vestahub/accounts.py tests/test_provider_connections.py
 git commit -m "feat(models): add group field to all account model options
 
 Each model option now carries group='claude'/'codex'/'copilot' so the
 JS picker can render <optgroup> sections. Tests updated to match new
-provider-prefixed label format (dropping OPai-generic labels).
+provider-prefixed label format (dropping Vesta-generic labels).
 
 Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 ```
@@ -968,7 +968,7 @@ Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 ## Task 6: Wire free models into `available_models()` and `ask()` (TDD)
 
 **Files:**
-- Modify: `opai/app_state.py`
+- Modify: `vesta/app_state.py`
 - Modify: `tests/test_provider_connections.py` (add available_models group test)
 
 - [ ] **Step 6.1: Add `available_models` group tests to `tests/test_provider_connections.py`**
@@ -979,8 +979,8 @@ Append after the existing tests:
 def test_available_models_includes_free_models(self):
     with tempfile.TemporaryDirectory() as tmp:
         with (
-            mock.patch("opaihub.accounts.list_connected_accounts", return_value=[]),
-            mock.patch("opaihub.local_runner.list_local_models", return_value=[]),
+            mock.patch("vestahub.accounts.list_connected_accounts", return_value=[]),
+            mock.patch("vestahub.local_runner.list_local_models", return_value=[]),
         ):
             payload = available_models(Path(tmp))
 
@@ -991,8 +991,8 @@ def test_available_models_includes_free_models(self):
 def test_available_models_auto_has_routing_group(self):
     with tempfile.TemporaryDirectory() as tmp:
         with (
-            mock.patch("opaihub.accounts.list_connected_accounts", return_value=[]),
-            mock.patch("opaihub.local_runner.list_local_models", return_value=[]),
+            mock.patch("vestahub.accounts.list_connected_accounts", return_value=[]),
+            mock.patch("vestahub.local_runner.list_local_models", return_value=[]),
         ):
             payload = available_models(Path(tmp))
 
@@ -1009,8 +1009,8 @@ def test_available_models_local_models_have_local_group(self):
     }
     with tempfile.TemporaryDirectory() as tmp:
         with (
-            mock.patch("opaihub.accounts.list_connected_accounts", return_value=[]),
-            mock.patch("opaihub.local_runner.list_local_models", return_value=[local_model]),
+            mock.patch("vestahub.accounts.list_connected_accounts", return_value=[]),
+            mock.patch("vestahub.local_runner.list_local_models", return_value=[local_model]),
         ):
             payload = available_models(Path(tmp))
 
@@ -1022,13 +1022,13 @@ def test_available_models_local_models_have_local_group(self):
 - [ ] **Step 6.2: Run to confirm tests fail**
 
 ```bash
-cd C:\Users\Frist\.opai\source
+cd C:\Users\Frist\.vesta\source
 python -m pytest tests/test_provider_connections.py::ProviderConnectionTests::test_available_models_includes_free_models -v
 ```
 
 Expected: FAIL — `"free" not in groups`.
 
-- [ ] **Step 6.3: Update `opai/app_state.py` — `available_models()`**
+- [ ] **Step 6.3: Update `vesta/app_state.py` — `available_models()`**
 
 Find the `available_models()` function. Replace the section that builds `options` (from the `accounts = account_models()` line through the `options.append({...auto...})` and local model loop) with:
 
@@ -1041,13 +1041,13 @@ def available_models(project_root: Path) -> dict[str, Any]:
     when no key is set. Auto routes cheapest safe option. Local models are the
     free, advanced fallback. Read-only — never installs, downloads, or signs in.
     """
-    from opaihub.accounts import (
+    from vestahub.accounts import (
         account_connections,
         account_models,
         list_connected_accounts,
     )
-    from opaihub.free_models import list_free_models
-    from opaihub.local_runner import list_local_models
+    from vestahub.free_models import list_free_models
+    from vestahub.local_runner import list_local_models
 
     accounts = account_models()
     account_catalog = account_models(include_unavailable=True)
@@ -1074,11 +1074,11 @@ def available_models(project_root: Path) -> dict[str, Any]:
     # 2. Free API models (always shown, grayed when no key)
     options.extend(list_free_models())
 
-    # 3. OPai Auto routing
+    # 3. Vesta Auto routing
     options.append(
         {
             "id": "auto",
-            "label": "OPai · Auto mode",
+            "label": "Vesta · Auto mode",
             "advanced_label": "Automatic local-first routing",
             "kind": "auto",
             "group": "routing",
@@ -1090,7 +1090,7 @@ def available_models(project_root: Path) -> dict[str, Any]:
         options.append(
             {
                 "id": model["id"],
-                "label": "OPai · Local mode",
+                "label": "Vesta · Local mode",
                 "advanced_label": f"{model['model']} via {model['provider']} on this device",
                 "kind": "local",
                 "group": "local",
@@ -1119,7 +1119,7 @@ def available_models(project_root: Path) -> dict[str, Any]:
     }
 ```
 
-- [ ] **Step 6.4: Add `_ask_free_model()` helper to `opai/app_state.py`**
+- [ ] **Step 6.4: Add `_ask_free_model()` helper to `vesta/app_state.py`**
 
 Add this function after `_ask_account()`:
 
@@ -1139,8 +1139,8 @@ def _ask_free_model(
     Requires the model's env var API key to be set. Always recorded as a
     cloud call and subject to the policy gate (public endpoint).
     """
-    from opaihub.free_models import spec_for_model_id
-    from opaihub.local_runner import FreeAPIRunner
+    from vestahub.free_models import spec_for_model_id
+    from vestahub.local_runner import FreeAPIRunner
 
     spec = spec_for_model_id(model_choice)
     if spec is None:
@@ -1163,7 +1163,7 @@ def _ask_free_model(
             "requestId": None,
         }
 
-    from opaihub.ask import run_ask
+    from vestahub.ask import run_ask
 
     runner = FreeAPIRunner(spec["api_base"], spec["model_id"], api_key)
     return run_ask(
@@ -1206,8 +1206,8 @@ def ask(
             on_text=on_text, cancel=cancel,
         )
 
-    from opaihub.ask import run_ask
-    from opaihub.local_runner import runner_for_model
+    from vestahub.ask import run_ask
+    from vestahub.local_runner import runner_for_model
 
     runner = None
     if model_choice and model_choice != "auto":
@@ -1218,7 +1218,7 @@ def ask(
 - [ ] **Step 6.6: Run tests to verify**
 
 ```bash
-cd C:\Users\Frist\.opai\source
+cd C:\Users\Frist\.vesta\source
 python -m pytest tests/test_provider_connections.py -v
 ```
 
@@ -1227,7 +1227,7 @@ Expected: All tests PASS.
 - [ ] **Step 6.7: Run full Python suite**
 
 ```bash
-cd C:\Users\Frist\.opai\source
+cd C:\Users\Frist\.vesta\source
 python -m pytest tests/ -x -q 2>&1 | tail -20
 ```
 
@@ -1236,7 +1236,7 @@ Expected: All pass.
 - [ ] **Step 6.8: Commit**
 
 ```bash
-git add opai/app_state.py tests/test_provider_connections.py
+git add vesta/app_state.py tests/test_provider_connections.py
 git commit -m "feat(models): wire free models into available_models() and ask()
 
 - available_models() inserts free models (group='free') between accounts and auto
@@ -1252,14 +1252,14 @@ Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 ## Task 7: Update frontend model picker to `<optgroup>` (E2E TDD)
 
 **Files:**
-- Modify: `opai/assets/web/app.js`
-- Modify: `opai/assets/web/__tests__/e2e/helpers/fixtures.js`
-- Modify: `opai/assets/web/__tests__/e2e/model-mode.spec.js`
-- Create: `opai/assets/web/__tests__/e2e/free-models.spec.js`
+- Modify: `vesta/assets/web/app.js`
+- Modify: `vesta/assets/web/__tests__/e2e/helpers/fixtures.js`
+- Modify: `vesta/assets/web/__tests__/e2e/model-mode.spec.js`
+- Create: `vesta/assets/web/__tests__/e2e/free-models.spec.js`
 
 - [ ] **Step 7.1: Update fixtures to include group fields and free models**
 
-In `opai/assets/web/__tests__/e2e/helpers/fixtures.js`, replace the `MODELS` export with:
+In `vesta/assets/web/__tests__/e2e/helpers/fixtures.js`, replace the `MODELS` export with:
 
 ```js
 export const MODELS = [
@@ -1342,7 +1342,7 @@ export const MODELS = [
   },
   {
     id: "ollama:qwen2.5-coder",
-    label: "OPai · Local mode",
+    label: "Vesta · Local mode",
     advanced_label: "qwen2.5-coder:7b via ollama on this device",
     kind: "local",
     provider: "local",
@@ -1353,7 +1353,7 @@ export const MODELS = [
   },
   {
     id: "auto",
-    label: "OPai · Auto mode",
+    label: "Vesta · Auto mode",
     advanced_label: "Automatic local-first routing",
     kind: "auto",
     provider: "auto",
@@ -1373,7 +1373,7 @@ Update `defaultBoot` in `mock-bridge.js` is NOT a fixtures.js concern — leave 
 
 - [ ] **Step 7.2: Create `free-models.spec.js`**
 
-Create `opai/assets/web/__tests__/e2e/free-models.spec.js`:
+Create `vesta/assets/web/__tests__/e2e/free-models.spec.js`:
 
 ```js
 import { test, expect } from "@playwright/test";
@@ -1438,11 +1438,11 @@ test("Codex optgroup contains only Codex models", async ({ page }) => {
   }
 });
 
-test("OPai routing optgroup contains Auto mode", async ({ page }) => {
+test("Vesta routing optgroup contains Auto mode", async ({ page }) => {
   await openApp(page, {
     boot: { models: MODELS, selectedModel: "auto" },
   });
-  const autoOption = page.locator('#modelSel optgroup[label="OPai routing"] option[value="auto"]');
+  const autoOption = page.locator('#modelSel optgroup[label="Vesta routing"] option[value="auto"]');
   await expect(autoOption).toBeVisible();
   const text = await autoOption.textContent();
   expect(text).toContain("Auto");
@@ -1463,7 +1463,7 @@ test("selecting enabled free model updates provider signal", async ({ page }) =>
 
 - [ ] **Step 7.3: Update `model-mode.spec.js` to match new model labels and groups**
 
-In `opai/assets/web/__tests__/e2e/model-mode.spec.js`, **replace** the first test:
+In `vesta/assets/web/__tests__/e2e/model-mode.spec.js`, **replace** the first test:
 
 ```js
 test("model selector shows optgroup headings for Claude, Codex, Copilot, Free models", async ({ page }) => {
@@ -1477,7 +1477,7 @@ test("model selector shows optgroup headings for Claude, Codex, Copilot, Free mo
   expect(groupLabels).toContain("Codex");
   expect(groupLabels).toContain("Copilot");
   expect(groupLabels).toContain("Free models");
-  expect(groupLabels).toContain("OPai routing");
+  expect(groupLabels).toContain("Vesta routing");
 });
 ```
 
@@ -1491,13 +1491,13 @@ And update the `selectOption` calls if they reference old model IDs — check th
 - [ ] **Step 7.4: Run E2E tests to confirm they fail before JS change**
 
 ```bash
-cd C:\Users\Frist\.opai\source
-npx playwright test opai/assets/web/__tests__/e2e/free-models.spec.js --reporter=list 2>&1 | tail -30
+cd C:\Users\Frist\.vesta\source
+npx playwright test vesta/assets/web/__tests__/e2e/free-models.spec.js --reporter=list 2>&1 | tail -30
 ```
 
 Expected: Tests fail — `optgroup` elements not found because the picker still uses flat `<option>`.
 
-- [ ] **Step 7.5: Update `renderComposerSelects()` in `opai/assets/web/app.js`**
+- [ ] **Step 7.5: Update `renderComposerSelects()` in `vesta/assets/web/app.js`**
 
 Find the section starting `const modelSel = $("#modelSel"); modelSel.innerHTML = "";` through `setProviderDot();` and replace it with:
 
@@ -1508,7 +1508,7 @@ const PICKER_GROUPS = [
   { key: "codex", label: "Codex" },
   { key: "copilot", label: "Copilot" },
   { key: "free", label: "Free models" },
-  { key: "routing", label: "OPai routing" },
+  { key: "routing", label: "Vesta routing" },
   { key: "local", label: "Local models" },
 ];
 const allModels = state.boot.models || [];
@@ -1539,8 +1539,8 @@ setProviderDot();
 - [ ] **Step 7.6: Run E2E tests to verify they pass**
 
 ```bash
-cd C:\Users\Frist\.opai\source
-npx playwright test opai/assets/web/__tests__/e2e/free-models.spec.js --reporter=list
+cd C:\Users\Frist\.vesta\source
+npx playwright test vesta/assets/web/__tests__/e2e/free-models.spec.js --reporter=list
 ```
 
 Expected: All tests PASS.
@@ -1548,7 +1548,7 @@ Expected: All tests PASS.
 - [ ] **Step 7.7: Run the full E2E suite**
 
 ```bash
-cd C:\Users\Frist\.opai\source
+cd C:\Users\Frist\.vesta\source
 npx playwright test --reporter=list 2>&1 | tail -40
 ```
 
@@ -1558,7 +1558,7 @@ Expected: All tests pass. If any fail due to the flat-option assumption being br
 - [ ] **Step 7.8: Run unit (Vitest) tests**
 
 ```bash
-cd C:\Users\Frist\.opai\source
+cd C:\Users\Frist\.vesta\source
 npx vitest run 2>&1 | tail -20
 ```
 
@@ -1567,15 +1567,15 @@ Expected: All pass.
 - [ ] **Step 7.9: Commit**
 
 ```bash
-git add opai/assets/web/app.js \
-        opai/assets/web/__tests__/e2e/helpers/fixtures.js \
-        opai/assets/web/__tests__/e2e/model-mode.spec.js \
-        opai/assets/web/__tests__/e2e/free-models.spec.js
+git add vesta/assets/web/app.js \
+        vesta/assets/web/__tests__/e2e/helpers/fixtures.js \
+        vesta/assets/web/__tests__/e2e/model-mode.spec.js \
+        vesta/assets/web/__tests__/e2e/free-models.spec.js
 git commit -m "feat(ui): grouped model picker with optgroup + free model entries
 
 Model picker now renders <optgroup> sections: Claude | Codex | Copilot |
-Free models | OPai routing | Local models. Labels use provider-prefixed
-format ('Claude · Sonnet 4.6' not 'OPai · Balanced mode'). Free models
+Free models | Vesta routing | Local models. Labels use provider-prefixed
+format ('Claude · Sonnet 4.6' not 'Vesta · Balanced mode'). Free models
 show grayed with setup hint when no API key is configured.
 
 Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
@@ -1588,7 +1588,7 @@ Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 - [ ] **Step 8.1: Run full Python test suite**
 
 ```bash
-cd C:\Users\Frist\.opai\source
+cd C:\Users\Frist\.vesta\source
 python -m pytest tests/ -v --tb=short 2>&1 | tail -50
 ```
 
@@ -1597,7 +1597,7 @@ Expected: All pass. Fix any remaining regressions before continuing.
 - [ ] **Step 8.2: Run full E2E suite one more time**
 
 ```bash
-cd C:\Users\Frist\.opai\source
+cd C:\Users\Frist\.vesta\source
 npx playwright test --reporter=list
 ```
 
@@ -1606,7 +1606,7 @@ Expected: All pass.
 - [ ] **Step 8.3: Run npm audit**
 
 ```bash
-cd C:\Users\Frist\.opai\source
+cd C:\Users\Frist\.vesta\source
 npm audit --audit-level=high
 ```
 
@@ -1615,18 +1615,18 @@ Expected: `found 0 vulnerabilities` (or only low/moderate if pre-existing).
 - [ ] **Step 8.4: Push branch and open PR**
 
 ```bash
-cd C:\Users\Frist\.opai\source
+cd C:\Users\Frist\.vesta\source
 git push origin feat/free-models-model-picker-groups
 gh pr create \
   --title "feat: free API models + grouped model picker (DeepSeek, Gemini, Groq, Mistral)" \
   --body "## Summary
 
-Fixes the model picker showing \`OPai · Balanced mode\` repeated for every connected model. Adds support for 5 free API models.
+Fixes the model picker showing \`Vesta · Balanced mode\` repeated for every connected model. Adds support for 5 free API models.
 
 ### Changes
 
-- **Model picker labels**: Provider-prefixed format (\`Claude · Sonnet 4.6\` instead of \`OPai · Balanced mode\`)
-- **Grouped picker**: \`<optgroup>\` sections — Claude | Codex | Copilot | Free models | OPai routing | Local models
+- **Model picker labels**: Provider-prefixed format (\`Claude · Sonnet 4.6\` instead of \`Vesta · Balanced mode\`)
+- **Grouped picker**: \`<optgroup>\` sections — Claude | Codex | Copilot | Free models | Vesta routing | Local models
 - **Free models**: DeepSeek V3 Chat, DeepSeek R1 Reasoner, Gemini 2.0 Flash, Groq Llama 3.3, Mistral Small — always visible, grayed when no API key
 - **Execution**: \`FreeAPIRunner\` handles free API calls with Bearer auth; \`ask()\` dispatches \`free:\` model prefix
 - **Tests**: Python unit (13 new + 5 updated), Playwright E2E (7 new + 3 updated)
@@ -1635,7 +1635,7 @@ Fixes the model picker showing \`OPai · Balanced mode\` repeated for every conn
 
 | Before | After |
 |--------|-------|
-| \`OPai · Balanced mode\` ×8 | \`Claude · Sonnet 4.6\`, \`Codex · GPT-5.5\`, … |
+| \`Vesta · Balanced mode\` ×8 | \`Claude · Sonnet 4.6\`, \`Codex · GPT-5.5\`, … |
 | Flat \`<select>\` list | Grouped \`<optgroup>\` sections |
 | No free models | 5 free-tier models always visible |
 

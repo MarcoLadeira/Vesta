@@ -10,8 +10,8 @@ from unittest import mock
 
 from _helpers import make_repo
 
-from opaihub.ledger import UNKNOWN, record_event
-from opaihub.ux_metrics import (
+from vestahub.ledger import UNKNOWN, record_event
+from vestahub.ux_metrics import (
     render_ux_metrics_markdown,
     summarize_ux_metrics,
 )
@@ -101,7 +101,7 @@ class UxMetricsCliTests(unittest.TestCase):
         import io
         from contextlib import redirect_stdout
 
-        from opai.cli import cmd_ux_metrics
+        from vesta.cli import cmd_ux_metrics
 
         record_event(self.root, "completion_verdict", task="t", verdict="completed")
         args = argparse.Namespace(project=str(self.root), markdown=False)

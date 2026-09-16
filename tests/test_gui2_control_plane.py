@@ -8,18 +8,18 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
-from opai.cli import main
-from opai.gui_desktop import run_once
-from opaihub.accounts import AccountRunner, account_models
-from opaihub.gui_pipeline import handle_gui_message
-from opaihub.gui_preferences import (
+from vesta.cli import main
+from vesta.gui_desktop import run_once
+from vestahub.accounts import AccountRunner, account_models
+from vestahub.gui_pipeline import handle_gui_message
+from vestahub.gui_preferences import (
     DEFAULT_MODE,
     load_gui_preferences,
     preference_path,
     save_gui_preferences,
 )
-from opaihub.intent_router import route_intents
-from opaihub.ledger import read_events
+from vestahub.intent_router import route_intents
+from vestahub.ledger import read_events
 
 
 def _repo(root: Path) -> None:
@@ -31,7 +31,7 @@ def _repo(root: Path) -> None:
 
 class Gui2ModelAndPreferenceTests(unittest.TestCase):
     def test_codex_expands_into_selectable_current_models(self):
-        from opaihub import accounts
+        from vestahub import accounts
 
         fake_account = {
             "id": "codex",
@@ -131,7 +131,7 @@ class Gui2ModelAndPreferenceTests(unittest.TestCase):
                 "accounts": [],
                 "hint": None,
             }
-            with mock.patch("opai.app_state.available_models", return_value=payload):
+            with mock.patch("vesta.app_state.available_models", return_value=payload):
                 buf = io.StringIO()
                 with redirect_stdout(buf):
                     list_code = main(["models", "list", "--project", str(root)])
@@ -235,7 +235,7 @@ class Gui2ModeAndAutomationTests(unittest.TestCase):
             root = Path(tmp)
             _repo(root)
             with mock.patch(
-                "opaihub.ask.run_ask",
+                "vestahub.ask.run_ask",
                 return_value={"status": "answered_locally", "answer": "summary"},
             ):
                 result = handle_gui_message(

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox syntax for tracking.
 
-**Goal:** Give OPai a test-enforced, evidence-gated launch-operations runbook that closes #554 without declaring the parent launch epic ready.
+**Goal:** Give Vesta a test-enforced, evidence-gated launch-operations runbook that closes #554 without declaring the parent launch epic ready.
 
 **Architecture:** docs/LAUNCH_OPERATIONS.md is the canonical operational source. docs/LAUNCH_CHECKLIST.md stays the concise entry point, README makes it discoverable, and a focused Python unittest locks the required safety rules and cross-document links.
 
@@ -174,7 +174,7 @@ Run:
 ~~~powershell
 python -m ruff check .
 python -m ruff format --check .
-python -m opaihub validate
+python -m vestahub validate
 git diff origin/main...HEAD --check
 ~~~
 

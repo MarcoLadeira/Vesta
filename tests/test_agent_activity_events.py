@@ -7,7 +7,7 @@ import threading
 import unittest
 from pathlib import Path
 
-from opai.activity import (
+from vesta.activity import (
     ActivitySession,
     derived_id,
     emit_event,
@@ -15,8 +15,8 @@ from opai.activity import (
     parse_claude_line,
     parse_codex_line,
 )
-from opaihub.aci import AgentComputerInterface
-from opaihub.github_workflow import GitHubAdapter
+from vestahub.aci import AgentComputerInterface
+from vestahub.github_workflow import GitHubAdapter
 
 
 class AgentOperationActivityTests(unittest.TestCase):

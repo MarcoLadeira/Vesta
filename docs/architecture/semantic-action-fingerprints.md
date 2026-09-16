@@ -2,7 +2,7 @@
 
 Status: implemented for the provider tool-loop controller  
 Derivation version: `semantic-action-v1`  
-Issue: [#649](https://github.com/MarcoLadeira/OPai/issues/649)
+Issue: [#649](https://github.com/MarcoLadeira/Vesta/issues/649)
 
 ## Purpose
 
@@ -13,7 +13,7 @@ unchanged file. The same gap applied to search wrappers, Git aliases,
 verification commands, provider prompts, and cosmetically reworded failed
 strategies.
 
-`opaihub.action_fingerprint` now derives a deterministic semantic identity for
+`vestahub.action_fingerprint` now derives a deterministic semantic identity for
 those actions. The controller uses it to:
 
 - warn on the second equivalent success;

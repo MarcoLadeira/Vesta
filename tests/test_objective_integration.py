@@ -8,17 +8,17 @@ from unittest import mock
 import pytest
 
 from _helpers import make_repo
-from opaihub.agent_objectives import ObjectiveStore
-from opaihub.objective_execution import ObjectiveExecutor, parse_plan
+from vestahub.agent_objectives import ObjectiveStore
+from vestahub.objective_execution import ObjectiveExecutor, parse_plan
 
 
 def test_packaged_workers_use_internal_entrypoint_instead_of_python_module():
-    from opaihub.objective_execution import worker_command
+    from vestahub.objective_execution import worker_command
 
-    with mock.patch("opai.bootstrap._packaged_runtime", return_value=True):
+    with mock.patch("vesta.bootstrap._packaged_runtime", return_value=True):
         assert worker_command(Path("request"), Path("response")) == [
             sys.executable,
-            "--opai-objective-worker",
+            "--vesta-objective-worker",
             "request",
             "response",
         ]
@@ -44,8 +44,8 @@ def fixture(tmp_path, assignments, *, check="assert True", **options):
         files={
             "a.txt": "old",
             "b.txt": "old",
-            ".gitignore": ".opaihub/\n",
-            "opai-verification-policy.yaml": json.dumps(policy),
+            ".gitignore": ".vestahub/\n",
+            "vesta-verification-policy.yaml": json.dumps(policy),
         },
         commit=True,
     )
@@ -71,7 +71,7 @@ def completed():
 def test_integration_accepts_checkout_eol_conversion_but_preserves_user_edits(
     tmp_path, conflicting_edit
 ):
-    from opaihub.objective_execution import _git, observe_changes
+    from vestahub.objective_execution import _git, observe_changes
 
     root = tmp_path / "repo"
     root.mkdir()

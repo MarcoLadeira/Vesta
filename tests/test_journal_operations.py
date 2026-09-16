@@ -2,7 +2,7 @@
 
 Stage 6 asks that provider, tool, Git, GitHub, cost and approval actions use
 operation transactions. They already share one choke point --
-``opaihub.idempotency``, which every exact-once effect passes through to claim
+``vestahub.idempotency``, which every exact-once effect passes through to claim
 a key before acting -- so the mirror hooks there. One hook covers all of them,
 and covers the ones nobody has written yet.
 
@@ -24,12 +24,12 @@ from __future__ import annotations
 import tempfile
 import unittest
 
-from opaihub import journal_store
+from vestahub import journal_store
 from pathlib import Path
 from unittest import mock
 
-from opaihub import idempotency, journal_operations
-from opaihub.journal_operations import (
+from vestahub import idempotency, journal_operations
+from vestahub.journal_operations import (
     STATE_CLAIMED,
     STATE_CONFIRMED,
     operation_summary,
@@ -38,7 +38,7 @@ from opaihub.journal_operations import (
     record_release,
     unreconciled_operations,
 )
-from opaihub.journal_store import open_store
+from vestahub.journal_store import open_store
 
 NOW = "2026-08-25T12:00:00+00:00"
 
@@ -202,7 +202,7 @@ class TheMirrorNeverFailsAnEffectTests(_OperationFixture):
         # Patch where it actually fails: _store is a context manager that
         # yields None when open_store cannot open the file, so making _store
         # itself raise would test a failure mode that never occurs.
-        from opaihub import journal_runtime
+        from vestahub import journal_runtime
 
         with mock.patch.object(
             journal_runtime, "open_store", side_effect=OSError("gone")

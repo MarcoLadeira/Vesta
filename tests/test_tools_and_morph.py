@@ -14,7 +14,7 @@ class ToolsAndMorphTests(unittest.TestCase):
             tempfile.TemporaryDirectory() as cache,
         ):
             root = Path(tmp)
-            with patch.dict("os.environ", {"OPAI_TOOLS_DIR": cache}):
+            with patch.dict("os.environ", {"VESTA_TOOLS_DIR": cache}):
                 doctor = tools_doctor(root)
             self.assertEqual(Path(doctor["root"]).parent, Path(cache).resolve())
             self.assertFalse(Path(doctor["root"]).is_relative_to(root.resolve()))
@@ -27,7 +27,7 @@ class ToolsAndMorphTests(unittest.TestCase):
             tempfile.TemporaryDirectory() as cache,
         ):
             root = Path(tmp)
-            with patch.dict("os.environ", {"OPAI_TOOLS_DIR": cache}):
+            with patch.dict("os.environ", {"VESTA_TOOLS_DIR": cache}):
                 path = tools_root(root)
 
             self.assertTrue(path.exists())
@@ -40,7 +40,7 @@ class ToolsAndMorphTests(unittest.TestCase):
             tempfile.TemporaryDirectory() as cache,
         ):
             root = Path(tmp)
-            with patch.dict("os.environ", {"OPAI_TOOLS_DIR": cache}):
+            with patch.dict("os.environ", {"VESTA_TOOLS_DIR": cache}):
                 result = run_tool(root, "pip-audit", timeout=1)
 
         self.assertEqual(result["tool"], "pip-audit")
@@ -59,7 +59,7 @@ class ToolsAndMorphTests(unittest.TestCase):
             workflow.parent.mkdir(parents=True)
             workflow.write_text("name: ci\non: [push]\njobs: {}\n", encoding="utf-8")
 
-            with patch.dict("os.environ", {"OPAI_TOOLS_DIR": cache}):
+            with patch.dict("os.environ", {"VESTA_TOOLS_DIR": cache}):
                 result = run_tool(root, "actionlint", timeout=1)
 
         command = " ".join(result["command"])

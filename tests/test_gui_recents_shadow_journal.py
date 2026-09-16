@@ -1,6 +1,6 @@
 """#613 Stage 2: saved conversations' shadow journal, and what it must *not* remember.
 
-Stage 1 named ``opai/gui_recents.py`` JOURNAL_OWNED -- "events: conversation /
+Stage 1 named ``vesta/gui_recents.py`` JOURNAL_OWNED -- "events: conversation /
 thread history". This is the user's chat history, which makes it the module
 where a shadow journal is most obviously useful and most obviously dangerous.
 
@@ -28,8 +28,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opai import gui_recents
-from opai.gui_recents import (
+from vesta import gui_recents
+from vesta.gui_recents import (
     MAX_CONVERSATIONS,
     archive_conversation,
     begin_thread_turn,
@@ -42,7 +42,7 @@ from opai.gui_recents import (
     list_conversations,
     load_conversation,
 )
-from opaihub import shadow_journal
+from vestahub import shadow_journal
 
 
 def _repo(root: Path) -> Path:

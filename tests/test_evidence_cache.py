@@ -3,13 +3,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub.evidence_cache import (
+from vestahub.evidence_cache import (
     cache_path,
     collect_evidence_cached,
     evidence_cache_key,
     repo_fingerprint,
 )
-from opaihub.router import route_task
+from vestahub.router import route_task
 
 
 def _git_repo(root: Path) -> None:
@@ -55,8 +55,8 @@ class EvidenceCacheTests(unittest.TestCase):
                 evidence_cache_key(root, "add feature"),
             )
 
-    def test_opai_state_dir_does_not_invalidate(self):
-        # Writing the cache (under .opaihub) must not change the fingerprint.
+    def test_vesta_state_dir_does_not_invalidate(self):
+        # Writing the cache (under .vestahub) must not change the fingerprint.
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _git_repo(root)
@@ -81,7 +81,7 @@ class EvidenceCacheTests(unittest.TestCase):
             (root / "package.json").write_text("{}", encoding="utf-8")
             _e1, m1 = collect_evidence_cached(root, "fix bug", write=True)
             _e2, m2 = collect_evidence_cached(root, "fix bug", write=True)
-            cache_root = root / ".opaihub" / "cache" / "evidence"
+            cache_root = root / ".vestahub" / "cache" / "evidence"
         self.assertFalse(m1["cache_hit"])
         self.assertFalse(m2["cache_hit"])
         self.assertTrue(m2["cache_bypassed"])
@@ -96,7 +96,7 @@ class RouterCacheIntegrationTests(unittest.TestCase):
             _git_repo(root)
             decision = route_task(root, "fix bug")  # default: read-only
             self.assertIn("evidence_cache_hit", decision)
-            self.assertFalse((root / ".opaihub" / "cache").exists())
+            self.assertFalse((root / ".vestahub" / "cache").exists())
 
     def test_persist_cache_then_route_hits(self):
         with tempfile.TemporaryDirectory() as tmp:

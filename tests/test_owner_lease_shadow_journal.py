@@ -1,6 +1,6 @@
 """#613 Stage 2: owner_lease's shadow journal, mirrored against the file it shadows.
 
-Stage 1 named ``opaihub/owner_lease.py`` JOURNAL_OWNED -- "leases: ownership and
+Stage 1 named ``vestahub/owner_lease.py`` JOURNAL_OWNED -- "leases: ownership and
 fencing" -- and #613 asks for a migration, not a cutover: every accepted
 acquire/renew is now *also* mirrored into a run_journal (#517) event, from
 inside the same lock that made the file decision. The file stays the single
@@ -26,7 +26,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import mock
 
-from opaihub import owner_lease, run_journal, shadow_journal
+from vestahub import owner_lease, run_journal, shadow_journal
 
 
 class ShadowMirrorsAcceptedTransitionsTests(unittest.TestCase):
@@ -187,7 +187,7 @@ class ReplayDeterminismTests(unittest.TestCase):
         owner_lease.renew(self.path, acquired, now=acquired["acquired_at"] + 5)
         owner_lease.acquire(self.path)
 
-        # The journal mechanics moved to opaihub.shadow_journal, which this
+        # The journal mechanics moved to vestahub.shadow_journal, which this
         # module and worktree_leases each hand-rolled separately first.
         journal_path = shadow_journal.journal_path_for(self.path)
         replay = lambda: run_journal.replay(  # noqa: E731 - two identical reads

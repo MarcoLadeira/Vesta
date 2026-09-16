@@ -115,7 +115,7 @@ def _web_scenarios() -> tuple[list[str], list[str]]:
                 npx,
                 "playwright",
                 "test",
-                "opai/assets/web/__tests__/e2e/update-check.spec.js",
+                "vesta/assets/web/__tests__/e2e/update-check.spec.js",
                 "--list",
             ]
         )
@@ -124,9 +124,9 @@ def _web_scenarios() -> tuple[list[str], list[str]]:
     settings = [
         line.strip()
         for line in _run(
-            [npx, "vitest", "list", "opai/assets/web/__tests__/settings.test.js"]
+            [npx, "vitest", "list", "vesta/assets/web/__tests__/settings.test.js"]
         )
-        if line.startswith("opai/assets/web/__tests__/settings.test.js >")
+        if line.startswith("vesta/assets/web/__tests__/settings.test.js >")
     ]
     return playwright, settings
 

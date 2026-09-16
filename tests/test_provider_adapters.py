@@ -1,14 +1,14 @@
 import unittest
 
-from opaihub.agent_policy import resolve_agent_policy
-from opaihub.provider_adapters import (
+from vestahub.agent_policy import resolve_agent_policy
+from vestahub.provider_adapters import (
     ExecutionRequest,
     adapter_for,
     gemini_approval_mode,
-    opai_mode_for_gemini_approval,
+    vesta_mode_for_gemini_approval,
     resolve_execution_plan,
 )
-from opaihub.provider_protocol import (
+from vestahub.provider_protocol import (
     AdapterRequest,
     EventKind,
     ProtocolViolation,
@@ -43,18 +43,18 @@ class ProviderCapabilityTests(unittest.TestCase):
         self.assertEqual(plan.mode, "ask")
         self.assertEqual(plan.tools, ("find_files", "search_code", "read_file"))
 
-    def test_gemini_cli_approval_mode_matches_opai_mode(self):
+    def test_gemini_cli_approval_mode_matches_vesta_mode(self):
         self.assertEqual(gemini_approval_mode("ask"), "plan")
         self.assertEqual(gemini_approval_mode("plan"), "plan")
         self.assertEqual(gemini_approval_mode("safe-auto"), "auto_edit")
         self.assertEqual(gemini_approval_mode("approve-edits"), "auto_edit")
         self.assertEqual(gemini_approval_mode("full-auto"), "yolo")
         self.assertEqual(gemini_approval_mode("unknown"), "plan")
-        self.assertEqual(opai_mode_for_gemini_approval("plan"), "plan")
-        self.assertEqual(opai_mode_for_gemini_approval("default"), "ask")
-        self.assertEqual(opai_mode_for_gemini_approval("auto_edit"), "safe-auto")
-        self.assertEqual(opai_mode_for_gemini_approval("yolo"), "full-auto")
-        self.assertIsNone(opai_mode_for_gemini_approval("unknown"))
+        self.assertEqual(vesta_mode_for_gemini_approval("plan"), "plan")
+        self.assertEqual(vesta_mode_for_gemini_approval("default"), "ask")
+        self.assertEqual(vesta_mode_for_gemini_approval("auto_edit"), "safe-auto")
+        self.assertEqual(vesta_mode_for_gemini_approval("yolo"), "full-auto")
+        self.assertIsNone(vesta_mode_for_gemini_approval("unknown"))
 
 
 class AdapterProtocolBoundaryTests(unittest.TestCase):

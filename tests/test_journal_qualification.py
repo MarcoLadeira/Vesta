@@ -32,8 +32,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub import journal_qualification, journal_runtime
-from opaihub.journal_qualification import (
+from vestahub import journal_qualification, journal_runtime
+from vestahub.journal_qualification import (
     KIND_EXTRA,
     KIND_MISSING,
     KIND_UNTERMINATED,
@@ -44,7 +44,7 @@ from opaihub.journal_qualification import (
     compare,
     qualify,
 )
-from opaihub.journal_runtime import EVENT_FINISHED, record_admission, record_terminal
+from vestahub.journal_runtime import EVENT_FINISHED, record_admission, record_terminal
 
 NOW = "2026-08-25T12:00:00+00:00"
 
@@ -91,7 +91,7 @@ class AnEmptyJournalNeverQualifiesTests(_QualifyFixture):
         self.assertFalse(report.qualified)
 
     def test_a_journal_with_no_runs_is_insufficient(self):
-        from opaihub.journal_store import open_store
+        from vestahub.journal_store import open_store
 
         open_store(self.root).close()
 
@@ -115,7 +115,7 @@ class AnEmptyJournalNeverQualifiesTests(_QualifyFixture):
         """ "Blocked" would imply the differences were examined. They were not."""
 
         self._finished_run("run-a")
-        from opaihub.journal_store import journal_path
+        from vestahub.journal_store import journal_path
 
         journal_path(self.root).write_bytes(b"not a database")
 
@@ -310,7 +310,7 @@ class TheReportIsSerialisableTests(_QualifyFixture):
         ).to_dict()
 
         json.loads(json.dumps(payload))
-        self.assertEqual(payload["report"], "opai-journal-qualification")
+        self.assertEqual(payload["report"], "vesta-journal-qualification")
         self.assertEqual(payload["blocking_count"], 1)
 
     def test_qualification_never_raises_on_an_unopenable_journal(self):
@@ -354,7 +354,7 @@ class Stage3CostAndVerificationTests(_QualifyFixture):
         self.assertTrue(first)
         self.assertFalse(second, "a duplicate is refused, not raised")
 
-        from opaihub.journal_store import open_store
+        from vestahub.journal_store import open_store
 
         store = open_store(self.root)
         self.addCleanup(store.close)
@@ -380,7 +380,7 @@ class Stage3CostAndVerificationTests(_QualifyFixture):
             )
         )
 
-        from opaihub.journal_store import open_store, read_events
+        from vestahub.journal_store import open_store, read_events
 
         store = open_store(self.root)
         self.addCleanup(store.close)

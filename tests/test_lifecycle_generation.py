@@ -12,8 +12,8 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 GENERATOR = ROOT / "scripts" / "generate_lifecycle.py"
-GENERATED_PYTHON = ROOT / "opaihub" / "generated_lifecycle.py"
-FIXTURE = ROOT / "opaihub" / "data" / "lifecycle-fixtures.json"
+GENERATED_PYTHON = ROOT / "vestahub" / "generated_lifecycle.py"
+FIXTURE = ROOT / "vestahub" / "data" / "lifecycle-fixtures.json"
 
 
 def run_generator(*args: str) -> int:
@@ -139,8 +139,8 @@ class LifecycleGenerationTests(unittest.TestCase):
 
     def test_browser_projection_executes_the_same_repair_and_terminal_contract(self):
         contract = run_node(
-            "require('./opai/assets/web/generated-lifecycle.js');"
-            "const lifecycle = globalThis.OPaiLifecycle;"
+            "require('./vesta/assets/web/generated-lifecycle.js');"
+            "const lifecycle = globalThis.VestaLifecycle;"
             "process.stdout.write(JSON.stringify({"
             "repair: lifecycle.transitionSpec('verifying', 'running'),"
             "terminal: lifecycle.isTerminal('cancelled'),"
@@ -172,8 +172,8 @@ class LifecycleGenerationTests(unittest.TestCase):
         }
 
         browser_matrix = run_node(
-            "require('./opai/assets/web/generated-lifecycle.js');"
-            "const lifecycle = globalThis.OPaiLifecycle;"
+            "require('./vesta/assets/web/generated-lifecycle.js');"
+            "const lifecycle = globalThis.VestaLifecycle;"
             "const states = lifecycle.stateIds;"
             "const matrix = {};"
             "for (const source of states) {"
@@ -198,8 +198,8 @@ class LifecycleGenerationTests(unittest.TestCase):
     def test_terminal_and_exit_code_facts_are_identical_cross_language(self):
         generated = load_generated()
         browser = run_node(
-            "require('./opai/assets/web/generated-lifecycle.js');"
-            "const lifecycle = globalThis.OPaiLifecycle;"
+            "require('./vesta/assets/web/generated-lifecycle.js');"
+            "const lifecycle = globalThis.VestaLifecycle;"
             "process.stdout.write(JSON.stringify({"
             "terminalStateIds: lifecycle.terminalStateIds.slice().sort(),"
             "exitCodes: lifecycle.exitCodes,"

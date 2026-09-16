@@ -39,7 +39,7 @@
 ## Execution record — 2026-07-12
 
 - [x] Task 1: exact-tag/rehearsal provenance, atomic evidence, checksums, and
-  signed-status validation are implemented in `opaihub/desktop_artifacts.py`.
+  signed-status validation are implemented in `vestahub/desktop_artifacts.py`.
 - [x] Task 2: separate GUI/CLI entry points, exact PySide6/Nuitka pins, and
   explicit runtime data/module deployment specs are implemented.
 - [x] Task 3: source-independent build, smoke, inventory scan, hostile
@@ -69,7 +69,7 @@
 **Files:**
 
 - Create: tests/test_desktop_artifacts.py
-- Create: opaihub/desktop_artifacts.py
+- Create: vestahub/desktop_artifacts.py
 
 - [x] **Step 1: Write the failing test**
 
@@ -79,7 +79,7 @@
 
     def test_manifest_rejects_a_modified_distributable_file():
         write_bundle_evidence(bundle, release, platform="windows")
-        (bundle / "cli" / "opai.exe").write_bytes(b"tampered")
+        (bundle / "cli" / "vesta.exe").write_bytes(b"tampered")
         self.assertFalse(verify_bundle(bundle)["ok"])
 
 - [x] **Step 2: Run the test to verify it fails**
@@ -105,7 +105,7 @@ Expected: all contract tests pass.
 
 - [x] **Step 5: Commit**
 
-    git add opaihub/desktop_artifacts.py tests/test_desktop_artifacts.py
+    git add vestahub/desktop_artifacts.py tests/test_desktop_artifacts.py
     git commit -m "feat(release): add desktop artifact evidence contract"
 
 ### Task 2: Add source-free GUI and CLI build entry points — complete
@@ -116,7 +116,7 @@ Expected: all contract tests pass.
 - Create: scripts/desktop_cli_entry.py
 - Create: requirements/desktop-build.txt
 - Modify: tests/test_desktop_artifacts.py
-- Modify: opaihub/desktop_artifacts.py
+- Modify: vestahub/desktop_artifacts.py
 
 - [x] **Step 1: Write the failing test**
 
@@ -125,7 +125,7 @@ Expected: all contract tests pass.
         self.assertEqual(specs.gui.tool, "pyside6-deploy")
         self.assertEqual(specs.cli.tool, "python -m nuitka")
         self.assertIn("QtWebEngineWidgets", specs.gui.qt_modules)
-        self.assertIn("=opaihub/data", "\n".join(specs.gui.extra_args))
+        self.assertIn("=vestahub/data", "\n".join(specs.gui.extra_args))
         self.assertEqual(load_build_pins(root)["PySide6"], "6.11.1")
         self.assertEqual(load_build_pins(root)["Nuitka"], "4.0")
 
@@ -137,11 +137,11 @@ Expected: deployment_specs is not defined.
 - [x] **Step 3: Write the minimal implementation**
 
     # scripts/desktop_gui_entry.py
-    from opai.cli import gui_main
+    from vesta.cli import gui_main
     raise SystemExit(gui_main())
 
     # scripts/desktop_cli_entry.py
-    from opai.cli import main
+    from vesta.cli import main
     raise SystemExit(main())
 
 - [x] **Step 4: Run the test to verify it passes**
@@ -151,7 +151,7 @@ Expected: all deployment-specification tests pass.
 
 - [x] **Step 5: Commit**
 
-    git add scripts/desktop_gui_entry.py scripts/desktop_cli_entry.py opaihub/desktop_artifacts.py tests/test_desktop_artifacts.py
+    git add scripts/desktop_gui_entry.py scripts/desktop_cli_entry.py vestahub/desktop_artifacts.py tests/test_desktop_artifacts.py
     git commit -m "feat(release): define PySide desktop deployment inputs"
 
 ### Task 3: Add a build and smoke CLI — complete
@@ -161,7 +161,7 @@ Expected: all deployment-specification tests pass.
 - Create: scripts/build_desktop_artifacts.py
 - Create: scripts/smoke_desktop_artifacts.py
 - Modify: tests/test_desktop_artifacts.py
-- Modify: opaihub/desktop_artifacts.py
+- Modify: vestahub/desktop_artifacts.py
 
 - [x] **Step 1: Write the failing test**
 
@@ -195,7 +195,7 @@ printed without an artifact build.
 
 - [x] **Step 5: Commit**
 
-    git add scripts/build_desktop_artifacts.py scripts/smoke_desktop_artifacts.py opaihub/desktop_artifacts.py tests/test_desktop_artifacts.py
+    git add scripts/build_desktop_artifacts.py scripts/smoke_desktop_artifacts.py vestahub/desktop_artifacts.py tests/test_desktop_artifacts.py
     git commit -m "feat(release): add desktop artifact build and smoke tools"
 
 ### Task 4: Make release proof executable but manual — complete
@@ -269,7 +269,7 @@ Run: python -m pytest tests/test_desktop_artifacts.py tests/test_runtime_depende
 
 - [x] **Step 2: Run static and security checks**
 
-Run: python -m ruff format --check ., python -m ruff check ., python -m bandit -r opai opaihub opcoding -q, python -m opaihub validate, and git diff --check.
+Run: python -m ruff format --check ., python -m ruff check ., python -m bandit -r vesta vestahub opcoding -q, python -m vestahub validate, and git diff --check.
 
 - [x] **Step 3: Record non-local blockers honestly**
 

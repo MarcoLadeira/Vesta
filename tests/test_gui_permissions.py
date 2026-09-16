@@ -13,13 +13,13 @@ from pathlib import Path
 
 from _helpers import make_repo
 
-from opai.gui_permissions import (
+from vesta.gui_permissions import (
     CAPABILITIES,
     is_read_only,
     permission_summary,
     permissions_for,
 )
-from opaihub.gui_pipeline import request_tool_authority
+from vestahub.gui_pipeline import request_tool_authority
 
 
 def _state(rows, cap_id):

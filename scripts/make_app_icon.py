@@ -1,6 +1,6 @@
 """Generate the Vesta desktop app icon from the Vesta logo (reproducible).
 
-Produces a square ``opai/assets/opai-icon.png`` used by the GUI hosts via
+Produces a square ``vesta/assets/vesta-icon.png`` used by the GUI hosts via
 ``QApplication.setWindowIcon`` (window, taskbar, Alt-Tab), the web header, and
 the packaged Windows icon. Regenerate with:
 
@@ -9,7 +9,7 @@ the packaged Windows icon. Regenerate with:
 Design: the Vesta heart itself, trimmed to its drawn edge and centred on a
 transparent square with a small margin, so it fills the tile and stays legible
 when Windows scales it down to 16-32 px. The logo artwork lives in
-``opai/assets/opai-mascot.png``; replace that file to rebrand and rerun this.
+``vesta/assets/vesta-mascot.png``; replace that file to rebrand and rerun this.
 Authoring needs Pillow (the ``terminal-ui`` extra); the committed PNG is loaded
 at runtime with no Pillow dependency.
 """
@@ -21,8 +21,8 @@ from pathlib import Path
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parent.parent
-LOGO = ROOT / "opai" / "assets" / "opai-mascot.png"
-OUT = ROOT / "opai" / "assets" / "opai-icon.png"
+LOGO = ROOT / "vesta" / "assets" / "vesta-mascot.png"
+OUT = ROOT / "vesta" / "assets" / "vesta-icon.png"
 
 SIZE = 1024
 MARGIN = 0.04  # of the tile, on each side

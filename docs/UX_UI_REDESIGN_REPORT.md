@@ -9,7 +9,7 @@
 > unchanged — only the rendering moved from QSS to Chromium. The Qt window
 > remains as `vesta gui --classic`.
 
-_Stack reality: `vesta gui` is a **PySide6 desktop app** (`opai/gui_desktop.py`),
+_Stack reality: `vesta gui` is a **PySide6 desktop app** (`vesta/gui_desktop.py`),
 not a web app. There is no React/Tailwind/Next/Playwright layer. This report
 maps the product brief's intent onto the real Qt stack — "pages" are Qt views in
 a `QStackedWidget`, "E2E" is a headless offscreen render of each view, "design
@@ -84,12 +84,12 @@ so it cannot drift into a comforting lie.
 
 ## Screens / components changed
 
-- `opai/gui_desktop.py` — full window rewrite (stacked views, sidebar, header
+- `vesta/gui_desktop.py` — full window rewrite (stacked views, sidebar, header
   switcher, control panel, dashboard/settings/prompts renderers, Inter + DPI).
 - New Qt-free modules: `gui_nav`, `gui_modes`, `gui_permissions`, `gui_prompts`,
   `gui_workspace`; extended `gui_controls` (inspector + privacy badges, new
   commands/shortcuts).
-- `opaihub/gui_preferences.py` — persist task focus, output format, panel state.
+- `vestahub/gui_preferences.py` — persist task focus, output format, panel state.
 
 ## Remaining UX risks
 

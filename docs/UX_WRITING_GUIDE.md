@@ -1,7 +1,7 @@
 # Vesta UX Writing Guide
 
-Source of truth: `opai/brand.py` (identity + shared copy), `opai/activity.py`
-(error/stage copy), `opai/gui_controls.py` (Qt fallback copy). New copy goes
+Source of truth: `vesta/brand.py` (identity + shared copy), `vesta/activity.py`
+(error/stage copy), `vesta/gui_controls.py` (Qt fallback copy). New copy goes
 through those modules, not inline strings.
 
 ## Principles
@@ -84,7 +84,7 @@ raw ids stay in code surfaces (Principle 5). Grouped tool rows: `{Verb} {N}
 - **Keyboard:** keep the compact hint literal: "Enter to send · Shift+Enter for
   a new line". The same behavior must work in the composer regardless of
   whether it was reached through the sidebar or command palette.
-- **Activity:** `{Verb} {object}: {detail}` — "Read file: opai/activity.py",
+- **Activity:** `{Verb} {object}: {detail}` — "Read file: vesta/activity.py",
   "Ran command: pytest".
 - **Buttons:** imperative, ≤3 words: Send · Stop · Retry · Edit prompt ·
   Use prompt · Copy details.

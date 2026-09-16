@@ -21,8 +21,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub import journal_reader
-from opaihub.journal_reader import (
+from vestahub import journal_reader
+from vestahub.journal_reader import (
     FALLBACK_NO_STORE,
     FALLBACK_UNKNOWN_RUN,
     FALLBACK_UNQUALIFIED,
@@ -35,8 +35,8 @@ from opaihub.journal_reader import (
     legacy_runs_from,
     read_run,
 )
-from opaihub.journal_runtime import EVENT_FINISHED, record_admission, record_terminal
-from opaihub.journal_store import journal_path
+from vestahub.journal_runtime import EVENT_FINISHED, record_admission, record_terminal
+from vestahub.journal_store import journal_path
 
 NOW = "2026-08-25T12:00:00+00:00"
 
@@ -205,7 +205,7 @@ class ListingLosesNothingTests(_ReaderFixture):
 
 class DegradedIsServedButNeverSilentlyTests(_ReaderFixture):
     def test_a_degraded_store_still_serves_and_reports_it(self):
-        from opaihub.journal_store import append_event, open_store
+        from vestahub.journal_store import append_event, open_store
 
         self._run("run-a", verdict="completed")
         store = open_store(self.root)

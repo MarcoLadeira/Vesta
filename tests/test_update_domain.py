@@ -9,9 +9,9 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-from opai.update.identity import detect_install_type
-from opai.update.manifest import ManifestError, verify_manifest
-from opai.update.models import (
+from vesta.update.identity import detect_install_type
+from vesta.update.manifest import ManifestError, verify_manifest
+from vesta.update.models import (
     InstallType,
     InstalledBuild,
     UpdateCandidate,
@@ -20,7 +20,7 @@ from opai.update.models import (
     UpdateState,
     can_transition,
 )
-from opai.update.storage import UpdateStore, UpdaterPaths
+from vesta.update.storage import UpdateStore, UpdaterPaths
 
 
 NOW = datetime(2026, 8, 14, 12, 0, tzinfo=timezone.utc)
@@ -100,11 +100,11 @@ def test_update_policy_defaults_discovery_on_and_install_consent_off():
     assert policy.check_for_updates is True
     assert policy.automatic_downloads is False
     assert policy.automatic_install_on_quit is False
-    assert policy.owner is UpdateOwner.OPAI
+    assert policy.owner is UpdateOwner.VESTA
     assert policy.channel == "stable"
 
 
-def test_managed_owner_blocks_opai_installation_without_disabling_status():
+def test_managed_owner_blocks_vesta_installation_without_disabling_status():
     policy = UpdatePolicy(owner=UpdateOwner.MDM, automatic_downloads=True)
 
     assert policy.discovery_allowed is True
@@ -118,21 +118,21 @@ def test_managed_owner_blocks_opai_installation_without_disabling_status():
         (
             "windows",
             True,
-            "C:/Program Files/WindowsApps/OPai/OPai.exe",
+            "C:/Program Files/WindowsApps/Vesta/Vesta.exe",
             False,
             "windows_msix",
         ),
         (
             "darwin",
             False,
-            "/Applications/OPai.app/Contents/MacOS/OPai",
+            "/Applications/Vesta.app/Contents/MacOS/Vesta",
             False,
             "macos_sparkle",
         ),
-        ("windows", False, "C:/Tools/OPai/OPai.exe", False, "portable"),
-        ("darwin", False, "/tmp/OPai", False, "portable"),
+        ("windows", False, "C:/Tools/Vesta/Vesta.exe", False, "portable"),
+        ("darwin", False, "/tmp/Vesta", False, "portable"),
         ("linux", False, "/src/.venv/bin/python", True, "source_checkout"),
-        ("linux", False, "/opt/opai/opai", False, "unknown"),
+        ("linux", False, "/opt/vesta/vesta", False, "unknown"),
     ],
 )
 def test_install_type_detection_is_explicit(
@@ -161,7 +161,7 @@ def _installed(**overrides: object) -> InstalledBuild:
         "platform": "windows",
         "architecture": "x86_64",
         "install_type": InstallType.WINDOWS_MSIX,
-        "package_identity": "OPai.Desktop",
+        "package_identity": "Vesta.Desktop",
         "publisher_identity": "CN=Vesta",
     }
     values.update(overrides)
@@ -178,7 +178,7 @@ def _candidate(**overrides: object) -> dict[str, object]:
         "platform": "windows",
         "architecture": "x86_64",
         "install_type": "windows_msix",
-        "artifact_url": "https://updates.example.test/releases/v0.3.0/OPai-0.3.0.msix",
+        "artifact_url": "https://updates.example.test/releases/v0.3.0/Vesta-0.3.0.msix",
         "artifact_sha256": "c" * 64,
         "artifact_size": 123456,
         "publisher_identity": "CN=Vesta",
@@ -195,8 +195,8 @@ def _candidate(**overrides: object) -> dict[str, object]:
         "minimum_updater_protocol": 1,
         "rollback_compatible": True,
         "native": {
-            "appinstaller_url": "https://updates.example.test/stable/OPai.appinstaller",
-            "package_name": "OPai.Desktop",
+            "appinstaller_url": "https://updates.example.test/stable/Vesta.appinstaller",
+            "package_name": "Vesta.Desktop",
         },
     }
     values.update(overrides)
@@ -360,7 +360,7 @@ def test_signed_manifest_rejects_untrusted_or_mixed_candidate(mutation: str, cod
     elif mutation == "version_downgrade":
         candidate["version"] = "0.1.0"
     elif mutation == "insecure_artifact_url":
-        candidate["artifact_url"] = "http://updates.example.test/opai.msix"
+        candidate["artifact_url"] = "http://updates.example.test/vesta.msix"
     elif mutation == "cohort_excluded":
         candidate["rollout_percentage"] = 10
     elif mutation == "incompatible_current":
@@ -403,7 +403,7 @@ def test_signed_manifest_rejects_untrusted_or_mixed_candidate(mutation: str, cod
 def test_app_wide_policy_migrates_legacy_workspace_consent_once(tmp_path: Path):
     home = tmp_path / "home"
     workspace = tmp_path / "workspace"
-    legacy = workspace / ".opaihub" / "gui" / "preferences.json"
+    legacy = workspace / ".vestahub" / "gui" / "preferences.json"
     legacy.parent.mkdir(parents=True)
     legacy.write_text(json.dumps({"schema_version": 3, "auto_update": True}))
     store = UpdateStore(UpdaterPaths.for_home(home))
@@ -454,7 +454,7 @@ def test_machine_policy_overrides_user_consent_without_becoming_user_state(
     assert effective.maximum_deferral_hours == 24
     assert effective.management_source == "Intune"
     assert "owner" in effective.managed_fields
-    assert persisted["owner"] == "opai"
+    assert persisted["owner"] == "vesta"
     assert persisted["automatic_downloads"] is True
 
 

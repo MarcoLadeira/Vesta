@@ -5,14 +5,14 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from opaihub.completion import CompletionVerdict
-from opaihub.generated_lifecycle import (
+from vestahub.completion import CompletionVerdict
+from vestahub.generated_lifecycle import (
     EXIT_CODES,
     STATE_IDS,
     STATE_SPECS,
     TERMINAL_STATE_IDS,
 )
-from opaihub.run_state import (
+from vestahub.run_state import (
     NON_TERMINAL_STATES,
     TERMINAL_STATES,
     RunState,
@@ -34,7 +34,7 @@ def test_completion_verdicts_project_to_generated_terminal_states() -> None:
 
 
 def test_run_state_and_exit_codes_are_generated_contract_projections() -> None:
-    from opaihub.run_state import exit_code_for
+    from vestahub.run_state import exit_code_for
 
     assert {state.value for state in RunState} == set(STATE_IDS)
     assert {
@@ -176,7 +176,7 @@ def test_terminal_attack_preserves_state_and_writes_durable_diagnostic() -> None
     # A missing project_root write, or a write which accidentally stores the
     # caller's raw source text, must make this fail. The rejected state update
     # and its durable evidence are one behavior, not two best-effort features.
-    from opaihub.lifecycle_diagnostics import read_diagnostics
+    from vestahub.lifecycle_diagnostics import read_diagnostics
 
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -195,7 +195,7 @@ def test_terminal_attack_preserves_state_and_writes_durable_diagnostic() -> None
 
 
 def test_unknown_transition_target_degrades_and_writes_durable_evidence() -> None:
-    from opaihub.lifecycle_diagnostics import read_diagnostics
+    from vestahub.lifecycle_diagnostics import read_diagnostics
 
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -213,7 +213,7 @@ def test_unknown_transition_target_degrades_and_writes_durable_evidence() -> Non
 
 
 def test_diagnostics_persist_only_closed_source_labels() -> None:
-    from opaihub.lifecycle_diagnostics import read_diagnostics
+    from vestahub.lifecycle_diagnostics import read_diagnostics
 
     caller_text = "contact alice@example.com about this transition"
     with tempfile.TemporaryDirectory() as tmp:

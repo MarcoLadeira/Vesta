@@ -29,7 +29,7 @@ have been billed. The work happened; only its cost is unknown.
 Such a call is **outstanding** while it could still be running, and
 **abandoned** once it could not: either the process that dispatched it is gone,
 or six hours have passed (`ABANDON_AFTER_SECONDS` in
-`opaihub/call_reconciliation.py`). A call Vesta's own process started is never
+`vestahub/call_reconciliation.py`). A call Vesta's own process started is never
 abandoned while that process lives, so a long turn is never retired underneath
 itself.
 

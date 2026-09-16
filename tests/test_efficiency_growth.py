@@ -3,12 +3,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub.context_pack import build_context_pack
-from opaihub.metrics import build_local_metrics
-from opaihub.ledger import record_route_decision
-from opaihub.runs import explain_route, recent_runs, record_run, render_why_markdown
-from opaihub.share import build_savings_card, render_share_markdown
-from opaihub.test_select import likely_tests_for, select_tests
+from vestahub.context_pack import build_context_pack
+from vestahub.metrics import build_local_metrics
+from vestahub.ledger import record_route_decision
+from vestahub.runs import explain_route, recent_runs, record_run, render_why_markdown
+from vestahub.share import build_savings_card, render_share_markdown
+from vestahub.test_select import likely_tests_for, select_tests
 
 
 def _repo(root: Path) -> None:
@@ -78,14 +78,14 @@ class ContextPackTests(unittest.TestCase):
         blob = str(pack["files"])
         self.assertNotIn("sk-deadbeefdeadbeef1234567890", blob)
 
-    def test_pack_excludes_opai_managed_files(self):
+    def test_pack_excludes_vesta_managed_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _repo(root)
             # Untracked Vesta-managed files must not waste the pack budget.
             (root / "AGENTS.md").write_text("managed\n", encoding="utf-8")
             (root / ".cursor" / "rules").mkdir(parents=True)
-            (root / ".cursor" / "rules" / "opai.mdc").write_text(
+            (root / ".cursor" / "rules" / "vesta.mdc").write_text(
                 "x\n", encoding="utf-8"
             )
             (root / "real_change.py").write_text("y = 2\n", encoding="utf-8")

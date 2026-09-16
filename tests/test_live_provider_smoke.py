@@ -13,19 +13,19 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from opaihub.provider_catalog import (
+from vestahub.provider_catalog import (
     CATALOG_VERSION,
     PROTOCOL_VERSION,
     provider_ids,
     provider_record,
 )
-from opaihub.provider_canary import (
+from vestahub.provider_canary import (
     live_provider_prerequisite,
     model_for_provider,
     run_selected_provider_canary,
 )
-from opaihub.model_identity import canonical_usage_model_id
-from opaihub.provider_protocol import ProviderReadiness
+from vestahub.model_identity import canonical_usage_model_id
+from vestahub.provider_protocol import ProviderReadiness
 
 
 class LiveProviderSmokeGateTests(unittest.TestCase):
@@ -35,47 +35,47 @@ class LiveProviderSmokeGateTests(unittest.TestCase):
                 with self.subTest(provider_id=provider_id):
                     self.assertEqual(
                         live_provider_prerequisite(provider_id),
-                        "requires OPAI_LIVE_PROVIDER_SMOKE=1",
+                        "requires VESTA_LIVE_PROVIDER_SMOKE=1",
                     )
 
     def test_selected_provider_requires_a_matching_explicit_model(self) -> None:
         environment = {
-            "OPAI_LIVE_PROVIDER_SMOKE": "1",
-            "OPAI_CONFIRM_CLOUD_TESTS": "YES",
-            "OPAI_LIVE_PROVIDER_SMOKE_PROVIDERS": "codex",
+            "VESTA_LIVE_PROVIDER_SMOKE": "1",
+            "VESTA_CONFIRM_CLOUD_TESTS": "YES",
+            "VESTA_LIVE_PROVIDER_SMOKE_PROVIDERS": "codex",
         }
         with patch.dict(os.environ, environment, clear=True):
             self.assertEqual(
                 live_provider_prerequisite("codex"),
-                "requires a codex model in OPAI_LIVE_MODELS",
+                "requires a codex model in VESTA_LIVE_MODELS",
             )
-        environment["OPAI_LIVE_MODELS"] = "account:codex:gpt-5.6"
+        environment["VESTA_LIVE_MODELS"] = "account:codex:gpt-5.6"
         with patch.dict(os.environ, environment, clear=True):
             self.assertIsNone(live_provider_prerequisite("codex"))
 
     def test_unselected_provider_has_a_provider_specific_prerequisite(self) -> None:
         environment = {
-            "OPAI_LIVE_PROVIDER_SMOKE": "1",
-            "OPAI_CONFIRM_CLOUD_TESTS": "YES",
-            "OPAI_LIVE_PROVIDER_SMOKE_PROVIDERS": "codex",
-            "OPAI_LIVE_MODELS": "account:codex:gpt-5.6",
+            "VESTA_LIVE_PROVIDER_SMOKE": "1",
+            "VESTA_CONFIRM_CLOUD_TESTS": "YES",
+            "VESTA_LIVE_PROVIDER_SMOKE_PROVIDERS": "codex",
+            "VESTA_LIVE_MODELS": "account:codex:gpt-5.6",
         }
         with patch.dict(os.environ, environment, clear=True):
             self.assertEqual(
                 live_provider_prerequisite("claude"),
-                "requires claude in OPAI_LIVE_PROVIDER_SMOKE_PROVIDERS",
+                "requires claude in VESTA_LIVE_PROVIDER_SMOKE_PROVIDERS",
             )
 
     def test_model_allowlist_never_bypasses_the_provider_selector(self) -> None:
         environment = {
-            "OPAI_LIVE_PROVIDER_SMOKE": "1",
-            "OPAI_CONFIRM_CLOUD_TESTS": "YES",
-            "OPAI_LIVE_MODELS": "account:codex:gpt-5.6",
+            "VESTA_LIVE_PROVIDER_SMOKE": "1",
+            "VESTA_CONFIRM_CLOUD_TESTS": "YES",
+            "VESTA_LIVE_MODELS": "account:codex:gpt-5.6",
         }
         with patch.dict(os.environ, environment, clear=True):
             self.assertEqual(
                 live_provider_prerequisite("codex"),
-                "requires codex in OPAI_LIVE_PROVIDER_SMOKE_PROVIDERS",
+                "requires codex in VESTA_LIVE_PROVIDER_SMOKE_PROVIDERS",
             )
 
 
@@ -143,10 +143,10 @@ def _api_adapter_with_ready_contract() -> MagicMock:
 class SelectedLiveProviderPreflightTests(unittest.TestCase):
     def _environment(self) -> dict[str, str]:
         return {
-            "OPAI_LIVE_PROVIDER_SMOKE": "1",
-            "OPAI_CONFIRM_CLOUD_TESTS": "YES",
-            "OPAI_LIVE_PROVIDER_SMOKE_PROVIDERS": "codex",
-            "OPAI_LIVE_MODELS": "account:codex:gpt-5.6",
+            "VESTA_LIVE_PROVIDER_SMOKE": "1",
+            "VESTA_CONFIRM_CLOUD_TESTS": "YES",
+            "VESTA_LIVE_PROVIDER_SMOKE_PROVIDERS": "codex",
+            "VESTA_LIVE_MODELS": "account:codex:gpt-5.6",
         }
 
     def test_unready_probe_skips_without_calling_ask(self) -> None:
@@ -160,7 +160,7 @@ class SelectedLiveProviderPreflightTests(unittest.TestCase):
         )
         with (
             patch.dict(os.environ, self._environment(), clear=True),
-            patch("opai.app_state.ask") as ask,
+            patch("vesta.app_state.ask") as ask,
         ):
             reason, result = run_selected_provider_canary(
                 "codex",
@@ -177,7 +177,7 @@ class SelectedLiveProviderPreflightTests(unittest.TestCase):
         adapter = _adapter_with_ready_contract()
         with (
             patch.dict(os.environ, self._environment(), clear=True),
-            patch("opai.app_state.ask") as ask,
+            patch("vesta.app_state.ask") as ask,
         ):
             reason, result = run_selected_provider_canary(
                 "codex",
@@ -196,7 +196,7 @@ class SelectedLiveProviderPreflightTests(unittest.TestCase):
         adapter = _adapter_with_ready_contract()
         with (
             patch.dict(os.environ, self._environment(), clear=True),
-            patch("opai.app_state.ask") as ask,
+            patch("vesta.app_state.ask") as ask,
         ):
             reason, result = run_selected_provider_canary(
                 "codex",
@@ -206,7 +206,7 @@ class SelectedLiveProviderPreflightTests(unittest.TestCase):
 
         self.assertEqual(
             reason,
-            "requires exact model account:codex:gpt-5.5 in OPAI_LIVE_MODELS",
+            "requires exact model account:codex:gpt-5.5 in VESTA_LIVE_MODELS",
         )
         self.assertIsNone(result)
         ask.assert_not_called()
@@ -216,7 +216,7 @@ class SelectedLiveProviderPreflightTests(unittest.TestCase):
         expected_result = {"status": "answered_by_account", "answer": "OK"}
         with (
             patch.dict(os.environ, self._environment(), clear=True),
-            patch("opai.app_state.ask", return_value=expected_result) as ask,
+            patch("vesta.app_state.ask", return_value=expected_result) as ask,
         ):
             reason, result = run_selected_provider_canary(
                 "codex",
@@ -245,15 +245,15 @@ class SelectedLiveProviderPreflightTests(unittest.TestCase):
     def test_api_key_provider_forces_safe_probe_before_ask(self) -> None:
         adapter = _api_adapter_with_ready_contract()
         environment = {
-            "OPAI_LIVE_PROVIDER_SMOKE": "1",
-            "OPAI_CONFIRM_CLOUD_TESTS": "YES",
-            "OPAI_LIVE_PROVIDER_SMOKE_PROVIDERS": "groq",
-            "OPAI_LIVE_MODELS": "free:groq:openai/gpt-oss-120b",
+            "VESTA_LIVE_PROVIDER_SMOKE": "1",
+            "VESTA_CONFIRM_CLOUD_TESTS": "YES",
+            "VESTA_LIVE_PROVIDER_SMOKE_PROVIDERS": "groq",
+            "VESTA_LIVE_MODELS": "free:groq:openai/gpt-oss-120b",
         }
         expected_result = {"status": "answered_by_free_api", "answer": "OK"}
         with (
             patch.dict(os.environ, environment, clear=True),
-            patch("opai.app_state.ask", return_value=expected_result) as ask,
+            patch("vesta.app_state.ask", return_value=expected_result) as ask,
         ):
             reason, result = run_selected_provider_canary(
                 "groq",

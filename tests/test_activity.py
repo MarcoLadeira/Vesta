@@ -1,10 +1,10 @@
-"""Tests for the activity/cancellation core (opai.activity) — pure, no display."""
+"""Tests for the activity/cancellation core (vesta.activity) — pure, no display."""
 
 from __future__ import annotations
 
 import unittest
 
-from opai.activity import (
+from vesta.activity import (
     STILL_WORKING_S,
     TAKING_LONGER_S,
     classify_error,
@@ -102,7 +102,7 @@ class ErrorMapperTests(unittest.TestCase):
         card = error_card("unauthorized", detail=repeated)
 
         self.assertNotIn("sk-secretvalue123", card["detail"])
-        # #622: the canonical redactor (opaihub.command_runner.redact) marks
+        # #622: the canonical redactor (vestahub.command_runner.redact) marks
         # a bare prefix-only match (no assignment context) "[REDACTED_SECRET]"
         # and only an assignment's *value* "[REDACTED]" — this is a bare
         # "sk-" match, so it's the former. Either way, the point under test
@@ -205,7 +205,7 @@ class ClaudeStreamParserTests(unittest.TestCase):
 
 class CodexStreamParserTests(unittest.TestCase):
     def _parse(self, line):
-        from opai.activity import parse_codex_line
+        from vesta.activity import parse_codex_line
 
         return parse_codex_line(line)
 

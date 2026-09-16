@@ -1,6 +1,6 @@
 # Vesta — the AI coding cost firewall
 
-![Vesta logo](opai/assets/opai-mascot.png)
+![Vesta logo](vesta/assets/vesta-mascot.png)
 
 **Vesta is the AI coding cost firewall.** It sits in front of Claude, Codex,
 Copilot, Cursor, and Cline and routes the tasks it runs to the cheapest safe
@@ -9,14 +9,14 @@ your confirmation — then proves the savings in numbers, locally and privately.
 Vesta measures the sessions it observes (its GUI chat and wrapped/proxy runs);
 direct unwrapped launches are shown as pass-through, not counted as captured.
 
-<!-- opai-release-identity: application_version=0.2.1a1; release_stage=alpha.1; published_tag=v0.2.1a1 -->
+<!-- vesta-release-identity: application_version=0.2.1a1; release_stage=alpha.1; published_tag=v0.2.1a1 -->
 The current application release is **Vesta 0.2.1 Alpha.1** (package
 `0.2.1a1`, channel `alpha`, canonical tag `v0.2.1a1`). Vesta is a local-first
 AI coding hub that installs into your terminal and AI coding clients so every
 project gets better routing, safer automation, reusable context, Superpowers
 skills, MCP-ready registries, testing workflows, GitOps helpers, governance
 controls, benchmark proof, and a real cost ledger.
-<!-- /opai-release-identity -->
+<!-- /vesta-release-identity -->
 
 The goal is simple: make AI-assisted development feel close to "one prompt to build, one prompt to ship" without blindly burning expensive model credits.
 
@@ -24,7 +24,7 @@ The goal is simple: make AI-assisted development feel close to "one prompt to bu
 
 There is no public package or desktop artifact installation command yet. The
 commands below apply after a verified free artifact is published on
-[GitHub Releases](https://github.com/MarcoLadeira/OPai/releases), or when you
+[GitHub Releases](https://github.com/MarcoLadeira/Vesta/releases), or when you
 have installed this source checkout for contributor development.
 
 ```sh
@@ -79,19 +79,19 @@ vesta gui "summarize my changes"   # open with a task pre-filled in the composer
 vesta gui --classic                # force the classic Qt window (no Chromium)
 ```
 
-On Windows you can also run `python -m opai gui` if `opai` is not yet on your
+On Windows you can also run `python -m vesta gui` if `vesta` is not yet on your
 `PATH`.
 
-**Windowed launcher (no console).** Installing Vesta also adds an `opai-gui`
+**Windowed launcher (no console).** Installing Vesta also adds an `vesta-gui`
 launcher. Unlike `vesta gui`, it opens the app **without a background console
 window**, so it's what you want for a desktop/Start-menu/taskbar shortcut:
 
 ```sh
-opai-gui                          # open the desktop app, no console window
-opai-gui --project /path/to/repo  # same options as `vesta gui`
+vesta-gui                          # open the desktop app, no console window
+vesta-gui --project /path/to/repo  # same options as `vesta gui`
 ```
 
-To pin it on Windows, create a shortcut to the `opai-gui.exe` in your Python
+To pin it on Windows, create a shortcut to the `vesta-gui.exe` in your Python
 `Scripts` directory (`python -c "import sysconfig; print(sysconfig.get_path('scripts'))"`)
 and drag it to the Start menu or taskbar.
 
@@ -251,7 +251,7 @@ vesta edition show             # Free Public Alpha availability (legacy-compatib
 Vesta is also the control plane for teams ([GOVERNANCE.md](hub/docs/GOVERNANCE.md)):
 
 ```sh
-vesta team init                # committable opai-team-policy.yaml (shared policy)
+vesta team init                # committable vesta-team-policy.yaml (shared policy)
 vesta team apply               # apply the team policy locally
 vesta policy check             # fail-closed CI gate (exits non-zero on violation)
 vesta policy check --require-team-policy  # strict team CI: policy file required
@@ -266,7 +266,7 @@ Default posture:
 deterministic tools -> compact cache/context -> local model -> confirmed cheap cloud -> strong model only after evidence
 ```
 
-Both `op` and `opai` launch Vesta. The legacy OPcoding CLI remains available as `opcoding`.
+Both `op` and `vesta` launch Vesta. The legacy OPcoding CLI remains available as `opcoding`.
 
 ## What Vesta Gives You
 
@@ -278,7 +278,7 @@ Both `op` and `opai` launch Vesta. The legacy OPcoding CLI remains available as 
 - Cost-aware routing that gathers git diffs, tests, profiles, registry data, logs, and cached context before model escalation.
 - Compact-by-default AI-facing output: route summaries, launcher badges, and instruction blocks stay tiny unless you opt into full evidence or welcome graphics.
 - Safe command policies for destructive shell commands, Git operations, cloud calls, and secret-bearing logs.
-- A packaged OP AI Hub foundation with tools, agents, workflows, prompts, model routing, MCP config examples, and docs.
+- A packaged Vesta Hub foundation with tools, agents, workflows, prompts, model routing, MCP config examples, and docs.
 
 ## Free Public Alpha
 
@@ -286,7 +286,7 @@ Vesta alpha launches fully free. No checkout, license, invitation, or private
 access link is required to use alpha functionality. **No public desktop artifact
 or package installation command is published yet.** When platform release proof
 is complete, the current verified path will be published on
-[GitHub Releases](https://github.com/MarcoLadeira/OPai/releases); source and
+[GitHub Releases](https://github.com/MarcoLadeira/Vesta/releases); source and
 development installation remain available separately for contributors.
 
 After install, restart your terminal and AI clients once, then check:
@@ -295,7 +295,7 @@ After install, restart your terminal and AI clients once, then check:
 op status
 ```
 
-The installer installs the `op`/`opai` CLI, activates the project you ran it
+The installer installs the `op`/`vesta` CLI, activates the project you ran it
 from, writes Vesta discovery files, installs and enables Superpowers discovery,
 and installs persistent AI-client shell wrappers by default.
 
@@ -306,12 +306,12 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 op doctor
 ```
 
-If Windows says `op` is not on `PATH` before your shell profile reloads, use `python -m opai doctor`.
+If Windows says `op` is not on `PATH` before your shell profile reloads, use `python -m vesta doctor`.
 
 The free alpha may offer optional local tools or a Superpowers network-clone
 skip for locked-down environments; those choices are never payment gates.
 
-The installer writes managed shell functions for `op`, `opai`, `codex`, `claude`, and `copilot` in PowerShell plus POSIX profiles where available. The AI-client wrappers activate Vesta in the current project and send canonical one-shot calls through its local cost/safety proxy. Interactive, stdin-driven, structured-output, and unknown advanced forms pass directly to the real CLI with their original arguments, TTY, and exit code. Vesta reports those launches as unmeasurable instead of claiming they were captured. The blue one-line `Using Vesta` badge is written to stderr so scripted stdout stays clean. Set `OPAI_WELCOME=1` or pass `op launch <tool> --welcome` when you want the mascot graphic.
+The installer writes managed shell functions for `op`, `vesta`, `codex`, `claude`, and `copilot` in PowerShell plus POSIX profiles where available. The AI-client wrappers activate Vesta in the current project and send canonical one-shot calls through its local cost/safety proxy. Interactive, stdin-driven, structured-output, and unknown advanced forms pass directly to the real CLI with their original arguments, TTY, and exit code. Vesta reports those launches as unmeasurable instead of claiming they were captured. The blue one-line `Using Vesta` badge is written to stderr so scripted stdout stays clean. Set `VESTA_WELCOME=1` or pass `op launch <tool> --welcome` when you want the mascot graphic.
 
 Developer install:
 
@@ -369,7 +369,7 @@ This Vesta alpha is tuned to spend less than normal AI coding by default:
 - `vesta route` returns compact local evidence instead of large logs and full diffs.
 - `vesta slim` writes AI-client ignore files and reports generated context bloat.
 - Release, deploy, security, and publish tasks start at local preflight, not strong AI.
-- Model prompts are not stored in cache unless `OPAI_STORE_PROMPTS=1`.
+- Model prompts are not stored in cache unless `VESTA_STORE_PROMPTS=1`.
 - Default generated project budgets are `$0.50/day`, `$5/month`, and `$0.10` soft limit per task.
 - Context is capped to a compact 6,000 characters by default, with a hard 12,000-character guard.
 - Cloud model use, paid tools, deploys, destructive commands, and large contexts require confirmation.
@@ -407,7 +407,7 @@ claude
 copilot
 ```
 
-Vesta writes compact managed instruction blocks to the top of `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md`, and `.opaihub/` so new AI sessions know to use local evidence, Superpowers, safety gates, and cost controls first. It also writes `.claudeignore`, `.cursorignore`, `.aiderignore`, `.continueignore`, `.geminiignore`, and `.opaiignore` so generated caches stay out of model context.
+Vesta writes compact managed instruction blocks to the top of `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md`, and `.vestahub/` so new AI sessions know to use local evidence, Superpowers, safety gates, and cost controls first. It also writes `.claudeignore`, `.cursorignore`, `.aiderignore`, `.continueignore`, `.geminiignore`, and `.vestaignore` so generated caches stay out of model context.
 
 ## Vesta Commands
 
@@ -419,7 +419,7 @@ op status             show activation, Superpowers, wrappers, and project state
 op slim               write AI ignore files and report generated context bloat
 op slim --clean       remove generated caches that waste AI context
 op publish status     show git/publish readiness
-vesta install          create local .opaihub state and dashboards
+vesta install          create local .vestahub state and dashboards
 vesta statusline       print the right-aligned "Using Vesta" badge
 vesta welcome          print the Vesta mascot, badge, and quick commands
 vesta welcome --animate animate the Vesta mascot in place
@@ -464,41 +464,41 @@ vesta hub analytics status
 vesta hub team init --mode solo
 ```
 
-Global integration files are written under `~/.opai/`, `~/.agents/skills/opai/`, and managed client-specific instruction files where supported. Closed desktop apps may not expose a UI surface that Vesta can draw into directly; Vesta provides the blue statusline command, mascot welcome screen, CLI wrappers, and discovery/instruction files for clients that support them. The ANSI image renderer uses Pillow when available and falls back cleanly to ASCII.
+Global integration files are written under `~/.vesta/`, `~/.agents/skills/vesta/`, and managed client-specific instruction files where supported. Closed desktop apps may not expose a UI surface that Vesta can draw into directly; Vesta provides the blue statusline command, mascot welcome screen, CLI wrappers, and discovery/instruction files for clients that support them. The ANSI image renderer uses Pillow when available and falls back cleanly to ASCII.
 
 Superpowers is treated as part of Vesta. The default installer clones or updates it under `~/.codex/superpowers`, then Vesta activation ensures it is visible to native skill discovery at `~/.agents/skills/superpowers`. Restart Codex/Claude/Copilot after first activation so skills are rediscovered.
 
-Vesta also publishes its own skill library under `~/.agents/skills/opai/`. That folder contains the root `opai` skill plus 36 focused Vesta skills for routing, model selection, codebase knowledge graphs via graphify, testing, debugging, GitOps, security, refactors, MCP setup, local models, and release preflight.
+Vesta also publishes its own skill library under `~/.agents/skills/vesta/`. That folder contains the root `vesta` skill plus 36 focused Vesta skills for routing, model selection, codebase knowledge graphs via graphify, testing, debugging, GitOps, security, refactors, MCP setup, local models, and release preflight.
 
 ## Legacy Name
 
 OPcoding is a reusable, local-first coding workspace. Its job is to make every project easier to build with AI agents while avoiding wasteful model calls.
 
-## OP AI Hub
+## Vesta Hub
 
-This repo now includes `hub/`, the Phase 1 foundation for OP AI Hub: a low-cost, modular, local-first registry for AI tools, agents, MCP servers, workflows, prompts, models, security policies, and project integrations.
+This repo now includes `hub/`, the Phase 1 foundation for Vesta Hub: a low-cost, modular, local-first registry for AI tools, agents, MCP servers, workflows, prompts, models, security policies, and project integrations.
 
 Start with:
 
 ```powershell
-python -m opaihub scan
-python -m opaihub list-tools
-python -m opaihub list-agents
-python -m opaihub list-workflows
-python -m opaihub tool health --id ruff
-python -m opaihub doctor
+python -m vestahub scan
+python -m vestahub list-tools
+python -m vestahub list-agents
+python -m vestahub list-workflows
+python -m vestahub tool health --id ruff
+python -m vestahub doctor
 ```
 
 Phase 2 foundation commands:
 
 ```powershell
-python -m opaihub project attach
-python -m opaihub validate
-python -m opaihub tool enable playwright-optional
-python -m opaihub mcp render --write
-python -m opaihub dashboard
-python -m opaihub models discover-local
-python -m opaihub tool add --id my-tool --description "What it does"
+python -m vestahub project attach
+python -m vestahub validate
+python -m vestahub tool enable playwright-optional
+python -m vestahub mcp render --write
+python -m vestahub dashboard
+python -m vestahub models discover-local
+python -m vestahub tool add --id my-tool --description "What it does"
 ```
 
 Docs:
@@ -506,7 +506,7 @@ Docs:
 - `hub/docs/INSTALL.md`
 - `hub/docs/COST_REDUCTION_0_1_1.md`
 - `hub/docs/AI_CLIENT_INTEGRATIONS.md`
-- `hub/docs/OPAI_0_1_0_PRE_ALPHA.md`
+- `hub/docs/VESTA_0_1_0_PRE_ALPHA.md`
 - `hub/docs/OP_AI_HUB_OVERVIEW.md`
 - `hub/docs/ARCHITECTURE.md`
 - `hub/docs/ADDING_TOOLS.md`
@@ -517,8 +517,8 @@ Docs:
 
 Community:
 
-- [Discussions](https://github.com/MarcoLadeira/OPai/discussions): questions, ideas, tool suggestions, and install help.
-- [Issues](https://github.com/MarcoLadeira/OPai/issues): reproducible bugs, cost regressions, security hardening, and roadmap tasks.
+- [Discussions](https://github.com/MarcoLadeira/Vesta/discussions): questions, ideas, tool suggestions, and install help.
+- [Issues](https://github.com/MarcoLadeira/Vesta/issues): reproducible bugs, cost regressions, security hardening, and roadmap tasks.
 - [CONTRIBUTING.md](CONTRIBUTING.md): local development and PR guidance.
 - [SECURITY.md](SECURITY.md): reporting and safety defaults.
 - [SUPPORT.md](SUPPORT.md): where to ask for help.

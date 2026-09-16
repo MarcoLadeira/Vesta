@@ -1,6 +1,6 @@
 """#613 Stage 2: the dual read workflow_runner was missing.
 
-``opaihub/workflow_runner.py`` is the one JOURNAL_OWNED module that already had
+``vestahub/workflow_runner.py`` is the one JOURNAL_OWNED module that already had
 half of Stage 2 before #613 started. It has shadow-written every run and step
 transition to a #517 journal since the beginning, and
 :func:`replay_workflow_run` already rebuilds them.
@@ -30,8 +30,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub import workflow_runner
-from opaihub.workflow_runner import (
+from vestahub import workflow_runner
+from vestahub.workflow_runner import (
     read_workflow_log,
     run_workflow,
     workflow_contradiction_report,

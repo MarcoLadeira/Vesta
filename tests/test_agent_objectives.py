@@ -5,8 +5,8 @@ import sys
 
 import pytest
 
-from opaihub.agent_objectives import ObjectiveStore
-from opaihub.journal_store import StaleWriterError, open_store
+from vestahub.agent_objectives import ObjectiveStore
+from vestahub.journal_store import StaleWriterError, open_store
 
 
 def plan(name, paths=None, **kwargs):
@@ -20,12 +20,12 @@ def claim_in_process(root, objective_id, owner):
 
 
 def verified_integration(store, oid, root):
-    from opaihub.verification_execution import (
+    from vestahub.verification_execution import (
         VerificationExecutionContext,
         execute_policy,
         persist_verification_manifest,
     )
-    from opaihub.verification_policy import (
+    from vestahub.verification_policy import (
         PolicyCheck,
         PolicySource,
         VerificationPolicy,

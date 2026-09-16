@@ -12,10 +12,10 @@ from unittest import mock
 
 from _helpers import make_repo
 
-from opai.cli import main
-from opai.gui_web import _workspace
-from opaihub.repository_safety import capture_repository_handle
-from opaihub.worktree_leases import WorktreeManager
+from vesta.cli import main
+from vesta.gui_web import _workspace
+from vestahub.repository_safety import capture_repository_handle
+from vestahub.worktree_leases import WorktreeManager
 
 
 class RepositorySafetySurfaceTests(unittest.TestCase):
@@ -89,7 +89,7 @@ class RepositorySafetySurfaceTests(unittest.TestCase):
             self.assertIn("inspect", payload["recovery"][0]["recommended_actions"])
 
     def test_edit_capable_gui_turn_persists_and_threads_its_task_handle(self) -> None:
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         selected = "free:gemini:gemini-3.1-flash-lite"
         provider_result = {
@@ -101,7 +101,7 @@ class RepositorySafetySurfaceTests(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"src/app.py": "old\n"}, commit=True)
-            with mock.patch("opai.app_state.ask", return_value=provider_result) as ask:
+            with mock.patch("vesta.app_state.ask", return_value=provider_result) as ask:
                 result = handle_gui_message(
                     root,
                     "Update src/app.py.",
@@ -113,7 +113,7 @@ class RepositorySafetySurfaceTests(unittest.TestCase):
             handle = ask.call_args.kwargs["repository_handle"]
             persisted = (
                 root
-                / ".opaihub"
+                / ".vestahub"
                 / "repository"
                 / "handles"
                 / f"{handle.handle_id}.json"

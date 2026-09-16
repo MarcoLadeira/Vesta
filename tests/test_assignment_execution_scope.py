@@ -5,27 +5,27 @@ from unittest import mock
 
 import pytest
 
-from opaihub import budget, gui_pipeline, ledger
+from vestahub import budget, gui_pipeline, ledger
 
 
 def test_assignment_finances_use_parent_while_workspace_state_stays_local(tmp_path):
-    from opaihub.execution_scope import assignment_scope, financial_root
-    from opaihub.state import state_dir
+    from vestahub.execution_scope import assignment_scope, financial_root
+    from vestahub.state import state_dir
 
     parent, child = tmp_path / "parent", tmp_path / "worker"
     with assignment_scope(child, parent, task_id="task-1", run_id="run-1"):
         assert financial_root(child) == parent.resolve()
-        assert state_dir(child) == child / ".opaihub"
+        assert state_dir(child) == child / ".vestahub"
         event = ledger.record_event(child, "test", task="bounded task")
         assert event["assignment_run_id"] == "run-1"
-        assert ledger.ledger_path(child) == parent / ".opaihub/ledger/usage.jsonl"
+        assert ledger.ledger_path(child) == parent / ".vestahub/ledger/usage.jsonl"
     assert financial_root(child) == child.resolve()
     assert not ledger.ledger_path(child).exists()
     assert ledger.read_events(parent)[0]["assignment_task_id"] == "task-1"
 
 
 def test_execution_scope_does_not_leak_between_threads_or_exceptions(tmp_path):
-    from opaihub.execution_scope import assignment_scope, financial_root
+    from vestahub.execution_scope import assignment_scope, financial_root
 
     child = tmp_path / "worker"
     with pytest.raises(RuntimeError):
@@ -37,7 +37,7 @@ def test_execution_scope_does_not_leak_between_threads_or_exceptions(tmp_path):
 
 
 def test_worker_budget_gate_uses_authority_root(tmp_path):
-    from opaihub.execution_scope import assignment_scope
+    from vestahub.execution_scope import assignment_scope
 
     child = tmp_path / "worker"
     with assignment_scope(child, tmp_path, task_id="t", run_id="r"):
@@ -50,7 +50,7 @@ def test_worker_budget_gate_uses_authority_root(tmp_path):
 
 
 def test_managed_pipeline_restores_context_and_returns_all_attempt_costs(tmp_path):
-    from opaihub.execution_scope import financial_root
+    from vestahub.execution_scope import financial_root
 
     child = tmp_path / "worker"
 
@@ -98,7 +98,7 @@ def test_managed_pipeline_requires_both_canonical_identifiers(tmp_path):
 
 
 def _budget_objective(tmp_path, *, objective_cap="10", assignment_cap="1"):
-    from opaihub.agent_objectives import ObjectiveStore
+    from vestahub.agent_objectives import ObjectiveStore
 
     store = ObjectiveStore(tmp_path)
     obj = store.create(
@@ -124,7 +124,7 @@ def _budget_objective(tmp_path, *, objective_cap="10", assignment_cap="1"):
 
 
 def test_assignment_cap_applies_to_each_call_and_counts_failed_attempts(tmp_path):
-    from opaihub.execution_scope import assignment_scope, managed_budget_gate
+    from vestahub.execution_scope import assignment_scope, managed_budget_gate
 
     store, obj, first = _budget_objective(tmp_path)
     child = tmp_path / "worker"
@@ -149,7 +149,7 @@ def test_assignment_cap_applies_to_each_call_and_counts_failed_attempts(tmp_path
 
 
 def test_objective_cap_includes_other_reservations_but_not_own_twice(tmp_path):
-    from opaihub.execution_scope import assignment_scope, managed_budget_gate
+    from vestahub.execution_scope import assignment_scope, managed_budget_gate
 
     store, obj, first = _budget_objective(
         tmp_path, objective_cap="3", assignment_cap="1"
@@ -166,7 +166,7 @@ def test_objective_cap_includes_other_reservations_but_not_own_twice(tmp_path):
 
 
 def test_unknown_and_estimated_prior_costs_fail_closed_under_assignment_cap(tmp_path):
-    from opaihub.execution_scope import assignment_scope, managed_budget_gate
+    from vestahub.execution_scope import assignment_scope, managed_budget_gate
 
     _, _, first = _budget_objective(tmp_path)
     child = tmp_path / "worker"
@@ -187,8 +187,8 @@ def test_unknown_and_estimated_prior_costs_fail_closed_under_assignment_cap(tmp_
 
 
 def test_planner_obeys_parent_cap_and_unknown_next_call_fails_closed(tmp_path):
-    from opaihub.execution_scope import assignment_scope, managed_budget_gate
-    from opaihub.agent_objectives import ObjectiveStore
+    from vestahub.execution_scope import assignment_scope, managed_budget_gate
+    from vestahub.agent_objectives import ObjectiveStore
 
     obj = ObjectiveStore(tmp_path).create("Plan bounded edits", budget_usd="0.5")
     with assignment_scope(
@@ -203,8 +203,8 @@ def test_planner_obeys_parent_cap_and_unknown_next_call_fails_closed(tmp_path):
 
 
 def test_paid_transport_refuses_opaque_spend_under_objective_cap(tmp_path):
-    from opaihub.execution_scope import assignment_scope
-    from opaihub.local_runner import PaidAPIRunner
+    from vestahub.execution_scope import assignment_scope
+    from vestahub.local_runner import PaidAPIRunner
 
     _, _, first = _budget_objective(tmp_path)
     runner = PaidAPIRunner(

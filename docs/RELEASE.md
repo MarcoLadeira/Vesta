@@ -8,8 +8,8 @@ authenticates the Windows and macOS artifacts in the same run. A dry-run path
 performs every safe step with no external side effects, and rollback restores
 the previous tested release without touching user state.
 
-Implementation: [`opaihub/release_preflight.py`](../opaihub/release_preflight.py).
-Issue: [#32](https://github.com/MarcoLadeira/OPai/issues/32).
+Implementation: [`vestahub/release_preflight.py`](../vestahub/release_preflight.py).
+Issue: [#32](https://github.com/MarcoLadeira/Vesta/issues/32).
 
 ## Planning, source qualification, and final qualification
 
@@ -45,7 +45,7 @@ Checks:
 | Check | Blocks on |
 | --- | --- |
 | Working tree is a clean git checkout | any uncommitted path |
-| Version is declared consistently | mismatch across `pyproject.toml`, `opai/__init__.py`, `opaihub/__init__.py`, or a PEP 440 / release-stage disagreement |
+| Version is declared consistently | mismatch across `pyproject.toml`, `vesta/__init__.py`, `vestahub/__init__.py`, or a PEP 440 / release-stage disagreement |
 | Changelog documents this release | the top `CHANGELOG.md` entry is missing, wrong, or empty for the current version |
 | A license is present | `LICENSE` missing or trivially short |
 | Required documentation is present | any of `README.md`, `CHANGELOG.md`, `LICENSE`, `CONTRIBUTING.md` missing/empty |
@@ -72,7 +72,7 @@ contract:
 ```json
 {
   "schema_version": 3,
-  "repository": "MarcoLadeira/OPai",
+  "repository": "MarcoLadeira/Vesta",
   "workflow": ".github/workflows/desktop-artifacts.yml",
   "run_id": "123456789",
   "run_attempt": "1",
@@ -107,7 +107,7 @@ contract:
   ],
   "artifacts": [
     {
-      "path": "OPai-windows.zip",
+      "path": "Vesta-windows.zip",
       "sha256": "<64-hex-artifact-digest>",
       "platform": "windows-latest",
       "verification_log": {
@@ -120,7 +120,7 @@ contract:
       }
     },
     {
-      "path": "OPai-macos.zip",
+      "path": "Vesta-macos.zip",
       "sha256": "<64-hex-artifact-digest>",
       "platform": "macos-latest",
       "verification_log": {
@@ -162,7 +162,7 @@ vesta release dry-run-proof
 ```
 
 This shows every publish step is disabled and refuses to execute, and that
-network access is blocked (`opaihub.release_preflight.deny_network`). Real
+network access is blocked (`vestahub.release_preflight.deny_network`). Real
 publishing runs only on the release host with signed artifacts and release
 credentials — `execute_publish_step` refuses otherwise, so a misconfiguration can
 never silently ship.
@@ -180,8 +180,8 @@ Execute it against an installed release, protecting user state:
 ```bash
 vesta release rollback --execute \
   --previous-manifest previous/manifest.json --to "<previous-version>" \
-  --release-root /opt/opai --pointer /opt/opai/active.json \
-  --protect /opt/opai/.opaihub
+  --release-root /opt/vesta --pointer /opt/vesta/active.json \
+  --protect /opt/vesta/.vestahub
 ```
 
 Rollback restores the previous artifacts and repoints the active release. It

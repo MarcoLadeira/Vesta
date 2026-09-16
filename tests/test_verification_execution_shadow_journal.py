@@ -1,6 +1,6 @@
 """#613 Stage 2: the evidence manifest's shadow journal, and the chain it completes.
 
-Stage 1 named ``opaihub/verification_execution.py`` JOURNAL_OWNED -- "artifacts:
+Stage 1 named ``vestahub/verification_execution.py`` JOURNAL_OWNED -- "artifacts:
 verification runs". The manifest records what was actually run and what it
 produced, and it carries the digest of the policy it ran under.
 
@@ -26,8 +26,8 @@ from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from pathlib import Path
 
-from opaihub import shadow_journal
-from opaihub.verification_execution import (
+from vestahub import shadow_journal
+from vestahub.verification_execution import (
     CheckRecord,
     CheckStatus,
     VerificationAttempt,
@@ -37,7 +37,7 @@ from opaihub.verification_execution import (
     manifest_shadow_projection,
     persist_verification_manifest,
 )
-from opaihub.verification_policy import PolicyCheck, PolicySource, VerificationPolicy
+from vestahub.verification_policy import PolicyCheck, PolicySource, VerificationPolicy
 
 
 def _policy() -> VerificationPolicy:
@@ -97,7 +97,7 @@ def _persist(root: Path, status: CheckStatus = CheckStatus.PASSED):
 
 
 def _manifest_path(root: Path) -> Path:
-    from opaihub.state import state_dir
+    from vestahub.state import state_dir
 
     return (
         state_dir(root) / "verification-evidence" / "task-1" / "run-1" / "manifest.json"

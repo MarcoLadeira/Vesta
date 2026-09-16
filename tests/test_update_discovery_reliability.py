@@ -28,26 +28,26 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from test_update_service import NOW, _installed, _service  # noqa: E402
 
-from opai.update.cadence import (  # noqa: E402
+from vesta.update.cadence import (  # noqa: E402
     CADENCE_POLICY_VERSION,
     LEGACY_INTERVAL_SECONDS,
     MINIMUM_INTERVAL_SECONDS,
     discovery_interval_seconds,
 )
-from opai.update.models import (  # noqa: E402
+from vesta.update.models import (  # noqa: E402
     InstallType,
     UpdatePolicy,
     UpdateState,
     UpdateTrigger,
 )
-from opai.update.scheduler import (  # noqa: E402
+from vesta.update.scheduler import (  # noqa: E402
     TRIGGER_NETWORK_RESTORED,
     TRIGGER_PERIODIC,
     TRIGGER_RESUME,
     TRIGGER_STARTUP,
     UpdateScheduler,
 )
-from opai.update.storage import UpdateStore, UpdaterPaths  # noqa: E402
+from vesta.update.storage import UpdateStore, UpdaterPaths  # noqa: E402
 
 
 def _clocked(tmp_path: Path, **kwargs):
@@ -519,7 +519,7 @@ def test_polling_jitter_does_not_read_rollout_eligibility(tmp_path: Path):
     # Two questions, two seeds. Sharing one meant moving an installation
     # between staged-rollout buckets silently changed how often it polled, and
     # tuning the poll spread would have moved installations between buckets.
-    from opai.update.service import _jittered_check_interval
+    from vesta.update.service import _jittered_check_interval
 
     base = dict(minimum_check_interval_seconds=3600, poll_jitter_seed=7)
     same_seed_different_cohorts = {
@@ -546,7 +546,7 @@ def test_polling_jitter_does_not_read_rollout_eligibility(tmp_path: Path):
 def test_a_policy_without_a_seed_gets_one_without_changing_its_spread(tmp_path: Path):
     # Falling back to the cohort keeps an upgrading installation's spread
     # stable; the store then gives it a seed of its own.
-    from opai.update.service import _jittered_check_interval
+    from vesta.update.service import _jittered_check_interval
 
     legacy = UpdatePolicy(rollout_cohort=42, minimum_check_interval_seconds=3600)
     assert legacy.poll_jitter_seed == -1
@@ -582,7 +582,7 @@ def test_a_manual_check_that_cannot_run_says_so(tmp_path: Path):
     # having nothing happen at all looked exactly like success.
     import dataclasses
 
-    from opai.update.errors import UpdateError
+    from vesta.update.errors import UpdateError
 
     service, _, _, _ = _service(tmp_path, policy=UpdatePolicy(rollout_cohort=42))
     service.check(force=True)

@@ -35,20 +35,20 @@ def _csv(name: str) -> tuple[str, ...]:
 
 
 def _budget_reason() -> str | None:
-    raw = os.environ.get("OPAI_PROVIDER_CANARY_MAX_USD", "")
+    raw = os.environ.get("VESTA_PROVIDER_CANARY_MAX_USD", "")
     try:
         value = Decimal(raw)
     except InvalidOperation:
-        return "OPAI_PROVIDER_CANARY_MAX_USD must be a decimal"
+        return "VESTA_PROVIDER_CANARY_MAX_USD must be a decimal"
     if not value.is_finite() or value <= 0 or value > MAX_CANARY_BUDGET_USD:
         return (
-            f"OPAI_PROVIDER_CANARY_MAX_USD must be > 0 and <= {MAX_CANARY_BUDGET_USD}"
+            f"VESTA_PROVIDER_CANARY_MAX_USD must be > 0 and <= {MAX_CANARY_BUDGET_USD}"
         )
     return None
 
 
 def _model_map(providers: tuple[str, ...], models: tuple[str, ...]) -> dict[str, str]:
-    from opaihub.model_identity import model_provider
+    from vestahub.model_identity import model_provider
 
     selected: dict[str, str] = {}
     for model in models:
@@ -66,16 +66,16 @@ def _model_map(providers: tuple[str, ...], models: tuple[str, ...]) -> dict[str,
 
 
 def _run_provider(provider_id: str, model_id: str) -> tuple[str | None, dict | None]:
-    from opaihub.provider_canary import run_selected_provider_canary
+    from vestahub.provider_canary import run_selected_provider_canary
 
     return run_selected_provider_canary(provider_id, model_id)
 
 
 def _prerequisite_reason() -> str | None:
     required_values = {
-        "OPAI_LIVE_PROVIDER_SMOKE": "1",
-        "OPAI_CONFIRM_CLOUD_TESTS": "YES",
-        "OPAI_PROVIDER_CANARY_NON_PRODUCTION": "YES",
+        "VESTA_LIVE_PROVIDER_SMOKE": "1",
+        "VESTA_CONFIRM_CLOUD_TESTS": "YES",
+        "VESTA_PROVIDER_CANARY_NON_PRODUCTION": "YES",
     }
     for name, expected in required_values.items():
         if os.environ.get(name) != expected:
@@ -120,9 +120,9 @@ def _validated_cost(value: Any, provider_id: str, model_id: str) -> Decimal | No
     observation = value.get("canary_observation")
     if not isinstance(observation, dict):
         return None
-    from opaihub.provider_canary import CANARY_PROMPT
-    from opaihub.model_identity import canonical_usage_model_id
-    from opaihub.ledger import EVENT_MODEL_CALL, task_fingerprint
+    from vestahub.provider_canary import CANARY_PROMPT
+    from vestahub.model_identity import canonical_usage_model_id
+    from vestahub.ledger import EVENT_MODEL_CALL, task_fingerprint
 
     if observation.get("event_type") != EVENT_MODEL_CALL:
         return None
@@ -174,9 +174,9 @@ def main() -> int:
         return CREDENTIAL_EXIT
 
     providers = tuple(
-        value.lower() for value in _csv("OPAI_LIVE_PROVIDER_SMOKE_PROVIDERS")
+        value.lower() for value in _csv("VESTA_LIVE_PROVIDER_SMOKE_PROVIDERS")
     )
-    models = _csv("OPAI_LIVE_MODELS")
+    models = _csv("VESTA_LIVE_MODELS")
     if not providers or not models:
         print(
             "provider canary credential unavailable: providers and models are required"
@@ -191,7 +191,7 @@ def main() -> int:
         print(f"provider canary credential unavailable: {error}")
         return CREDENTIAL_EXIT
 
-    budget = Decimal(os.environ["OPAI_PROVIDER_CANARY_MAX_USD"])
+    budget = Decimal(os.environ["VESTA_PROVIDER_CANARY_MAX_USD"])
     observed_total = Decimal("0")
     for provider_id in providers:
         try:
@@ -202,7 +202,7 @@ def main() -> int:
             )
             return INFRASTRUCTURE_EXIT
         except Exception as error:  # provider adapters expose heterogeneous SDK errors
-            from opai.provider_contract import redact_secrets
+            from vesta.provider_contract import redact_secrets
 
             print(
                 f"provider canary failed for {provider_id}: {redact_secrets(error)[:500]}"

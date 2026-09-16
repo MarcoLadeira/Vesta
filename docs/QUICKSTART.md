@@ -8,7 +8,7 @@ functionality.
 
 There is **no public package or desktop artifact installation command yet**.
 When the platform release proof is complete, use only the current verified path
-published on [GitHub Releases](https://github.com/MarcoLadeira/OPai/releases).
+published on [GitHub Releases](https://github.com/MarcoLadeira/Vesta/releases).
 Until then, a source contributor can install the checkout they already have;
 never treat a payment or private checkout link as an installation prerequisite:
 
@@ -18,7 +18,7 @@ python -m pip install -e .
 
 After either a verified release install or the contributor install above,
 restart your terminal once. If `op` is not yet on `PATH`, use
-`python -m opai ...` for any command below.
+`python -m vesta ...` for any command below.
 
 ## 2. Confirm activation across your AI clients
 

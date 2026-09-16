@@ -23,12 +23,12 @@ from pathlib import Path
 
 from _helpers import make_repo
 
-from opaihub.completion import (
+from vestahub.completion import (
     AcceptanceRequirement,
     objective_from_request,
     required_test_kinds,
 )
-from opaihub.verification_policy import resolve_verification_policy
+from vestahub.verification_policy import resolve_verification_policy
 
 
 class _Check:

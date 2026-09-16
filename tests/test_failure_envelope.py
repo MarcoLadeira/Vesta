@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import unittest
 
-from opaihub.failure_envelope import (
+from vestahub.failure_envelope import (
     EvidenceCollector,
     FailureCategory,
     FailureEnvelope,

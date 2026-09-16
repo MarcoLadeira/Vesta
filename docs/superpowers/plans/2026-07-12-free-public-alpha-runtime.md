@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Remove executable paid-edition gates so every implemented OPai alpha capability is available for free, while retaining truthful diagnostics for planned work.
+**Goal:** Remove executable paid-edition gates so every implemented Vesta alpha capability is available for free, while retaining truthful diagnostics for planned work.
 
 **Architecture:** Retain the existing edition module as a compatibility-facing availability API, but make the active launch state permanently `free`. Replace tier metadata with a one-entry Free Public Alpha catalog whose capability entries distinguish implemented from planned work. Remove the only CLI feature gate directly from savings export.
 
@@ -25,7 +25,7 @@
 - Modify: `tests/test_positioning_and_cli.py`
 
 **Interfaces:**
-- Consumes: `opaihub.editions.require_feature`, `opaihub.editions.set_edition`, and `opai.cli.main`.
+- Consumes: `vestahub.editions.require_feature`, `vestahub.editions.set_edition`, and `vesta.cli.main`.
 - Produces: regression coverage for no-gate export and free-alpha availability.
 
 - [ ] **Step 1: Replace tier-priced assertions with free-alpha contract tests**
@@ -45,7 +45,7 @@
   code = main(["--project", str(root), "savings", "--export", str(target)])
   self.assertEqual(code, 0)
   self.assertTrue(target.exists())
-  self.assertIn("opai-savings", target.read_text(encoding="utf-8"))
+  self.assertIn("vesta-savings", target.read_text(encoding="utf-8"))
   ```
 
 - [ ] **Step 3: Run the selected tests and verify the expected failures**
@@ -62,8 +62,8 @@
 ### Task 2: Convert the runtime policy from commercial tiers to availability
 
 **Files:**
-- Modify: `opaihub/editions.py`
-- Modify: `opai/cli.py`
+- Modify: `vestahub/editions.py`
+- Modify: `vesta/cli.py`
 - Test: `tests/test_editions.py`
 - Test: `tests/test_positioning_and_cli.py`
 
@@ -75,8 +75,8 @@
 
 - [ ] **Step 1: Make the active launch state permanently free**
 
-  In `opaihub/editions.py`, introduce `FREE_ALPHA_EDITION = "free"` and make
-  `current_edition()` return that constant without reading `OPAI_EDITION` or
+  In `vestahub/editions.py`, introduce `FREE_ALPHA_EDITION = "free"` and make
+  `current_edition()` return that constant without reading `VESTA_EDITION` or
   project state. Keep legacy tier names only for a compatibility message.
 
 - [ ] **Step 2: Make capability status implementation-based**
@@ -97,7 +97,7 @@
       "status": "free_alpha",
       "edition": "free",
       "requested_edition": str(name).lower(),
-      "reason": "OPai public alpha has no paid editions or feature gates.",
+      "reason": "Vesta public alpha has no paid editions or feature gates.",
   }
   ```
 
@@ -125,13 +125,13 @@
 ### Task 3: Replace catalog and public copy without claiming planned work
 
 **Files:**
-- Modify: `opaihub/data/hub/editions.yaml`
+- Modify: `vestahub/data/hub/editions.yaml`
 - Modify: `hub/editions.yaml`
 - Modify: `configs/editions.yaml`
 - Modify: `hub/docs/PRICING_AND_EDITIONS.md`
-- Modify: `opaihub/data/hub/docs/PRICING_AND_EDITIONS.md`
+- Modify: `vestahub/data/hub/docs/PRICING_AND_EDITIONS.md`
 - Modify: `hub/docs/GOVERNANCE.md`
-- Modify: `opaihub/data/hub/docs/GOVERNANCE.md`
+- Modify: `vestahub/data/hub/docs/GOVERNANCE.md`
 - Modify: `README.md`
 - Test: `tests/test_editions.py`
 
@@ -169,7 +169,7 @@
 
   ```powershell
   python -m pytest tests/test_editions.py tests/test_positioning_and_cli.py -q
-  python -m opaihub validate
+  python -m vestahub validate
   git diff --check
   ```
 
@@ -196,7 +196,7 @@
   ```powershell
   python -B -m ruff format --check .
   python -B -m ruff check --no-cache .
-  python -B -m opaihub validate
+  python -B -m vestahub validate
   git diff --check
   ```
 
@@ -205,7 +205,7 @@
   Run:
 
   ```powershell
-  git add opaihub/editions.py opai/cli.py opaihub/data/hub/editions.yaml hub/editions.yaml configs/editions.yaml hub/docs/PRICING_AND_EDITIONS.md opaihub/data/hub/docs/PRICING_AND_EDITIONS.md hub/docs/GOVERNANCE.md opaihub/data/hub/docs/GOVERNANCE.md README.md tests/test_editions.py tests/test_positioning_and_cli.py
+  git add vestahub/editions.py vesta/cli.py vestahub/data/hub/editions.yaml hub/editions.yaml configs/editions.yaml hub/docs/PRICING_AND_EDITIONS.md vestahub/data/hub/docs/PRICING_AND_EDITIONS.md hub/docs/GOVERNANCE.md vestahub/data/hub/docs/GOVERNANCE.md README.md tests/test_editions.py tests/test_positioning_and_cli.py
   git commit -m "fix(alpha): remove paid feature gates"
   ```
 

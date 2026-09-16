@@ -33,7 +33,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub import journal_store
+from vestahub import journal_store
 
 SRC = str(Path(__file__).resolve().parents[1])
 
@@ -167,7 +167,7 @@ class RealConcurrentProcessesTests(_FreshJournal):
             "import sys\n"
             f"sys.path.insert(0, r'{SRC}')\n"
             "from pathlib import Path\n"
-            "from opaihub import journal_store\n"
+            "from vestahub import journal_store\n"
             "try:\n"
             f"    store = journal_store.open_store(Path(r'{self.root}'))\n"
             "    store.close()\n"
@@ -298,7 +298,7 @@ class AJournalNobodyCanOpenIsNotHealthyTests(_FreshJournal):
         self.assertFalse(health["openable"])
 
     def test_doctor_escalates_it(self):
-        from opai import cli
+        from vesta import cli
 
         self.brick()
         health = journal_store.store_health(self.root)
@@ -311,7 +311,7 @@ class AJournalNobodyCanOpenIsNotHealthyTests(_FreshJournal):
         )
 
     def test_a_healthy_journal_is_still_openable_and_not_escalated(self):
-        from opai import cli
+        from vesta import cli
 
         journal_store.open_store(self.root).close()
         health = journal_store.store_health(self.root)

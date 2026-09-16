@@ -13,7 +13,7 @@ from pathlib import Path
 
 from _helpers import make_repo
 
-from opaihub.gui_preferences import (
+from vestahub.gui_preferences import (
     grant_free_consent,
     load_gui_preferences,
     save_gui_preferences,

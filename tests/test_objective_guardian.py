@@ -13,13 +13,13 @@ from unittest import mock
 import pytest
 
 from _helpers import make_repo
-from opaihub.agent_objectives import ObjectiveStore
-from opaihub.atomic_io import InterprocessLockTimeout, interprocess_transaction
-from opaihub.objective_execution import (
+from vestahub.agent_objectives import ObjectiveStore
+from vestahub.atomic_io import InterprocessLockTimeout, interprocess_transaction
+from vestahub.objective_execution import (
     UnconfirmedTerminationError,
     run_worker_process,
 )
-from opaihub.process_tree import isolated_group_kwargs
+from vestahub.process_tree import isolated_group_kwargs
 
 
 def wait_until(predicate, timeout=20):
@@ -82,7 +82,7 @@ def fixture_tree(tmp_path, *, root_exits=False, escape=None):
     provider = tmp_path / "provider.py"
     provider.write_text(
         "import os,subprocess,sys,time\nfrom pathlib import Path\n"
-        "from opaihub.process_tree import isolated_group_kwargs\n"
+        "from vestahub.process_tree import isolated_group_kwargs\n"
         f"Path({str(tmp_path / 'provider.pid')!r}).write_text(str(os.getpid()))\n"
         f"p=subprocess.Popen([sys.executable,{str(leaf)!r}], **"
         + (
@@ -110,7 +110,7 @@ def test_guardian_reports_failed_setup_without_claiming_child_custody(
     tmp_path, monkeypatch
 ):
     from contextlib import nullcontext
-    from opaihub import objective_guardian
+    from vestahub import objective_guardian
 
     request, response = tmp_path / "request.json", tmp_path / "response.json"
     request.write_text(json.dumps(packet_for(tmp_path)))
@@ -216,7 +216,7 @@ def test_supervisor_loss_retains_slot_until_canonical_tree_proof(
     wrapper = tmp_path / "guardian_fixture.py"
     wrapper.write_text(
         "import sys,time\nfrom pathlib import Path\n"
-        "from opaihub import objective_guardian as g\n"
+        "from vestahub import objective_guardian as g\n"
         "original=g.terminate_tree_confirmed\n"
         "def drain(proc):\n"
         f" Path({str(draining)!r}).touch()\n"
@@ -229,8 +229,8 @@ def test_supervisor_loss_retains_slot_until_canonical_tree_proof(
     supervisor = tmp_path / "supervisor.py"
     supervisor.write_text(
         "import json,sys,threading\nfrom pathlib import Path\n"
-        "from opaihub import objective_guardian as g\n"
-        "from opaihub.objective_execution import run_worker_process\n"
+        "from vestahub import objective_guardian as g\n"
+        "from vestahub.objective_execution import run_worker_process\n"
         f"g.guardian_command=lambda req,res: [sys.executable,{str(wrapper)!r},str(req),str(res)]\n"
         f"config=json.loads(Path({str(config)!r}).read_text())\n"
         f"run_worker_process(config['packet'],Path({str(evidence)!r}),threading.Event(),argv=config['argv'])\n"
@@ -251,7 +251,7 @@ def test_supervisor_loss_retains_slot_until_canonical_tree_proof(
             wait_until(draining.exists)
             assert process_alive(custody["guardian_pid"])
             assert process_alive(int((tmp_path / "leaf.pid").read_text()))
-            slot = fixture_home / ".opaihub" / "runtime" / "agent-slots" / "worker-0"
+            slot = fixture_home / ".vestahub" / "runtime" / "agent-slots" / "worker-0"
             with pytest.raises(InterprocessLockTimeout):
                 with interprocess_transaction(slot, timeout_seconds=0):
                     pass
@@ -299,7 +299,7 @@ def test_missing_or_invalid_proof_is_never_an_ordinary_failure(
         )
     )
     with mock.patch(
-        "opaihub.objective_guardian.guardian_command",
+        "vestahub.objective_guardian.guardian_command",
         side_effect=lambda req, res: [sys.executable, str(fake), str(req), str(res)],
     ):
         with pytest.raises(UnconfirmedTerminationError):
@@ -310,10 +310,10 @@ def test_missing_or_invalid_proof_is_never_an_ordinary_failure(
 
 @pytest.mark.parametrize(
     "flag,entry",
-    [("--opai-objective-guardian", "main"), ("--opai-objective-child", "child_main")],
+    [("--vesta-objective-guardian", "main"), ("--vesta-objective-child", "child_main")],
 )
 def test_packaged_guardian_entrypoints_preflight_without_qt(flag, entry):
-    from opai import bootstrap
+    from vesta import bootstrap
 
     imported = []
 
@@ -335,24 +335,24 @@ def test_packaged_guardian_entrypoints_preflight_without_qt(flag, entry):
         )
         == 0
     )
-    assert imported == ["opaihub.objective_guardian"]
+    assert imported == ["vestahub.objective_guardian"]
     assert bootstrap.run_cli([flag]) == 2
 
 
 def test_posix_nested_processes_preserve_guardian_group(monkeypatch):
-    from opaihub import process_tree
+    from vestahub import process_tree
 
     monkeypatch.setattr(process_tree.sys, "platform", "linux")
-    monkeypatch.setenv("OPAI_OBJECTIVE_TREE_CUSTODY", "posix-group")
+    monkeypatch.setenv("VESTA_OBJECTIVE_TREE_CUSTODY", "posix-group")
     assert process_tree.isolated_group_kwargs() == {}
 
 
 def test_failed_job_query_retains_custody(monkeypatch):
-    from opaihub import process_tree
+    from vestahub import process_tree
 
     monkeypatch.setattr(process_tree.sys, "platform", "win32")
     job = process_tree._Job(123)
-    proc = SimpleNamespace(pid=42, poll=lambda: 0, _opai_job_handle=job)
+    proc = SimpleNamespace(pid=42, poll=lambda: 0, _vesta_job_handle=job)
     monkeypatch.setattr(
         process_tree,
         "_kernel32",
@@ -368,7 +368,7 @@ def test_failed_job_query_retains_custody(monkeypatch):
 
 
 def test_unreadable_linux_children_never_prove_termination(monkeypatch):
-    from opaihub import process_tree
+    from vestahub import process_tree
 
     custody = object.__new__(process_tree._LinuxSubreaper)
     custody.drained = False
@@ -380,18 +380,18 @@ def test_unreadable_linux_children_never_prove_termination(monkeypatch):
 
 
 def test_non_linux_posix_refuses_unproven_group_custody(monkeypatch):
-    from opaihub import process_tree
+    from vestahub import process_tree
 
     monkeypatch.setattr(process_tree.sys, "platform", "darwin")
     with pytest.raises(RuntimeError, match="unavailable"):
         process_tree.prepare_guardian_custody()
     with pytest.raises(RuntimeError, match="could not be established"):
-        process_tree.custody_kind(SimpleNamespace(pid=123, _opai_pgid=123))
+        process_tree.custody_kind(SimpleNamespace(pid=123, _vesta_pgid=123))
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="Real Linux subreaper API")
 def test_failed_subreaper_setup_never_opens_start_gate(monkeypatch):
-    from opaihub import process_tree
+    from vestahub import process_tree
 
     monkeypatch.setattr(process_tree, "_linux_children", lambda: set())
     monkeypatch.setattr(process_tree, "_child_subreaper", lambda **kwargs: False)
@@ -446,8 +446,8 @@ def test_supervisor_loss_during_integration_retains_artifact_and_stops_check(
         root,
         files={
             "a.txt": "old",
-            ".gitignore": ".opaihub/\n",
-            "opai-verification-policy.yaml": json.dumps(policy),
+            ".gitignore": ".vestahub/\n",
+            "vesta-verification-policy.yaml": json.dumps(policy),
         },
         commit=True,
     )
@@ -458,7 +458,7 @@ def test_supervisor_loss_during_integration_retains_artifact_and_stops_check(
     )["objective_id"]
     script = tmp_path / "integration_supervisor.py"
     script.write_text(
-        "from pathlib import Path\nfrom opaihub.objective_execution import ObjectiveExecutor\n"
+        "from pathlib import Path\nfrom vestahub.objective_execution import ObjectiveExecutor\n"
         "def worker(*args): return {'status':'completed','cost_usd':'0','measurement_kind':'actual'}\n"
         f"ObjectiveExecutor(Path({str(root)!r}), worker=worker, worktree_root=Path({str(tmp_path / 'workers')!r})).run({oid!r})\n"
     )

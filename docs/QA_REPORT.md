@@ -1,15 +1,15 @@
-# OPai QA Report
+# Vesta QA Report
 
 _Executive quality gate. Stack: Python CLI + PySide6 desktop GUI (no web frontend)._
 _Generated 2026-06-29 against `main`._
 
 ## 1. Product summary
 
-OPai is the "AI coding cost firewall": a local-first control plane that sits in
+Vesta is the "AI coding cost firewall": a local-first control plane that sits in
 front of paid coding agents (Claude, Codex) and routes each task to the cheapest
 safe path — deterministic tools and local models first, paid cloud only with
 confirmation — then **proves the savings** in a signed, shareable receipt.
-Core surfaces: the `opai` CLI, the PySide6 desktop chat (`opai gui`), the routing
+Core surfaces: the `vesta` CLI, the PySide6 desktop chat (`vesta gui`), the routing
 + evidence engine, the savings ledger, the command-policy sandbox, and the new
 inline-capture proxy.
 
@@ -36,7 +36,7 @@ Scored 1–10 against the current `main`, evidence-based where possible.
 | `python -m unittest discover -s tests` | **576 passed, 1 skipped** |
 | `python -m ruff format --check .` | 161 files already formatted |
 | `python -m ruff check .` | All checks passed |
-| `python -m bandit -r opai opaihub opcoding` | **No issues identified** (16,266 LOC) |
+| `python -m bandit -r vesta vestahub opcoding` | **No issues identified** (16,266 LOC) |
 | Secret scan (committed real keys) | None found (only test/fixture patterns) |
 | GitHub Actions CI on `main` | Green (3.10 + 3.13) |
 
@@ -49,7 +49,7 @@ Scored 1–10 against the current `main`, evidence-based where possible.
 | — | Destructive shell commands / bypasses | **Mitigated.** `sandbox.py` policy + bypass hardening (#11); 75 tests. |
 | — | Paid call without consent | **Mitigated.** Proxy gates destructive tasks before any paid call; panic mode forces local-only. |
 | Low | Receipt verification is HMAC (shared-secret), not portable across machines | **Open — tracked in #88** (needs ed25519 or key distribution). |
-| Info | No license enforcement; editions self-declared via `OPAI_EDITION` | **By design in alpha — tracked in Epic C (#95–#97).** |
+| Info | No license enforcement; editions self-declared via `VESTA_EDITION` | **By design in alpha — tracked in Epic C (#95–#97).** |
 
 No High/Critical security issues found. Static analysis is clean.
 

@@ -1,7 +1,7 @@
 """Tests for Vesta self-update (check_for_update / apply_update).
 
 Every git and pip interaction is injected so these tests never touch a real
-repository, the network, or the developer's actual ``~/.opai`` cache.
+repository, the network, or the developer's actual ``~/.vesta`` cache.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import time
 import unittest
 from pathlib import Path
 
-from opai import updater
+from vesta import updater
 
 
 class _Root:
@@ -49,7 +49,7 @@ def _fake_git(
             return _completed(0, "true\n") if default_ok else _completed(1)
         if key == ("remote", "get-url", "origin"):
             return (
-                _completed(0, "https://github.com/MarcoLadeira/OPai.git\n")
+                _completed(0, "https://github.com/MarcoLadeira/Vesta.git\n")
                 if default_ok
                 else _completed(1)
             )
@@ -67,7 +67,7 @@ class CheckForUpdateTests(unittest.TestCase):
                 {
                     ("fetch", "--quiet", "origin", "main"): _completed(0),
                     ("rev-list", "--count", "HEAD..origin/main"): _completed(0, "0\n"),
-                    ("show", "origin/main:opai/__init__.py"): _completed(
+                    ("show", "origin/main:vesta/__init__.py"): _completed(
                         0, '__version__ = "0.2.1a1"\n'
                     ),
                 }
@@ -84,7 +84,7 @@ class CheckForUpdateTests(unittest.TestCase):
                 {
                     ("fetch", "--quiet", "origin", "main"): _completed(0),
                     ("rev-list", "--count", "HEAD..origin/main"): _completed(0, "4\n"),
-                    ("show", "origin/main:opai/__init__.py"): _completed(
+                    ("show", "origin/main:vesta/__init__.py"): _completed(
                         0, '__version__ = "0.3.0"\n'
                     ),
                 }
@@ -190,8 +190,8 @@ class ApplyProgressTests(unittest.TestCase):
         )
 
     def _versioned(self, root: Path) -> None:
-        (root / "opai").mkdir()
-        (root / "opai" / "__init__.py").write_text(
+        (root / "vesta").mkdir()
+        (root / "vesta" / "__init__.py").write_text(
             '__version__ = "0.3.0"\n', encoding="utf-8"
         )
 
@@ -282,8 +282,8 @@ class ApplyUpdateTests(unittest.TestCase):
 
     def test_successful_update_fetches_checks_out_and_reinstalls(self):
         with _Root() as (root, cache_path):
-            (root / "opai").mkdir()
-            (root / "opai" / "__init__.py").write_text(
+            (root / "vesta").mkdir()
+            (root / "vesta" / "__init__.py").write_text(
                 '__version__ = "0.3.0"\n', encoding="utf-8"
             )
             calls: list[tuple] = []
@@ -340,8 +340,8 @@ class ApplyUpdateTests(unittest.TestCase):
 
     def test_force_stashes_dirty_tree_updates_and_restores_changes(self):
         with _Root() as (root, cache_path):
-            (root / "opai").mkdir()
-            (root / "opai" / "__init__.py").write_text(
+            (root / "vesta").mkdir()
+            (root / "vesta" / "__init__.py").write_text(
                 '__version__ = "0.3.0"\n', encoding="utf-8"
             )
             calls: list[tuple] = []
@@ -356,7 +356,7 @@ class ApplyUpdateTests(unittest.TestCase):
                             "push",
                             "--include-untracked",
                             "-m",
-                            "opai-update-autostash",
+                            "vesta-update-autostash",
                         ): _completed(0),
                         ("fetch", "--quiet", "origin", "main"): _completed(0),
                         ("checkout", "main"): _completed(0),
@@ -375,7 +375,7 @@ class ApplyUpdateTests(unittest.TestCase):
             self.assertTrue(result["ok"])
             self.assertTrue(result["local_changes_restored"])
             self.assertIn(
-                ("stash", "push", "--include-untracked", "-m", "opai-update-autostash"),
+                ("stash", "push", "--include-untracked", "-m", "vesta-update-autostash"),
                 calls,
             )
             self.assertIn(("stash", "pop"), calls)
@@ -390,7 +390,7 @@ class ApplyUpdateTests(unittest.TestCase):
                         "push",
                         "--include-untracked",
                         "-m",
-                        "opai-update-autostash",
+                        "vesta-update-autostash",
                     ): _completed(0),
                     ("fetch", "--quiet", "origin", "main"): _completed(0),
                     ("checkout", "main"): _completed(0),
@@ -407,8 +407,8 @@ class ApplyUpdateTests(unittest.TestCase):
 
     def test_force_without_dirty_tree_behaves_like_normal_update(self):
         with _Root() as (root, cache_path):
-            (root / "opai").mkdir()
-            (root / "opai" / "__init__.py").write_text(
+            (root / "vesta").mkdir()
+            (root / "vesta" / "__init__.py").write_text(
                 '__version__ = "0.3.0"\n', encoding="utf-8"
             )
             calls: list[tuple] = []
@@ -436,8 +436,8 @@ class ApplyUpdateTests(unittest.TestCase):
 
     def test_pip_install_failure_reports_code_updated_but_not_ok(self):
         with _Root() as (root, cache_path):
-            (root / "opai").mkdir()
-            (root / "opai" / "__init__.py").write_text(
+            (root / "vesta").mkdir()
+            (root / "vesta" / "__init__.py").write_text(
                 '__version__ = "0.3.0"\n', encoding="utf-8"
             )
             git = _fake_git(

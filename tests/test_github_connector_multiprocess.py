@@ -11,7 +11,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub import github_connector as gc
+from vestahub import github_connector as gc
 
 _CHILD = r"""
 import os
@@ -25,7 +25,7 @@ worker = sys.argv[3]
 os.environ["HOME"] = str(home)
 os.environ["USERPROFILE"] = str(home)
 
-from opaihub.github_connector import _update_config
+from vestahub.github_connector import _update_config
 
 (barrier / f"{worker}.ready").write_text("ready", encoding="utf-8")
 deadline = time.monotonic() + 20
@@ -70,7 +70,7 @@ class GithubConfigMultiprocessTests(unittest.TestCase):
                 self.assertEqual(process.returncode, 0, err.decode("utf-8", "replace"))
 
             config = json.loads(
-                (home / ".opai" / "github.json").read_text(encoding="utf-8")
+                (home / ".vesta" / "github.json").read_text(encoding="utf-8")
             )
         # Every worker's independent field survived the concurrent writes.
         for index in range(workers):

@@ -1,0 +1,635 @@
+/* Vesta web visual contract (#388). Component CSS consumes these tokens.
+ *
+ * Themes. The file has a palette block per theme and one block of scales:
+ *
+ *   1. Viber Coder -- Vesta's original night sky and the default, on :root and
+ *      on [data-theme="viber-coder"];
+ *   2. Light -- [data-theme="light"];
+ *   3. Dark -- [data-theme="dark"], midnight: black and grey, no colour at all;
+ *   4. Vesta -- [data-theme="vesta"], the Vesta logo: cream, dusty rose, sky blue;
+ *   5. the scales -- type, spacing, radii, motion -- which no theme changes.
+ *
+ * Every palette declares exactly the same tokens. theme.js puts the resolved
+ * theme on <html data-theme>, so switching is one attribute and every surface
+ * follows. Because the palettes are keyed on an attribute rather than on :root
+ * alone, any subtree can wear another theme too; the Appearance picker's
+ * preview tiles are drawn that way, with the real tokens, so a preview can
+ * never drift from the palette it shows.
+ *
+ * Component CSS never names a colour. A tint is `rgba(var(--tint-*-rgb), a)`,
+ * a shadow or a surface is a token. scripts/lint-web-design-tokens.mjs holds
+ * both halves of that contract: styles.css may not contain a raw colour, and
+ * every palette must declare exactly the tokens the default palette does. A
+ * new component, or a new token, that forgets a theme fails the token check
+ * instead of shipping a stray island of another theme.
+ *
+ * Adding a theme is one more palette block here, its id in theme.js and
+ * vesta/gui_theme.py, and a tile in the Appearance picker (settings.js).
+ */
+
+/* ---------- palette: Viber Coder (default) ---------- */
+:root,
+[data-theme="viber-coder"] {
+  /* Surfaces and semantic colour -- moon and galaxy, no warm light.
+   *
+   * The greys were neutral with a faint warm cast. They are now tilted blue
+   * and violet: rock lit by starlight rather than by a lamp. The background
+   * drops close to black so panels read as lit ground under a dark sky, and
+   * every neutral above it -- glass, borders, ink, muted -- is mixed from a
+   * cold blue-white instead of pure white, which is what stops the surfaces
+   * looking grey-on-grey.
+   *
+   * The accent stays in the brand's family and cools from green toward the
+   * aqua/ice end, so it belongs to a cold picture without becoming a
+   * different brand.
+   *
+   * Nothing here is warm. --amber survives because it is not decoration: it
+   * is the caution colour (autonomous modes, out-of-credit notes, warnings),
+   * and a palette with no warning colour is a worse palette. It is cooled
+   * slightly toward gold so it reads as a signal rather than as firelight.
+   */
+  --bg: #04050f;
+  --surface: #070917;
+  --surface-2: #0a0e20;
+  --panel: #10162e;
+  --panel-2: #171f3c;
+  --elevated: #212a4d;
+  --glass: rgba(186, 206, 255, 0.028);
+  --glass-hi: rgba(186, 206, 255, 0.06);
+  --border: rgba(166, 190, 255, 0.075);
+  --border-strong: rgba(166, 190, 255, 0.17);
+  --ink: #e9f0fb;
+  --muted: #9fabd0;
+  --faint: #616e94;
+  --accent: #5fdcdc;
+  --accent-2: #8ea2f5;
+  --accent-deep: #2596a8;
+  --accent-ink: #04202c;
+  --accent-glow: rgba(95, 220, 220, 0.22);
+  --brand-gradient: linear-gradient(135deg, #5fdcdc, #8ea2f5);
+  --green: #5fdcdc;
+  --amber: #e4bd72;
+  /* The composer's "why can't I send" line. It was a fallback written inline
+     at every use; it is a colour, so it is a token. */
+  --warn: #e9c46a;
+
+  /* The horizon: regolith catching starlight, low across the bottom of the
+     workspace. Two stops rather than one so the ground has a lit crest and a
+     darker body, which is what makes it read as a surface and not a smudge. */
+  /* Regolith, not sky. The crest was the same blue-white as the starlight
+     washing over it, which made the ground look like more atmosphere; moon
+     dust is close to neutral grey, and desaturating it is what separates the
+     surface from the space above it. Still no warm cast. */
+  /* Before the first message the room is unlit: near-black, faintly blue,
+     with no dot grid, no washes and no horizon. Everything the theme does is
+     still there -- it is just turned down, and the first send turns it up. */
+  --stage-dark: #03050c;
+  --lunar-crest: rgba(216, 219, 226, 0.17);
+  --lunar-body: rgba(126, 146, 190, 0.085);
+  /* A point of light in the unlit room, as bare channels, and how strongly the
+     still stars are drawn (a multiplier on starfield.js's own opacities). Every
+     theme tunes both so the sky reads the same on its ground: a star has to be
+     brighter to be seen on pearl than on black. */
+  --space-star: 226, 238, 252;
+  --space-star-strength: 1;
+  --red: #f2768a;
+  --blue: #74b6ff;
+  --claude: #e0937a;
+  --codex: #6cc1e8;
+  --provider-auto: #98a2b0;
+  --provider-local: #34d399;
+  /* The initial inside a provider-coloured avatar. */
+  --avatar-ink: #06160f;
+  --team-avatar-1-background: #bde9f6;
+  --team-avatar-1-skin: #b87850;
+  --team-avatar-1-hair: #242e43;
+  --team-avatar-2-background: #dacdf8;
+  --team-avatar-2-skin: #f0c39c;
+  --team-avatar-2-hair: #2e243b;
+  --team-avatar-3-background: #c8e6e5;
+  --team-avatar-3-skin: #e0a77c;
+  --team-avatar-3-hair: #32333b;
+  --team-avatar-4-background: #ffe1b2;
+  --team-avatar-4-skin: #9d613f;
+  --team-avatar-4-hair: #29242d;
+
+  /* Tint channels. A tint is chosen at the use site as
+     rgba(var(--tint-*-rgb), alpha): the hue belongs to the theme, the
+     strength belongs to the component. Accent is the brand's own highlight
+     (the active row, a focused field, the selected command); success is a
+     result that went well. They share a hue here; a theme may part them. */
+  --tint-accent-rgb: 52, 211, 153;
+  --tint-success-rgb: 52, 211, 153;
+  --tint-danger-rgb: 242, 118, 138;
+  --tint-warning-rgb: 230, 177, 94;
+  --tint-caution-rgb: 251, 191, 36;
+  --tint-notice-rgb: 233, 196, 106;
+  --tint-info-rgb: 116, 182, 255;
+  --tint-subscription-rgb: 108, 193, 232;
+  --tint-repair-rgb: 251, 113, 133;
+  /* Neutral overlays. Wash lifts a surface toward the ink (white on a dark
+     ground, deep blue on a light one); highlight is the lit top edge of glass,
+     which is white in both; shade darkens. */
+  --wash-rgb: 255, 255, 255;
+  --highlight-rgb: 255, 255, 255;
+  --shade-rgb: 0, 0, 0;
+
+  /* The sky over the workspace: ice off the top right, galaxy indigo down the
+     left, a violet rise from below, and the instrument-panel dot grid. */
+  --wash-ice: rgba(110, 220, 245, 0.10);
+  --wash-indigo: rgba(118, 132, 250, 0.09);
+  --wash-violet: rgba(158, 118, 245, 0.075);
+  --grid-dot: rgba(178, 200, 255, 0.05);
+
+  --header-bg: rgba(11, 14, 19, 0.96);
+  --header-shadow: 0 1px 0 rgba(255, 255, 255, 0.025), 0 10px 28px rgba(0, 0, 0, 0.16);
+  --headline-from: #ffffff;
+  --headline-to: #aeb9c8;
+  /* The composer's liquid glass and its lit and shadowed edges. */
+  --composer-glass: linear-gradient(180deg, rgba(20, 28, 50, 0.44), rgba(9, 14, 28, 0.34));
+  --composer-edge: inset 0 1px 0 rgba(202, 220, 255, 0.10), inset 0 -1px 0 rgba(0, 0, 0, 0.22);
+  --composer-drop-bg: rgba(6, 20, 15, 0.9);
+  --meter-inset: inset 0 1px 2px rgba(0, 0, 0, 0.4);
+  --sheet-shadow: 0 18px 55px rgba(0, 0, 0, 0.45);
+  --dialog-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+  --scrim: rgba(4, 6, 10, 0.62);
+  --drawer-scrim: rgba(2, 4, 8, 0.58);
+  --palette-bg: rgba(17, 21, 28, 0.92);
+  --code-inline-bg: #0a0d12;
+  --diff-del-ink: #d7b9c0;
+  /* The Windows close affordance is the platform's red in every theme. */
+  --window-close-bg: #c42b3a;
+  --window-close-ink: #fff;
+  --select-chevron: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%2398a2b0' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>");
+
+  /* The settings workspace: restrained graphite inside the cockpit. */
+  --settings-surface: rgba(20, 21, 25, 0.84);
+  --settings-surface-raised: rgba(32, 33, 38, 0.9);
+  --settings-surface-hover: rgba(50, 52, 59, 0.68);
+  --settings-border: rgba(239, 242, 248, 0.1);
+  --settings-border-strong: rgba(239, 242, 248, 0.18);
+  --settings-selection: rgba(116, 182, 255, 0.14);
+  --settings-selection-strong: #74b6ff;
+  --settings-canvas: rgba(8, 9, 12, 0.7);
+  --settings-field: rgba(8, 9, 12, 0.66);
+  --settings-bar: rgba(8, 9, 12, 0.88);
+  --settings-bar-solid: rgba(8, 9, 12, 0.94);
+  --settings-primary-bg: #79d9c1;
+  --settings-primary-ink: #07111b;
+
+  --elevation-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --elevation-md: 0 8px 28px rgba(0, 0, 0, 0.42);
+  --elevation-lg: 0 22px 60px rgba(0, 0, 0, 0.55);
+  --inset-hi: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --surface-code: #090b10;
+  --surface-code-head: #0d1118;
+  --border-code: rgba(255, 255, 255, 0.10);
+}
+
+/* ---------- palette: light ----------
+ *
+ * Moonlight on paper rather than daylight on glass. The ground is a cool
+ * pearl, not white, so large areas never glare; cards are white glass lifted
+ * off it by a hairline and a shadow soft enough to read as depth rather than
+ * as an outline. The ink is deep slate instead of black, which is most of what
+ * makes a light UI feel soft rather than stark.
+ *
+ * The sky survives as daylight: the same ice, indigo and violet washes, the
+ * horizon as a cool shadow along the bottom, and the unlit room before the
+ * first message as a slightly dimmer mist.
+ *
+ * Accent and status colours are Viber Coder's hues, deepened until each holds
+ * WCAG AA (4.5:1) as text on the ground -- the bright aqua that glows on black
+ * all but vanishes on white. --faint matches Viber Coder's ratio.
+ */
+[data-theme="light"] {
+  --bg: #eef1f6;
+  --surface: #f4f6fa;
+  --surface-2: #f9fafc;
+  --panel: #e9edf4;
+  --panel-2: #ffffff;
+  --elevated: #f7f9fc;
+  --glass: rgba(255, 255, 255, 0.62);
+  --glass-hi: rgba(30, 42, 80, 0.055);
+  --border: rgba(30, 42, 80, 0.1);
+  --border-strong: rgba(30, 42, 80, 0.18);
+  --ink: #1b2236;
+  --muted: #505b76;
+  --faint: #6b758c;
+  --accent: #0a7780;
+  --accent-2: #4f62c9;
+  --accent-deep: #075f66;
+  --accent-ink: #04202c;
+  --accent-glow: rgba(10, 119, 128, 0.16);
+  --brand-gradient: linear-gradient(135deg, #52cfd0, #8a9cf2);
+  --green: #0a7780;
+  --amber: #94600c;
+  --warn: #8a5c08;
+
+  --stage-dark: #e6eaf2;
+  --lunar-crest: rgba(120, 136, 176, 0.14);
+  --lunar-body: rgba(104, 122, 176, 0.07);
+  /* Ink stars on the mist, as on a star chart: deep indigo, drawn about twice
+     as strongly as on black so the brightest match the night sky's contrast. */
+  --space-star: 96, 112, 186;
+  --space-star-strength: 2.2;
+  --red: #c2334f;
+  --blue: #2d67cc;
+  --claude: #ad5234;
+  --codex: #1a73a0;
+  --provider-auto: #626c84;
+  --provider-local: #0f7b58;
+  --avatar-ink: #ffffff;
+  --team-avatar-1-background: #bde9f6;
+  --team-avatar-1-skin: #b87850;
+  --team-avatar-1-hair: #242e43;
+  --team-avatar-2-background: #dacdf8;
+  --team-avatar-2-skin: #f0c39c;
+  --team-avatar-2-hair: #2e243b;
+  --team-avatar-3-background: #c8e6e5;
+  --team-avatar-3-skin: #e0a77c;
+  --team-avatar-3-hair: #32333b;
+  --team-avatar-4-background: #ffe1b2;
+  --team-avatar-4-skin: #9d613f;
+  --team-avatar-4-hair: #29242d;
+
+  --tint-accent-rgb: 16, 150, 110;
+  --tint-success-rgb: 16, 150, 110;
+  --tint-danger-rgb: 214, 69, 96;
+  --tint-warning-rgb: 196, 132, 30;
+  --tint-caution-rgb: 202, 145, 10;
+  --tint-notice-rgb: 190, 140, 30;
+  --tint-info-rgb: 52, 112, 214;
+  --tint-subscription-rgb: 32, 132, 180;
+  --tint-repair-rgb: 221, 72, 100;
+  --wash-rgb: 30, 42, 80;
+  --highlight-rgb: 255, 255, 255;
+  --shade-rgb: 24, 34, 64;
+
+  --wash-ice: rgba(96, 205, 232, 0.14);
+  --wash-indigo: rgba(124, 138, 250, 0.1);
+  --wash-violet: rgba(168, 128, 246, 0.08);
+  --grid-dot: rgba(44, 62, 120, 0.06);
+
+  --header-bg: rgba(248, 249, 252, 0.92);
+  --header-shadow: 0 1px 0 rgba(255, 255, 255, 0.7), 0 8px 24px rgba(24, 34, 64, 0.05);
+  --headline-from: #1b2236;
+  --headline-to: #5a6582;
+  --composer-glass: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(250, 251, 254, 0.7));
+  --composer-edge: inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 -1px 0 rgba(24, 34, 64, 0.05);
+  --composer-drop-bg: rgba(238, 249, 247, 0.94);
+  --meter-inset: inset 0 1px 2px rgba(24, 34, 64, 0.12);
+  --sheet-shadow: 0 18px 50px rgba(24, 34, 64, 0.14);
+  --dialog-shadow: 0 24px 70px rgba(24, 34, 64, 0.16);
+  --scrim: rgba(52, 64, 96, 0.26);
+  --drawer-scrim: rgba(52, 64, 96, 0.22);
+  --palette-bg: rgba(252, 253, 255, 0.94);
+  --code-inline-bg: rgba(30, 42, 80, 0.06);
+  --diff-del-ink: #8d3a4c;
+  --window-close-bg: #c42b3a;
+  --window-close-ink: #fff;
+  --select-chevron: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%23626c84' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>");
+
+  --settings-surface: rgba(255, 255, 255, 0.72);
+  --settings-surface-raised: #ffffff;
+  --settings-surface-hover: rgba(30, 42, 80, 0.06);
+  --settings-border: rgba(30, 42, 80, 0.1);
+  --settings-border-strong: rgba(30, 42, 80, 0.17);
+  --settings-selection: rgba(52, 112, 214, 0.1);
+  --settings-selection-strong: #2d67cc;
+  --settings-canvas: rgba(246, 248, 251, 0.6);
+  --settings-field: rgba(30, 42, 80, 0.045);
+  --settings-bar: rgba(244, 246, 250, 0.9);
+  --settings-bar-solid: rgba(244, 246, 250, 0.95);
+  --settings-primary-bg: #0a7780;
+  --settings-primary-ink: #ffffff;
+
+  --elevation-sm: 0 1px 2px rgba(24, 34, 64, 0.06);
+  --elevation-md: 0 8px 24px rgba(24, 34, 64, 0.08);
+  --elevation-lg: 0 20px 50px rgba(24, 34, 64, 0.12);
+  --inset-hi: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+  --surface-code: #f3f5f9;
+  --surface-code-head: #e9edf4;
+  --border-code: rgba(30, 42, 80, 0.1);
+}
+
+/* ---------- palette: Dark ----------
+ *
+ * Midnight. The lights are all the way off and nothing in the room has a
+ * colour: a true black ground, near-black greys stepping up to the surfaces,
+ * white and grey ink. There is no accent hue at all -- the brand highlight,
+ * the selection, links and every status are white or grey, told apart by how
+ * bright they are and by the words and marks beside them, never by colour.
+ *
+ * The sky is black too: no washes, no tinted horizon. What is left is the
+ * stars, in plain moonlight silver.
+ *
+ * A test holds this palette colourless (design-tokens.test.mjs): any token
+ * with a hue fails it.
+ */
+[data-theme="dark"] {
+  --bg: #000000;
+  --surface: #070707;
+  --surface-2: #0b0b0b;
+  --panel: #101010;
+  --panel-2: #161616;
+  --elevated: #202020;
+  --glass: rgba(255, 255, 255, 0.025);
+  --glass-hi: rgba(255, 255, 255, 0.06);
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --ink: #ededed;
+  --muted: #a6a6a6;
+  --faint: #7d7d7d;
+  --accent: #e6e6e6;
+  --accent-2: #b3b3b3;
+  --accent-deep: #8c8c8c;
+  --accent-ink: #0a0a0a;
+  --accent-glow: rgba(255, 255, 255, 0.14);
+  --brand-gradient: linear-gradient(135deg, #e6e6e6, #8c8c8c);
+  --green: #f2f2f2;
+  --amber: #bcbcbc;
+  --warn: #c8c8c8;
+
+  --stage-dark: #000000;
+  --lunar-crest: rgba(255, 255, 255, 0.05);
+  --lunar-body: rgba(255, 255, 255, 0.025);
+  --space-star: 228, 228, 228;
+  --space-star-strength: 1;
+  --red: #d0d0d0;
+  --blue: #d9d9d9;
+  --claude: #cfcfcf;
+  --codex: #bdbdbd;
+  --provider-auto: #9e9e9e;
+  --provider-local: #e0e0e0;
+  --avatar-ink: #0a0a0a;
+  --team-avatar-1-background: #e0e0e0;
+  --team-avatar-1-skin: #909090;
+  --team-avatar-1-hair: #2c2c2c;
+  --team-avatar-2-background: #d8d8d8;
+  --team-avatar-2-skin: #c8c8c8;
+  --team-avatar-2-hair: #282828;
+  --team-avatar-3-background: #dddddd;
+  --team-avatar-3-skin: #b0b0b0;
+  --team-avatar-3-hair: #333333;
+  --team-avatar-4-background: #e5e5e5;
+  --team-avatar-4-skin: #767676;
+  --team-avatar-4-hair: #262626;
+
+  --tint-accent-rgb: 255, 255, 255;
+  --tint-success-rgb: 240, 240, 240;
+  --tint-danger-rgb: 210, 210, 210;
+  --tint-warning-rgb: 190, 190, 190;
+  --tint-caution-rgb: 190, 190, 190;
+  --tint-notice-rgb: 200, 200, 200;
+  --tint-info-rgb: 220, 220, 220;
+  --tint-subscription-rgb: 220, 220, 220;
+  --tint-repair-rgb: 210, 210, 210;
+  --wash-rgb: 255, 255, 255;
+  --highlight-rgb: 255, 255, 255;
+  --shade-rgb: 0, 0, 0;
+
+  --wash-ice: rgba(255, 255, 255, 0);
+  --wash-indigo: rgba(255, 255, 255, 0);
+  --wash-violet: rgba(255, 255, 255, 0);
+  --grid-dot: rgba(255, 255, 255, 0.03);
+
+  --header-bg: rgba(0, 0, 0, 0.96);
+  --header-shadow: 0 1px 0 rgba(255, 255, 255, 0.03), 0 10px 28px rgba(0, 0, 0, 0.6);
+  --headline-from: #f5f5f5;
+  --headline-to: #8a8a8a;
+  --composer-glass: linear-gradient(180deg, rgba(22, 22, 22, 0.62), rgba(8, 8, 8, 0.55));
+  --composer-edge: inset 0 1px 0 rgba(255, 255, 255, 0.08), inset 0 -1px 0 rgba(0, 0, 0, 0.5);
+  --composer-drop-bg: rgba(14, 14, 14, 0.94);
+  --meter-inset: inset 0 1px 2px rgba(0, 0, 0, 0.7);
+  --sheet-shadow: 0 18px 55px rgba(0, 0, 0, 0.75);
+  --dialog-shadow: 0 24px 80px rgba(0, 0, 0, 0.8);
+  --scrim: rgba(0, 0, 0, 0.74);
+  --drawer-scrim: rgba(0, 0, 0, 0.68);
+  --palette-bg: rgba(12, 12, 12, 0.96);
+  --code-inline-bg: #141414;
+  --diff-del-ink: #9e9e9e;
+  --window-close-bg: #2a2a2a;
+  --window-close-ink: #fff;
+  --select-chevron: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%238a8a8a' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>");
+
+  --settings-surface: rgba(12, 12, 12, 0.9);
+  --settings-surface-raised: rgba(30, 30, 30, 0.95);
+  --settings-surface-hover: rgba(42, 42, 42, 0.7);
+  --settings-border: rgba(255, 255, 255, 0.08);
+  --settings-border-strong: rgba(255, 255, 255, 0.16);
+  --settings-selection: rgba(255, 255, 255, 0.08);
+  --settings-selection-strong: #e6e6e6;
+  --settings-canvas: rgba(0, 0, 0, 0.8);
+  --settings-field: rgba(0, 0, 0, 0.72);
+  --settings-bar: rgba(0, 0, 0, 0.9);
+  --settings-bar-solid: rgba(0, 0, 0, 0.96);
+  --settings-primary-bg: #d4d4d4;
+  --settings-primary-ink: #0a0a0a;
+
+  --elevation-sm: 0 1px 2px rgba(0, 0, 0, 0.6);
+  --elevation-md: 0 8px 28px rgba(0, 0, 0, 0.7);
+  --elevation-lg: 0 22px 60px rgba(0, 0, 0, 0.8);
+  --inset-hi: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --surface-code: #080808;
+  --surface-code-head: #0f0f0f;
+  --border-code: rgba(255, 255, 255, 0.08);
+}
+
+/* ---------- palette: Vesta ----------
+ *
+ * The Vesta logo as a room: warm cream paper, near-black ink like the heart's
+ * outline, dusty rose as the brand highlight and sky blue as its partner --
+ * the two halves of the heart, which meet again in the brand gradient.
+ *
+ * Rose and sky are deepened wherever they carry text, so every label clears
+ * the contrast audit; at full pastel strength they are only fills, washes and
+ * gradients. The stars are dusty rose, drawn strongly enough to read on cream.
+ */
+[data-theme="vesta"] {
+  --bg: #f6efe7;
+  --surface: #f9f4ee;
+  --surface-2: #fcf8f3;
+  --panel: #efe6dc;
+  --panel-2: #fffdfa;
+  --elevated: #fbf6f0;
+  --glass: rgba(255, 252, 247, 0.66);
+  --glass-hi: rgba(74, 48, 44, 0.055);
+  --border: rgba(74, 48, 44, 0.12);
+  --border-strong: rgba(74, 48, 44, 0.2);
+  --ink: #231a1a;
+  --muted: #5e4d4b;
+  --faint: #77625f;
+  --accent: #8f5a52;
+  --accent-2: #3d6ba3;
+  --accent-deep: #74463f;
+  --accent-ink: #2a1614;
+  --accent-glow: rgba(184, 144, 136, 0.24);
+  --brand-gradient: linear-gradient(135deg, #b89088, #a8c8f0);
+  --green: #4b7355;
+  --amber: #8f5c0c;
+  --warn: #8a5a0b;
+
+  --stage-dark: #efe5da;
+  --lunar-crest: rgba(184, 144, 136, 0.16);
+  --lunar-body: rgba(168, 200, 240, 0.1);
+  /* Dusty rose stars on cream, drawn about twice as strongly as on black. */
+  --space-star: 156, 108, 100;
+  --space-star-strength: 2.2;
+  --red: #ad3a3a;
+  --blue: #3d6ba3;
+  --claude: #a0522f;
+  --codex: #356b94;
+  --provider-auto: #6d5f5d;
+  --provider-local: #4b7355;
+  --avatar-ink: #ffffff;
+  --team-avatar-1-background: #bde9f6;
+  --team-avatar-1-skin: #b87850;
+  --team-avatar-1-hair: #242e43;
+  --team-avatar-2-background: #dacdf8;
+  --team-avatar-2-skin: #f0c39c;
+  --team-avatar-2-hair: #2e243b;
+  --team-avatar-3-background: #c8e6e5;
+  --team-avatar-3-skin: #e0a77c;
+  --team-avatar-3-hair: #32333b;
+  --team-avatar-4-background: #ffe1b2;
+  --team-avatar-4-skin: #9d613f;
+  --team-avatar-4-hair: #29242d;
+
+  --tint-accent-rgb: 184, 128, 118;
+  --tint-success-rgb: 84, 132, 96;
+  --tint-danger-rgb: 196, 72, 72;
+  --tint-warning-rgb: 190, 130, 30;
+  --tint-caution-rgb: 196, 140, 20;
+  --tint-notice-rgb: 186, 136, 40;
+  --tint-info-rgb: 96, 146, 214;
+  --tint-subscription-rgb: 84, 130, 190;
+  --tint-repair-rgb: 200, 84, 84;
+  --wash-rgb: 74, 48, 44;
+  --highlight-rgb: 255, 255, 255;
+  --shade-rgb: 60, 38, 34;
+
+  --wash-ice: rgba(168, 200, 240, 0.2);
+  --wash-indigo: rgba(184, 144, 136, 0.13);
+  --wash-violet: rgba(206, 170, 190, 0.08);
+  --grid-dot: rgba(74, 48, 44, 0.06);
+
+  --header-bg: rgba(250, 245, 239, 0.92);
+  --header-shadow: 0 1px 0 rgba(255, 255, 255, 0.7), 0 8px 24px rgba(60, 38, 34, 0.05);
+  --headline-from: #231a1a;
+  --headline-to: #8f5a52;
+  --composer-glass: linear-gradient(180deg, rgba(255, 253, 250, 0.84), rgba(252, 247, 241, 0.72));
+  --composer-edge: inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 -1px 0 rgba(60, 38, 34, 0.05);
+  --composer-drop-bg: rgba(240, 246, 253, 0.94);
+  --meter-inset: inset 0 1px 2px rgba(60, 38, 34, 0.12);
+  --sheet-shadow: 0 18px 50px rgba(60, 38, 34, 0.14);
+  --dialog-shadow: 0 24px 70px rgba(60, 38, 34, 0.16);
+  --scrim: rgba(80, 58, 54, 0.26);
+  --drawer-scrim: rgba(80, 58, 54, 0.22);
+  --palette-bg: rgba(255, 252, 248, 0.95);
+  --code-inline-bg: rgba(74, 48, 44, 0.06);
+  --diff-del-ink: #8d3a3a;
+  --window-close-bg: #ad3a3a;
+  --window-close-ink: #fff;
+  --select-chevron: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%236d5f5d' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>");
+
+  --settings-surface: rgba(255, 252, 248, 0.74);
+  --settings-surface-raised: #fffdfa;
+  --settings-surface-hover: rgba(74, 48, 44, 0.06);
+  --settings-border: rgba(74, 48, 44, 0.11);
+  --settings-border-strong: rgba(74, 48, 44, 0.18);
+  --settings-selection: rgba(168, 200, 240, 0.3);
+  --settings-selection-strong: #3d6ba3;
+  --settings-canvas: rgba(250, 245, 239, 0.6);
+  --settings-field: rgba(74, 48, 44, 0.045);
+  --settings-bar: rgba(247, 241, 234, 0.9);
+  --settings-bar-solid: rgba(247, 241, 234, 0.95);
+  --settings-primary-bg: #8f5a52;
+  --settings-primary-ink: #ffffff;
+
+  --elevation-sm: 0 1px 2px rgba(60, 38, 34, 0.06);
+  --elevation-md: 0 8px 24px rgba(60, 38, 34, 0.08);
+  --elevation-lg: 0 20px 50px rgba(60, 38, 34, 0.12);
+  --inset-hi: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+  --surface-code: #f7f1ea;
+  --surface-code-head: #efe6dc;
+  --border-code: rgba(74, 48, 44, 0.1);
+}
+
+/* ---------- scales: the same in every theme ---------- */
+:root {
+  /* Long enough to read as the room lighting up rather than a jump cut, short
+     enough that it never stands between someone and their answer. */
+  --stage-ms: 620ms;
+  --stage-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  /* A theme change is a slow breath, not a flash: the old look dissolves into
+     the new one over a little under half a second. */
+  --theme-ms: 460ms;
+  --theme-ease: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Semantic type roles: size / line-height / weight travel together. */
+  --type-caption: 12px;
+  --type-label: 13px;
+  --type-body: 14px;
+  --type-prose: 15px;
+  --type-body-lg: 16px;
+  --type-heading: 20px;
+  --type-title: 24px;
+  --type-display: 32px;
+  --type-caption-line: 1.35;
+  --type-label-line: 1.4;
+  --type-body-line: 1.5;
+  --type-heading-line: 1.25;
+  --type-display-line: 1.1;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --weight-extrabold: 800;
+  --leading-tight: 1.2;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.65;
+
+  /* Four-pixel rhythm. Component layout may only use these names. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-7: 28px;
+  --space-9: 36px;
+  --space-11: 44px;
+  --space-14: 56px;
+  --space-15: 60px;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
+  --r-sm: var(--radius-sm);
+  --r-md: var(--radius-md);
+  --r-lg: var(--radius-lg);
+  --r-xl: var(--radius-xl);
+  --shadow-sm: var(--elevation-sm);
+  --shadow-md: var(--elevation-md);
+  --shadow-lg: var(--elevation-lg);
+  --icon-sm: 14px;
+  --icon-md: 16px;
+  --icon-lg: 20px;
+  --measure-prose: 42.5rem;
+  --measure-response: 1024px;
+  /* The composer is as wide as the text above it. It was 830px against a
+     1024px response measure, so the box you type into was visibly narrower
+     than the answers it produced -- two different column edges down the same
+     screen. Both sides use the same horizontal padding, so matching the
+     measure lines them up exactly. */
+  --measure-composer: var(--measure-response);
+  --focus-ring: 0 0 0 3px var(--accent-glow);
+  --control-min: 32px;
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+}

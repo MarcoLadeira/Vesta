@@ -22,10 +22,10 @@ from pathlib import Path
 
 from _helpers import make_repo
 
-from opai.gui_controls import live_agent_mode_row
-from opai.gui_modes import describe_controls, plan_mode_selection
-from opaihub.autonomy import resolve_startup_mode
-from opaihub.gui_preferences import (
+from vesta.gui_controls import live_agent_mode_row
+from vesta.gui_modes import describe_controls, plan_mode_selection
+from vestahub.autonomy import resolve_startup_mode
+from vestahub.gui_preferences import (
     load_gui_preferences,
     preference_path,
     save_gui_preferences,
@@ -85,7 +85,7 @@ class DescribeControlsTests(unittest.TestCase):
     def test_run_any_state_mirrors_the_permissions_mapping(self):
         # F17: safe-auto now asks before arbitrary commands — describe_controls
         # must reflect the same _MODE_RULES the panel renders, not a copy.
-        from opai.gui_permissions import permissions_for
+        from vesta.gui_permissions import permissions_for
 
         for mode in ("ask", "plan", "safe-auto", "approve-edits", "full-auto"):
             controls = describe_controls(mode, "general")
@@ -96,7 +96,7 @@ class DescribeControlsTests(unittest.TestCase):
     def test_agent_mode_preview_matches_the_pipeline_resolver(self):
         # The preview is derived the documented way: resolve_agent_policy with
         # an empty message and the current focus as the hint.
-        from opaihub.agent_policy import resolve_agent_policy
+        from vestahub.agent_policy import resolve_agent_policy
 
         for focus in ("general", "build", "debug", "explain", "review", "plan"):
             controls = describe_controls("safe-auto", focus)
@@ -205,7 +205,7 @@ class SurfaceParityTests(unittest.TestCase):
     def test_boot_controls_equal_the_classic_reading(self):
         # boot_payload's "controls" (web) must be the same dict the classic
         # inspector derives for the same persisted selection.
-        from opai.gui_web import boot_payload
+        from vesta.gui_web import boot_payload
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))

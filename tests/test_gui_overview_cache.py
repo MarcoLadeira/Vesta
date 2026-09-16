@@ -19,8 +19,8 @@ from unittest import mock
 
 from _helpers import make_repo
 
-from opai import app_state, gui_web
-from opaihub.ledger import ledger_path, record_event
+from vesta import app_state, gui_web
+from vestahub.ledger import ledger_path, record_event
 
 
 class OverviewCacheTests(unittest.TestCase):

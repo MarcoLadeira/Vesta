@@ -5,7 +5,7 @@
 
 ## Goal
 
-Make every OPai repository mutation depend on one fresh, inspectable repository
+Make every Vesta repository mutation depend on one fresh, inspectable repository
 identity and one evidence-backed dirty-worktree decision.  Risky, conflicting,
 or concurrent work must occur through a durable, recoverable worktree lease.
 The system must preserve unrelated user work even when Git state changes,
@@ -14,7 +14,7 @@ processes crash, or an external actor changes the repository.
 ## Scope and boundaries
 
 This change implements #536 and #537 together as the foundation for #521.  It
-will guard the existing OPai mutation surfaces: provider file patches/writes,
+will guard the existing Vesta mutation surfaces: provider file patches/writes,
 branch/commit/push actions, parallel-agent worktree creation, and the GUI task
 pipeline that grants those actions.  GUI and CLI will render the same structured
 repository-safety payload.
@@ -76,7 +76,7 @@ the decision permits it.
 
 ### Worktree leases (#537)
 
-`WorktreeLease` is a versioned durable record under OPai state.  It contains a
+`WorktreeLease` is a versioned durable record under Vesta state.  It contains a
 lease ID, owner process, task/run IDs, repository identity digest, worktree
 path and filesystem identity, branch, requested and resolved base SHA,
 creation/heartbeat/expiry times, lifecycle state, and redacted evidence.  The
@@ -100,7 +100,7 @@ does not delete automatically.
 using read-only Git queries.  It reports target movement and potentially
 overlapping paths deterministically.  Applying changes requires a fresh target
 handle, a safe preview, and an injected authority grant; otherwise it is
-blocked.  `cleanup()` only removes a reconciled, OPai-owned, pristine worktree;
+blocked.  `cleanup()` only removes a reconciled, Vesta-owned, pristine worktree;
 user-modified, unpushed, unknown, or inconsistent worktrees are preserved and
 marked `needs_review`.  Branch deletion is never implicit.
 

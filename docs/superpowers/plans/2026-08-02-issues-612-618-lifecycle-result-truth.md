@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make generated lifecycle and evidence-derived result contracts authoritative in every supported OPai execution surface.
+**Goal:** Make generated lifecycle and evidence-derived result contracts authoritative in every supported Vesta execution surface.
 
 **Architecture:** The versioned JSON lifecycle schema is the sole editable lifecycle definition. A deterministic standard-library generator produces Python, browser, fixture, and Markdown projections. A typed immutable `RunResult` validates terminal evidence and becomes the source that local/explicit/background execution, GUI, CLI, receipt, and browser rendering consume.
 
@@ -21,23 +21,23 @@
 ### Task 1: Generate canonical lifecycle projections
 
 **Files:**
-- Create: `opaihub/lifecycle_schema.json`
+- Create: `vestahub/lifecycle_schema.json`
 - Create: `scripts/generate_lifecycle.py`
-- Create: `opaihub/generated_lifecycle.py`
-- Create: `opai/assets/web/generated-lifecycle.js`
-- Create: `opaihub/data/lifecycle-fixtures.json`
+- Create: `vestahub/generated_lifecycle.py`
+- Create: `vesta/assets/web/generated-lifecycle.js`
+- Create: `vestahub/data/lifecycle-fixtures.json`
 - Create: `docs/lifecycle-schema.md`
 - Test: `tests/test_lifecycle_generation.py`
 
 **Interfaces:**
 - Consumes: a schema with version, state classifications, transitions, required reason classes, guards, exit codes, and legacy mappings.
-- Produces: Python `STATE_IDS`, `TERMINAL_STATE_IDS`, `TRANSITIONS`, `EXIT_CODES`, and `transition_spec`; browser `window.OPaiLifecycle`; byte-stable fixture vectors and documentation.
+- Produces: Python `STATE_IDS`, `TERMINAL_STATE_IDS`, `TRANSITIONS`, `EXIT_CODES`, and `transition_spec`; browser `window.VestaLifecycle`; byte-stable fixture vectors and documentation.
 
 - [ ] **Step 1: Write the failing generator tests**
 
 ```python
 def test_generator_check_rejects_changed_projection(self):
-    generated = ROOT / "opaihub/generated_lifecycle.py"
+    generated = ROOT / "vestahub/generated_lifecycle.py"
     generated.write_text(generated.read_text(encoding="utf-8") + "# drift\n", encoding="utf-8")
     self.assertEqual(run_generator("--check"), 1)
 
@@ -77,23 +77,23 @@ Expected: all commands exit 0 after the mutation in the test is restored.
 - [ ] **Step 5: Commit the generation slice**
 
 ```bash
-git add opaihub/lifecycle_schema.json scripts/generate_lifecycle.py opaihub/generated_lifecycle.py opai/assets/web/generated-lifecycle.js opaihub/data/lifecycle-fixtures.json docs/lifecycle-schema.md tests/test_lifecycle_generation.py
+git add vestahub/lifecycle_schema.json scripts/generate_lifecycle.py vestahub/generated_lifecycle.py vesta/assets/web/generated-lifecycle.js vestahub/data/lifecycle-fixtures.json docs/lifecycle-schema.md tests/test_lifecycle_generation.py
 git commit -m "feat: generate canonical lifecycle projections"
 ```
 
 ### Task 2: Consume generated state truth in Python and browser reducers
 
 **Files:**
-- Modify: `opaihub/run_state.py`
-- Create: `opaihub/lifecycle_diagnostics.py`
-- Modify: `opai/assets/web/message-state.js`
-- Modify: `opai/assets/web/index.html`
+- Modify: `vestahub/run_state.py`
+- Create: `vestahub/lifecycle_diagnostics.py`
+- Modify: `vesta/assets/web/message-state.js`
+- Modify: `vesta/assets/web/index.html`
 - Test: `tests/test_run_state.py`
 - Test: `tests/test_run_state_parity.py`
-- Test: `opai/assets/web/__tests__/message-state.test.js`
+- Test: `vesta/assets/web/__tests__/message-state.test.js`
 
 **Interfaces:**
-- Consumes: `generated_lifecycle.transition_spec(from_state, to_state)` and `window.OPaiLifecycle.canTransition(fromState, toState)`.
+- Consumes: `generated_lifecycle.transition_spec(from_state, to_state)` and `window.VestaLifecycle.canTransition(fromState, toState)`.
 - Produces: backwards-compatible `RunState`, generated terminal/exit/transition APIs, durable illegal-transition records, and browser messages which cannot author canonical edges.
 
 - [ ] **Step 1: Write failing cross-language repair and diagnostic tests**
@@ -117,7 +117,7 @@ it("uses the generated repair transition", () => {
 
 - [ ] **Step 2: Run tests and observe the expected failure**
 
-Run: `python -m unittest tests.test_run_state tests.test_run_state_parity -v; npm run test:unit -- --run opai/assets/web/__tests__/message-state.test.js`
+Run: `python -m unittest tests.test_run_state tests.test_run_state_parity -v; npm run test:unit -- --run vesta/assets/web/__tests__/message-state.test.js`
 
 Expected: FAIL because browser `verifying` has no generated repair edge and the durable diagnostic path is absent.
 
@@ -140,7 +140,7 @@ only as canonical projections. Persist redacted diagnostic events through the
 
 - [ ] **Step 4: Run reducer, diagnostic, and parity checks**
 
-Run: `python -m unittest tests.test_run_state tests.test_run_state_parity -v; npm run test:unit -- --run opai/assets/web/__tests__/message-state.test.js`
+Run: `python -m unittest tests.test_run_state tests.test_run_state_parity -v; npm run test:unit -- --run vesta/assets/web/__tests__/message-state.test.js`
 
 Expected: PASS; Python and browser accept repair, terminal mutation fails
 without state regression, and the rejection is durable/visible.
@@ -148,16 +148,16 @@ without state regression, and the rejection is durable/visible.
 - [ ] **Step 5: Commit generated state adoption**
 
 ```bash
-git add opaihub/run_state.py opaihub/lifecycle_diagnostics.py opai/assets/web/generated-lifecycle.js opai/assets/web/message-state.js opai/assets/web/index.html tests/test_run_state.py tests/test_run_state_parity.py opai/assets/web/__tests__/message-state.test.js
+git add vestahub/run_state.py vestahub/lifecycle_diagnostics.py vesta/assets/web/generated-lifecycle.js vesta/assets/web/message-state.js vesta/assets/web/index.html tests/test_run_state.py tests/test_run_state_parity.py vesta/assets/web/__tests__/message-state.test.js
 git commit -m "feat: consume generated lifecycle contract"
 ```
 
 ### Task 3: Add RunResult and legacy-status boundary adapters
 
 **Files:**
-- Create: `opaihub/run_result.py`
-- Create: `opaihub/legacy_status.py`
-- Modify: `opaihub/completion.py`
+- Create: `vestahub/run_result.py`
+- Create: `vestahub/legacy_status.py`
+- Modify: `vestahub/completion.py`
 - Test: `tests/test_run_result.py`
 - Test: `tests/test_legacy_status_boundaries.py`
 
@@ -222,20 +222,20 @@ input never becomes a generic failure or success.
 - [ ] **Step 5: Commit the result contract slice**
 
 ```bash
-git add opaihub/run_result.py opaihub/legacy_status.py opaihub/completion.py tests/test_run_result.py tests/test_legacy_status_boundaries.py docs/lifecycle-schema.md
+git add vestahub/run_result.py vestahub/legacy_status.py vestahub/completion.py tests/test_run_result.py tests/test_legacy_status_boundaries.py docs/lifecycle-schema.md
 git commit -m "feat: add canonical run result envelope"
 ```
 
 ### Task 4: Adopt RunResult across local, background, GUI, CLI, receipts, and browser
 
 **Files:**
-- Modify: `opaihub/ask.py`
-- Modify: `opaihub/background_runs.py`
-- Modify: `opaihub/gui_pipeline.py`
-- Modify: `opai/app_state.py`
-- Modify: `opai/cli.py`
-- Modify: `opaihub/receipt.py`
-- Modify: `opai/assets/web/message-state.js`
+- Modify: `vestahub/ask.py`
+- Modify: `vestahub/background_runs.py`
+- Modify: `vestahub/gui_pipeline.py`
+- Modify: `vesta/app_state.py`
+- Modify: `vesta/cli.py`
+- Modify: `vestahub/receipt.py`
+- Modify: `vesta/assets/web/message-state.js`
 - Test: `tests/test_run_result_integration.py`
 - Test: `tests/test_background_persistence.py`
 
@@ -289,7 +289,7 @@ evidence, and JSON in every supported surface.
 - [ ] **Step 5: Commit result adoption**
 
 ```bash
-git add opaihub/ask.py opaihub/background_runs.py opaihub/gui_pipeline.py opai/app_state.py opai/cli.py opaihub/receipt.py opai/assets/web/message-state.js tests/test_run_result_integration.py tests/test_background_persistence.py tests/test_run_state_parity.py
+git add vestahub/ask.py vestahub/background_runs.py vestahub/gui_pipeline.py vesta/app_state.py vesta/cli.py vestahub/receipt.py vesta/assets/web/message-state.js tests/test_run_result_integration.py tests/test_background_persistence.py tests/test_run_state_parity.py
 git commit -m "feat: project execution outcomes through RunResult"
 ```
 

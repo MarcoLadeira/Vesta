@@ -18,7 +18,7 @@ from unittest import mock
 
 from _helpers import make_repo
 
-from opaihub import proc
+from vestahub import proc
 
 
 # ---------------------------------------------------------------------------
@@ -28,7 +28,7 @@ from opaihub import proc
 # ---------------------------------------------------------------------------
 class AccountModelResolutionTests(unittest.TestCase):
     def test_alias_resolves_to_the_cli_accepted_canonical_id(self):
-        from opaihub.accounts import AccountRunner
+        from vestahub.accounts import AccountRunner
 
         # The stale short id self-heals to the full API id the CLI accepts.
         self.assertEqual(
@@ -40,7 +40,7 @@ class AccountModelResolutionTests(unittest.TestCase):
         )
 
     def test_canonical_and_unknown_ids_pass_through(self):
-        from opaihub.accounts import AccountRunner
+        from vestahub.accounts import AccountRunner
 
         self.assertEqual(AccountRunner("claude", "claude", model="opus").model, "opus")
         # An id the registry doesn't know is left as-is (the CLI decides).
@@ -50,7 +50,7 @@ class AccountModelResolutionTests(unittest.TestCase):
         self.assertEqual(AccountRunner("claude", "claude").model, "")
 
     def test_the_default_claude_model_is_the_proven_sonnet(self):
-        from opai import model_registry as reg
+        from vesta import model_registry as reg
 
         # Guards the #307 regression: the default must be a CLI-accepted id, not
         # an unverified new model that breaks the out-of-box experience.
@@ -90,7 +90,7 @@ class NoWindowKwargsTests(unittest.TestCase):
             )
 
     def test_command_runner_passes_no_window(self):
-        import opaihub.command_runner as cr
+        import vestahub.command_runner as cr
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -99,7 +99,7 @@ class NoWindowKwargsTests(unittest.TestCase):
             )
 
     def test_evidence_cache_git_passes_no_window(self):
-        import opaihub.evidence_cache as ec
+        import vestahub.evidence_cache as ec
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
@@ -110,7 +110,7 @@ class NoWindowKwargsTests(unittest.TestCase):
             )
 
     def test_test_select_git_passes_no_window(self):
-        import opaihub.test_select as ts
+        import vestahub.test_select as ts
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
@@ -124,7 +124,7 @@ class NoWindowKwargsTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 class ChatPromptFramingTests(unittest.TestCase):
     def test_system_prompt_guards_against_project_talk_on_greetings(self):
-        from opaihub.ask import SYSTEM_PROMPT
+        from vestahub.ask import SYSTEM_PROMPT
 
         low = SYSTEM_PROMPT.lower()
         self.assertIn("greeting", low)
@@ -133,7 +133,7 @@ class ChatPromptFramingTests(unittest.TestCase):
         self.assertTrue("test" in low and "not" in low)
 
     def test_build_prompt_leads_with_user_message_and_optional_context(self):
-        from opaihub.ask import _build_prompt
+        from vestahub.ask import _build_prompt
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
@@ -145,7 +145,7 @@ class ChatPromptFramingTests(unittest.TestCase):
         self.assertIn("project context", low)
 
     def test_capturing_runner_receives_reframed_system_and_prompt(self):
-        from opaihub.ask import SYSTEM_PROMPT, run_ask
+        from vestahub.ask import SYSTEM_PROMPT, run_ask
 
         seen: dict = {}
 
@@ -169,7 +169,7 @@ class ChatPromptFramingTests(unittest.TestCase):
         self.assertTrue(seen["prompt"].startswith("User message: hello"))
 
     def test_prose_only_local_runner_rejects_edit_before_cache_or_model_call(self):
-        from opaihub.ask import run_ask
+        from vestahub.ask import run_ask
 
         class ProseOnlyRunner:
             name = "ollama"
@@ -189,7 +189,7 @@ class ChatPromptFramingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
             with mock.patch(
-                "opaihub.ask.result_cache.lookup_with_meta"
+                "vestahub.ask.result_cache.lookup_with_meta"
             ) as cache_lookup:
                 result = run_ask(
                     root,
@@ -210,7 +210,7 @@ class ChatPromptFramingTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 class CodexConfigErrorTests(unittest.TestCase):
     def test_unknown_variant_is_config_invalid(self):
-        from opai.provider_contract import classify_error_code
+        from vesta.provider_contract import classify_error_code
 
         detail = (
             "Error loading configuration: C:\\Users\\x\\.codex\\config.toml:6:16: "
@@ -219,7 +219,7 @@ class CodexConfigErrorTests(unittest.TestCase):
         self.assertEqual(classify_error_code(detail, returncode=1), "CONFIG_INVALID")
 
     def test_config_invalid_message_points_to_repair(self):
-        from opai.provider_contract import normalize_provider_error
+        from vesta.provider_contract import normalize_provider_error
 
         detail = (
             "Error loading configuration: unknown variant `default`, expected `fast`"
@@ -231,7 +231,7 @@ class CodexConfigErrorTests(unittest.TestCase):
         self.assertFalse(err["retryable"])
 
     def test_normal_errors_still_classify_normally(self):
-        from opai.provider_contract import classify_error_code
+        from vesta.provider_contract import classify_error_code
 
         self.assertEqual(
             classify_error_code("401 Invalid authentication credentials"),
@@ -239,7 +239,7 @@ class CodexConfigErrorTests(unittest.TestCase):
         )
 
     def test_config_invalid_offers_repair_action(self):
-        from opai.provider_contract import normalize_provider_error
+        from vesta.provider_contract import normalize_provider_error
 
         err = normalize_provider_error(
             "codex", "unknown variant `default`, expected `fast`", returncode=1
@@ -247,7 +247,7 @@ class CodexConfigErrorTests(unittest.TestCase):
         self.assertIn("repair_config", err["recoveryActions"])
 
     def _codex_config_error(self):
-        from opai.provider_contract import normalize_provider_error
+        from vesta.provider_contract import normalize_provider_error
 
         return normalize_provider_error(
             "codex",
@@ -258,7 +258,7 @@ class CodexConfigErrorTests(unittest.TestCase):
     def test_connection_surfaces_config_error_not_cli_unavailable(self):
         # The misconfigured diagnostic must reflect the real config problem and
         # carry the structured error, not the misleading "CLI unavailable".
-        from opaihub.accounts import connection_for_account
+        from vestahub.accounts import connection_for_account
 
         conn = connection_for_account(
             {
@@ -278,8 +278,8 @@ class CodexConfigErrorTests(unittest.TestCase):
     def test_pipeline_preserves_config_error_and_repair_guidance(self):
         # A codex send that hits the config error must return the CONFIG_INVALID
         # message + repair action, not a generic "could not complete" card.
-        from opaihub.gui_pipeline import handle_gui_message
-        from opaihub.accounts import connection_for_account
+        from vestahub.gui_pipeline import handle_gui_message
+        from vestahub.accounts import connection_for_account
 
         conn = connection_for_account(
             {
@@ -294,7 +294,7 @@ class CodexConfigErrorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
             with mock.patch(
-                "opaihub.accounts.test_account_connection", return_value=conn
+                "vestahub.accounts.test_account_connection", return_value=conn
             ):
                 result = handle_gui_message(
                     root, "do something", model_id="account:codex", mode="ask"
@@ -343,12 +343,12 @@ class _FakeProc:
 
 class StreamKeepsTextOnNonZeroExitTests(unittest.TestCase):
     def _runner(self):
-        from opaihub.accounts import AccountRunner
+        from vestahub.accounts import AccountRunner
 
         return AccountRunner("claude", "/bin/claude", model="haiku")
 
     def test_answer_survives_non_zero_exit(self):
-        from opaihub import accounts
+        from vestahub import accounts
 
         lines = [
             '{"type":"system","subtype":"init","model":"claude-haiku-4-5"}\n',
@@ -363,7 +363,7 @@ class StreamKeepsTextOnNonZeroExitTests(unittest.TestCase):
         self.assertEqual(result["cost"], 0.01)
 
     def test_no_text_and_non_zero_exit_still_errors(self):
-        from opaihub import accounts
+        from vestahub import accounts
 
         lines = ['{"type":"system","subtype":"init","model":"claude-haiku-4-5"}\n']
         proc_obj = _FakeProc(lines, returncode=1)
@@ -373,7 +373,7 @@ class StreamKeepsTextOnNonZeroExitTests(unittest.TestCase):
         self.assertIn("error", result)
 
     def test_claude_native_auth_failure_is_never_streamed_as_answer(self):
-        from opaihub import accounts
+        from vestahub import accounts
 
         lines = [
             '{"type":"system","subtype":"init","model":"claude-haiku-4-5"}\n',
@@ -395,8 +395,8 @@ class StreamKeepsTextOnNonZeroExitTests(unittest.TestCase):
         )
 
     def test_codex_turn_failed_is_failure_even_with_zero_exit(self):
-        from opaihub import accounts
-        from opaihub.accounts import AccountRunner
+        from vestahub import accounts
+        from vestahub.accounts import AccountRunner
 
         lines = [
             '{"type":"thread.started","thread_id":"thread_1"}\n',
@@ -419,8 +419,8 @@ class StreamKeepsTextOnNonZeroExitTests(unittest.TestCase):
         )
 
     def test_codex_completed_messages_preserve_stream_block_boundaries(self):
-        from opaihub import accounts
-        from opaihub.accounts import AccountRunner
+        from vestahub import accounts
+        from vestahub.accounts import AccountRunner
 
         lines = [
             '{"type":"thread.started","thread_id":"thread_1"}\n',
@@ -448,8 +448,8 @@ class StreamKeepsTextOnNonZeroExitTests(unittest.TestCase):
         self.assertEqual(result["text"], "First update.\n\nFinal update.")
 
     def test_codex_failed_turn_never_streams_last_message_file(self):
-        from opaihub import accounts
-        from opaihub.accounts import AccountRunner
+        from vestahub import accounts
+        from vestahub.accounts import AccountRunner
 
         lines = [
             '{"type":"turn.failed","error":{"message":'
@@ -474,7 +474,7 @@ class StreamKeepsTextOnNonZeroExitTests(unittest.TestCase):
         self.assertEqual(result["error"]["code"], "AUTH_INVALID")
 
     def test_claude_final_result_does_not_duplicate_streamed_answer(self):
-        from opaihub import accounts
+        from vestahub import accounts
 
         lines = [
             '{"type":"assistant","message":{"content":['
@@ -491,7 +491,7 @@ class StreamKeepsTextOnNonZeroExitTests(unittest.TestCase):
         self.assertEqual(streamed, ["Hello there"])
 
     def test_known_stderr_failure_wins_over_partial_text_on_failed_process(self):
-        from opaihub import accounts
+        from vestahub import accounts
 
         lines = [
             '{"type":"assistant","message":{"content":['
@@ -511,7 +511,7 @@ class StreamKeepsTextOnNonZeroExitTests(unittest.TestCase):
         self.assertEqual(result["error"]["code"], "AUTH_INVALID")
 
     def test_auth_failure_invalidates_cached_connection_probe(self):
-        from opaihub import accounts
+        from vestahub import accounts
 
         key = ("claude", str(Path.home().expanduser().resolve()))
         accounts._CONNECTION_CACHE[key] = (0.0, {"authStatus": "connected"})
@@ -528,8 +528,8 @@ class StreamKeepsTextOnNonZeroExitTests(unittest.TestCase):
             accounts._CONNECTION_CACHE.pop(key, None)
 
     def test_gui_pipeline_has_one_failed_terminal_state_for_native_auth_error(self):
-        from opaihub import accounts
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub import accounts
+        from vestahub.gui_pipeline import handle_gui_message
 
         lines = [
             '{"type":"system","subtype":"init","model":"claude-haiku-4-5"}\n',
@@ -572,8 +572,8 @@ class StreamKeepsTextOnNonZeroExitTests(unittest.TestCase):
 
 class BlockingAccountResultTests(unittest.TestCase):
     def test_claude_json_error_is_not_returned_as_answer(self):
-        from opaihub import accounts
-        from opaihub.accounts import AccountRunner
+        from vestahub import accounts
+        from vestahub.accounts import AccountRunner
 
         completed = mock.Mock(
             returncode=1,
@@ -591,8 +591,8 @@ class BlockingAccountResultTests(unittest.TestCase):
         self.assertEqual(result["error"]["code"], "AUTH_INVALID")
 
     def test_codex_failed_process_stderr_is_not_returned_as_answer(self):
-        from opaihub import accounts
-        from opaihub.accounts import AccountRunner
+        from vestahub import accounts
+        from vestahub.accounts import AccountRunner
 
         completed = mock.Mock(
             returncode=1,
@@ -607,8 +607,8 @@ class BlockingAccountResultTests(unittest.TestCase):
         self.assertEqual(result["error"]["code"], "AUTH_EXPIRED")
 
     def test_codex_zero_exit_auth_stderr_is_not_returned_as_answer(self):
-        from opaihub import accounts
-        from opaihub.accounts import AccountRunner
+        from vestahub import accounts
+        from vestahub.accounts import AccountRunner
 
         completed = mock.Mock(
             returncode=0,
@@ -623,8 +623,8 @@ class BlockingAccountResultTests(unittest.TestCase):
         self.assertEqual(result["error"]["code"], "AUTH_INVALID")
 
     def test_claude_zero_exit_auth_stderr_is_not_returned_as_answer(self):
-        from opaihub import accounts
-        from opaihub.accounts import AccountRunner
+        from vestahub import accounts
+        from vestahub.accounts import AccountRunner
 
         completed = mock.Mock(
             returncode=0,
@@ -639,8 +639,8 @@ class BlockingAccountResultTests(unittest.TestCase):
         self.assertEqual(result["error"]["code"], "AUTH_INVALID")
 
     def test_successful_claude_answer_may_discuss_401_errors(self):
-        from opaihub import accounts
-        from opaihub.accounts import AccountRunner
+        from vestahub import accounts
+        from vestahub.accounts import AccountRunner
 
         answer = (
             "A 401 Invalid authentication response usually means credentials failed."
@@ -668,7 +668,7 @@ class BlockingAccountResultTests(unittest.TestCase):
 class ConnectionCacheInvalidationTests(unittest.TestCase):
     def _prime_cache(self, account_id: str, *, home) -> None:
         """Populate the connection cache the same way a real check would."""
-        from opaihub import accounts
+        from vestahub import accounts
 
         with (
             mock.patch.object(
@@ -695,12 +695,12 @@ class ConnectionCacheInvalidationTests(unittest.TestCase):
         self.assertEqual(result["authStatus"], "connected")
 
     def _cache_has(self, account_id: str) -> bool:
-        from opaihub.accounts import _CONNECTION_CACHE
+        from vestahub.accounts import _CONNECTION_CACHE
 
         return any(key[0] == account_id for key in _CONNECTION_CACHE)
 
     def test_invalidate_clears_only_the_matching_provider(self):
-        from opaihub.accounts import invalidate_connection_cache
+        from vestahub.accounts import invalidate_connection_cache
 
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
@@ -718,7 +718,7 @@ class ConnectionCacheInvalidationTests(unittest.TestCase):
         # matches purely on account_id, so priming under any home still
         # proves a genuine 401 clears the entry regardless of which check
         # populated it.
-        from opai.app_state import ask
+        from vesta.app_state import ask
 
         with (
             tempfile.TemporaryDirectory() as home_tmp,
@@ -743,7 +743,7 @@ class ConnectionCacheInvalidationTests(unittest.TestCase):
             )
 
     def test_non_auth_failure_does_not_touch_the_cache(self):
-        from opai.app_state import ask
+        from vesta.app_state import ask
 
         class _TimeoutRunner:
             paid = True
@@ -792,7 +792,7 @@ class FakeAccountRunnerAuthFail:
 # ---------------------------------------------------------------------------
 class DisconnectAccountTests(unittest.TestCase):
     def test_unknown_provider_reports_cleanly(self):
-        from opaihub.accounts import disconnect_account
+        from vestahub.accounts import disconnect_account
 
         result = disconnect_account("not-a-real-provider")
         self.assertFalse(result["disconnected"])
@@ -801,7 +801,7 @@ class DisconnectAccountTests(unittest.TestCase):
     def test_copilot_has_no_cli_logout_and_says_so_honestly(self):
         # Verified against the real copilot --help: only `login` is listed,
         # no `logout` subcommand — Vesta must not fabricate one.
-        from opaihub.accounts import disconnect_account
+        from vestahub.accounts import disconnect_account
 
         result = disconnect_account("copilot")
         self.assertFalse(result["disconnected"])
@@ -810,7 +810,7 @@ class DisconnectAccountTests(unittest.TestCase):
         self.assertIn("copilot", result["message"])
 
     def test_cli_missing_from_path_reports_cleanly(self):
-        from opaihub import accounts
+        from vestahub import accounts
 
         with mock.patch.object(accounts, "_which", return_value=None):
             result = accounts.disconnect_account("claude")
@@ -818,7 +818,7 @@ class DisconnectAccountTests(unittest.TestCase):
         self.assertIn("not found on PATH", result["message"])
 
     def test_claude_logout_success_invalidates_cache_and_reports_signed_out(self):
-        from opaihub import accounts
+        from vestahub import accounts
 
         with (
             mock.patch.object(accounts, "_which", return_value="/bin/claude"),
@@ -863,7 +863,7 @@ class DisconnectAccountTests(unittest.TestCase):
         )
 
     def test_codex_logout_uses_documented_subcommand(self):
-        from opaihub import accounts
+        from vestahub import accounts
 
         with (
             mock.patch.object(accounts, "_which", return_value="/bin/codex"),
@@ -878,7 +878,7 @@ class DisconnectAccountTests(unittest.TestCase):
         self.assertEqual(hidden_run.call_args.args[0][-1], "logout")
 
     def test_logout_failure_surfaces_cli_output_not_a_false_success(self):
-        from opaihub import accounts
+        from vestahub import accounts
 
         with (
             mock.patch.object(accounts, "_which", return_value="/bin/claude"),

@@ -2,9 +2,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import opai.publish
-from opai.integrations import activate_project, project_status
-from opai.publish import _scripts_from_toml_text, publish_status
+import vesta.publish
+from vesta.integrations import activate_project, project_status
+from vesta.publish import _scripts_from_toml_text, publish_status
 
 try:
     import tomllib
@@ -33,25 +33,25 @@ def _project_scripts() -> dict[str, str]:
 
 
 class PublishReadinessTests(unittest.TestCase):
-    def test_op_command_is_the_opai_cli(self):
+    def test_op_command_is_the_vesta_cli(self):
         scripts = _project_scripts()
 
-        self.assertEqual(scripts["op"], "opai.bootstrap:cli_main")
-        self.assertEqual(scripts["opai"], "opai.bootstrap:cli_main")
+        self.assertEqual(scripts["op"], "vesta.bootstrap:cli_main")
+        self.assertEqual(scripts["vesta"], "vesta.bootstrap:cli_main")
         self.assertEqual(scripts["opcoding"], "opcoding.cli:main")
 
     def test_publish_parser_supports_python_310_without_tomllib(self):
-        original = opai.publish.tomllib
+        original = vesta.publish.tomllib
         try:
-            opai.publish.tomllib = None
+            vesta.publish.tomllib = None
             scripts = _scripts_from_toml_text(
-                '[project.scripts]\nop = "opai.cli:main"\nopai = "opai.cli:main"\n'
+                '[project.scripts]\nop = "vesta.cli:main"\nvesta = "vesta.cli:main"\n'
             )
         finally:
-            opai.publish.tomllib = original
+            vesta.publish.tomllib = original
 
-        self.assertEqual(scripts["op"], "opai.cli:main")
-        self.assertEqual(scripts["opai"], "opai.cli:main")
+        self.assertEqual(scripts["op"], "vesta.cli:main")
+        self.assertEqual(scripts["vesta"], "vesta.cli:main")
 
     def test_activation_dry_run_does_not_write_project_files(self):
         with tempfile.TemporaryDirectory() as project_tmp:
@@ -60,7 +60,7 @@ class PublishReadinessTests(unittest.TestCase):
 
             self.assertEqual(result["status"], "planned")
             self.assertFalse((project / "AGENTS.md").exists())
-            self.assertFalse((project / ".opaihub" / "project.json").exists())
+            self.assertFalse((project / ".vestahub" / "project.json").exists())
 
     def test_project_status_reports_activation_and_superpowers(self):
         with (

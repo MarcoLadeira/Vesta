@@ -26,17 +26,17 @@ vesta launch gemini
 
 ## Files Written
 
-- `~/.opai/global.json`: Vesta global integration manifest.
-- `~/.opai/status.txt`: contains `Using Vesta`.
-- `~/.opai/instructions/OPAI.md`: shared local-first policy.
-- `~/.agents/skills/opai/SKILL.md`: Codex-style skill discovery.
+- `~/.vesta/global.json`: Vesta global integration manifest.
+- `~/.vesta/status.txt`: contains `Using Vesta`.
+- `~/.vesta/instructions/VESTA.md`: shared local-first policy.
+- `~/.agents/skills/vesta/SKILL.md`: Codex-style skill discovery.
 - `~/.codex/superpowers`: Superpowers checkout installed by the default installer.
 - `~/.agents/skills/superpowers`: Superpowers discovery bridge.
 - `~/.claude/CLAUDE.md`: managed Vesta memory block.
-- `~/.opai/integrations/copilot-instructions.md`: Copilot instruction seed.
-- `~/.opai/bin/opai-codex*`, `opai-claude*`, `opai-copilot*`, `opai-gemini*`: terminal launch wrappers.
+- `~/.vesta/integrations/copilot-instructions.md`: Copilot instruction seed.
+- `~/.vesta/bin/vesta-codex*`, `vesta-claude*`, `vesta-copilot*`, `vesta-gemini*`: terminal launch wrappers.
 
-For each project, `vesta activate` writes the Vesta managed block at the top of `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, and `.github/copilot-instructions.md`, plus dedicated rule files for Cursor (`.cursor/rules/opai.mdc`) and Cline (`.clinerules/opai.md`), so clients see Vesta before older project notes. Folder-form rule files are used for Cursor and Cline so existing single-file user rules are never overwritten.
+For each project, `vesta activate` writes the Vesta managed block at the top of `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, and `.github/copilot-instructions.md`, plus dedicated rule files for Cursor (`.cursor/rules/vesta.mdc`) and Cline (`.clinerules/vesta.md`), so clients see Vesta before older project notes. Folder-form rule files are used for Cursor and Cline so existing single-file user rules are never overwritten.
 
 ## Supported Clients & Readiness
 
@@ -45,11 +45,11 @@ Vesta targets six clients and reports each one explicitly:
 | Client | Project file | Global discovery |
 | --- | --- | --- |
 | Claude Code | `CLAUDE.md` | `~/.claude/CLAUDE.md` |
-| Codex | `AGENTS.md` | `~/.agents/skills/opai/SKILL.md` |
-| GitHub Copilot | `.github/copilot-instructions.md` | `~/.opai/integrations/copilot-instructions.md` |
-| Gemini CLI | `GEMINI.md` | `~/.opai/integrations/gemini-instructions.md` |
-| Cursor | `.cursor/rules/opai.mdc` | — |
-| Cline | `.clinerules/opai.md` | — |
+| Codex | `AGENTS.md` | `~/.agents/skills/vesta/SKILL.md` |
+| GitHub Copilot | `.github/copilot-instructions.md` | `~/.vesta/integrations/copilot-instructions.md` |
+| Gemini CLI | `GEMINI.md` | `~/.vesta/integrations/gemini-instructions.md` |
+| Cursor | `.cursor/rules/vesta.mdc` | — |
+| Cline | `.clinerules/vesta.md` | — |
 
 `vesta status` and `vesta doctor` report each client as **active**, **broken**, or
 **missing**, and a failing client returns a concrete repair command
@@ -59,7 +59,7 @@ repository or missing global files — and is read-only by default.
 ```sh
 vesta status      # full activation + per-client integration state
 vesta doctor      # branded readiness: active/broken/missing + stale-path detection
-vesta update      # ff-only update of ~/.opai/source
+vesta update      # ff-only update of ~/.vesta/source
 vesta uninstall   # dry-run by default; --confirm removes managed blocks safely
 ```
 
@@ -69,9 +69,9 @@ Vesta provides the badge text through:
 
 - `vesta statusline`
 - `vesta welcome`
-- `OPAI_ACTIVE=1`
-- `OPAI_STATUS=Using Vesta`
-- wrapper scripts under `~/.opai/bin`
+- `VESTA_ACTIVE=1`
+- `VESTA_STATUS=Using Vesta`
+- wrapper scripts under `~/.vesta/bin`
 
 `vesta welcome` uses the packaged Vesta mascot image. `vesta welcome --animate` plays a short in-place terminal animation. Terminals with image support can request inline graphics with `--image kitty` or `--image iterm`; other terminals use `--image ansi` to render the PNG as ANSI color blocks when Pillow is available, then fall back to a blue ASCII mascot.
 

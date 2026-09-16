@@ -22,9 +22,9 @@ import time
 import unittest
 from pathlib import Path
 
-from opaihub import background_runs, journal_runtime, journal_store
-from opaihub.background_runs import BackgroundRunner, load_run
-from opaihub.run_state import RunState
+from vestahub import background_runs, journal_runtime, journal_store
+from vestahub.background_runs import BackgroundRunner, load_run
+from vestahub.run_state import RunState
 
 NOW = "2026-09-10T10:00:00+00:00"
 LATER = "2026-09-10T10:01:00+00:00"
@@ -89,7 +89,7 @@ class TheExecutingProcessTakesTheLeaseTests(_Root):
     def queue_elsewhere(self) -> None:
         out = _in_another_process(
             self.root,
-            "from opaihub import journal_runtime\n"
+            "from vestahub import journal_runtime\n"
             "print(journal_runtime.record_run_snapshot(root, run_id='bg-1',"
             " task_id='task-1', task='queued work', state='queued',"
             f" now={NOW!r}))\n",
@@ -149,7 +149,7 @@ class RecoverLeavesALiveRunAloneTests(_Root):
     def test_recover_does_not_fail_a_run_executing_in_a_live_process(self):
         run_id = _in_another_process(
             self.root,
-            "from opaihub.background_runs import enqueue_automation\n"
+            "from vestahub.background_runs import enqueue_automation\n"
             "print(enqueue_automation(root, 'bug_fix', 'fix the flaky test').run_id)\n",
         )
         executing = threading.Event()
@@ -172,7 +172,7 @@ class RecoverLeavesALiveRunAloneTests(_Root):
 
         recovered = _in_another_process(
             self.root,
-            "from opaihub.background_runs import recover_interrupted_runs\n"
+            "from vestahub.background_runs import recover_interrupted_runs\n"
             "print(','.join(r.run_id for r in recover_interrupted_runs(root)))\n",
         )
 

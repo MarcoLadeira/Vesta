@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def _load_runner():
     path = ROOT / "scripts" / "run_pytest_only.py"
     assert path.exists(), "selective pytest runner is missing"
-    spec = importlib.util.spec_from_file_location("opai_pytest_only", path)
+    spec = importlib.util.spec_from_file_location("vesta_pytest_only", path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

@@ -1,6 +1,6 @@
 """#613 Stage 2: packaged-update state mirrors into the shadow journal.
 
-``opai/update/storage.py`` is Stage 1's "operations: packaged update state and
+``vesta/update/storage.py`` is Stage 1's "operations: packaged update state and
 fencing" -- added to the inventory by #712 while Stage 2 was in progress.
 
 It is the first migrated module that keeps **several distinct documents**
@@ -21,8 +21,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub import shadow_journal
-from opai.update.storage import UpdaterPaths, UpdateStore
+from vestahub import shadow_journal
+from vesta.update.storage import UpdaterPaths, UpdateStore
 
 
 class UpdateStorageShadowTests(unittest.TestCase):

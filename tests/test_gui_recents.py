@@ -9,7 +9,7 @@ from pathlib import Path
 
 from _helpers import isolated_home
 
-from opai.gui_recents import (
+from vesta.gui_recents import (
     MAX_RECENTS,
     add_recent,
     begin_thread_turn,
@@ -129,7 +129,7 @@ class ClearAndMigrationTests(unittest.TestCase):
         with isolated_home():
             add_recent("C:/proj-a", "hello world")
             self.assertFalse(legacy_recents_path().exists())
-            state_files = list((Path.home() / ".opai").rglob("*.json"))
+            state_files = list((Path.home() / ".vesta").rglob("*.json"))
         self.assertEqual([item.parent.name for item in state_files], ["recents"])
 
 

@@ -16,7 +16,7 @@ import time
 import unittest
 from pathlib import Path
 
-from opaihub import workflow_state
+from vestahub import workflow_state
 
 
 _CHILD = r"""
@@ -25,7 +25,7 @@ import time
 from dataclasses import replace
 from pathlib import Path
 
-from opaihub.workflow_state import (
+from vestahub.workflow_state import (
     WorkflowState,
     load_workflow_state,
     save_workflow_state,

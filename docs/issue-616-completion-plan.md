@@ -8,9 +8,9 @@ Base: `main` @ 792970d (includes PRs #665, #693, #715, #719, #721)
 1. **Measure before changing.** Inventory every external side-effect path
    (provider, tool/command, filesystem, Git, GitHub, cost) against the #616
    operation-protocol checklist. Extend the existing canonical primitives
-   (`opaihub/operation_class.py`, `opaihub/idempotency.py`,
-   `opaihub/provider_invocation.py`, `opaihub/call_reconciliation.py`,
-   `opaihub/run_journal.py`) — do not build a parallel framework.
+   (`vestahub/operation_class.py`, `vestahub/idempotency.py`,
+   `vestahub/provider_invocation.py`, `vestahub/call_reconciliation.py`,
+   `vestahub/run_journal.py`) — do not build a parallel framework.
 2. **Close the real gaps in small green slices**, committing and pushing each
    slice to the PR.
 3. **Verify** with contract, concurrency, boundary fault-injection, and

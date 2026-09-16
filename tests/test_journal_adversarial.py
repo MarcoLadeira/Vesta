@@ -40,10 +40,10 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from typing import Any
 
-from opai import cli
-from opaihub import gui_pipeline, journal_reader, journal_retirement
-from opaihub.journal_runtime import EVENT_FINISHED, record_admission, record_terminal
-from opaihub.journal_store import append_event, journal_path, open_store
+from vesta import cli
+from vestahub import gui_pipeline, journal_reader, journal_retirement
+from vestahub.journal_runtime import EVENT_FINISHED, record_admission, record_terminal
+from vestahub.journal_store import append_event, journal_path, open_store
 
 NOW = "2026-08-25T12:00:00+00:00"
 
@@ -376,7 +376,7 @@ class CompactionLeavesTheStoreIntactTests(_StackFixture):
     """
 
     def _with_history(self, runs: int, transitions: int, *, old: bool = True) -> None:
-        from opaihub.journal_runtime import EVENT_TRANSITIONED
+        from vestahub.journal_runtime import EVENT_TRANSITIONED
 
         stamp = "2024-01-01T00:00:00+00:00" if old else NOW
         for index in range(runs):
@@ -410,7 +410,7 @@ class CompactionLeavesTheStoreIntactTests(_StackFixture):
             )
 
     def _compact(self, **kwargs):
-        from opaihub import journal_retention
+        from vestahub import journal_retention
 
         return journal_retention.compact(self.root, now=NOW, floor_per_run=0, **kwargs)
 
@@ -421,7 +421,7 @@ class CompactionLeavesTheStoreIntactTests(_StackFixture):
 
         store = open_store(self.root)
         self.addCleanup(store.close)
-        from opaihub import journal_store
+        from vestahub import journal_store
 
         self.assertEqual(
             journal_store.check_integrity(store).state,
@@ -465,7 +465,7 @@ class CompactionLeavesTheStoreIntactTests(_StackFixture):
     def test_a_compacted_journal_can_still_be_backed_up_and_restored(self):
         """The two housekeeping paths meeting, which neither suite covers."""
 
-        from opaihub import journal_backup
+        from vestahub import journal_backup
 
         self._with_history(3, 10)
         self._compact()
@@ -488,7 +488,7 @@ class CompactionLeavesTheStoreIntactTests(_StackFixture):
     def test_an_event_belonging_to_no_run_is_never_pruned(self):
         """Orphans belong to no settled run, so nothing has settled about them."""
 
-        from opaihub.journal_runtime import EVENT_TRANSITIONED
+        from vestahub.journal_runtime import EVENT_TRANSITIONED
 
         store = open_store(self.root)
         try:

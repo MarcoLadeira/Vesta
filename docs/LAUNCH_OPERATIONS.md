@@ -1,6 +1,6 @@
 # Launch Operations Runbook
 
-This runbook implements the operating process for [issue #554](https://github.com/MarcoLadeira/OPai/issues/554), under the parent [launch and community epic #530](https://github.com/MarcoLadeira/OPai/issues/530). It is a pre-launch control: it does not declare Vesta ready, authorise a launch, or replace a release decision.
+This runbook implements the operating process for [issue #554](https://github.com/MarcoLadeira/Vesta/issues/554), under the parent [launch and community epic #530](https://github.com/MarcoLadeira/Vesta/issues/530). It is a pre-launch control: it does not declare Vesta ready, authorise a launch, or replace a release decision.
 
 Use it with the concise [launch checklist](LAUNCH_CHECKLIST.md). The checklist collects evidence; this runbook defines how that evidence becomes a go/no-go decision, a responsible launch, and a product-learning loop.
 
@@ -20,13 +20,13 @@ The review owner records the evidence link, status, decision owner, and review d
 
 | Gate | Required evidence | Ready only when |
 | --- | --- | --- |
-| [#518 release governance](https://github.com/MarcoLadeira/OPai/issues/518) | Approved release decision and current blocker/waiver register | No unwaived P0 release gate is open. |
-| [#293 installation and distribution](https://github.com/MarcoLadeira/OPai/issues/293) | Tested package, install, upgrade, uninstall, and rollback evidence on supported platforms | A qualified stranger can follow the published path and recover safely. |
-| [#515 OPaiBench evidence](https://github.com/MarcoLadeira/OPai/issues/515) | Reproducible benchmark receipt for every quality, cost, latency, or productivity statement | Public claims match the source dataset, method, version, and known limitations. |
-| [#529 onboarding and support](https://github.com/MarcoLadeira/OPai/issues/529) | First-use, documentation, and support readiness evidence | A user can reach a first verified outcome and obtain help without founder-only knowledge. |
-| [#526–#528 security, privacy, and evidence](https://github.com/MarcoLadeira/OPai/issues/526) | Current privacy, security, and evidence explanations | Public copy matches the implemented controls and escalation paths. |
-| [#557 customer economics](https://github.com/MarcoLadeira/OPai/issues/557) | Cohort-level verified-value and support-burden evidence | Significant paid promotion or broad commercial investment has an evidence-backed decision. |
-| [#558 name and brand clearance](https://github.com/MarcoLadeira/OPai/issues/558) | Recorded naming, trademark, and discoverability decision | Significant brand investment does not outrun the clearance decision. |
+| [#518 release governance](https://github.com/MarcoLadeira/Vesta/issues/518) | Approved release decision and current blocker/waiver register | No unwaived P0 release gate is open. |
+| [#293 installation and distribution](https://github.com/MarcoLadeira/Vesta/issues/293) | Tested package, install, upgrade, uninstall, and rollback evidence on supported platforms | A qualified stranger can follow the published path and recover safely. |
+| [#515 VestaBench evidence](https://github.com/MarcoLadeira/Vesta/issues/515) | Reproducible benchmark receipt for every quality, cost, latency, or productivity statement | Public claims match the source dataset, method, version, and known limitations. |
+| [#529 onboarding and support](https://github.com/MarcoLadeira/Vesta/issues/529) | First-use, documentation, and support readiness evidence | A user can reach a first verified outcome and obtain help without founder-only knowledge. |
+| [#526–#528 security, privacy, and evidence](https://github.com/MarcoLadeira/Vesta/issues/526) | Current privacy, security, and evidence explanations | Public copy matches the implemented controls and escalation paths. |
+| [#557 customer economics](https://github.com/MarcoLadeira/Vesta/issues/557) | Cohort-level verified-value and support-burden evidence | Significant paid promotion or broad commercial investment has an evidence-backed decision. |
+| [#558 name and brand clearance](https://github.com/MarcoLadeira/Vesta/issues/558) | Recorded naming, trademark, and discoverability decision | Significant brand investment does not outrun the clearance decision. |
 
 ### Minimum evidence thresholds
 
@@ -54,7 +54,7 @@ The go/no-go review records one of these outcomes:
 
 ## Waiver record
 
-Only [#518](https://github.com/MarcoLadeira/OPai/issues/518) can record a release waiver. A channel post, a launch document, or a verbal decision never creates an implicit waiver.
+Only [#518](https://github.com/MarcoLadeira/Vesta/issues/518) can record a release waiver. A channel post, a launch document, or a verbal decision never creates an implicit waiver.
 
 For each waiver, record all of the following in #518:
 

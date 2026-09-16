@@ -3,14 +3,14 @@
 - **Date:** 2026-07-12
 - **Status:** Approved under the standing alpha-release direction to resolve
   release-critical GitHub issues without introducing paid or cloud dependencies.
-- **Issue:** [#287](https://github.com/MarcoLadeira/OPai/issues/287)
+- **Issue:** [#287](https://github.com/MarcoLadeira/Vesta/issues/287)
 
 ## Problem
 
-OPai's result cache currently keys an answer using Git HEAD and dirty path
+Vesta's result cache currently keys an answer using Git HEAD and dirty path
 names. If a dirty `app.py` changes from one set of bytes to another at the same
 path, the cache key does not change. Entries also do not expire. A cheap stale
-answer is worse than a fresh answer, so reuse must be denied whenever OPai
+answer is worse than a fresh answer, so reuse must be denied whenever Vesta
 cannot prove the relevant repository inputs are unchanged.
 
 The shared fingerprint also drives evidence-cache reuse and the GUI's
@@ -33,7 +33,7 @@ callers with the same stale-state model.
 
 ### Fingerprint assessment
 
-`opaihub.evidence_cache` gains a frozen `RepoFingerprint` value with:
+`vestahub.evidence_cache` gains a frozen `RepoFingerprint` value with:
 
 ```python
 @dataclass(frozen=True)
@@ -76,19 +76,19 @@ environment-specific policy surface.
 The assessment returns `cacheable=False` and a non-secret reason when it sees:
 
 - no usable Git repository;
-- an ignored input outside OPai's own `.opaihub`/`.opcoding` state directories;
+- an ignored input outside Vesta's own `.vestahub`/`.opcoding` state directories;
 - more dirty files or bytes than the configured bounds;
 - a file above the per-file bound;
 - a binary file, symlink, directory, unreadable file, or path outside the
   project root;
 - a Git command failure or unparseable status.
 
-OPai-owned state paths are excluded so writing an OPai cache cannot invalidate
+Vesta-owned state paths are excluded so writing an Vesta cache cannot invalidate
 itself. All other uncertainty is a bypass, never a best-effort hit.
 
 ### Result-cache envelope
 
-`opaihub.result_cache` advances to schema version 2. A stored entry contains:
+`vestahub.result_cache` advances to schema version 2. A stored entry contains:
 
 ```json
 {

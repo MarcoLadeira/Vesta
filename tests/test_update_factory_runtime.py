@@ -3,17 +3,17 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from opai.update.factory import (
+from vesta.update.factory import (
     create_update_service,
     load_installed_build,
     load_managed_update_configuration,
     load_trust_store,
 )
-from opai.update.models import InstallType
-from opai.update.native import WindowsMsixAdapter
-from opai.update.runtime import probe_active_work
-from opai.release_identity import packaged_metadata_paths
-from opaihub.session_registry import SessionRegistry
+from vesta.update.models import InstallType
+from vesta.update.native import WindowsMsixAdapter
+from vesta.update.runtime import probe_active_work
+from vesta.release_identity import packaged_metadata_paths
+from vestahub.session_registry import SessionRegistry
 
 
 def test_packaged_identity_comes_from_release_evidence_not_handwritten_version(
@@ -30,7 +30,7 @@ def test_packaged_identity_comes_from_release_evidence_not_handwritten_version(
                 "platform": "windows",
                 "architecture": "x86_64",
                 "install_type": "windows_msix",
-                "package_identity": "OPai.Desktop",
+                "package_identity": "Vesta.Desktop",
                 "publisher_identity": "CN=Vesta",
             }
         ),
@@ -66,7 +66,7 @@ def test_trust_store_is_loaded_only_from_packaged_or_admin_paths(tmp_path: Path)
 
 def test_update_trust_never_falls_back_to_an_ancestor_file(tmp_path: Path):
     bundle = tmp_path / "parent" / "bundle"
-    executable = bundle / "cli" / "opai.exe"
+    executable = bundle / "cli" / "vesta.exe"
     executable.parent.mkdir(parents=True)
     executable.write_bytes(b"native")
     ancestor = tmp_path / "parent" / "update-trust.json"
@@ -93,7 +93,7 @@ def test_runtime_probe_uses_canonical_thread_lease_and_background_run_truth(
     tmp_path: Path,
 ):
     workspace = tmp_path / "workspace"
-    thread = workspace / ".opaihub" / "gui" / "thread.json"
+    thread = workspace / ".vestahub" / "gui" / "thread.json"
     thread.parent.mkdir(parents=True)
     thread.write_text(
         json.dumps(
@@ -140,7 +140,7 @@ def test_composition_root_selects_native_adapter_and_migrates_app_wide_policy(
 ):
     home = tmp_path / "home"
     workspace = tmp_path / "workspace"
-    preferences = workspace / ".opaihub" / "gui" / "preferences.json"
+    preferences = workspace / ".vestahub" / "gui" / "preferences.json"
     preferences.parent.mkdir(parents=True)
     preferences.write_text(json.dumps({"auto_update": True}), encoding="utf-8")
     installed = load_installed_build(identity_paths=[tmp_path / "missing.json"])
@@ -149,7 +149,7 @@ def test_composition_root_selects_native_adapter_and_migrates_app_wide_policy(
             **installed.to_dict(),
             "install_type": InstallType.WINDOWS_MSIX,
             "platform": "windows",
-            "package_identity": "OPai.Desktop",
+            "package_identity": "Vesta.Desktop",
             "publisher_identity": "CN=Vesta",
         }
     )

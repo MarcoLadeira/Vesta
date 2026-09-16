@@ -11,7 +11,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub.checkpoints import (
+from vestahub.checkpoints import (
     COMPLETION_STATES,
     create_run_checkpoint,
     finalize_run_checkpoint,
@@ -98,8 +98,8 @@ def _replay_checkpoint_creation_in_child(
 
 class CheckpointContractTests(unittest.TestCase):
     def test_timeout_snapshot_is_durable_before_terminal_finalization(self):
-        from opaihub.checkpoints import record_timeout_checkpoint
-        from opaihub.deadlines import TASK_DEADLINE, timeout_event
+        from vestahub.checkpoints import record_timeout_checkpoint
+        from vestahub.deadlines import TASK_DEADLINE, timeout_event
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), commit=True)
@@ -167,7 +167,7 @@ class CheckpointContractTests(unittest.TestCase):
             )
             raw = (
                 root
-                / ".opaihub"
+                / ".vestahub"
                 / "agent"
                 / "checkpoints"
                 / f"{checkpoint.checkpoint_id}.json"
@@ -210,7 +210,7 @@ class CheckpointContractTests(unittest.TestCase):
             )
             raw = (
                 root
-                / ".opaihub"
+                / ".vestahub"
                 / "agent"
                 / "checkpoints"
                 / f"{checkpoint.checkpoint_id}.json"
@@ -314,7 +314,7 @@ class CheckpointContractTests(unittest.TestCase):
             )
             path = (
                 root
-                / ".opaihub"
+                / ".vestahub"
                 / "agent"
                 / "checkpoints"
                 / (f"{pending.checkpoint_id}.json")
@@ -324,7 +324,7 @@ class CheckpointContractTests(unittest.TestCase):
             # This models a recovery process which enumerated the checkpoint
             # while it was pending, then raced a normal finalizer to commit.
             with mock.patch(
-                "opaihub.checkpoints.list_run_checkpoints", return_value=[pending]
+                "vestahub.checkpoints.list_run_checkpoints", return_value=[pending]
             ):
                 self.assertEqual(recover_interrupted_checkpoints(root), [])
 
@@ -424,7 +424,7 @@ class CheckpointContractTests(unittest.TestCase):
             )
             self.assertEqual(
                 list(
-                    (root / ".opaihub" / "agent" / "checkpoints").glob(
+                    (root / ".vestahub" / "agent" / "checkpoints").glob(
                         f".{pending.checkpoint_id}.json.*.tmp"
                     )
                 ),
@@ -524,7 +524,7 @@ class PipelineCheckpointTests(unittest.TestCase):
     """The cross-surface guarantee: no edit-capable route bypasses a checkpoint."""
 
     def test_edit_capable_run_always_has_a_checkpoint_before_execution(self):
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), commit=True)
@@ -546,7 +546,7 @@ class PipelineCheckpointTests(unittest.TestCase):
             self.assertTrue(checkpoint.finalized_at)
 
     def test_read_only_run_is_checkpointed_honestly_as_non_edit(self):
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), commit=True)
@@ -562,7 +562,7 @@ class PipelineCheckpointTests(unittest.TestCase):
             self.assertEqual(checkpoint.completion_state, "read_only")
 
     def test_cancelled_before_edit_is_recorded_honestly(self):
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         cancel = threading.Event()
         cancel.set()
@@ -581,7 +581,7 @@ class PipelineCheckpointTests(unittest.TestCase):
             self.assertEqual(checkpoint.completion_state, "cancelled_before_edit")
 
     def test_every_pipeline_run_creates_exactly_one_checkpoint(self):
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), commit=True)
@@ -595,7 +595,7 @@ class PipelineCheckpointTests(unittest.TestCase):
             self.assertEqual(len(list_run_checkpoints(root)), 1)
 
     def test_checkpoint_json_from_a_real_run_has_no_prompt_or_secret(self):
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), commit=True)
@@ -609,7 +609,7 @@ class PipelineCheckpointTests(unittest.TestCase):
             )
             path = (
                 root
-                / ".opaihub"
+                / ".vestahub"
                 / "agent"
                 / "checkpoints"
                 / f"{result['checkpoint_id']}.json"

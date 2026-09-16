@@ -31,7 +31,7 @@ import zipfile
 
 
 TRANSPORT_ROOT = "bundle"
-SIGNED_ARCHIVE_ROOT = "opai-desktop-bundle"
+SIGNED_ARCHIVE_ROOT = "vesta-desktop-bundle"
 MAX_ARCHIVE_MEMBERS = 100_000
 MAX_UNCOMPRESSED_BYTES = 8 * 1024 * 1024 * 1024
 SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
@@ -151,8 +151,8 @@ def read_release_versions(root: Path) -> dict[str, str]:
     project_version = _read_project_version(repository / "pyproject.toml")
     return {
         "pyproject.toml": project_version,
-        "opai/_generated_release.py": _read_generated_version(
-            repository / "opai" / "_generated_release.py"
+        "vesta/_generated_release.py": _read_generated_version(
+            repository / "vesta" / "_generated_release.py"
         ),
     }
 
@@ -164,7 +164,7 @@ def validate_release_versions(*, release_tag: str, versions: Mapping[str, str]) 
         raise TransportError(
             f"release tag is not a canonical v-prefixed PEP 440 version: {release_tag!r}"
         )
-    required = {"pyproject.toml", "opai/_generated_release.py"}
+    required = {"pyproject.toml", "vesta/_generated_release.py"}
     if set(versions) != required:
         raise TransportError("canonical release identity projections are incomplete")
     unique = {str(value).strip() for value in versions.values()}
@@ -313,7 +313,7 @@ def extract_transport(archive: Path, bundle_output: Path) -> None:
                         f"transport archive entry traverses a link: {path}"
                     )
             with tempfile.TemporaryDirectory(
-                prefix="opai-transport-", dir=output.parent
+                prefix="vesta-transport-", dir=output.parent
             ) as temporary:
                 temporary_path = Path(temporary)
                 value.extractall(temporary_path, members=members, filter="data")
@@ -388,7 +388,7 @@ def extract_signed_zip(archive: Path, bundle_output: Path) -> None:
                     )
 
             with tempfile.TemporaryDirectory(
-                prefix="opai-signed-", dir=output.parent
+                prefix="vesta-signed-", dir=output.parent
             ) as temporary:
                 temporary_path = Path(temporary)
                 if sys.platform == "darwin":

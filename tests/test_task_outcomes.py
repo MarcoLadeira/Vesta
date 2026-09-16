@@ -16,7 +16,7 @@ from unittest import mock
 
 from _helpers import FakeAccountRunner, make_repo
 
-from opaihub.ledger import (
+from vestahub.ledger import (
     UNKNOWN,
     ledger_path,
     read_events,
@@ -254,7 +254,7 @@ class CorruptedSessionRecoveryTests(unittest.TestCase):
 
 class GuiCliParityTests(unittest.TestCase):
     def test_gui_payload_equals_cli_summary(self):
-        from opai.gui_web import outcomes_payload
+        from vesta.gui_web import outcomes_payload
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
@@ -276,7 +276,7 @@ class BuildTaskOutcomeFieldsTests(unittest.TestCase):
     """The pure, Qt-free mapping from a finished turn to honest outcome fields."""
 
     def _fields(self, payload, completion):
-        from opaihub.gui_pipeline import build_task_outcome_fields
+        from vestahub.gui_pipeline import build_task_outcome_fields
 
         return build_task_outcome_fields(payload, completion=completion, run_mode="ask")
 
@@ -383,10 +383,10 @@ class PipelineEmissionTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_answered_turn_records_one_completed_outcome(self):
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         with mock.patch(
-            "opaihub.ask.run_ask",
+            "vestahub.ask.run_ask",
             return_value={"status": "answered_locally", "answer": "done"},
         ):
             res = handle_gui_message(
@@ -399,7 +399,7 @@ class PipelineEmissionTests(unittest.TestCase):
         self.assertTrue(outcomes[0]["outcome_id"])
 
     def test_blocked_turn_records_one_blocked_outcome(self):
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         res = handle_gui_message(
             self.root,
@@ -414,10 +414,10 @@ class PipelineEmissionTests(unittest.TestCase):
         self.assertEqual(outcomes[0]["category"], "blocked")
 
     def test_distinct_turns_get_distinct_outcomes(self):
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         with mock.patch(
-            "opaihub.ask.run_ask",
+            "vestahub.ask.run_ask",
             return_value={"status": "answered_locally", "answer": "ok"},
         ):
             handle_gui_message(self.root, "task one", model_id="auto", mode="ask")

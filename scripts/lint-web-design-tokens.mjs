@@ -196,7 +196,7 @@ export function lintScriptColours(source) {
 }
 
 async function main() {
-  const web = new URL("../opai/assets/web/", import.meta.url);
+  const web = new URL("../vesta/assets/web/", import.meta.url);
   const read = (name) => readFile(fileURLToPath(new URL(name, web)), "utf8");
   const failures = [];
   const report = (title, violations) => {

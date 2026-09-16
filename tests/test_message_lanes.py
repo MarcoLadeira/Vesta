@@ -22,8 +22,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub.agent_policy import resolve_agent_policy
-from opaihub.message_contract import (
+from vestahub.agent_policy import resolve_agent_policy
+from vestahub.message_contract import (
     EXPLORE,
     GOVERNED,
     LONG_HORIZON,

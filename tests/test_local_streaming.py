@@ -13,8 +13,8 @@ from unittest import mock
 
 from _helpers import make_repo
 
-from opaihub import local_runner
-from opaihub.local_runner import OpenAICompatibleRunner, _stream_chat
+from vestahub import local_runner
+from vestahub.local_runner import OpenAICompatibleRunner, _stream_chat
 
 
 class _FakeResponse:
@@ -264,7 +264,7 @@ class _BlockingFakeRunner:
 
 class RunAskWiringTests(unittest.TestCase):
     def _ask(self, runner, sink):
-        from opaihub.ask import run_ask
+        from vestahub.ask import run_ask
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))

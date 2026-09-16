@@ -30,7 +30,7 @@ from unittest import mock
 
 from _helpers import FakeStreamingRunner, make_repo
 
-from opaihub.gui_pipeline import handle_gui_message, request_tool_authority
+from vestahub.gui_pipeline import handle_gui_message, request_tool_authority
 
 FIX = "Fix the bug in app.py"
 FREE_MODEL = "free:gemini:gemini-3.1-flash-lite"
@@ -82,7 +82,7 @@ class _RepoCase(unittest.TestCase):
             "source": "free_api",
             "model_id": FREE_MODEL,
         }
-        with mock.patch("opai.app_state.ask", return_value=answer) as ask:
+        with mock.patch("vesta.app_state.ask", return_value=answer) as ask:
             handle_gui_message(
                 self.root, FIX, model_id=FREE_MODEL, mode=mode, allow_cloud=True, **kw
             )
@@ -96,8 +96,8 @@ class _RepoCase(unittest.TestCase):
 
         answer = {"status": "answered_locally", "answer": "Local answer"}
         with (
-            mock.patch("opaihub.ask.run_ask", return_value=answer) as run_ask,
-            mock.patch("opaihub.local_runner.runner_for_model", return_value=None),
+            mock.patch("vestahub.ask.run_ask", return_value=answer) as run_ask,
+            mock.patch("vestahub.local_runner.runner_for_model", return_value=None),
         ):
             handle_gui_message(
                 self.root, FIX, model_id="ollama:qwen2.5-coder", mode=mode, **kw

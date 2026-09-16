@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: opai-ci-selfhosted-${{ github.ref }}
+  group: vesta-ci-selfhosted-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment:
-      name: opai-runner-health
+      name: vesta-runner-health
       deployment: false
     steps:
       - name: Checkout trusted main candidate
@@ -50,7 +50,7 @@ jobs:
         id: query
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.OPAI_RUNNER_HEALTH_TOKEN }}
+          GH_TOKEN: ${{ secrets.VESTA_RUNNER_HEALTH_TOKEN }}
         run: |
           if gh api "repos/${GITHUB_REPOSITORY}/actions/runners" > runner-inventory.json; then
             python scripts/check_runner_health.py \

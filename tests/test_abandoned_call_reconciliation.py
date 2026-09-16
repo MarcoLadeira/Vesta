@@ -19,13 +19,13 @@ import unittest.mock as mock
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from opaihub.budget import budget_gate, budget_status, set_budget
-from opaihub.call_reconciliation import (
+from vestahub.budget import budget_gate, budget_status, set_budget
+from vestahub.call_reconciliation import (
     ABANDON_AFTER_SECONDS,
     RUNTIME_ID,
     CallLiveness,
 )
-from opaihub.ledger import (
+from vestahub.ledger import (
     EVENT_MODEL_CALL_ABANDONED,
     abandoned_model_calls,
     cost_reconciliation,
@@ -39,9 +39,9 @@ from opaihub.ledger import (
     summarize_ledger,
     unresolved_model_calls,
 )
-from opaihub.savings import build_savings_report, render_savings_markdown
-from opaihub.usage import build_usage_snapshots
-from opaihub.usage_report import ProviderTurnUsage
+from vestahub.savings import build_savings_report, render_savings_markdown
+from vestahub.usage import build_usage_snapshots
+from vestahub.usage_report import ProviderTurnUsage
 
 USAGE = ProviderTurnUsage.from_provider(
     turn_index=1, total=100, input_tokens=60, output_tokens=40
@@ -71,7 +71,7 @@ def _orphan(root: Path, call_id: str = "lost", *, pid: int = 999_000) -> None:
     that state, since a live process cannot orphan its own call.
     """
     with mock.patch(
-        "opaihub.ledger.owner_fields",
+        "vestahub.ledger.owner_fields",
         return_value={"owner_pid": pid, "owner_runtime": "a-dead-process"},
     ):
         _start(root, call_id)
@@ -295,7 +295,7 @@ class AgedCallsStopBlockingTests(unittest.TestCase):
             _orphan(root)
             reconcile_abandoned_calls(root, now=_later(ABANDON_AFTER_SECONDS + 1))
             tomorrow = datetime.now(timezone.utc) + timedelta(days=1)
-            with mock.patch("opaihub.budget.datetime") as clock:
+            with mock.patch("vestahub.budget.datetime") as clock:
                 clock.now.return_value = tomorrow
                 gate = budget_gate(
                     root, next_cost_usd=0.01, tier="L3", provider_type="cloud"
@@ -342,7 +342,7 @@ class CrashAndRestartTests(unittest.TestCase):
             root = Path(tmp)
             _orphan(root)
             with mock.patch(
-                "opaihub.call_reconciliation.pid_is_running", side_effect=_dead
+                "vestahub.call_reconciliation.pid_is_running", side_effect=_dead
             ):
                 retired = reconcile_abandoned_calls(root, now=_later(120))
             self.assertEqual(len(retired), 1)
@@ -356,7 +356,7 @@ class CrashAndRestartTests(unittest.TestCase):
             root = Path(tmp)
             _orphan(root)
             with mock.patch(
-                "opaihub.call_reconciliation.pid_is_running", side_effect=_alive
+                "vestahub.call_reconciliation.pid_is_running", side_effect=_alive
             ):
                 self.assertEqual(reconcile_abandoned_calls(root, now=_later(120)), [])
 
@@ -371,7 +371,7 @@ class CrashAndRestartTests(unittest.TestCase):
             root = Path(tmp)
             _orphan(root)
             with mock.patch(
-                "opaihub.call_reconciliation.pid_is_running", side_effect=_dead
+                "vestahub.call_reconciliation.pid_is_running", side_effect=_dead
             ):
                 report = cost_reconciliation(root, now=_later(120))
                 self.assertEqual(report["unresolved_calls"], 0)
@@ -415,10 +415,10 @@ class ReportingConsistencyTests(unittest.TestCase):
                     )
 
             with mock.patch(
-                "opaihub.call_reconciliation.pid_is_running", side_effect=_alive
+                "vestahub.call_reconciliation.pid_is_running", side_effect=_alive
             ):
                 fresh = summarize_ledger(root)
-                with mock.patch("opaihub.ledger.datetime", ExpiredDateTime):
+                with mock.patch("vestahub.ledger.datetime", ExpiredDateTime):
                     expired = summarize_ledger(root)
 
             self.assertEqual(fresh["reconciliation"]["unresolved_calls"], 1)
@@ -439,7 +439,7 @@ class ReportingConsistencyTests(unittest.TestCase):
             root = Path(tmp)
             _orphan(root)
             with mock.patch(
-                "opaihub.call_reconciliation.pid_is_running", side_effect=_dead
+                "vestahub.call_reconciliation.pid_is_running", side_effect=_dead
             ):
                 report = cost_reconciliation(root, now=_later(120))
             self.assertEqual(report["unaccounted_calls"], 1)
@@ -459,7 +459,7 @@ class ReportingConsistencyTests(unittest.TestCase):
                 _orphan(root, f"lost-{index}")
             when = _later(ABANDON_AFTER_SECONDS + 1)
             with mock.patch(
-                "opaihub.ledger._persist_ledger_head",
+                "vestahub.ledger._persist_ledger_head",
                 side_effect=OSError("disk gone"),
             ):
                 with self.assertRaises(OSError):
@@ -514,7 +514,7 @@ class ReportingConsistencyTests(unittest.TestCase):
 
     def test_the_send_path_does_not_pay_for_a_second_scan(self) -> None:
         """summarize_ledger runs on every send; it must read the log once."""
-        import opaihub.ledger as ledger_mod
+        import vestahub.ledger as ledger_mod
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

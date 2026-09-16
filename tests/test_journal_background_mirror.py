@@ -29,9 +29,9 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub import background_runs, journal_background, journal_runtime
-from opaihub.journal_runtime import EVENT_ADMITTED, EVENT_FINISHED, EVENT_TRANSITIONED
-from opaihub.journal_store import journal_path, open_store
+from vestahub import background_runs, journal_background, journal_runtime
+from vestahub.journal_runtime import EVENT_ADMITTED, EVENT_FINISHED, EVENT_TRANSITIONED
+from vestahub.journal_store import journal_path, open_store
 
 WORKFLOW = "bug_fix"
 
@@ -224,7 +224,7 @@ class TheLoopActuallyClosesTests(_BackgroundFixture):
             )
 
     def test_a_migrated_project_qualifies_against_its_own_legacy_record(self):
-        from opaihub import journal_reader
+        from vestahub import journal_reader
 
         self._finished(25)
 
@@ -239,7 +239,7 @@ class TheLoopActuallyClosesTests(_BackgroundFixture):
     def test_retirement_reaches_ready_on_a_real_corpus(self):
         """The end state of the migration, proved rather than asserted."""
 
-        from opaihub import journal_retirement
+        from vestahub import journal_retirement
 
         self._finished(25)
 
@@ -254,7 +254,7 @@ class TheLoopActuallyClosesTests(_BackgroundFixture):
     def test_a_disagreement_between_the_halves_blocks(self):
         """Teeth: the comparison has to be able to fail, or it proves nothing."""
 
-        from opaihub import journal_retirement
+        from vestahub import journal_retirement
 
         self._finished(25)
         corpus = journal_background.legacy_runs(self.root)
@@ -299,7 +299,7 @@ class TheMirrorOpensTheStoreOnceTests(_BackgroundFixture):
     """
 
     def _opens_during(self, action) -> int:
-        from opaihub import journal_store
+        from vestahub import journal_store
 
         calls = 0
         real = journal_store.open_store

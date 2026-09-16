@@ -5,11 +5,11 @@ Thanks for helping Vesta become a low-cost, local-first AI coding hub.
 ## Development Setup
 
 ```sh
-git clone https://github.com/MarcoLadeira/OPai.git
+git clone https://github.com/MarcoLadeira/Vesta.git
 cd Vesta
 python -m pip install -e ".[test]"
 python -m unittest discover -s tests
-python -m opaihub validate
+python -m vestahub validate
 ```
 
 ## Local Rules

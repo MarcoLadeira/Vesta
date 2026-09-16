@@ -32,8 +32,8 @@ import textwrap
 import unittest
 from pathlib import Path
 
-from opaihub import journal_qualification, journal_reader
-from opaihub.journal_runtime import (
+from vestahub import journal_qualification, journal_reader
+from vestahub.journal_runtime import (
     EVENT_ADMITTED,
     EVENT_COSTED,
     EVENT_FINISHED,
@@ -45,7 +45,7 @@ from opaihub.journal_runtime import (
     record_terminal,
     record_verification,
 )
-from opaihub.journal_store import (
+from vestahub.journal_store import (
     INTEGRITY_COMPLETE,
     check_integrity,
     open_store,
@@ -62,7 +62,7 @@ def _run_child(root: Path, body: str) -> subprocess.CompletedProcess:
         import sys
         sys.path.insert(0, {repo!r})
         from pathlib import Path
-        from opaihub.journal_runtime import (
+        from vestahub.journal_runtime import (
             EVENT_FINISHED, EVENT_STARTED, record_admission, record_event,
             record_terminal,
         )
@@ -551,7 +551,7 @@ class AllSevenStagesTogetherTests(_EndToEndFixture):
         return legacy
 
     def test_the_full_migration_reaches_a_state_where_legacy_is_not_needed(self):
-        from opaihub import idempotency, journal_operations, journal_retirement
+        from vestahub import idempotency, journal_operations, journal_retirement
 
         legacy = self._migrated_installation()
 
@@ -594,7 +594,7 @@ class AllSevenStagesTogetherTests(_EndToEndFixture):
         recomputed rather than remembered.
         """
 
-        from opaihub import idempotency, journal_retirement
+        from vestahub import idempotency, journal_retirement
 
         legacy = self._migrated_installation()
         self.assertFalse(
@@ -617,7 +617,7 @@ class AllSevenStagesTogetherTests(_EndToEndFixture):
     def test_the_integrity_of_the_whole_history_survives_the_full_run(self):
         self._migrated_installation()
 
-        from opaihub.journal_store import INTEGRITY_COMPLETE, check_integrity
+        from vestahub.journal_store import INTEGRITY_COMPLETE, check_integrity
 
         store = self._store()
         report = check_integrity(store)

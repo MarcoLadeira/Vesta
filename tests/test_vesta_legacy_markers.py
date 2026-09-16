@@ -14,15 +14,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opai.clients import client_integrations_status
-from opai.context_slim import write_ai_ignore_files
-from opai.integrations import (
+from vesta.clients import client_integrations_status
+from vesta.context_slim import write_ai_ignore_files
+from vesta.integrations import (
     activate_project,
     install_global_integrations,
     project_status,
-    uninstall_opai,
+    uninstall_vesta,
 )
-from opaihub.context_engine import generate_client_ignores
+from vestahub.context_engine import generate_client_ignores
 
 LEGACY_BLOCK = (
     "<!-- OPai managed block: start -->\n"
@@ -80,28 +80,30 @@ class LegacyManagedBlockTests(unittest.TestCase):
             for client in client_integrations_status(self.project, self.home)["clients"]
         }
         for client_id in ("claude", "codex"):
-            # Recognised as managed; the only thing left to repair is the global
-            # discovery file this bare test home does not have.
+            # Recognised as managed, but flagged for repair: the old block names
+            # commands that no longer exist.
+            self.assertEqual(len(clients[client_id]["project_managed"]), 1)
+            self.assertEqual(clients[client_id]["status"], "broken")
             self.assertEqual(
                 clients[client_id]["reason"],
-                "Project file is managed but global discovery file is missing.",
+                "Vesta managed block was written before the rename; repair it.",
             )
 
         status = project_status(self.project, home=self.home)
         for name in ("agents", "claude"):
             instructions = status["project"]["instructions"][name]
-            self.assertTrue(instructions["opai_block"], name)
-            self.assertTrue(instructions["opai_block_at_top"], name)
+            self.assertTrue(instructions["vesta_block"], name)
+            self.assertTrue(instructions["vesta_block_at_top"], name)
 
     def test_uninstall_removes_an_old_block_and_keeps_user_content(self):
         claude = self.home / ".claude" / "CLAUDE.md"
         claude.parent.mkdir(parents=True)
         claude.write_text(LEGACY_BLOCK + "\n\n# My own notes\n", encoding="utf-8")
 
-        planned = uninstall_opai(self.project, home=self.home, dry_run=True)
+        planned = uninstall_vesta(self.project, home=self.home, dry_run=True)
         self.assertIn(str(claude), planned["planned_block_strips"])
 
-        uninstall_opai(self.project, home=self.home, dry_run=False)
+        uninstall_vesta(self.project, home=self.home, dry_run=False)
         text = claude.read_text(encoding="utf-8")
         self.assertNotIn("managed block", text)
         self.assertIn("# My own notes", text)
@@ -122,7 +124,6 @@ class LegacyManagedBlockTests(unittest.TestCase):
         self.assertNotIn("OPai managed block", text)
         self.assertNotIn("old;", text)
         self.assertIn("vesta() {", text)
-        self.assertIn("opai() {", text)
         self.assertIn("export EDITOR=vim", text)
 
 
@@ -143,6 +144,26 @@ class LegacyIgnoreRulesTests(unittest.TestCase):
         self.assertEqual(text.count("# end Vesta rules"), 1)
         self.assertNotIn("OPai", text)
         self.assertIn("secrets/", text)
+
+    def test_an_old_block_gets_the_renamed_state_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".clineignore").write_text(
+                "# mine\nsecrets/\n\n# OPai context-slimming rules (managed)\n"
+                ".git/\n.opaihub/\nnode_modules/\n# end OPai rules\nafter-block/\n",
+                encoding="utf-8",
+            )
+
+            generate_client_ignores(root, ["cline"])
+            again = generate_client_ignores(root, ["cline"])
+            lines = (root / ".clineignore").read_text(encoding="utf-8").splitlines()
+
+        self.assertEqual(again["results"][0]["status"], "already_managed")
+        self.assertEqual(lines.count(".vestahub/"), 1)
+        self.assertNotIn(".opaihub/", lines)
+        self.assertEqual(lines.count("# Vesta context-slimming rules (managed)"), 1)
+        for mine in ("# mine", "secrets/", "after-block/"):
+            self.assertIn(mine, lines)
 
     def test_ai_ignore_files_rename_the_old_header(self):
         with tempfile.TemporaryDirectory() as tmp:

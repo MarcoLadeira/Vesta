@@ -31,8 +31,8 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
-import opaihub.gui_pipeline as gui_pipeline
-from opaihub import journal_runtime
+import vestahub.gui_pipeline as gui_pipeline
+from vestahub import journal_runtime
 
 NOW = "2026-09-10T10:00:00+00:00"
 

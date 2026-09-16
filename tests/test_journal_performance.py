@@ -31,7 +31,7 @@ import time
 import unittest
 from pathlib import Path
 
-from opaihub.journal_store import (
+from vestahub.journal_store import (
     append_event,
     canonical_bytes,
     journal_path,
@@ -283,7 +283,7 @@ class PerformanceEvidenceTests(unittest.TestCase):
                 store.close()
 
         evidence = {
-            "report": "opai-journal-performance",
+            "report": "vesta-journal-performance",
             "events": len(latencies),
             "append_p50_ms": round(_percentile(latencies, 0.50), 3),
             "append_p95_ms": round(_percentile(latencies, 0.95), 3),

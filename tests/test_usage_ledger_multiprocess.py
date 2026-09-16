@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from opaihub.ledger import ledger_head_path, read_events
+from vestahub.ledger import ledger_head_path, read_events
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,8 +21,8 @@ import sys
 import time
 from pathlib import Path
 
-from opaihub.ledger import record_model_call_finalized, record_model_call_started, reset_usage_baseline
-from opaihub.usage_report import ProviderTurnUsage
+from vestahub.ledger import record_model_call_finalized, record_model_call_started, reset_usage_baseline
+from vestahub.usage_report import ProviderTurnUsage
 
 root = Path(sys.argv[1])
 barrier = Path(sys.argv[2])

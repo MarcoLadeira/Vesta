@@ -16,8 +16,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub import github_connector as gc
-from opaihub.local_runner import FreeAPIRunner
+from vestahub import github_connector as gc
+from vestahub.local_runner import FreeAPIRunner
 
 from tests._helpers import isolated_home, make_repo
 
@@ -112,7 +112,7 @@ class FreeRunnerPushPrLoopTests(unittest.TestCase):
             with (
                 mock.patch.object(runner, "_chat", side_effect=script),
                 mock.patch(
-                    "opaihub.github_connector.create_pull_request",
+                    "vestahub.github_connector.create_pull_request",
                     return_value={
                         "ok": True,
                         "url": "https://github.com/o/r/pull/9",
@@ -167,7 +167,7 @@ class FreeRunnerPushPrLoopTests(unittest.TestCase):
             ]
             with (
                 mock.patch.object(runner, "_chat", side_effect=script),
-                mock.patch("opaihub.github_connector.create_pull_request") as fake_pr,
+                mock.patch("vestahub.github_connector.create_pull_request") as fake_pr,
             ):
                 result = runner.complete_with_tools(
                     "push it", project_root=root, allow_edits=True
@@ -194,7 +194,7 @@ class FreeRunnerPushPrLoopTests(unittest.TestCase):
             ]
             with (
                 mock.patch.object(runner, "_chat", side_effect=script),
-                mock.patch("opaihub.github_connector.create_pull_request") as fake_pr,
+                mock.patch("vestahub.github_connector.create_pull_request") as fake_pr,
             ):
                 result = runner.complete_with_tools(
                     "push it", project_root=root, allow_edits=True

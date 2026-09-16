@@ -8,14 +8,14 @@ import pytest
 
 from _helpers import make_repo
 
-from opai import cli
-from opai.cockpit import build_cockpit
-from opai.compatibility import runtime_compatibility_payload
-from opai.installer import install_project
-from opai.release_identity import current_release_identity
-from opaihub.gui_pipeline import build_savings_receipt
-from opaihub.receipt import build_receipt
-from opaihub.support_bundle import build_support_bundle
+from vesta import cli
+from vesta.cockpit import build_cockpit
+from vesta.compatibility import runtime_compatibility_payload
+from vesta.installer import install_project
+from vesta.release_identity import current_release_identity
+from vestahub.gui_pipeline import build_savings_receipt
+from vestahub.receipt import build_receipt
+from vestahub.support_bundle import build_support_bundle
 
 
 def _expected_identity() -> dict[str, str]:
@@ -51,11 +51,14 @@ def test_top_level_version_flag_reports_version_stage_and_build(capsys) -> None:
 
 
 def test_persisted_support_install_and_receipt_surfaces_share_safe_identity() -> None:
-    with tempfile.TemporaryDirectory() as temporary:
+    with (
+        tempfile.TemporaryDirectory() as temporary,
+        tempfile.TemporaryDirectory() as home,
+    ):
         root = make_repo(Path(temporary))
         support = build_support_bundle(root)
         installed = install_project(
-            root, install_tools=False, install_superpowers=False
+            root, install_tools=False, install_superpowers=False, home=Path(home)
         )
         receipt = build_receipt(root, sign=False)
         run_receipt = build_savings_receipt(

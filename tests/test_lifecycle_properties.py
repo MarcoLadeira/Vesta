@@ -15,8 +15,8 @@ import unittest
 
 from hypothesis import HealthCheck, given, settings, strategies as st
 
-from opaihub.generated_lifecycle import STATE_IDS, TERMINAL_STATE_IDS, transition_spec
-from opaihub.run_state import RunState, transition
+from vestahub.generated_lifecycle import STATE_IDS, TERMINAL_STATE_IDS, transition_spec
+from vestahub.run_state import RunState, transition
 
 
 _STATE_STRATEGY = st.sampled_from(STATE_IDS)

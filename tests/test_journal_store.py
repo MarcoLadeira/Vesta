@@ -27,8 +27,8 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from opaihub import journal_store
-from opaihub.journal_store import (
+from vestahub import journal_store
+from vestahub.journal_store import (
     INTEGRITY_COMPLETE,
     INTEGRITY_CORRUPT,
     INTEGRITY_DEGRADED,

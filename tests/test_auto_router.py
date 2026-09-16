@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub import auto_router, provider_reliability as reliability
+from vestahub import auto_router, provider_reliability as reliability
 
 
 def _free(model_id: str, provider: str) -> dict:

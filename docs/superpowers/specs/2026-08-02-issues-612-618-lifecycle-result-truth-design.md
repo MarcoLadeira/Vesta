@@ -9,12 +9,12 @@ validated `RunResult` projection derived from that lifecycle and its evidence.
 
 ## Scope and boundaries
 
-`opaihub/lifecycle_schema.json` is the editable source. A deterministic,
+`vestahub/lifecycle_schema.json` is the editable source. A deterministic,
 standard-library generator reads it and produces four reviewed projections:
 
-- `opaihub/generated_lifecycle.py` for Python runtime/state/CLI users;
-- `opai/assets/web/generated-lifecycle.js` for browser consumers;
-- `opaihub/data/lifecycle-fixtures.json` for CLI, background, and
+- `vestahub/generated_lifecycle.py` for Python runtime/state/CLI users;
+- `vesta/assets/web/generated-lifecycle.js` for browser consumers;
+- `vestahub/data/lifecycle-fixtures.json` for CLI, background, and
   cross-language golden vectors;
 - `docs/lifecycle-schema.md` as the human-readable reference.
 
@@ -22,14 +22,14 @@ The generator has a `--check` mode. Generated-file headers identify the source
 and generator, and CI invokes the check before formatting and tests. No runtime
 loads or executes the generator.
 
-`opaihub/run_state.py` remains the stable public API but becomes a thin adapter
+`vestahub/run_state.py` remains the stable public API but becomes a thin adapter
 over the generated Python projection. It records illegal edges with a durable
 diagnostic sink supplied by callers; in-memory diagnostics remain developer
 visibility only. The browser message reducer reads the generated browser graph
 and may retain presentation aliases, but aliases can only project to canonical
 states and may not define a canonical edge.
 
-`opaihub/run_result.py` defines the versioned, immutable `RunResult` envelope.
+`vestahub/run_result.py` defines the versioned, immutable `RunResult` envelope.
 It has typed lifecycle, provider, retry/recovery, verification, delivery,
 economic, authority, diagnostics, and presentation fields. Construction rejects
 impossible terminal/evidence combinations (for example, completed without

@@ -32,12 +32,12 @@ smoke gates.
 
 | File | Responsibility |
 | --- | --- |
-| `opaihub/provider_protocol.py` | Versioned request/event/usage/readiness data models and validation. |
-| `opaihub/provider_catalog.py` | Load and validate the immutable v1 catalog; render the matrix. |
-| `opaihub/data/provider_catalog/v1.json` | Production catalog snapshot with source, expiry, capability, and pricing metadata. |
-| `opaihub/provider_adapters.py` | Compatibility facade over catalog capabilities, readiness, event normalization, and safe probe traces. |
-| `opaihub/provider_capabilities.py` | Build legacy `ProviderProfile` values from catalog records. |
-| `opai/app_state.py`, `opaihub/accounts.py` | Carry additive catalog/protocol/readiness records to GUI, CLI, and doctor. |
+| `vestahub/provider_protocol.py` | Versioned request/event/usage/readiness data models and validation. |
+| `vestahub/provider_catalog.py` | Load and validate the immutable v1 catalog; render the matrix. |
+| `vestahub/data/provider_catalog/v1.json` | Production catalog snapshot with source, expiry, capability, and pricing metadata. |
+| `vestahub/provider_adapters.py` | Compatibility facade over catalog capabilities, readiness, event normalization, and safe probe traces. |
+| `vestahub/provider_capabilities.py` | Build legacy `ProviderProfile` values from catalog records. |
+| `vesta/app_state.py`, `vestahub/accounts.py` | Carry additive catalog/protocol/readiness records to GUI, CLI, and doctor. |
 | `tests/provider_conformance.py` | Deterministic mock adapter, scripted traces, and shared conformance assertions. |
 | `tests/test_provider_catalog.py`, `tests/test_provider_protocol.py`, `tests/test_provider_conformance.py` | Catalog, protocol, property, parity, and negative-contract tests. |
 | `tests/fixtures/provider_catalog/v1.json` | Byte-identical replay fixture for the catalog. |
@@ -49,8 +49,8 @@ smoke gates.
 ### Task 1: Add the pinned catalog and reproducible test dependency
 
 **Files:**
-- Create: `opaihub/data/provider_catalog/v1.json`
-- Create: `opaihub/provider_catalog.py`
+- Create: `vestahub/data/provider_catalog/v1.json`
+- Create: `vestahub/provider_catalog.py`
 - Create: `tests/fixtures/provider_catalog/v1.json`
 - Create: `tests/test_provider_catalog.py`
 - Modify: `pyproject.toml:15-42`
@@ -87,7 +87,7 @@ class ProviderCatalogTests(unittest.TestCase):
 
 Run: `python -m unittest tests.test_provider_catalog -v`
 
-Expected: `ModuleNotFoundError: No module named 'opaihub.provider_catalog'`.
+Expected: `ModuleNotFoundError: No module named 'vestahub.provider_catalog'`.
 
 - [ ] **Step 3: Add the v1 schema, loader, and dependency wiring**
 
@@ -96,7 +96,7 @@ Expected: `ModuleNotFoundError: No module named 'opaihub.provider_catalog'`.
 test = ["hypothesis==6.160.0"]
 
 [tool.setuptools.package-data]
-opaihub = [
+vestahub = [
     "data/hub/**/*",
     "data/provider_catalog/*.json",
 ]
@@ -132,14 +132,14 @@ Expected: all catalog tests pass without network access.
 - [ ] **Step 5: Commit the self-contained catalog foundation**
 
 ```bash
-git add pyproject.toml CONTRIBUTING.md .github/workflows/ci.yml .github/workflows/ci-selfhosted.yml opaihub/provider_catalog.py opaihub/data/provider_catalog/v1.json tests/fixtures/provider_catalog/v1.json tests/test_provider_catalog.py
+git add pyproject.toml CONTRIBUTING.md .github/workflows/ci.yml .github/workflows/ci-selfhosted.yml vestahub/provider_catalog.py vestahub/data/provider_catalog/v1.json tests/fixtures/provider_catalog/v1.json tests/test_provider_catalog.py
 git commit -m "feat(providers): add versioned provider catalog"
 ```
 
 ### Task 2: Define and test the protocol validator
 
 **Files:**
-- Create: `opaihub/provider_protocol.py`
+- Create: `vestahub/provider_protocol.py`
 - Create: `tests/test_provider_protocol.py`
 
 - [ ] **Step 1: Write failing protocol and generated-property tests**
@@ -168,7 +168,7 @@ class ProviderProtocolTests(unittest.TestCase):
 
 Run: `python -m unittest tests.test_provider_protocol -v`
 
-Expected: import failure for `opaihub.provider_protocol`.
+Expected: import failure for `vestahub.provider_protocol`.
 
 - [ ] **Step 3: Implement the immutable protocol boundary**
 
@@ -241,15 +241,15 @@ rejected for the asserted rule.
 - [ ] **Step 5: Commit the validated protocol core**
 
 ```bash
-git add opaihub/provider_protocol.py tests/test_provider_protocol.py
+git add vestahub/provider_protocol.py tests/test_provider_protocol.py
 git commit -m "feat(providers): validate adapter protocol events"
 ```
 
 ### Task 3: Migrate adapter and legacy profile truth to the catalog
 
 **Files:**
-- Modify: `opaihub/provider_adapters.py:13-16, 160-387`
-- Modify: `opaihub/provider_capabilities.py:106-246, 277-320`
+- Modify: `vestahub/provider_adapters.py:13-16, 160-387`
+- Modify: `vestahub/provider_capabilities.py:106-246, 277-320`
 - Modify: `tests/test_provider_adapters.py`
 - Modify: `tests/test_provider_capabilities.py`
 
@@ -312,15 +312,15 @@ pass.
 - [ ] **Step 5: Commit adapter migration**
 
 ```bash
-git add opaihub/provider_adapters.py opaihub/provider_capabilities.py tests/test_provider_adapters.py tests/test_provider_capabilities.py
+git add vestahub/provider_adapters.py vestahub/provider_capabilities.py tests/test_provider_adapters.py tests/test_provider_capabilities.py
 git commit -m "feat(providers): derive adapter truth from catalog"
 ```
 
 ### Task 4: Reconcile doctor, picker, and CLI payloads
 
 **Files:**
-- Modify: `opaihub/accounts.py:871-1025`
-- Modify: `opai/app_state.py:554-710`
+- Modify: `vestahub/accounts.py:871-1025`
+- Modify: `vesta/app_state.py:554-710`
 - Create: `tests/test_provider_contract_surfaces.py`
 - Modify: `tests/test_connection_doctor.py`
 
@@ -375,7 +375,7 @@ Expected: GUI/CLI/doctor records agree and all legacy doctor/picker tests pass.
 - [ ] **Step 5: Commit cross-surface wiring**
 
 ```bash
-git add opaihub/accounts.py opai/app_state.py tests/test_provider_contract_surfaces.py tests/test_connection_doctor.py
+git add vestahub/accounts.py vesta/app_state.py tests/test_provider_contract_surfaces.py tests/test_connection_doctor.py
 git commit -m "feat(providers): expose shared adapter contract to surfaces"
 ```
 
@@ -430,8 +430,8 @@ def assert_conforms(events: Sequence[ProviderEvent], record: ProviderCatalogReco
 ```
 
 Extend the existing live smoke class with one subtest per catalog provider. The
-test runs only when both `OPAI_LIVE_PROVIDER_SMOKE=1` and that provider appears
-in `OPAI_LIVE_PROVIDER_SMOKE_PROVIDERS`. It calls the adapter's existing safe
+test runs only when both `VESTA_LIVE_PROVIDER_SMOKE=1` and that provider appears
+in `VESTA_LIVE_PROVIDER_SMOKE_PROVIDERS`. It calls the adapter's existing safe
 probe path, converts its result to a protocol readiness trace, and validates
 the same catalog/SLO/version contract. It must skip with the provider name and
 missing prerequisite when a gate, binary, endpoint, model, or credential is
@@ -522,13 +522,13 @@ gates; no secrets appear in output.
 
 - [ ] **Step 3: Run the complete Python suite and canonical local gate**
 
-Run: `python -m unittest discover -s tests && python -m opaihub validate && python scripts/ci_local.py`
+Run: `python -m unittest discover -s tests && python -m vestahub validate && python scripts/ci_local.py`
 
 Expected: all commands exit 0.
 
 - [ ] **Step 4: Review the final diff and scan staged content**
 
-Run: `git diff --check origin/main && git diff --check && detect-secrets scan --all-files --exclude-files "(^|[\\/])\.opcoding([\\/]|$)|(^|[\\/])\.opaihub([\\/]|$)"`
+Run: `git diff --check origin/main && git diff --check && detect-secrets scan --all-files --exclude-files "(^|[\\/])\.opcoding([\\/]|$)|(^|[\\/])\.vestahub([\\/]|$)"`
 
 Expected: no whitespace errors and no unreviewed secrets. Confirm only the
 protocol/catalog/conformance files and required CI/docs changes are staged.
@@ -536,7 +536,7 @@ protocol/catalog/conformance files and required CI/docs changes are staged.
 - [ ] **Step 5: Create the final implementation commit and prepare the PR**
 
 ```bash
-git add -- pyproject.toml CONTRIBUTING.md CHANGELOG.md .github/workflows/ci.yml .github/workflows/ci-selfhosted.yml opaihub/provider_protocol.py opaihub/provider_catalog.py opaihub/provider_adapters.py opaihub/provider_capabilities.py opaihub/data/provider_catalog/v1.json opai/app_state.py opaihub/accounts.py tests/provider_conformance.py tests/test_provider_catalog.py tests/test_provider_protocol.py tests/test_provider_conformance.py tests/test_provider_contract_surfaces.py tests/test_provider_adapters.py tests/test_provider_capabilities.py tests/test_connection_doctor.py tests/test_live_provider_smoke.py tests/fixtures/provider_catalog/v1.json docs/PROVIDER_ADAPTER_CONFORMANCE.md
+git add -- pyproject.toml CONTRIBUTING.md CHANGELOG.md .github/workflows/ci.yml .github/workflows/ci-selfhosted.yml vestahub/provider_protocol.py vestahub/provider_catalog.py vestahub/provider_adapters.py vestahub/provider_capabilities.py vestahub/data/provider_catalog/v1.json vesta/app_state.py vestahub/accounts.py tests/provider_conformance.py tests/test_provider_catalog.py tests/test_provider_protocol.py tests/test_provider_conformance.py tests/test_provider_contract_surfaces.py tests/test_provider_adapters.py tests/test_provider_capabilities.py tests/test_connection_doctor.py tests/test_live_provider_smoke.py tests/fixtures/provider_catalog/v1.json docs/PROVIDER_ADAPTER_CONFORMANCE.md
 git commit -m "feat(providers): enforce adapter conformance protocol"
 git push -u origin codex/issue-533-provider-adapter-conformance
 ```

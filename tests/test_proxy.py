@@ -12,9 +12,9 @@ from pathlib import Path
 from unittest import mock
 
 from _helpers import FakeAccountRunner, isolated_home, make_repo
-from opaihub.budget import budget_status
-from opaihub.ledger import EVENT_MODEL_CALL, read_events
-from opaihub.proxy import SUPPORTED_AGENTS, proxy_run
+from vestahub.budget import budget_status
+from vestahub.ledger import EVENT_MODEL_CALL, read_events
+from vestahub.proxy import SUPPORTED_AGENTS, proxy_run
 
 
 def _model_calls(root: Path) -> list[dict]:
@@ -138,10 +138,10 @@ class FailOpenTests(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
-    def test_fail_open_runs_raw_agent_when_opai_path_errors(self):
+    def test_fail_open_runs_raw_agent_when_vesta_path_errors(self):
         fake = FakeAccountRunner(text="raw answer", cost=0.01)
         with mock.patch(
-            "opai.app_state._ask_account", side_effect=RuntimeError("opai broke")
+            "vesta.app_state._ask_account", side_effect=RuntimeError("vesta broke")
         ):
             result = proxy_run(self.root, "task", agent="claude", runner=fake)
         self.assertEqual(result["status"], "fail_open")
@@ -154,7 +154,7 @@ class FailOpenTests(unittest.TestCase):
                 return False
 
         with mock.patch(
-            "opai.app_state._ask_account", side_effect=RuntimeError("opai broke")
+            "vesta.app_state._ask_account", side_effect=RuntimeError("vesta broke")
         ):
             result = proxy_run(self.root, "task", agent="claude", runner=Broken())
         self.assertEqual(result["status"], "fail_open_unavailable")
@@ -204,13 +204,13 @@ class ProxyCliTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_cli_unsupported_agent_exits_nonzero(self):
-        from opai.cli import main
+        from vesta.cli import main
 
         rc = main(["proxy", "cursor", "do x", "--project", str(self.root)])
         self.assertEqual(rc, 1)
 
     def test_cli_no_connected_account_exits_cleanly(self):
-        from opai.cli import main
+        from vesta.cli import main
 
         # Hermetic: isolate HOME so no real account is ever detected (and a real
         # claude/codex CLI is never invoked) -> account_not_connected, exit 1,

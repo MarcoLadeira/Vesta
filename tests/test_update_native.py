@@ -9,17 +9,17 @@ from pathlib import Path
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from opai.update.models import InstallType, UpdateCandidate
-from opai.update.native import MacOSSparkleAdapter, WindowsMsixAdapter
+from vesta.update.models import InstallType, UpdateCandidate
+from vesta.update.native import MacOSSparkleAdapter, WindowsMsixAdapter
 
 
 def _candidate(install_type: InstallType, **overrides: object) -> UpdateCandidate:
     native: dict[str, object]
     if install_type is InstallType.WINDOWS_MSIX:
         native = {
-            "package_name": "OPai.Desktop",
+            "package_name": "Vesta.Desktop",
             "windows_signer_thumbprint": "A" * 40,
-            "appinstaller_url": "https://updates.example.test/stable/OPai.appinstaller",
+            "appinstaller_url": "https://updates.example.test/stable/Vesta.appinstaller",
         }
         publisher = "CN=Vesta"
         suffix = "msix"
@@ -39,7 +39,7 @@ def _candidate(install_type: InstallType, **overrides: object) -> UpdateCandidat
         "platform": "windows" if install_type is InstallType.WINDOWS_MSIX else "macos",
         "architecture": "x86_64",
         "install_type": install_type,
-        "artifact_url": f"https://updates.example.test/OPai.{suffix}",
+        "artifact_url": f"https://updates.example.test/Vesta.{suffix}",
         "artifact_sha256": "a" * 64,
         "artifact_size": 1,
         "publisher_identity": publisher,
@@ -50,20 +50,20 @@ def _candidate(install_type: InstallType, **overrides: object) -> UpdateCandidat
 
 
 def _msix(
-    path: Path, *, name: str = "OPai.Desktop", publisher: str = "CN=Vesta"
+    path: Path, *, name: str = "Vesta.Desktop", publisher: str = "CN=Vesta"
 ) -> None:
     manifest = (
         '<?xml version="1.0" encoding="utf-8"?>'
         '<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10">'
         f'<Identity Name="{name}" Publisher="{publisher}" Version="0.3.0.0" />'
-        '<Applications><Application Id="OPai" /></Applications></Package>'
+        '<Applications><Application Id="Vesta" /></Applications></Package>'
     )
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr("AppxManifest.xml", manifest)
 
 
 def test_windows_adapter_requires_manifest_and_native_signer_continuity(tmp_path: Path):
-    artifact = tmp_path / "OPai.msix"
+    artifact = tmp_path / "Vesta.msix"
     _msix(artifact)
     calls: list[list[str]] = []
 
@@ -113,14 +113,14 @@ def test_windows_authenticates_package_before_parsing_untrusted_xml(tmp_path: Pa
     ("name", "publisher", "thumbprint", "category"),
     [
         ("Attacker.App", "CN=Vesta", "A" * 40, "package_identity_mismatch"),
-        ("OPai.Desktop", "CN=Attacker", "A" * 40, "publisher_mismatch"),
-        ("OPai.Desktop", "CN=Vesta", "B" * 40, "certificate_mismatch"),
+        ("Vesta.Desktop", "CN=Attacker", "A" * 40, "publisher_mismatch"),
+        ("Vesta.Desktop", "CN=Vesta", "B" * 40, "certificate_mismatch"),
     ],
 )
 def test_windows_adapter_rejects_identity_mix_and_match(
     tmp_path: Path, name: str, publisher: str, thumbprint: str, category: str
 ):
-    artifact = tmp_path / "OPai.msix"
+    artifact = tmp_path / "Vesta.msix"
     _msix(artifact, name=name, publisher=publisher)
 
     def run(command: list[str]) -> subprocess.CompletedProcess[str]:
@@ -144,7 +144,7 @@ def test_windows_adapter_rejects_identity_mix_and_match(
 def test_windows_install_uses_native_package_deployment_and_never_a_shell(
     tmp_path: Path,
 ):
-    artifact = tmp_path / "OPai.msix"
+    artifact = tmp_path / "Vesta.msix"
     _msix(artifact)
     launches: list[list[str]] = []
 
@@ -202,12 +202,12 @@ def test_windows_rollback_uses_observed_helper_and_relaunches_package(tmp_path: 
 
 def _sparkle_archive(path: Path) -> bytes:
     with zipfile.ZipFile(path, "w") as archive:
-        archive.writestr("OPai.app/Contents/MacOS/OPai", b"binary")
+        archive.writestr("Vesta.app/Contents/MacOS/Vesta", b"binary")
     return path.read_bytes()
 
 
 def test_sparkle_adapter_verifies_eddsa_and_apple_team_identity(tmp_path: Path):
-    artifact = tmp_path / "OPai.zip"
+    artifact = tmp_path / "Vesta.zip"
     body = _sparkle_archive(artifact)
     key = Ed25519PrivateKey.generate()
     public = key.public_key().public_bytes_raw()
@@ -229,7 +229,7 @@ def test_sparkle_adapter_verifies_eddsa_and_apple_team_identity(tmp_path: Path):
         sparkle_public_key=base64.b64encode(public).decode(),
         run=run,
         sparkle_cli=tmp_path / "sparkle",
-        app_bundle=tmp_path / "OPai.app",
+        app_bundle=tmp_path / "Vesta.app",
     ).verify(artifact, candidate)
 
     assert result.verified is True
@@ -237,7 +237,7 @@ def test_sparkle_adapter_verifies_eddsa_and_apple_team_identity(tmp_path: Path):
 
 
 def test_sparkle_install_delegates_transaction_to_sparkle_cli(tmp_path: Path):
-    artifact = tmp_path / "OPai.zip"
+    artifact = tmp_path / "Vesta.zip"
     artifact.write_bytes(b"verified")
     launches: list[list[str]] = []
 
@@ -248,7 +248,7 @@ def test_sparkle_install_delegates_transaction_to_sparkle_cli(tmp_path: Path):
     sparkle.write_bytes(b"helper")
     appcast = (
         b'<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">'
-        b'<channel><item><enclosure url="https://updates.example.test/OPai.zip" '
+        b'<channel><item><enclosure url="https://updates.example.test/Vesta.zip" '
         b'sparkle:version="0.3.0" sparkle:edSignature="sig" length="8" />'
         b"</item></channel></rss>"
     )
@@ -265,7 +265,7 @@ def test_sparkle_install_delegates_transaction_to_sparkle_cli(tmp_path: Path):
     adapter = MacOSSparkleAdapter(
         sparkle_public_key=base64.b64encode(b"x" * 32).decode(),
         sparkle_cli=sparkle,
-        app_bundle=tmp_path / "OPai.app",
+        app_bundle=tmp_path / "Vesta.app",
         appcast_fetcher=lambda _url: appcast,
         launch=lambda command: launches.append(command) or Process(),
     )
@@ -282,7 +282,7 @@ def test_sparkle_install_delegates_transaction_to_sparkle_cli(tmp_path: Path):
 
 
 def test_sparkle_install_rejects_appcast_not_bound_to_signed_candidate(tmp_path: Path):
-    artifact = tmp_path / "OPai.zip"
+    artifact = tmp_path / "Vesta.zip"
     artifact.write_bytes(b"verified")
     sparkle = tmp_path / "sparkle"
     sparkle.write_bytes(b"helper")
@@ -301,7 +301,7 @@ def test_sparkle_install_rejects_appcast_not_bound_to_signed_candidate(tmp_path:
     result = MacOSSparkleAdapter(
         sparkle_public_key=base64.b64encode(b"x" * 32).decode(),
         sparkle_cli=sparkle,
-        app_bundle=tmp_path / "OPai.app",
+        app_bundle=tmp_path / "Vesta.app",
         appcast_fetcher=lambda _url: appcast,
         launch=lambda command: launches.append(command),
     ).install(artifact, candidate, mode="now")
@@ -322,7 +322,7 @@ def test_sparkle_rollback_uses_verified_recovery_helper_and_relaunches(tmp_path:
     result = MacOSSparkleAdapter(
         sparkle_public_key=base64.b64encode(b"x" * 32).decode(),
         sparkle_cli=tmp_path / "sparkle",
-        app_bundle=tmp_path / "OPai.app",
+        app_bundle=tmp_path / "Vesta.app",
         launch=lambda command: launches.append(command) or Process(),
     ).rollback(
         {

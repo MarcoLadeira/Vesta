@@ -19,8 +19,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub import idempotency
-from opaihub.provider_tools import RepositoryToolExecutor
+from vestahub import idempotency
+from vestahub.provider_tools import RepositoryToolExecutor
 
 from tests._helpers import make_repo
 
@@ -204,7 +204,7 @@ class OpenPrCancellationTests(unittest.TestCase):
             # The push landed; the user cancels in the gap before the PR.
             cancel.set()
             with mock.patch(
-                "opaihub.github_connector.create_pull_request"
+                "vestahub.github_connector.create_pull_request"
             ) as create_pr:
                 result = executor.invoke(
                     "open_pr", {"title": "Fix the thing"}, cancel=cancel

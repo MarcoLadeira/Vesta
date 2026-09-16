@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from opaihub.desktop_artifacts import (  # noqa: E402
+from vestahub.desktop_artifacts import (  # noqa: E402
     EVIDENCE_SCHEMA_VERSION,
     PROVENANCE_NAME,
     ArtifactReleaseError,

@@ -23,8 +23,8 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
-from opaihub.ledger import EVENT_MODEL_CALL, record_model_call
-from opaihub.usage import build_usage_snapshots
+from vestahub.ledger import EVENT_MODEL_CALL, record_model_call
+from vestahub.usage import build_usage_snapshots
 
 MODELS = [{"id": "free:groq:m", "provider": "groq"}]
 

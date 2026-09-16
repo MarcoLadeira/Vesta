@@ -6,14 +6,14 @@ Two criteria meet here:
   AC9 "Savings require verified completion, explicit baseline and price
        snapshot."
 
-``opaihub.ledger.cost_reconciliation`` has always known when a call was
+``vestahub.ledger.cost_reconciliation`` has always known when a call was
 dispatched and never came back — a crash, a timeout, a killed process — and
 it even carries the right sentence:
 
     "N dispatched call(s) have no recorded outcome. Cost incurred by them is
      unknown, so totals below are a lower bound, not a verified figure."
 
-That machinery was adopted by ``opaihub/usage.py`` (Settings -> Model Usage)
+That machinery was adopted by ``vestahub/usage.py`` (Settings -> Model Usage)
 and by nothing else. In particular ``summarize_ledger`` — which backs
 ``vesta savings``, the surface the run receipt explicitly points users to
 ("See the full ledger with: vesta savings") — never asked. Reproduced before
@@ -35,14 +35,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub.ledger import (
+from vestahub.ledger import (
     record_model_call_finalized,
     record_model_call_started,
     record_route_decision,
     summarize_ledger,
 )
-from opaihub.savings import build_savings_report, render_savings_markdown
-from opaihub.usage_report import ProviderTurnUsage
+from vestahub.savings import build_savings_report, render_savings_markdown
+from vestahub.usage_report import ProviderTurnUsage
 
 
 def _dispatch(root: Path, call_id: str) -> None:

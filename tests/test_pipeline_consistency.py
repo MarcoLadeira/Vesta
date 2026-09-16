@@ -18,8 +18,8 @@ from unittest import mock
 
 from _helpers import make_repo
 
-from opaihub import auto_router, provider_blocks as blocks
-from opaihub.gui_pipeline import handle_gui_message
+from vestahub import auto_router, provider_blocks as blocks
+from vestahub.gui_pipeline import handle_gui_message
 
 
 def _catalog(*models: dict) -> dict:
@@ -64,7 +64,7 @@ class TransientRetryPipelineTests(unittest.TestCase):
             calls.append(str(model_choice))
             return results[min(len(calls) - 1, len(results) - 1)]
 
-        with mock.patch("opai.app_state.ask", side_effect=fake_ask):
+        with mock.patch("vesta.app_state.ask", side_effect=fake_ask):
             result = handle_gui_message(
                 self.root,
                 "explain this repo",
@@ -146,8 +146,8 @@ class DeadEndPipelineTests(unittest.TestCase):
 
     def _run_with_catalog(self, catalog: dict):
         with (
-            mock.patch("opai.app_state.ask", return_value=self.STALE_CLI),
-            mock.patch("opai.app_state.available_models", return_value=catalog),
+            mock.patch("vesta.app_state.ask", return_value=self.STALE_CLI),
+            mock.patch("vesta.app_state.available_models", return_value=catalog),
         ):
             return handle_gui_message(
                 self.root,
@@ -234,8 +234,8 @@ class GovernedLanePipelineTests(unittest.TestCase):
             _free("free:groq:llama", "groq", "Groq"),
         )
         with (
-            mock.patch("opai.app_state.ask", side_effect=fake_ask),
-            mock.patch("opai.app_state.available_models", return_value=catalog),
+            mock.patch("vesta.app_state.ask", side_effect=fake_ask),
+            mock.patch("vesta.app_state.available_models", return_value=catalog),
         ):
             result = handle_gui_message(
                 self.root,

@@ -11,16 +11,16 @@ from __future__ import annotations
 import unittest
 import unittest.mock as mock
 
-from opaihub import deepseek_pricing
+from vestahub import deepseek_pricing
 from _helpers import isolated_credential_store
-from opaihub.credentials import PROVIDER_ENV
-from opaihub.local_runner import FreeAPIRunner, PaidAPIRunner, runner_for_model
-from opaihub.paid_api_models import list_paid_api_models, spec_for_model_id
-from opaihub.provider_adapters import FREE_PROVIDERS, PAID_DIRECT_API_PROVIDERS
-from opaihub.provider_adapters import (
+from vestahub.credentials import PROVIDER_ENV
+from vestahub.local_runner import FreeAPIRunner, PaidAPIRunner, runner_for_model
+from vestahub.paid_api_models import list_paid_api_models, spec_for_model_id
+from vestahub.provider_adapters import FREE_PROVIDERS, PAID_DIRECT_API_PROVIDERS
+from vestahub.provider_adapters import (
     test_free_provider_connection as check_direct_provider_connection,
 )
-from opaihub.provider_catalog import provider_ids, provider_record
+from vestahub.provider_catalog import provider_ids, provider_record
 
 
 class CredentialTests(unittest.TestCase):
@@ -63,7 +63,7 @@ class PricingTests(unittest.TestCase):
         """
 
         super().setUp()
-        fresh = mock.patch("opaihub.deepseek_pricing.is_expired", lambda **_: False)
+        fresh = mock.patch("vestahub.deepseek_pricing.is_expired", lambda **_: False)
         fresh.start()
         self.addCleanup(fresh.stop)
 
@@ -123,7 +123,7 @@ class PricingTests(unittest.TestCase):
             "deepseek-v4-flash", input_tokens=1000, output_tokens=1000
         )
         self.assertIsNotNone(cost)  # sanity: fresh snapshot is a real number
-        with mock.patch("opaihub.deepseek_pricing.is_expired", lambda **_: True):
+        with mock.patch("vestahub.deepseek_pricing.is_expired", lambda **_: True):
             stale_cost, stale_measurement = deepseek_pricing.estimate_cost_usd(
                 "deepseek-v4-flash", input_tokens=1000, output_tokens=1000
             )
@@ -145,7 +145,7 @@ class PaidApiModelSpecTests(unittest.TestCase):
 
     def test_unconfigured_model_is_unavailable_with_setup_hint(self):
         with mock.patch(
-            "opaihub.paid_api_models.CredentialStore",
+            "vestahub.paid_api_models.CredentialStore",
             lambda: isolated_credential_store(),
         ):
             entries = list_paid_api_models()
@@ -155,7 +155,7 @@ class PaidApiModelSpecTests(unittest.TestCase):
 
     def test_configured_model_is_available(self):
         with mock.patch(
-            "opaihub.paid_api_models.CredentialStore",
+            "vestahub.paid_api_models.CredentialStore",
             lambda: isolated_credential_store({"DEEPSEEK_API_KEY": "k"}),
         ):
             entries = list_paid_api_models()
@@ -220,7 +220,7 @@ class PaidApiRunnerTests(unittest.TestCase):
 class RunnerFactoryTests(unittest.TestCase):
     def test_paid_prefix_builds_a_paid_api_runner(self):
         with mock.patch(
-            "opaihub.credentials.CredentialStore.get", return_value="fake-key"
+            "vestahub.credentials.CredentialStore.get", return_value="fake-key"
         ):
             runner = runner_for_model("paid:deepseek:deepseek-v4-flash", None)
         self.assertIsInstance(runner, PaidAPIRunner)
@@ -234,7 +234,7 @@ class RunnerFactoryTests(unittest.TestCase):
     def test_free_prefix_still_builds_a_free_api_runner_unchanged(self):
         # Regression guard: adding the paid branch must not touch free:'s path.
         with mock.patch(
-            "opaihub.credentials.CredentialStore.get", return_value="fake-key"
+            "vestahub.credentials.CredentialStore.get", return_value="fake-key"
         ):
             runner = runner_for_model("free:groq:openai/gpt-oss-120b", None)
         self.assertIsInstance(runner, FreeAPIRunner)

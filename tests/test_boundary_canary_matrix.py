@@ -28,7 +28,7 @@ import json
 import subprocess  # nosec B404 - constructing exception fixtures only
 import unittest
 
-from opaihub.boundary_errors import BoundaryError, safe_detail
+from vestahub.boundary_errors import BoundaryError, safe_detail
 
 #: Synthetic credentials. None is real; each is a shape the sanctioned
 #: redactor recognises, chosen because a user could plausibly paste one into a
@@ -173,7 +173,7 @@ class RedactionFailsClosedTests(unittest.TestCase):
         exc = RuntimeError(f"boom {secret}")
 
         with mock.patch(
-            "opaihub.boundary_errors.redact", side_effect=RuntimeError("redactor down")
+            "vestahub.boundary_errors.redact", side_effect=RuntimeError("redactor down")
         ):
             detail = safe_detail(exc)
 
@@ -186,7 +186,7 @@ class RedactionFailsClosedTests(unittest.TestCase):
         from unittest import mock
 
         with mock.patch(
-            "opaihub.boundary_errors.redact", side_effect=RuntimeError("redactor down")
+            "vestahub.boundary_errors.redact", side_effect=RuntimeError("redactor down")
         ):
             detail = safe_detail(ValueError("anything"))
 
@@ -196,7 +196,7 @@ class RedactionFailsClosedTests(unittest.TestCase):
         from unittest import mock
 
         with mock.patch(
-            "opaihub.boundary_errors.redact", side_effect=RuntimeError("redactor down")
+            "vestahub.boundary_errors.redact", side_effect=RuntimeError("redactor down")
         ):
             error = BoundaryError.create(
                 category="provider_transport",

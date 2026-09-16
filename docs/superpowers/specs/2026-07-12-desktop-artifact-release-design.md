@@ -2,12 +2,12 @@
 
 **Date:** 2026-07-12
 **Status:** Approved for implementation under the owner's continuing alpha-programme direction
-**Issue:** [#290 — Build and smoke-test free Windows and macOS desktop artifacts](https://github.com/MarcoLadeira/OPai/issues/290)
+**Issue:** [#290 — Build and smoke-test free Windows and macOS desktop artifacts](https://github.com/MarcoLadeira/Vesta/issues/290)
 
 ## Scope and non-goals
 
-OPai needs a desktop artifact that a user can run without a source checkout,
-their development Python, or a pre-existing OPai install. This slice produces
+Vesta needs a desktop artifact that a user can run without a source checkout,
+their development Python, or a pre-existing Vesta install. This slice produces
 the reproducible build, inventory, smoke, provenance, and signing-status
 contracts for the fully free alpha. It does not add a license, entitlement,
 payment, telemetry, or hosted-release trigger.
@@ -23,19 +23,19 @@ instead of simulating their completion.
 |---|---|
 | Wheel-only release | Already has a useful hermetic smoke, but it does not prove a real desktop GUI application or a source-free launcher. Insufficient for #290. |
 | Add PyInstaller | Would introduce a second packaging stack and a new deployment policy without using the PySide6-supported path. Rejected. |
-| PySide6 Deploy plus Nuitka standalone bundles | Uses the official Qt/PySide deployment path, produces native Windows/macOS launchers, and lets OPai own a small, testable provenance/smoke layer. Selected. |
+| PySide6 Deploy plus Nuitka standalone bundles | Uses the official Qt/PySide deployment path, produces native Windows/macOS launchers, and lets Vesta own a small, testable provenance/smoke layer. Selected. |
 
 ## Artifact contract
 
 A build produces one platform-labelled **portable** bundle with two deployable
 components. The archive filename always carries its release channel, for
-example `OPai-v0.2.0a2-windows-unsigned-prealpha.zip`; an unsigned bundle is
+example `Vesta-v0.2.0a2-windows-unsigned-prealpha.zip`; an unsigned bundle is
 never named or uploaded as a production artifact.
 
 ```text
-OPai-<tag>-<platform>/
-  gui/                  # standalone OPai GUI deployment
-  cli/                  # standalone opai CLI deployment
+Vesta-<tag>-<platform>/
+  gui/                  # standalone Vesta GUI deployment
+  cli/                  # standalone vesta CLI deployment
   provenance.json       # tag, immutable commit, platform, build schema
   SHA256SUMS.txt        # hashes every distributable and evidence file except itself
   signing-status.json   # explicit signed / unsigned-prealpha state
@@ -46,16 +46,16 @@ outside this directory and binds the final ZIP. The in-bundle manifest is an
 inventory check, not an authenticity root; `production_ready` remains false in
 the mutable bundle until a consumer verifies the detached archive attestation.
 
-The GUI entry point is `opai.cli:gui_main`; the CLI entry point is
-`opai.cli:main`. The build configuration explicitly includes the web GUI asset
+The GUI entry point is `vesta.cli:gui_main`; the CLI entry point is
+`vesta.cli:main`. The build configuration explicitly includes the web GUI asset
 tree and hub registry data so a frozen application does not silently fall back
 or lose its runtime registry. The output is standalone rather than one-file so
 inspection, asset validation, and incident diagnosis remain practical.
 
 For the alpha, installation is deliberately a portable lifecycle: extract into
-a user-chosen application directory; upgrade by stopping OPai and replacing the
+a user-chosen application directory; upgrade by stopping Vesta and replacing the
 directory; uninstall by deleting that directory; rollback by restoring the
-previous extracted directory. User state lives outside the artifact in OPai's
+previous extracted directory. User state lives outside the artifact in Vesta's
 normal per-user state directory, so upgrade and uninstall do not silently
 delete it. The runbook and clean-machine smoke must rehearse this lifecycle.
 
@@ -77,7 +77,7 @@ delete it. The runbook and clean-machine smoke must rehearse this lifecycle.
 - An isolated build virtual environment uses exact, hash-locked native inputs
   selected for its operating system. `desktop-build-bootstrap.lock` installs
   the pinned backend before the full Windows/macOS lock installs Nuitka without
-  build isolation; OPai is then installed with `--no-deps`. A lock must be
+  build isolation; Vesta is then installed with `--no-deps`. A lock must be
   generated and reviewed on its matching CPython 3.13 platform—Windows hashes
   are never copied to macOS. Provenance records the Git tag, commit,
   Python/tool versions, operating system, architecture, and build dependency
@@ -108,7 +108,7 @@ delete it. The runbook and clean-machine smoke must rehearse this lifecycle.
   GitHub-hosted runners.
 - The post-build scan checks artifact inventory and logs for secret-shaped
   values, private URLs, and development overrides. The smoke environment clears
-  `PYTHONPATH`, provider credentials, `OPAI_HUB_ROOT`, and source-working-tree
+  `PYTHONPATH`, provider credentials, `VESTA_HUB_ROOT`, and source-working-tree
   influence as well as its home/config directories.
 - The hosted workflow is manual-only. Writing it consumes no Actions minutes;
   an operator must explicitly approve a run after release credentials and
@@ -122,8 +122,8 @@ delete it. The runbook and clean-machine smoke must rehearse this lifecycle.
 | `requirements/desktop-build-bootstrap.lock` | Hash-locked pip/setuptools/wheel bootstrap for the sdist-only Nuitka build. |
 | `requirements/desktop-build.txt` | Small exact PySide6/Nuitka contract recorded by build provenance. |
 | `scripts/desktop_gui_entry.py` and `scripts/desktop_cli_entry.py` | Narrow native-launcher entry points with no policy or license logic. |
-| `opai/gui_web.py` | An artifact-only QtWebEngine/bridge load-and-close smoke seam, exercised only in a real desktop artifact. |
-| `opaihub/desktop_artifacts.py` | Pure release/tag, deployment-spec, manifest, publisher-identity, inventory, portable lifecycle, and smoke helpers. |
+| `vesta/gui_web.py` | An artifact-only QtWebEngine/bridge load-and-close smoke seam, exercised only in a real desktop artifact. |
+| `vestahub/desktop_artifacts.py` | Pure release/tag, deployment-spec, manifest, publisher-identity, inventory, portable lifecycle, and smoke helpers. |
 | `scripts/build_desktop_artifacts.py` | CLI that builds in a dedicated environment, invokes PySide6 Deploy for GUI plus direct Nuitka for CLI, collects component output, and writes unsigned build evidence. |
 | `scripts/finalize_desktop_artifact.py` | Rewrites checksums only after a non-empty external verification log is hashed and identifies the verification tool; it rejects rehearsal provenance and logs inside the bundle. |
 | `scripts/smoke_desktop_artifacts.py` | CLI that verifies a finished bundle, scans it, executes its CLI, invokes its real GUI smoke, and compares helper-process state. |

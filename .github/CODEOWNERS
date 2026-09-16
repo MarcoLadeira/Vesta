@@ -14,11 +14,11 @@
 /scripts/smoke_desktop_artifacts.py @MarcoLadeira
 /opcoding/ci.py @MarcoLadeira
 /opcoding/cli.py @MarcoLadeira
-/opai/cli.py @MarcoLadeira
-/opaihub/github_workflow.py @MarcoLadeira
-/opaihub/provider_canary.py @MarcoLadeira
-/opaihub/release_preflight.py @MarcoLadeira
-/opaihub/desktop_artifacts.py @MarcoLadeira
+/vesta/cli.py @MarcoLadeira
+/vestahub/github_workflow.py @MarcoLadeira
+/vestahub/provider_canary.py @MarcoLadeira
+/vestahub/release_preflight.py @MarcoLadeira
+/vestahub/desktop_artifacts.py @MarcoLadeira
 /requirements-ci.txt @MarcoLadeira
 /pyproject.toml @MarcoLadeira
 /package.json @MarcoLadeira

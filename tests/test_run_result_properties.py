@@ -20,13 +20,13 @@ import unittest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from opaihub.generated_lifecycle import (
+from vestahub.generated_lifecycle import (
     DEGRADED_INPUTS,
     STATE_SPECS,
     TERMINAL_STATE_IDS,
 )
-from opaihub.legacy_status import legacy_status_to_result
-from opaihub.run_result import RunResult
+from vestahub.legacy_status import legacy_status_to_result
+from vestahub.run_result import RunResult
 
 #: #618 requires >=10,000 executed examples. Deadline is disabled because the
 #: builder does real schema validation; a slow machine must not turn a

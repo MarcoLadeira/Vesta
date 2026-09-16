@@ -12,13 +12,13 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-from opai.update.adapters import (
+from vesta.update.adapters import (
     AdapterInstallResult,
     AdapterVerification,
     DeveloperGitUpdateAdapter,
 )
-from opai.update.errors import UpdateError
-from opai.update.models import (
+from vesta.update.errors import UpdateError
+from vesta.update.models import (
     InstallType,
     InstalledBuild,
     UpdateCandidate,
@@ -26,10 +26,10 @@ from opai.update.models import (
     UpdatePolicy,
     UpdateState,
 )
-from opai.update.runtime import ActiveWorkStatus
-from opai.update.service import UpdateService
-from opai.update.service import _jittered_check_interval
-from opai.update.storage import UpdateStore, UpdaterPaths
+from vesta.update.runtime import ActiveWorkStatus
+from vesta.update.service import UpdateService
+from vesta.update.service import _jittered_check_interval
+from vesta.update.storage import UpdateStore, UpdaterPaths
 
 
 NOW = datetime(2026, 8, 14, 12, 0, tzinfo=timezone.utc)
@@ -44,7 +44,7 @@ def _installed(**overrides: object) -> InstalledBuild:
         "platform": "windows",
         "architecture": "x86_64",
         "install_type": InstallType.WINDOWS_MSIX,
-        "package_identity": "OPai.Desktop",
+        "package_identity": "Vesta.Desktop",
         "publisher_identity": "CN=Vesta",
     }
     values.update(overrides)
@@ -61,7 +61,7 @@ def _candidate(**overrides: object) -> dict[str, object]:
         "platform": "windows",
         "architecture": "x86_64",
         "install_type": "windows_msix",
-        "artifact_url": "https://updates.example.test/releases/v0.3.0/OPai.msix",
+        "artifact_url": "https://updates.example.test/releases/v0.3.0/Vesta.msix",
         "artifact_sha256": hashlib.sha256(ARTIFACT).hexdigest(),
         "artifact_size": len(ARTIFACT),
         "publisher_identity": "CN=Vesta",
@@ -78,7 +78,7 @@ def _candidate(**overrides: object) -> dict[str, object]:
         "minimum_updater_protocol": 1,
         "rollback_compatible": True,
         "native": {
-            "appinstaller_url": "https://updates.example.test/stable/OPai.appinstaller",
+            "appinstaller_url": "https://updates.example.test/stable/Vesta.appinstaller",
             "recovery": {
                 "version": "0.2.1a1",
                 "build_id": "a" * 40,
@@ -88,14 +88,14 @@ def _candidate(**overrides: object) -> dict[str, object]:
                 "platform": "windows",
                 "architecture": "x86_64",
                 "install_type": "windows_msix",
-                "artifact_url": "https://updates.example.test/releases/v0.2.1/OPai.msix",
+                "artifact_url": "https://updates.example.test/releases/v0.2.1/Vesta.msix",
                 "artifact_sha256": hashlib.sha256(ARTIFACT).hexdigest(),
                 "artifact_size": len(ARTIFACT),
                 "publisher_identity": "CN=Vesta",
                 "metadata_key_ids": ["root-1"],
                 "rollback_compatible": False,
                 "native": {
-                    "appinstaller_url": "https://updates.example.test/v0.2.1/OPai.appinstaller"
+                    "appinstaller_url": "https://updates.example.test/v0.2.1/Vesta.appinstaller"
                 },
             },
         },
@@ -169,7 +169,7 @@ class Downloader:
     ) -> Path:
         self.calls += 1
         root.mkdir(parents=True, exist_ok=True)
-        target = root / operation_id / "OPai.msix"
+        target = root / operation_id / "Vesta.msix"
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(self.body)
         progress(len(self.body), len(self.body))
@@ -491,7 +491,7 @@ def _developer_service(
     git_result: dict[str, object],
 ) -> tuple[UpdateService, Fetcher, list[bool]]:
     """A source-checkout service whose git check is stubbed at the boundary."""
-    import opai.updater as legacy_updater
+    import vesta.updater as legacy_updater
 
     forces: list[bool] = []
     monkeypatch.setattr(
@@ -615,7 +615,7 @@ def _developer_apply_service(
     check_result: dict[str, object],
 ) -> tuple[UpdateService, list[bool]]:
     """A source-checkout service with the legacy git apply/check stubbed."""
-    import opai.updater as legacy_updater
+    import vesta.updater as legacy_updater
 
     apply_forces: list[bool] = []
     monkeypatch.setattr(
@@ -746,7 +746,7 @@ def _auto_source_service(
     ``checks`` is consumed one entry per check so a test can prove what the
     state does across successive maintenance cycles; the last entry repeats.
     """
-    import opai.updater as legacy_updater
+    import vesta.updater as legacy_updater
 
     check_forces: list[bool] = []
     apply_forces: list[bool] = []
@@ -797,7 +797,7 @@ def test_status_says_whether_the_app_can_restart_itself(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     """The surface must not offer a restart it cannot perform."""
-    import opai.update.service as service_module
+    import vesta.update.service as service_module
 
     service, _, _ = _auto_source_service(
         tmp_path, monkeypatch, apply_result=APPLIED, checks=[CURRENT]
@@ -811,7 +811,7 @@ def test_restart_is_refused_rather_than_closing_a_window_that_will_not_reopen(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     """The failure that makes auto-restart worth being careful about."""
-    import opai.update.service as service_module
+    import vesta.update.service as service_module
 
     service, _, _ = _auto_source_service(
         tmp_path, monkeypatch, apply_result=APPLIED, checks=[CURRENT]
@@ -827,12 +827,12 @@ def test_restart_is_refused_rather_than_closing_a_window_that_will_not_reopen(
 def test_restart_reports_an_arming_failure_while_the_window_is_still_open(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    import opai.update.service as service_module
+    import vesta.update.service as service_module
 
     service, _, _ = _auto_source_service(
         tmp_path, monkeypatch, apply_result=APPLIED, checks=[CURRENT]
     )
-    monkeypatch.setattr(service_module, "relaunch_command", lambda: ["opai", "gui"])
+    monkeypatch.setattr(service_module, "relaunch_command", lambda: ["vesta", "gui"])
     monkeypatch.setattr(service_module, "schedule_relaunch", lambda command: False)
 
     result = service.restart_into_update()
@@ -844,13 +844,13 @@ def test_restart_reports_an_arming_failure_while_the_window_is_still_open(
 def test_restart_arms_the_supervisor_before_anything_closes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    import opai.update.service as service_module
+    import vesta.update.service as service_module
 
     armed: list[list[str]] = []
     service, _, _ = _auto_source_service(
         tmp_path, monkeypatch, apply_result=APPLIED, checks=[CURRENT]
     )
-    monkeypatch.setattr(service_module, "relaunch_command", lambda: ["opai", "gui"])
+    monkeypatch.setattr(service_module, "relaunch_command", lambda: ["vesta", "gui"])
     monkeypatch.setattr(
         service_module,
         "schedule_relaunch",
@@ -860,14 +860,14 @@ def test_restart_arms_the_supervisor_before_anything_closes(
     result = service.restart_into_update()
 
     assert result["ok"] is True
-    assert armed == [["opai", "gui"]]
+    assert armed == [["vesta", "gui"]]
 
 
 def test_restart_availability_is_probed_once_not_every_poll(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     """``status()`` is polled every couple of seconds; this answer cannot change."""
-    import opai.update.service as service_module
+    import vesta.update.service as service_module
 
     probes: list[int] = []
     service, _, _ = _auto_source_service(
@@ -876,7 +876,7 @@ def test_restart_availability_is_probed_once_not_every_poll(
     monkeypatch.setattr(
         service_module,
         "relaunch_command",
-        lambda: probes.append(1) or ["opai", "gui"],
+        lambda: probes.append(1) or ["vesta", "gui"],
     )
 
     service.status()
@@ -1180,7 +1180,7 @@ def test_a_restart_banner_does_not_survive_the_restart_it_asked_for(
     restart, for up to the whole four-hour minimum interval, until someone
     forces a check by hand.
     """
-    import opai.update.service as service_module
+    import vesta.update.service as service_module
 
     service, _, _ = _auto_source_service(
         tmp_path, monkeypatch, apply_result=APPLIED, checks=[AHEAD, CURRENT]
@@ -1214,7 +1214,7 @@ def test_a_pending_restart_banner_survives_until_the_restart(
     Same process, so the restart has not happened, so the banner is still the
     truth and maintain() must leave it exactly where it is.
     """
-    import opai.update.service as service_module
+    import vesta.update.service as service_module
 
     service, _, _ = _auto_source_service(
         tmp_path, monkeypatch, apply_result=APPLIED, checks=[AHEAD, CURRENT]
@@ -1241,7 +1241,7 @@ def test_a_packaged_completion_is_left_alone(
     It carries no diagnostic, so there was never a banner to clear, and
     clearing it would rewrite the record of a finished install.
     """
-    import opai.update.service as service_module
+    import vesta.update.service as service_module
 
     service, _, _ = _auto_source_service(
         tmp_path, monkeypatch, apply_result=APPLIED, checks=[CURRENT]
@@ -1491,7 +1491,7 @@ def test_new_application_confirms_health_only_for_exact_target(tmp_path: Path):
 
 
 def test_native_helper_failure_is_reconciled_without_claiming_restart(tmp_path: Path):
-    result_path = tmp_path / ".opai" / "updater" / "staging" / "native-result.json"
+    result_path = tmp_path / ".vesta" / "updater" / "staging" / "native-result.json"
     result_path.parent.mkdir(parents=True)
 
     class ResultAdapter(Adapter):
@@ -1703,7 +1703,7 @@ def test_public_status_never_exposes_staging_paths_or_signed_urls(tmp_path: Path
 
     assert ready.staged_artifact
     assert ready.staged_artifact not in payload
-    assert "OPai.msix" not in payload
+    assert "Vesta.msix" not in payload
 
 
 def test_later_keeps_verified_artifact_and_can_be_resumed(tmp_path: Path):
@@ -1731,7 +1731,7 @@ def test_skip_is_version_specific_and_persisted_in_app_policy(tmp_path: Path):
 def test_retriable_download_can_retry_same_candidate(tmp_path: Path):
     class Interrupted(Downloader):
         def download(self, *args, **kwargs):
-            from opai.update.download import DownloadError
+            from vesta.update.download import DownloadError
 
             if self.calls == 0:
                 self.calls += 1

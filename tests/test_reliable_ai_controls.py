@@ -25,7 +25,7 @@ class _MemoryKeyring:
 
 class ProviderAdapterRegressionTests(unittest.TestCase):
     def test_adapter_registry_covers_every_supported_execution_surface(self) -> None:
-        from opaihub.provider_adapters import adapter_for
+        from vestahub.provider_adapters import adapter_for
 
         providers = {
             "claude",
@@ -47,7 +47,7 @@ class ProviderAdapterRegressionTests(unittest.TestCase):
     def test_free_provider_connection_probe_sends_no_prompt_or_secret_back(
         self,
     ) -> None:
-        from opaihub.provider_adapters import test_free_provider_connection
+        from vestahub.provider_adapters import test_free_provider_connection
 
         class Store:
             def get(self, provider):
@@ -71,7 +71,7 @@ class ProviderAdapterRegressionTests(unittest.TestCase):
         self.assertNotIn("private-key", repr(result))
 
     def test_codex_global_approval_flag_precedes_exec(self) -> None:
-        from opaihub.accounts import AccountRunner
+        from vestahub.accounts import AccountRunner
 
         command = AccountRunner("codex", "codex", model="gpt-5.4-mini").build_command(
             "explain", mode="ask", out_file="answer.txt"
@@ -82,7 +82,7 @@ class ProviderAdapterRegressionTests(unittest.TestCase):
         self.assertIn("--output-last-message", command)
 
     def test_codex_config_repair_backs_up_and_removes_only_invalid_tier(self) -> None:
-        from opaihub.accounts import codex_config_issue, repair_codex_config
+        from vestahub.accounts import codex_config_issue, repair_codex_config
 
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
@@ -104,7 +104,7 @@ class ProviderAdapterRegressionTests(unittest.TestCase):
         self.assertIn('approval_policy = "never"', content)
 
     def test_safe_auth_probe_is_cached_and_force_refreshable(self) -> None:
-        from opaihub.accounts import test_account_connection
+        from vestahub.accounts import test_account_connection
 
         completed = mock.Mock(returncode=0, stdout="", stderr="")
         with tempfile.TemporaryDirectory() as tmp:
@@ -113,9 +113,9 @@ class ProviderAdapterRegressionTests(unittest.TestCase):
             auth.parent.mkdir()
             auth.write_text("{}", encoding="utf-8")
             with (
-                mock.patch("opaihub.accounts._which", return_value="claude"),
+                mock.patch("vestahub.accounts._which", return_value="claude"),
                 mock.patch(
-                    "opaihub.accounts._hidden_run", return_value=completed
+                    "vestahub.accounts._hidden_run", return_value=completed
                 ) as run,
             ):
                 test_account_connection("claude", home=home)
@@ -125,7 +125,7 @@ class ProviderAdapterRegressionTests(unittest.TestCase):
                 self.assertEqual(run.call_count, 2)
 
     def test_free_provider_failure_is_normalized_and_secret_safe(self) -> None:
-        from opai.app_state import ask
+        from vesta.app_state import ask
 
         class Runner:
             def available(self):
@@ -136,7 +136,7 @@ class ProviderAdapterRegressionTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             with mock.patch(
-                "opaihub.local_runner.runner_for_model", return_value=Runner()
+                "vestahub.local_runner.runner_for_model", return_value=Runner()
             ):
                 result = ask(
                     Path(tmp),
@@ -150,7 +150,7 @@ class ProviderAdapterRegressionTests(unittest.TestCase):
         self.assertNotIn("private-secret", repr(result))
 
     def test_free_provider_structured_error_reaches_gui_contract(self) -> None:
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         error = {
             "code": "PROVIDER_RATE_LIMITED",
@@ -160,7 +160,7 @@ class ProviderAdapterRegressionTests(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as tmp:
             with mock.patch(
-                "opai.app_state.ask",
+                "vesta.app_state.ask",
                 return_value={
                     "status": "runner_error",
                     "answer": "Wait, then retry.",
@@ -180,10 +180,10 @@ class ProviderAdapterRegressionTests(unittest.TestCase):
 
 class CredentialStoreTests(unittest.TestCase):
     def test_environment_wins_and_status_never_contains_secret(self) -> None:
-        from opaihub.credentials import CredentialStore
+        from vestahub.credentials import CredentialStore
 
         backend = _MemoryKeyring()
-        backend.set_password("OPai/free-model-api", "groq", "keychain-secret")
+        backend.set_password("Vesta/free-model-api", "groq", "keychain-secret")
         store = CredentialStore(
             backend=backend,
             environ={"GROQ_API_KEY": "environment-secret"},
@@ -197,7 +197,7 @@ class CredentialStoreTests(unittest.TestCase):
         self.assertNotIn("keychain-secret", repr(status))
 
     def test_keychain_round_trip_and_delete(self) -> None:
-        from opaihub.credentials import CredentialStore
+        from vestahub.credentials import CredentialStore
 
         store = CredentialStore(backend=_MemoryKeyring(), environ={})
         saved = store.set("mistral", "  private-value  ")
@@ -207,7 +207,7 @@ class CredentialStoreTests(unittest.TestCase):
         self.assertFalse(store.delete("mistral")["configured"])
 
     def test_insecure_or_missing_backend_fails_closed(self) -> None:
-        from opaihub.credentials import CredentialStore, CredentialStoreUnavailable
+        from vestahub.credentials import CredentialStore, CredentialStoreUnavailable
 
         backend = _MemoryKeyring()
         backend.priority = 0
@@ -216,13 +216,13 @@ class CredentialStoreTests(unittest.TestCase):
             store.set("gemini", "secret")
 
     def test_free_registry_and_runner_read_keychain_credentials(self) -> None:
-        from opaihub.free_models import list_free_models
-        from opaihub.local_runner import runner_for_model
+        from vestahub.free_models import list_free_models
+        from vestahub.local_runner import runner_for_model
 
         with (
             mock.patch.dict(os.environ, {"GROQ_API_KEY": ""}),
             mock.patch(
-                "opaihub.credentials.CredentialStore.get",
+                "vestahub.credentials.CredentialStore.get",
                 return_value="keychain-secret",
             ),
         ):
@@ -238,8 +238,8 @@ class CredentialStoreTests(unittest.TestCase):
 
 class UsageSnapshotTests(unittest.TestCase):
     def test_model_call_metadata_rolls_up_without_breaking_old_events(self) -> None:
-        from opaihub.ledger import record_event, record_model_call
-        from opaihub.usage import build_usage_snapshots
+        from vestahub.ledger import record_event, record_model_call
+        from vestahub.usage import build_usage_snapshots
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -277,7 +277,7 @@ class UsageSnapshotTests(unittest.TestCase):
                         "id": "free:groq:openai/gpt-oss-120b",
                         "provider": "groq",
                     },
-                    {"id": "auto", "provider": "opai"},
+                    {"id": "auto", "provider": "vesta"},
                 ],
                 limits={"auto": {"metric": "tokens", "limit": 10, "window": "month"}},
             )
@@ -288,13 +288,13 @@ class UsageSnapshotTests(unittest.TestCase):
         self.assertEqual(groq["percent"], 25.1)
         self.assertEqual(groq["confidence"], "provider-reported")
         auto = snapshots[1]
-        self.assertEqual(auto["source"], "opai")
+        self.assertEqual(auto["source"], "vesta")
         self.assertEqual(auto["used"], 0)
         self.assertEqual(auto["limit"], 10)
         self.assertFalse(auto["requiresConfirmation"])
 
     def test_free_runner_extracts_exact_usage_and_groq_quota_headers(self) -> None:
-        from opaihub.local_runner import FreeAPIRunner
+        from vestahub.local_runner import FreeAPIRunner
 
         class Payload(dict):
             response_headers = {
@@ -309,7 +309,7 @@ class UsageSnapshotTests(unittest.TestCase):
         )
         runner = FreeAPIRunner("https://api.groq.com/openai/v1", "model", "secret")
         with mock.patch(
-            "opaihub.local_runner._http_json_cancellable", return_value=payload
+            "vestahub.local_runner._http_json_cancellable", return_value=payload
         ):
             self.assertEqual(runner.complete("hello"), "answer")
 
@@ -320,8 +320,8 @@ class UsageSnapshotTests(unittest.TestCase):
         self.assertEqual(runner.last_usage["quota_snapshot"]["resetsAt"], "4h")
 
     def test_limit_gate_requires_confirmation_at_one_hundred_percent(self) -> None:
-        from opaihub.ledger import record_model_call
-        from opaihub.usage import usage_limit_gate
+        from vestahub.ledger import record_model_call
+        from vestahub.usage import usage_limit_gate
 
         model_id = "account:claude:haiku"
         with tempfile.TemporaryDirectory() as tmp:
@@ -348,8 +348,8 @@ class UsageSnapshotTests(unittest.TestCase):
         self.assertEqual(gate["percent"], 100.0)
 
     def test_confirmed_free_call_records_model_and_exact_usage(self) -> None:
-        from opai.app_state import ask
-        from opaihub.ledger import read_events
+        from vesta.app_state import ask
+        from vestahub.ledger import read_events
 
         class Runner:
             last_usage = {
@@ -373,10 +373,10 @@ class UsageSnapshotTests(unittest.TestCase):
             root = Path(tmp)
             with (
                 mock.patch(
-                    "opaihub.local_runner.runner_for_model", return_value=Runner()
+                    "vestahub.local_runner.runner_for_model", return_value=Runner()
                 ),
                 mock.patch(
-                    "opaihub.ask.run_explicit_model",
+                    "vestahub.ask.run_explicit_model",
                     return_value={"status": "answered_locally", "answer": "ok"},
                 ),
             ):
@@ -394,8 +394,8 @@ class UsageSnapshotTests(unittest.TestCase):
         self.assertEqual(calls[0]["measurement"], "provider")
 
     def test_soft_limit_only_counts_events_inside_its_window(self) -> None:
-        from opaihub.ledger import record_event
-        from opaihub.usage import build_usage_snapshots
+        from vestahub.ledger import record_event
+        from vestahub.usage import build_usage_snapshots
 
         model_id = "account:codex:gpt-5.4-mini"
         with tempfile.TemporaryDirectory() as tmp:
@@ -419,8 +419,8 @@ class UsageSnapshotTests(unittest.TestCase):
         self.assertFalse(snapshot["requiresConfirmation"])
 
     def test_request_limits_count_calls_not_tokens(self) -> None:
-        from opaihub.ledger import record_model_call
-        from opaihub.usage import build_usage_snapshots
+        from vestahub.ledger import record_model_call
+        from vestahub.usage import build_usage_snapshots
 
         model_id = "account:copilot:gpt-5.4"
         with tempfile.TemporaryDirectory() as tmp:
@@ -446,12 +446,12 @@ class UsageSnapshotTests(unittest.TestCase):
 
 class FastPayloadTests(unittest.TestCase):
     def test_boot_and_settings_do_not_probe_local_endpoints(self) -> None:
-        from opai.gui_web import boot_payload, settings_payload
+        from vesta.gui_web import boot_payload, settings_payload
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             with mock.patch(
-                "opaihub.local_runner.list_local_models",
+                "vestahub.local_runner.list_local_models",
                 side_effect=AssertionError("synchronous local discovery"),
             ):
                 boot = boot_payload(root)
@@ -461,7 +461,7 @@ class FastPayloadTests(unittest.TestCase):
         self.assertIn("usage", settings)
 
     def test_local_discovery_uses_a_short_nonblocking_timeout(self) -> None:
-        from opaihub.local_runner import list_local_models
+        from vestahub.local_runner import list_local_models
 
         timeouts: list[float] = []
 
@@ -469,15 +469,15 @@ class FastPayloadTests(unittest.TestCase):
             timeouts.append(float(kwargs["timeout"]))
             raise OSError("offline")
 
-        with mock.patch("opaihub.local_runner._http_json", side_effect=unavailable):
+        with mock.patch("vestahub.local_runner._http_json", side_effect=unavailable):
             self.assertEqual(list_local_models(Path.cwd()), [])
 
         self.assertTrue(timeouts)
         self.assertLessEqual(max(timeouts), 0.25)
 
     def test_fast_catalog_reuses_background_local_discovery(self) -> None:
-        from opai.app_state import available_models
-        from opaihub.local_runner import cache_local_models
+        from vesta.app_state import available_models
+        from vestahub.local_runner import cache_local_models
 
         local = {
             "id": "ollama:qwen",
@@ -489,7 +489,7 @@ class FastPayloadTests(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 with mock.patch(
-                    "opaihub.local_runner.list_local_models",
+                    "vestahub.local_runner.list_local_models",
                     side_effect=AssertionError("fast catalog probed network"),
                 ):
                     catalog = available_models(Path(tmp), discover_local=False)
@@ -501,7 +501,7 @@ class FastPayloadTests(unittest.TestCase):
 
 class PreferenceLimitTests(unittest.TestCase):
     def test_usage_limit_preferences_migrate_and_validate(self) -> None:
-        from opaihub.gui_preferences import (
+        from vestahub.gui_preferences import (
             load_gui_preferences,
             save_gui_preferences,
             save_usage_limit,
@@ -524,7 +524,7 @@ class PreferenceLimitTests(unittest.TestCase):
         self.assertEqual(loaded["default_model"], "auto")
 
     def test_usage_limits_reject_boolean_non_finite_and_fractional_counts(self) -> None:
-        from opaihub.gui_preferences import (
+        from vestahub.gui_preferences import (
             load_gui_preferences,
             preference_path,
             save_usage_limit,
@@ -574,7 +574,7 @@ class AutoFallbackTests(unittest.TestCase):
         # Auto chooses the route, but it is not consent to transmit repository
         # context off-device. The named free-tier provider must be offered before
         # any cloud runner starts.
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         models = {
             "models": [self._free("free:groq:openai/gpt-oss-120b", "groq", "Groq")]
@@ -582,9 +582,9 @@ class AutoFallbackTests(unittest.TestCase):
         no_local = {"status": "no_local_model", "hint": "none"}
         with tempfile.TemporaryDirectory() as tmp:
             with (
-                mock.patch("opaihub.ask.run_ask", return_value=no_local),
-                mock.patch("opai.app_state.available_models", return_value=models),
-                mock.patch("opai.app_state.ask") as ask_mock,
+                mock.patch("vestahub.ask.run_ask", return_value=no_local),
+                mock.patch("vesta.app_state.available_models", return_value=models),
+                mock.patch("vesta.app_state.ask") as ask_mock,
             ):
                 result = handle_gui_message(
                     Path(tmp), "explain this repo", model_id="auto", mode="ask"
@@ -609,7 +609,7 @@ class AutoFallbackTests(unittest.TestCase):
     def test_auto_names_first_free_provider_before_any_fallback(self) -> None:
         # Auto may rank multiple free providers, but it must not contact even the
         # first one until the user confirms the exact off-device route.
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         models = {
             "models": [
@@ -620,9 +620,9 @@ class AutoFallbackTests(unittest.TestCase):
         no_local = {"status": "no_local_model", "hint": "none"}
         with tempfile.TemporaryDirectory() as tmp:
             with (
-                mock.patch("opaihub.ask.run_ask", return_value=no_local),
-                mock.patch("opai.app_state.available_models", return_value=models),
-                mock.patch("opai.app_state.ask") as ask_mock,
+                mock.patch("vestahub.ask.run_ask", return_value=no_local),
+                mock.patch("vesta.app_state.available_models", return_value=models),
+                mock.patch("vesta.app_state.ask") as ask_mock,
             ):
                 result = handle_gui_message(
                     Path(tmp), "explain this repo", model_id="auto", mode="ask"
@@ -643,7 +643,7 @@ class AutoFallbackTests(unittest.TestCase):
         # A paid account later in the route chain must not cause Auto to bypass a
         # usable free cloud candidate. The first off-device candidate is named
         # and confirmed before any provider starts.
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         models = {
             "models": [
@@ -659,9 +659,9 @@ class AutoFallbackTests(unittest.TestCase):
         no_local = {"status": "no_local_model", "hint": "none"}
         with tempfile.TemporaryDirectory() as tmp:
             with (
-                mock.patch("opaihub.ask.run_ask", return_value=no_local),
-                mock.patch("opai.app_state.available_models", return_value=models),
-                mock.patch("opai.app_state.ask") as ask_mock,
+                mock.patch("vestahub.ask.run_ask", return_value=no_local),
+                mock.patch("vesta.app_state.available_models", return_value=models),
+                mock.patch("vesta.app_state.ask") as ask_mock,
             ):
                 result = handle_gui_message(
                     Path(tmp), "explain this repo", model_id="auto", mode="ask"
@@ -676,16 +676,16 @@ class AutoFallbackTests(unittest.TestCase):
     def test_auto_reports_honest_error_when_nothing_can_run(self) -> None:
         # Total provider unavailability: no local, no free, no account. Auto must
         # return a single honest, actionable error — never a silent hang.
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         with tempfile.TemporaryDirectory() as tmp:
             with (
                 mock.patch(
-                    "opaihub.ask.run_ask",
+                    "vestahub.ask.run_ask",
                     return_value={"status": "no_local_model", "hint": "none"},
                 ),
                 mock.patch(
-                    "opai.app_state.available_models", return_value={"models": []}
+                    "vesta.app_state.available_models", return_value={"models": []}
                 ),
             ):
                 result = handle_gui_message(
@@ -697,7 +697,7 @@ class AutoFallbackTests(unittest.TestCase):
         self.assertIn("Settings", result["answer"])
 
     def test_auto_ignores_catalog_entries_without_verified_availability(self) -> None:
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         models = {
             "models": [
@@ -720,10 +720,10 @@ class AutoFallbackTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with (
                 mock.patch(
-                    "opaihub.ask.run_ask",
+                    "vestahub.ask.run_ask",
                     return_value={"status": "no_local_model", "hint": "none"},
                 ),
-                mock.patch("opai.app_state.available_models", return_value=models),
+                mock.patch("vesta.app_state.available_models", return_value=models),
             ):
                 result = handle_gui_message(
                     Path(tmp), "explain", model_id="auto", mode="ask"
@@ -734,7 +734,7 @@ class AutoFallbackTests(unittest.TestCase):
         self.assertIn("Claude", result["answer"])
 
     def test_auto_skips_account_with_known_failed_connection(self) -> None:
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         catalog = {
             "models": [
@@ -750,10 +750,10 @@ class AutoFallbackTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with (
                 mock.patch(
-                    "opaihub.ask.run_ask",
+                    "vestahub.ask.run_ask",
                     return_value={"status": "no_local_model", "hint": "none"},
                 ),
-                mock.patch("opai.app_state.available_models", return_value=catalog),
+                mock.patch("vesta.app_state.available_models", return_value=catalog),
             ):
                 result = handle_gui_message(
                     Path(tmp), "explain", model_id="auto", mode="ask"
@@ -765,9 +765,9 @@ class AutoFallbackTests(unittest.TestCase):
     def test_reaching_soft_limit_requires_confirmation_before_provider_call(
         self,
     ) -> None:
-        from opaihub.gui_pipeline import handle_gui_message
-        from opaihub.gui_preferences import save_usage_limit
-        from opaihub.ledger import record_model_call
+        from vestahub.gui_pipeline import handle_gui_message
+        from vestahub.gui_preferences import save_usage_limit
+        from vestahub.ledger import record_model_call
 
         model_id = "account:claude:haiku"
         with tempfile.TemporaryDirectory() as tmp:
@@ -783,7 +783,7 @@ class AutoFallbackTests(unittest.TestCase):
                 model_id=model_id,
                 provider_id="claude",
             )
-            with mock.patch("opai.app_state.ask") as provider_call:
+            with mock.patch("vesta.app_state.ask") as provider_call:
                 result = handle_gui_message(
                     root, "continue", model_id=model_id, mode="ask"
                 )

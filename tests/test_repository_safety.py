@@ -16,7 +16,7 @@ from hypothesis import given, strategies as st
 
 from _helpers import make_repo
 
-from opaihub.repository_safety import (
+from vestahub.repository_safety import (
     DirtyState,
     RepositorySafetyError,
     RepositorySafetyPersistenceError,
@@ -349,7 +349,7 @@ class RepositorySafetyGateTests(unittest.TestCase):
         compatible = classify_dirty_state(
             DirtyState(unstaged=("generated/report.json",)),
             planned_paths=("src/app.py",),
-            opai_owned_paths=("generated/",),
+            vesta_owned_paths=("generated/",),
         )
         unrelated = classify_dirty_state(
             DirtyState(unstaged=("docs/guide.md",)), planned_paths=("src/app.py",)
@@ -375,7 +375,7 @@ class RepositorySafetyGateTests(unittest.TestCase):
         assessment = classify_dirty_state(
             DirtyState(unstaged=("src/app.py",)),
             planned_paths=("src/app.py",),
-            opai_owned_paths=("src/app.py",),
+            vesta_owned_paths=("src/app.py",),
         )
 
         self.assertEqual(assessment.classification, "compatible")
@@ -451,7 +451,7 @@ class RepositorySafetyPersistenceTests(unittest.TestCase):
         with self.assertRaises(RepositorySafetyPersistenceError):
             load_repository_handle(self.repo, handle.handle_id)
         with mock.patch(
-            "opaihub.repository_safety.atomic_write_text", side_effect=OSError("no")
+            "vestahub.repository_safety.atomic_write_text", side_effect=OSError("no")
         ):
             with self.assertRaises(RepositorySafetyPersistenceError):
                 save_repository_handle(self.repo, handle)
@@ -765,7 +765,7 @@ class CaseInsensitiveIdentityTests(unittest.TestCase):
         sys.platform == "win32", "os.path.normcase is a no-op on POSIX"
     )
     def test_repository_id_collapses_case_variant_paths(self) -> None:
-        from opaihub.repository_safety import _repository_id
+        from vestahub.repository_safety import _repository_id
 
         common = {
             "git_dir": Path("C:/Repo/.git"),
@@ -784,7 +784,7 @@ class CaseInsensitiveIdentityTests(unittest.TestCase):
     def test_repository_id_does_not_collapse_case_on_a_case_sensitive_platform(
         self,
     ) -> None:
-        from opaihub.repository_safety import _repository_id
+        from vestahub.repository_safety import _repository_id
 
         common = {
             "git_dir": Path("/repo/.git"),

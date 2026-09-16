@@ -8,24 +8,43 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$RepoUrl = if ($env:OPAI_REPO_URL) { $env:OPAI_REPO_URL } else { "https://github.com/MarcoLadeira/OPai.git" }
-$Branch = if ($env:OPAI_BRANCH) { $env:OPAI_BRANCH } else { "main" }
-$InstallTools = $WithTools -or $env:OPAI_WITH_TOOLS -eq "1"
-$SkipSuperpowers = $NoSuperpowers -or $env:OPAI_NO_SUPERPOWERS -eq "1"
+# Vesta was called OPai. Old CI and shells still export OPAI_*: adopt each one
+# whose VESTA_* counterpart is unset (see vesta/legacy.py for the full list of
+# legacy names).
+Get-ChildItem env: | Where-Object { $_.Name -like "OPAI_*" } | ForEach-Object {
+    $CurrentName = "VESTA_" + $_.Name.Substring(5)
+    if (-not (Test-Path "env:$CurrentName")) {
+        Set-Item -Path "env:$CurrentName" -Value $_.Value
+    }
+}
+
+$RepoUrl = if ($env:VESTA_REPO_URL) { $env:VESTA_REPO_URL } else { "https://github.com/MarcoLadeira/Vesta.git" }
+$Branch = if ($env:VESTA_BRANCH) { $env:VESTA_BRANCH } else { "main" }
+$InstallTools = $WithTools -or $env:VESTA_WITH_TOOLS -eq "1"
+$SkipSuperpowers = $NoSuperpowers -or $env:VESTA_NO_SUPERPOWERS -eq "1"
 
 if (-not $ProjectRoot) {
-    $ProjectRoot = if ($env:OPAI_PROJECT_ROOT) {
-        $env:OPAI_PROJECT_ROOT
+    $ProjectRoot = if ($env:VESTA_PROJECT_ROOT) {
+        $env:VESTA_PROJECT_ROOT
     } else {
         (Get-Location).Path
     }
 }
 
 if (-not $InstallRoot) {
-    $InstallRoot = if ($env:OPAI_INSTALL_ROOT) {
-        $env:OPAI_INSTALL_ROOT
+    $InstallRoot = if ($env:VESTA_INSTALL_ROOT) {
+        $env:VESTA_INSTALL_ROOT
     } else {
-        Join-Path $env:USERPROFILE ".opai\source"
+        $CurrentSource = Join-Path $env:USERPROFILE ".vesta\source"
+        $LegacySource = Join-Path $env:USERPROFILE ".opai\source"
+        # An install from before the rename lives in ~/.opai/source and the
+        # desktop app may be running from it: update it where it is rather
+        # than cloning a second copy (Vesta never moves a running install).
+        if (-not (Test-Path $CurrentSource) -and (Test-Path (Join-Path $LegacySource ".git"))) {
+            $LegacySource
+        } else {
+            $CurrentSource
+        }
     }
 }
 
@@ -87,11 +106,19 @@ $Root = (Resolve-Path $Root).Path
 $ProjectRoot = (Resolve-Path $ProjectRoot).Path
 $env:PYTHONPATH = "$Root;$env:PYTHONPATH"
 
-$Python = if ($env:OPAI_PYTHON) {
-    $env:OPAI_PYTHON
+$Python = if ($env:VESTA_PYTHON) {
+    $env:VESTA_PYTHON
 } else {
     (Get-Command python -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
 }
+
+# Vesta was published as "opai". pip keeps the old distribution beside the
+# new one, and removing it afterwards would delete the launchers both
+# record, so it goes first. Not installed is fine.
+$PreviousErrorPreference = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+& $Python -m pip uninstall -y opai *> $null
+$ErrorActionPreference = $PreviousErrorPreference
 
 & $Python -m pip install -e "$Root"
 if ($LASTEXITCODE -ne 0) {
@@ -111,12 +138,12 @@ if (-not $NoShellAliases) {
     $InstallArgs += "--shell-aliases"
 }
 
-& $Python -m opai @InstallArgs
+& $Python -m vesta @InstallArgs
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-$InstalledVersion = (& $Python -m opai version 2>$null)
+$InstalledVersion = (& $Python -m vesta version 2>$null)
 if (-not $InstalledVersion) { $InstalledVersion = "Vesta installed" }
 Write-Host ""
 Write-Host "$InstalledVersion installed permanently."
