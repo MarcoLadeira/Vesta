@@ -230,6 +230,20 @@ export async function openNav(page, label) {
   await destination.click();
 }
 
+// The live work log opens by default. These set the state a test needs
+// without toggling it the wrong way.
+export async function openWorkLog(page) {
+  const toggle = page.locator(".gen-toggle:not(.done)");
+  if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+}
+
+export async function closeWorkLog(page) {
+  const toggle = page.locator(".gen-toggle:not(.done)");
+  if ((await toggle.getAttribute("aria-expanded")) === "true") await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+}
+
 export function expectNoFatalErrors(diagnostics) {
   expect(diagnostics.pageErrors).toEqual([]);
   expect(diagnostics.consoleErrors).toEqual([]);

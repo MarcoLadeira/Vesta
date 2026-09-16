@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-import { finishRequest, openApp, openTurnDetails, sendPrompt } from "./helpers/app.js";
+import { closeWorkLog, finishRequest, openApp, openTurnDetails, openWorkLog, sendPrompt } from "./helpers/app.js";
 
 
 test.beforeEach(async ({ page }) => openApp(page));
@@ -10,6 +10,7 @@ test.beforeEach(async ({ page }) => openApp(page));
 // event must still land as exactly one row (the one-row-per-event contract).
 test("a collapsed 2000-event burst defers all row rendering until activity opens", async ({ page }) => {
   const id = await sendPrompt(page);
+  await closeWorkLog(page);
   const renders = await page.evaluate(async (id) => {
     const before = window.__vesta.state.timelineRenders;
     for (let i = 0; i < 2000; i++) {
@@ -50,7 +51,7 @@ test("a completed collapsed activity log stays unmounted until opened", async ({
 // innerHTML-per-event renderer blew past this by 10-100x.
 test("a 500-event turn emits and renders within the wall-clock budget", async ({ page }) => {
   const id = await sendPrompt(page);
-  await page.locator(".gen-toggle").click();
+  await openWorkLog(page);
   const elapsedMs = await page.evaluate(async (id) => {
     const t0 = performance.now();
     for (let i = 0; i < 500; i++) {
@@ -96,7 +97,7 @@ test("nonconsecutive groups with the same key remain separate runs", async ({ pa
     }));
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   }, id);
-  await page.locator(".gen-toggle").click();
+  await openWorkLog(page);
   await expect(page.locator(".timeline > .tl-group")).toHaveCount(3);
   await expect(page.locator(".timeline .tl-children .tl-row")).toHaveCount(0);
   await page.locator(".timeline > .tl-group").first().getByRole("button").click();

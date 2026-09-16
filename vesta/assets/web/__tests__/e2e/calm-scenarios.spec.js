@@ -7,6 +7,7 @@ import {
   emitScenarioBatch,
   finishRequest,
   openApp,
+  openWorkLog,
   sendPrompt,
 } from "./helpers/app.js";
 
@@ -21,7 +22,7 @@ test.beforeEach(async ({ page }) => openApp(page));
 test("a 200-chunk Claude turn folds into calm grouped rows", async ({ page }) => {
   const id = await sendPrompt(page);
   await emitScenario(page, id, claudeTurnEvents(id, { chunks: 200 }));
-  await page.locator(".gen-toggle").click();
+  await openWorkLog(page);
   // Two tool groups (3 reads + 2 commands) and one finished stream single.
   await expect(page.locator(".timeline > .tl-group")).toHaveCount(2);
   await expect(page.locator(".tl-group-toggle", { hasText: "Read file ×3" })).toHaveCount(1);
@@ -36,7 +37,7 @@ test("a 200-chunk Claude turn folds into calm grouped rows", async ({ page }) =>
 test("a tool group is collapsed by default and discloses its real children", async ({ page }) => {
   const id = await sendPrompt(page);
   await emitScenario(page, id, claudeTurnEvents(id, { chunks: 3 }));
-  await page.locator(".gen-toggle").click();
+  await openWorkLog(page);
   const reads = page.locator(".tl-group", { has: page.locator(".tl-group-toggle", { hasText: "Read file ×3" }) });
   const toggle = reads.locator(".tl-group-toggle");
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
@@ -52,7 +53,7 @@ test("a tool group is collapsed by default and discloses its real children", asy
 test("accounting contract: singles + expanded group children == feed events", async ({ page }) => {
   const id = await sendPrompt(page);
   const events = await emitScenario(page, id, claudeTurnEvents(id, { chunks: 20 }));
-  await page.locator(".gen-toggle").click();
+  await openWorkLog(page);
   const toggles = page.locator(".tl-group-toggle");
   const n = await toggles.count();
   for (let i = 0; i < n; i++) await toggles.nth(i).click(); // expand every group
@@ -71,7 +72,7 @@ test("a group with a failing child auto-expands to surface the error", async ({ 
     { id: `${id}:tool:1`, type: "file_read", status: "error", title: "Read file: b.py", requestId: id, group: `${id}:g0` },
     { id: `${id}:tool:2`, type: "file_read", status: "success", title: "Read file: c.py", requestId: id, group: `${id}:g0` },
   ]);
-  await page.locator(".gen-toggle").click();
+  await openWorkLog(page);
   const group = page.locator(".tl-group");
   await expect(group).toHaveClass(/error/); // worst-of status
   await expect(group.locator(".tl-group-toggle")).toHaveAttribute("aria-expanded", "true");
@@ -81,7 +82,7 @@ test("a group with a failing child auto-expands to surface the error", async ({ 
 test("Codex started/completed pairs land as one finished row per item", async ({ page }) => {
   const id = await sendPrompt(page);
   await emitScenario(page, id, codexTurnEvents(id, 3));
-  await page.locator(".gen-toggle").click();
+  await openWorkLog(page);
   const commandRows = page.locator(".timeline .tl-row", { hasText: "Ran command" });
   await expect(commandRows).toHaveCount(3);
   for (let i = 0; i < 3; i++) {
@@ -95,7 +96,7 @@ test("a batched turn ingests every event and coalesces the same as per-event", a
   const id = await sendPrompt(page);
   const events = await emitScenarioBatch(page, id, claudeTurnEvents(id, { chunks: 200 }));
   await expect(page.locator(".gen-stage")).toHaveText("Response received");
-  await page.locator(".gen-toggle").click();
+  await openWorkLog(page);
   // Same grouped shape as the per-event path: 2 tool groups + 1 stream single.
   await expect(page.locator(".timeline > .tl-group")).toHaveCount(2);
   await expect(page.locator(".timeline > .tl-row:not(.tl-group)").filter({ hasText: "Response received" })).toHaveCount(1);
