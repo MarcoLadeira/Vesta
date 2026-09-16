@@ -239,8 +239,10 @@ class ProjectStateMigrationTests(unittest.TestCase):
         with mock.patch.object(
             legacy.os, "replace", side_effect=PermissionError(errno.EACCES, "busy")
         ):
-            self.assertEqual(state_dir(self.root), self.root / ".vestahub")
+            # The old directory stays in use until the move can happen.
+            self.assertEqual(state_dir(self.root), self.root / ".opaihub")
         self.assertTrue((self.root / ".opaihub" / "project.json").exists())
+        self.assertFalse((self.root / ".vestahub").exists())
 
         self.assertEqual(legacy.migrate_project_state(self.root), "migrated")
         self.assertTrue((self.root / ".vestahub" / "project.json").exists())

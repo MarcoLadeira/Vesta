@@ -32,6 +32,8 @@ from html import escape
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
+from vesta import legacy
+
 from .atomic_io import read_utf8_tail_json_objects
 from .proc import no_window_kwargs
 from .state import state_dir
@@ -277,7 +279,16 @@ SCENARIOS: tuple[dict[str, Any], ...] = (
 # Runner, history, regressions
 # --------------------------------------------------------------------------- #
 def vestabench_dir(project_root: Path) -> Path:
-    return state_dir(project_root.expanduser().resolve()) / "benchmarks" / "vestabench"
+    benchmarks = state_dir(project_root.expanduser().resolve()) / "benchmarks"
+    current = benchmarks / "vestabench"
+    old = benchmarks / legacy.LEGACY_BENCH_DIRNAME
+    if not current.exists() and old.is_dir() and not old.is_symlink():
+        # Runs recorded before the rename are the baseline regressions compare to.
+        try:
+            old.replace(current)
+        except OSError:
+            return old
+    return current
 
 
 def vestabench_history_path(project_root: Path) -> Path:

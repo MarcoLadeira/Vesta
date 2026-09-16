@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from vesta import legacy
+
 from .atomic_io import atomic_write_text, interprocess_transaction
 from .ledger import task_fingerprint
 from .model_intelligence import classify_task, recommend_model
@@ -102,7 +104,8 @@ def read_scorecard(project_root: Path) -> dict[str, Any]:
     )
     if (
         not isinstance(scorecard, dict)
-        or scorecard.get("report") != "vesta-model-eval"
+        or scorecard.get("report")
+        not in {"vesta-model-eval", legacy.LEGACY_MODEL_EVAL_REPORT}
         or not isinstance(scorecard.get("evaluation_id"), str)
         or not scorecard["evaluation_id"]
         or isinstance(sequence, bool)

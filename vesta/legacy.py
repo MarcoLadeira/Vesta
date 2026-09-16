@@ -97,6 +97,16 @@ LEGACY_VERIFICATION_POLICY_FILE = "opai-verification-policy.yaml"
 # Keys in benchmark scores and task definitions written before the rename.
 LEGACY_EFFECTIVENESS_KEY = "opai_effectiveness_index"
 LEGACY_CONTEXT_BYTES_KEY = "opai_context_bytes"
+
+# Written into a user's app by `opai new` and its builds.
+LEGACY_APP_MANIFEST = ".opai-app.json"
+LEGACY_APP_BACKUP_DIR = ".opai-backups"
+LEGACY_APP_BUILD_LOG = ".opai-build-log.jsonl"
+
+# Other names a project carries from before the rename.
+LEGACY_PROJECT_RULES_FILE = ".opai/rules.md"
+LEGACY_BENCH_DIRNAME = "opaibench"
+LEGACY_MODEL_EVAL_REPORT = "opai-model-eval"
 # Lines that surrounded the managed block in the generated Cursor/Cline rules.
 LEGACY_RULE_BOILERPLATE = (
     "description: OPai local-first, cost-aware routing and safety policy",

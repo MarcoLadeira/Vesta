@@ -797,12 +797,21 @@ def benchmark_gate(
     }
 
 
+def _with_current_keys(score: Any) -> dict[str, Any]:
+    """A score whose pre-rename effectiveness key is read under its new name."""
+    if not isinstance(score, dict):
+        return {}
+    if "vesta_effectiveness_index" in score:
+        return score
+    return {**score, "vesta_effectiveness_index": score_effectiveness_index(score)}
+
+
 def compare_benchmark_reports(
     previous: dict[str, Any], current: dict[str, Any], *, tolerance: float = 0.001
 ) -> dict[str, Any]:
     """Compare two benchmark reports and flag regressions in key score metrics."""
-    previous_score = previous.get("efficiency_score", {})
-    current_score = current.get("efficiency_score", {})
+    previous_score = _with_current_keys(previous.get("efficiency_score", {}))
+    current_score = _with_current_keys(current.get("efficiency_score", {}))
     metrics = sorted(LARGER_IS_BETTER_METRICS | SMALLER_IS_BETTER_METRICS)
     deltas: dict[str, dict[str, Any]] = {}
     regressions = []

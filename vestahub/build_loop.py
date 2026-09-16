@@ -30,6 +30,8 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
+from vesta import legacy
+
 MANIFEST_NAME = ".vesta-app.json"
 BACKUP_DIR = ".vesta-backups"
 BUILD_LOG_NAME = ".vesta-build-log.jsonl"
@@ -41,6 +43,7 @@ _BUILD_LOG_LOCKS_GUARD = threading.Lock()
 
 _PRIVATE_PATH_PARTS = {
     BACKUP_DIR,
+    legacy.LEGACY_APP_BACKUP_DIR,
     ".git",
     ".vestahub",
     ".venv",
@@ -161,10 +164,33 @@ _KEYWORD_HINTS: dict[str, tuple[str, ...]] = {
 }
 
 
+def _adopt_legacy_app_files(root: Path) -> None:
+    """Rename an app built before the rename to the current file names.
+
+    Best effort: when a rename fails the old manifest keeps being read, so
+    the app is still recognised and retried on the next load.
+    """
+
+    for name, legacy_name in (
+        (MANIFEST_NAME, legacy.LEGACY_APP_MANIFEST),
+        (BUILD_LOG_NAME, legacy.LEGACY_APP_BUILD_LOG),
+    ):
+        try:
+            current = _safe_internal_path(root, name)
+            old = _safe_internal_path(root, legacy_name)
+            if not current.exists() and old.is_file():
+                old.replace(current)
+        except OSError:
+            continue
+
+
 def load_app_manifest(app_root: Path) -> dict[str, Any] | None:
     """The Vesta Build manifest for a directory, or None if it isn't one."""
     try:
+        _adopt_legacy_app_files(Path(app_root))
         path = _safe_internal_path(Path(app_root), MANIFEST_NAME)
+        if not path.exists():
+            path = _safe_internal_path(Path(app_root), legacy.LEGACY_APP_MANIFEST)
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
@@ -812,7 +838,10 @@ def rollback_edits(
         try:
             candidate = Path(str(backup_dir)).expanduser().resolve()
             relative = candidate.relative_to(root)
-            if not relative.parts or relative.parts[0].lower() != BACKUP_DIR:
+            if not relative.parts or relative.parts[0].lower() not in {
+                BACKUP_DIR,
+                legacy.LEGACY_APP_BACKUP_DIR,
+            }:
                 raise ValueError("backup is outside the protected backup directory")
             if _safe_internal_path(root, relative).resolve() != candidate:
                 raise ValueError("backup path changed during rollback")

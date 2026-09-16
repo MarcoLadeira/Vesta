@@ -13,12 +13,21 @@ from pathlib import Path
 from typing import Any
 
 from .audit import summarize_audit, verify_chain
-from .benchmark import benchmark_gate, latest_benchmark_report, run_benchmark
+from .benchmark import (
+    benchmark_gate,
+    latest_benchmark_report,
+    run_benchmark,
+    score_effectiveness_index,
+)
 from .ci_check import run_policy_check
 from .ledger import rollup_ledger, summarize_ledger
 from .signing import sign as sign_payload
 from .signing import verify as verify_payload
 from .team import team_report
+
+
+def _or_na(value: Any) -> Any:
+    return "n/a" if value is None else value
 
 
 def _now_iso() -> str:
@@ -145,7 +154,7 @@ def render_proof_markdown(bundle: dict[str, Any]) -> str:
         "## Benchmark",
         f"- Present: {bench.get('present', False)}",
         f"- Context reduction: {score.get('context_reduction_ratio', 'n/a')}x",
-        f"- Effectiveness index: {score.get('vesta_effectiveness_index', 'n/a')}",
+        f"- Effectiveness index: {_or_na(score_effectiveness_index(score))}",
         "",
         "## Governance",
         f"- Policy check ok: {bundle.get('policy_check', {}).get('ok')}",

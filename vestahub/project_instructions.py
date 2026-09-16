@@ -36,10 +36,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from vesta import legacy
+
 # Checked in order; every present file contributes, most specific last so it
 # reads as the final word. These are the instruction filenames the major coding
 # agents already standardise on, which is why a user has probably written one.
 INSTRUCTION_FILES = ("AGENTS.md", "CLAUDE.md", "GEMINI.md", ".vesta/rules.md")
+# A repository that committed its rules before the rename keeps them in force.
+_LEGACY_INSTRUCTION_FILES = {".vesta/rules.md": legacy.LEGACY_PROJECT_RULES_FILE}
 
 # Enough for a real set of house rules, small enough that it cannot crowd out
 # the actual request on a modest local context window.
@@ -75,7 +79,9 @@ def load_project_instructions(
     for name in INSTRUCTION_FILES:
         if remaining <= 0:
             break
-        path = root / name
+        path = legacy.repository_file(
+            root, name, _LEGACY_INSTRUCTION_FILES.get(name, name)
+        )
         try:
             if not path.is_file():
                 continue
