@@ -681,6 +681,10 @@ def _upgrade_legacy_install(*, home: Path | None = None) -> dict[str, object]:
     report = legacy.run_startup_migrations(home=home)
     if legacy.env_flag("VESTA_AGENT_SESSION"):
         return report
+    if home is None:
+        # Only the real entry points touch the Python environment; a test that
+        # points this at a temporary home never removes installed files.
+        report["legacy_distribution"] = legacy.remove_legacy_distribution()
     if report.get("legacy_integrations"):
         try:
             integrations = importlib.import_module("vesta.integrations")

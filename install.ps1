@@ -112,6 +112,14 @@ $Python = if ($env:VESTA_PYTHON) {
     (Get-Command python -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
 }
 
+# Vesta was published as "opai". pip keeps the old distribution beside the
+# new one, and removing it afterwards would delete the launchers both
+# record, so it goes first. Not installed is fine.
+$PreviousErrorPreference = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+& $Python -m pip uninstall -y opai *> $null
+$ErrorActionPreference = $PreviousErrorPreference
+
 & $Python -m pip install -e "$Root"
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE

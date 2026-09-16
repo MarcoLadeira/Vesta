@@ -74,6 +74,11 @@ fi
 
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
+# Vesta was published as "opai". pip keeps the old distribution beside the new
+# one, and removing it afterwards would delete the launchers both record, so it
+# goes first. Not installed is fine.
+"$VESTA_PYTHON" -m pip uninstall -y opai >/dev/null 2>&1 || true
+
 "$VESTA_PYTHON" -m pip install -e "$ROOT"
 
 INSTALL_ARGS="--no-tools"

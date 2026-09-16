@@ -900,6 +900,87 @@ def legacy_global_artifacts_present(home: Path | None = None) -> bool:
 
 
 # --------------------------------------------------------------------------- #
+# Python environment: the old distribution beside the new one
+# --------------------------------------------------------------------------- #
+
+
+def remove_legacy_distribution(
+    *, distribution: Callable[[str], Any] | None = None
+) -> dict[str, Any]:
+    """Remove what the old ``opai`` distribution still installs beside ``vesta``.
+
+    pip treats the renamed distribution as unrelated, so an upgrade leaves the
+    old one installed: its launchers import a package that no longer exists
+    (or, from a wheel, keep running the old code), and ``pip uninstall opai``
+    would delete the launchers both record. Only files the old record lists
+    and the new one does not are removed, inside that environment; its
+    metadata goes last, so a file in use keeps it for the next start. Never
+    raises.
+    """
+
+    import importlib.metadata
+
+    find = distribution or importlib.metadata.distribution
+    try:
+        old = find(LEGACY_PACKAGE)
+    except Exception:  # noqa: BLE001 - not installed
+        return {"status": "absent"}
+    try:
+        new = find("vesta")
+        old_files = list(old.files or [])
+        new_files = list(new.files or [])
+        if not old_files or not new_files:
+            return {"status": "no_record"}
+        keep = {_norm(Path(new.locate_file(item))) for item in new_files}
+        base = Path(old.locate_file("")).resolve()
+        site = _norm(base)
+        # Launchers live outside site-packages; only a directory vesta's own
+        # record also installs into counts as part of this environment.
+        script_dirs = {
+            _norm(Path(new.locate_file(item)).parent)
+            for item in new_files
+            if not _contains(site, _norm(Path(new.locate_file(item))))
+        }
+        metadata: list[Path] = []
+        removed: list[str] = []
+        failed = 0
+        for item in old_files:
+            path = Path(old.locate_file(item))
+            key = _norm(path)
+            inside = _contains(site, key) or _norm(path.parent) in script_dirs
+            if key in keep or not inside:
+                continue
+            if item.parts and item.parts[0].endswith(".dist-info"):
+                metadata.append(path)
+                continue
+            if not os.path.lexists(path) or path.is_dir():
+                continue
+            try:
+                path.unlink()
+                removed.append(str(path))
+            except OSError:
+                failed += 1
+        if failed:
+            _log(f"legacy distribution: {failed} file(s) in use; retrying next start")
+            return {"status": "partial", "removed": len(removed)}
+        for path in metadata:
+            _unlink(path, removed)
+        for directory in sorted(
+            {Path(entry).parent for entry in removed},
+            key=lambda item: len(item.parts),
+            reverse=True,
+        ):
+            while _contains(site, _norm(directory)) and _norm(directory) != site:
+                _rmdir_quietly(directory)
+                if os.path.lexists(directory):
+                    break
+                directory = directory.parent
+    except Exception:  # noqa: BLE001 - startup must never fail here
+        return {"status": "failed"}
+    return {"status": "removed", "removed": len(removed)}
+
+
+# --------------------------------------------------------------------------- #
 # Startup
 # --------------------------------------------------------------------------- #
 
