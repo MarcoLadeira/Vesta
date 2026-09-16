@@ -8,7 +8,11 @@ test.beforeEach(async ({ page }) => {
   await page.waitForSelector("#input");
 });
 
-test("Agent Readiness shows wrapper capture capability", async ({ page }) => {
+// The Agents page became the multi-agent workspace (ee73c88), which no longer
+// renders the Agent Readiness cards -- wrapper and capture status have no home
+// in the UI now, though the view model still sends them. Kept as fixme until
+// that status is given a place again, rather than deleted and forgotten.
+test.fixme("Agent Readiness shows wrapper capture capability", async ({ page }) => {
   // Exact: the header also has an "Agents workspace" button.
   await page.getByRole("button", { name: "Agents", exact: true }).click();
 
