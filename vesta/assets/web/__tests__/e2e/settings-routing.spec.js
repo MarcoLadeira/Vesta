@@ -55,6 +55,8 @@ test("the global model picker manages hidden and custom models without showing h
   await expect(hidden).not.toBeChecked();
   await expect(page.locator('#modelSel option[value="account:claude:opus"]')).toHaveCount(0);
 
+  // Adding a model is folded under "Add a custom model".
+  await page.getByText("Add a custom model", { exact: true }).click();
   await page.locator('[data-custom-provider]').selectOption("codex");
   await page.locator('[data-custom-model]').fill("gpt-new");
   await page.locator('[data-custom-label]').fill("My new GPT");

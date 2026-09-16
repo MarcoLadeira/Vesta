@@ -34,6 +34,9 @@ test("topbar New Chat, Settings, sidebar, and Inspector controls preserve behavi
 
   await page.locator("#headerSettings").click();
   await expect(page.locator("#view-settings")).toBeVisible();
+  // Settings takes the whole window; the sidebar toggle belongs to chat.
+  await page.locator("#settingsBack").click();
+  await expect(page.locator("#view-chat")).toBeVisible();
 
   await page.locator("#sidebarToggle").click();
   await expect(page.locator("#app")).toHaveClass(/sidebar-hidden/);

@@ -235,7 +235,9 @@ test("provider error shows a recoverable error card", async ({ page }) => {
 
 test("normal chat and status are Vesta-first", async ({ page }) => {
   await sendPrompt(page);
-  await expect(page.locator("#statusLine")).toContainText("Vesta");
+  // The status line is mode and spend now; the brand is in the header.
+  await expect(page.locator("#statusLine")).toContainText("mode");
+  await expect(page.locator("#statusLine")).not.toContainText("account:");
   await expect(page.locator("#modelSel option:checked")).toContainText("Vesta");
   await expect(page.locator(".msg.bot .role")).toContainText("Vesta");
   await expect(page.locator("#view-chat")).not.toContainText("account:claude");

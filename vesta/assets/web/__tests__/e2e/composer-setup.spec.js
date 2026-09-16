@@ -397,13 +397,13 @@ test("the composer direction can be switched between the three designs in Settin
   await openNav(page, "Settings");
   await page.locator('[data-rail-target="appearance"]').click();
   const seg = page.locator('[data-composer-style-key]');
-  await seg.getByRole("button", { name: "Single line" }).click();
+  await seg.getByRole("radio", { name: "Single line" }).click();
   await openNav(page, "Chat");
   await expect(composer).toHaveAttribute("data-composer-style", "single");
 
   await openNav(page, "Settings");
   await page.locator('[data-rail-target="appearance"]').click();
-  await page.locator('[data-composer-style-key]').getByRole("button", { name: "Command bar" }).click();
+  await page.locator('[data-composer-style-key]').getByRole("radio", { name: "Command bar" }).click();
   await openNav(page, "Chat");
   await expect(composer).toHaveAttribute("data-composer-style", "command");
   await expect(page.locator("#composerTokens")).toBeVisible();

@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { openApp, openNav } from "./helpers/app.js";
+import { openApp, openSettings } from "./helpers/app.js";
 
 /**
  * What the update surface says to a person.
@@ -123,8 +123,8 @@ test("a quiet installation says one thing and offers one action", async ({ page 
       summary: { title: "You're on the latest version", message: "" } },
   ));
 
-  await openNav(page, "Settings");
-  await page.getByRole("button", { name: "About" }).click();
+  // About & updates is part of the Advanced page.
+  await openSettings(page, "about");
 
   const card = page.locator(".update-card");
   await expect(card).toContainText("You're on the latest version");

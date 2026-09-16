@@ -9,7 +9,8 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("Agent Readiness shows wrapper capture capability", async ({ page }) => {
-  await page.getByRole("button", { name: "Agents" }).click();
+  // Exact: the header also has an "Agents workspace" button.
+  await page.getByRole("button", { name: "Agents", exact: true }).click();
 
   await expect(page.getByText("Agent Readiness")).toBeVisible();
   await expect(page.getByText("Wrapper")).toBeVisible();
