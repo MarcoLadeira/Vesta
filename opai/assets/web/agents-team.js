@@ -78,7 +78,8 @@
       const fromUser = event.kind === 'team-updated' && event.message;
       return separator + '<li><button type="button" class="team-update' + (fromUser ? ' team-user-message' : '') + '" data-team-select="' + esc(agent.assignment_id) + '" data-team-event="' + esc(event.sequence) + '">' + avatar(profileIndex(agent, assignments.indexOf(agent))) + '<span class="team-update-body"><strong class="team-event-work">' + esc(text) + '</strong><span class="team-event-by">' + esc(fromUser ? 'You → ' + name(agent, assignments.indexOf(agent)) : name(agent, assignments.indexOf(agent))) + time + '</span>' + (event.summary ? '<span class="team-current">' + esc(event.summary) + '</span>' : '') + (event.verification_summary ? '<span class="team-check">' + esc(event.verification_summary) + '</span>' : '') + '</span></button></li>';
     }).join('');
-    return '<section class="team-feed" aria-label="Team updates">' + (objective.timeline_truncated ? '<p class="team-empty">Recent activity · earlier events remain in the journal</p>' : '') + (timeline ? '<ol class="team-timeline">' + timeline + '</ol>' : '<p class="team-empty">' + (assignments.length ? 'Waiting for recorded activity.' : 'Your team is getting ready.') + '</p>') + '</section>';
+    const empty = assignments.length ? 'Waiting for recorded activity.' : setupState(objective).detail;
+    return '<section class="team-feed" aria-label="Team updates">' + (objective.timeline_truncated ? '<p class="team-empty">Recent activity · earlier events remain in the journal</p>' : '') + (timeline ? '<ol class="team-timeline">' + timeline + '</ol>' : '<p class="team-empty">' + esc(empty) + '</p>') + '</section>';
   }
   function conversationHtml(objective, selected) {
     const chain = rows(objective.assignments).filter((a) => actorId(a) === actorId(selected)).sort((a, b) => (a.team_order || 0) - (b.team_order || 0));
@@ -121,6 +122,22 @@
     const paths = rows(agent.intended_paths);
     return '<dl class="team-focus-context">' + (paths.length ? '<dt>Scope</dt><dd><details class="team-explanation team-scope"><summary>' + paths.length + (paths.length === 1 ? ' path' : ' paths') + '</summary>' + paths.map((path) => '<code>' + esc(path) + '</code>').join('') + '</details></dd>' : '') + (parents.length ? '<dt>Waiting on</dt><dd>' + parents.map((a) => esc(name(a, assignments.indexOf(a)))).join(', ') + '</dd>' : '') + (next.length ? '<dt>Next</dt><dd>Hand off to ' + next.map((a) => esc(name(a, assignments.indexOf(a)))).join(', ') + '</dd>' : '') + '</dl><div class="team-focus-actions"><button type="button" class="team-quiet" data-team-view-work>View work</button>' + (agent.team_controls?.can_message ? '<button type="button" class="team-quiet" data-team-message-focus>Message ' + esc(name(agent, assignments.indexOf(agent))) + '</button>' : '') + '</div>';
   }
+  function setupState(objective) {
+    if (!objective || rows(objective.assignments).length) return null;
+    const planning = objective.planning || {};
+    const result = planning.result || {};
+    const error = result.error;
+    const reason = (typeof error === 'string' ? error : error?.userMessage || error?.message) || planning.blocked_reason;
+    if (objective.status === 'cancelled') return { label: 'Team cancelled', detail: reason || 'Send a new objective when you are ready.' };
+    if (objective.status === 'paused') return { label: 'Team paused', detail: reason || 'Resume this objective from the Agents workspace.' };
+    if (objective.status === 'stopping') return { label: 'Stopping team setup', detail: 'Waiting for the planner to stop safely.' };
+    if (['failed', 'needs-attention', 'blocked'].includes(objective.status) || ['failed', 'needs-attention', 'blocked'].includes(planning.status)) {
+      return { label: 'Team setup needs attention', detail: reason || 'The planner could not create a team.', recovery: objective.team_controls?.can_add ? 'Add an agent to continue, or send a new team objective.' : planning.owner ? 'Waiting for the planner to stop before another agent can start.' : 'Send a new team objective to try again.' };
+    }
+    if (objective.status === 'completed') return { label: 'Team finished', detail: 'No agent assignments were recorded.' };
+    if (objective.status === 'planning') return { label: 'Putting your team together', detail: 'Choosing tasks and agents for your objective.', active: true };
+    return { label: 'No agents yet', detail: objective.team_controls?.can_add ? 'Add an agent to get started.' : 'No assignments were recorded for this objective.' };
+  }
   function panelHtml(objective, selectedId, unavailable, models) {
     const assignments = rows(objective && objective.assignments);
     const selected = assignments.find((a) => a.assignment_id === selectedId);
@@ -131,7 +148,8 @@
     html += agents(objective).map((a, index) => '<button type="button" class="team-person" data-team-select="' + esc(a.assignment_id) + '" aria-pressed="' + (a === selected) + '">' + avatar(profileIndex(a, index)) + '<span><strong>' + esc(name(a, index)) + '</strong><span class="team-current">' + esc(a.title || a.objective) + '</span>' + state(a, assignments) + '</span></button>').join('');
     html += '</nav>';
     if (!selected && objective.team_controls) html += '<div class="team-actions"><button type="button" class="team-quiet" data-team-add' + (objective.team_controls.can_add ? '' : ' disabled') + '>+ Add agent</button><button type="button" class="team-quiet" data-team-map>Organise team</button></div>';
-    if (!assignments.length) html += '<p class="team-empty">Putting your team together…</p>';
+    const setup = setupState(objective);
+    if (setup) html += '<section class="team-setup" role="status"><strong>' + esc(setup.label) + '</strong><p>' + esc(setup.detail) + '</p>' + (setup.recovery ? '<p class="team-empty">' + esc(setup.recovery) + '</p>' : '') + '</section>';
     if (selected) {
       const index = assignments.indexOf(selected);
       html += '<section class="team-detail" aria-label="Agent details"><button type="button" class="team-quiet" data-team-back>← Back to team</button><h3>' + esc(selected.title || selected.objective) + '</h3><header><span class="team-detail-person">' + avatar(profileIndex(selected, index)) + esc(name(selected, index)) + '</span><details class="team-name-editor"><summary>Rename</summary><form data-team-rename><label>Agent name<input name="agentName" aria-label="Agent name" maxlength="40" required value="' + esc(name(selected, index)) + '"></label><button type="submit" class="btn">Save name</button></form></details></header>';
@@ -316,5 +334,5 @@
     element._teamPending = null;
   }
   function assignmentsFor(objective) { return rows(objective && objective.assignments); }
-  global.OPaiAgentsTeam = { feedHtml, panelHtml, mountPanel, stripHtml, name, avatar, agents, actorId, modelOptions, state, settle, conversationHtml, activities, currentActivity, attentionHtml };
+  global.OPaiAgentsTeam = { feedHtml, panelHtml, mountPanel, stripHtml, name, avatar, agents, actorId, modelOptions, state, settle, conversationHtml, activities, currentActivity, attentionHtml, setupState };
 })(typeof window !== "undefined" ? window : globalThis);

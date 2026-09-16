@@ -4556,8 +4556,9 @@ function teamModels() {
   return Array.from($('#modelSel')?.options || []).filter((o) => !o.disabled).map((o) => ({ value: o.value, label: o.value === 'auto' ? 'Auto model' : o.textContent }));
 }
 function teamControl(payload) {
-  if (bridge.controlObjective) bridge.controlObjective(JSON.stringify(payload));
-  else toast('Team controls are unavailable in this host.');
+  if (bridge.controlObjective) { bridge.controlObjective(JSON.stringify(payload)); return true; }
+  toast('Team controls are unavailable in this host.');
+  return false;
 }
 function teamMapOptions(objective) {
   const root = state.boot.workspace?.root;
@@ -4734,7 +4735,10 @@ function onObjectiveControlReady(json) {
   settleTeamMessage(d);
   window.OPaiTeamMap?.settle(d);
   window.OPaiAgentsTeam?.settle($('#agentsTeam'), d);
-  if (!d.ok) { toast(safeStateReason(d.error, "Objective control failed.")); return; }
+  if (!d.ok) {
+    if (d.objective && applyObjectiveSnapshot(d.objective)) { state.dashRequest = null; paintAgentsWorkspace(); }
+    toast(safeStateReason(d.error, "Objective control failed.")); return;
+  }
   // Invalidate a pre-control poll so it cannot overwrite the newer snapshot.
   state.dashRequest = null;
   if (applyObjectiveSnapshot(d.objective)) paintAgentsWorkspace();
