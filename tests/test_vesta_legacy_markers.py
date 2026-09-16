@@ -143,6 +143,26 @@ class LegacyIgnoreRulesTests(unittest.TestCase):
         self.assertNotIn("OPai", text)
         self.assertIn("secrets/", text)
 
+    def test_an_old_block_gets_the_renamed_state_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".clineignore").write_text(
+                "# mine\nsecrets/\n\n# OPai context-slimming rules (managed)\n"
+                ".git/\n.opaihub/\nnode_modules/\n# end OPai rules\nafter-block/\n",
+                encoding="utf-8",
+            )
+
+            generate_client_ignores(root, ["cline"])
+            again = generate_client_ignores(root, ["cline"])
+            lines = (root / ".clineignore").read_text(encoding="utf-8").splitlines()
+
+        self.assertEqual(again["results"][0]["status"], "already_managed")
+        self.assertEqual(lines.count(".vestahub/"), 1)
+        self.assertNotIn(".opaihub/", lines)
+        self.assertEqual(lines.count("# Vesta context-slimming rules (managed)"), 1)
+        for mine in ("# mine", "secrets/", "after-block/"):
+            self.assertIn(mine, lines)
+
     def test_ai_ignore_files_rename_the_old_header(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -299,6 +299,32 @@ def _merge_ignore_text(existing: str) -> str:
     return (existing.rstrip() + "\n\n" + block + "\n").lstrip()
 
 
+def _refresh_managed_block(text: str) -> str:
+    """``text`` with its managed block, old markers included, holding today's rules.
+
+    The block is Vesta's: when the patterns change -- the state directory was
+    renamed from .opaihub -- an existing file must follow, not keep the old
+    ones. Lines outside the block are the user's and are kept as written.
+    """
+
+    upgraded = text
+    for legacy, current in _LEGACY_MANAGED:
+        upgraded = upgraded.replace(legacy, current)
+    newline = "\r\n" if "\r\n" in upgraded else "\n"
+    lines = upgraded.split(newline)
+    starts = [i for i, line in enumerate(lines) if line.strip() == _MANAGED_START]
+    if not starts:
+        return upgraded
+    ends = [
+        i for i in range(starts[0] + 1, len(lines)) if lines[i].strip() == _MANAGED_END
+    ]
+    if not ends:
+        return upgraded
+    return newline.join(
+        lines[: starts[0]] + managed_ignore_lines() + lines[ends[0] + 1 :]
+    )
+
+
 def _default_file_mode() -> int:
     """Permissions a plain text write would create here (umask applied)."""
     with tempfile.TemporaryDirectory() as probe_dir:
@@ -341,14 +367,14 @@ def _apply_client_ignore(root: Path, client: str, name: str) -> dict[str, Any]:
     ):
         for _ in range(_PUBLISH_ATTEMPTS):
             existing, mode = _read_ignore(path)
-            if existing is not None and _LEGACY_MANAGED[0][0] in existing:
-                upgraded = existing
-                for legacy, current in _LEGACY_MANAGED:
-                    upgraded = upgraded.replace(legacy, current)
-                if not _publish_ignore(path, existing, upgraded, mode):
+            if existing is not None and (
+                _MANAGED_START in existing or _LEGACY_MANAGED[0][0] in existing
+            ):
+                refreshed = _refresh_managed_block(existing)
+                if refreshed != existing and not _publish_ignore(
+                    path, existing, refreshed, mode
+                ):
                     continue
-                return {"client": client, "file": name, "status": "already_managed"}
-            if existing is not None and _MANAGED_START in existing:
                 return {"client": client, "file": name, "status": "already_managed"}
             base = existing or ""
             # Preserve the user's existing rules; append the managed block.
