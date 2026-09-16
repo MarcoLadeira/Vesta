@@ -303,7 +303,7 @@ def _refresh_managed_block(text: str) -> str:
     """``text`` with its managed block, old markers included, holding today's rules.
 
     The block is Vesta's: when the patterns change -- the state directory was
-    renamed from .opaihub -- an existing file must follow, not keep the old
+    renamed with the product -- an existing file must follow, not keep the old
     ones. Lines outside the block are the user's and are kept as written.
     """
 

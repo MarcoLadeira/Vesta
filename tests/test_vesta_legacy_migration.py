@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import errno
 import io
+import json
 import os
 import tempfile
 import tokenize
@@ -586,6 +587,102 @@ class LegacyProjectFileTests(unittest.TestCase):
             self.assertIn(str(path), result["legacy_files_removed"])
         self.assertTrue((self.root / ".clinerules" / "vesta.md").exists())
         self.assertTrue((self.root / ".cursor" / "rules" / "vesta.mdc").exists())
+
+    def _old_project_claude_file(self) -> Path:
+        return _write(
+            self.root / "CLAUDE.md",
+            "<!-- OPai managed block: start -->\n# OPai Active\n"
+            "OPai is active; run `opai cockpit` if unsure.\n"
+            "<!-- OPai managed block: end -->\n\n# House rules\nTabs, not spaces.\n",
+        )
+
+    def test_status_flags_an_old_block_instead_of_calling_it_active(self):
+        from vesta.clients import client_integrations_status
+
+        self._old_project_claude_file()
+        _write(self.home / ".claude" / "CLAUDE.md", GENERATED_BLOCK + "\n")
+
+        status = client_integrations_status(self.root, self.home)
+        claude = next(c for c in status["clients"] if c["id"] == "claude")
+
+        self.assertEqual(claude["status"], "broken")
+        self.assertIn("claude", status["summary"]["broken"])
+        self.assertIn("repair", claude)
+
+    def test_startup_rewrites_old_blocks_in_known_projects(self):
+        from vesta.bootstrap import _upgrade_legacy_install
+        from vesta.clients import client_integrations_status
+
+        claude = self._old_project_claude_file()
+        recent = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(lambda: __import__("shutil").rmtree(recent, True))
+        agents = _write(recent / "AGENTS.md", OLD_MARKER_BLOCK + "\n")
+        _write(
+            self.home / ".vesta" / "global.json",
+            json.dumps({"targets": [], "project_root": str(self.root)}),
+        )
+        _write(
+            self.home / ".vesta" / "gui_workspaces.json", json.dumps([str(recent)])
+        )
+        _write(self.home / ".claude" / "CLAUDE.md", GENERATED_BLOCK + "\n")
+
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("VESTA_AGENT_SESSION", None)
+            os.environ.pop("OPAI_AGENT_SESSION", None)
+            with mock.patch.object(legacy, "running_install_paths", return_value=[]):
+                report = _upgrade_legacy_install(home=self.home)
+                again = _upgrade_legacy_install(home=self.home)
+
+        text = _read(claude)
+        self.assertIn("<!-- Vesta managed block: start -->", text)
+        self.assertNotIn("OPai", text)
+        self.assertNotIn("opai cockpit", text)
+        self.assertEqual(text.count("Tabs, not spaces."), 1)
+        self.assertNotIn("OPai", _read(agents))
+        self.assertIn(str(claude), report["project_blocks"])
+        self.assertEqual(again["legacy_project_blocks"], [])
+        status = client_integrations_status(self.root, self.home)
+        self.assertEqual(
+            next(c for c in status["clients"] if c["id"] == "claude")["status"],
+            "active",
+        )
+
+    def test_an_agent_session_never_rewrites_project_files(self):
+        from vesta.bootstrap import _upgrade_legacy_install
+
+        claude = self._old_project_claude_file()
+        _write(
+            self.home / ".vesta" / "global.json",
+            json.dumps({"targets": [], "project_root": str(self.root)}),
+        )
+
+        with mock.patch.dict(os.environ, {"VESTA_AGENT_SESSION": "1"}):
+            with mock.patch.object(legacy, "running_install_paths", return_value=[]):
+                _upgrade_legacy_install(home=self.home)
+
+        self.assertIn("OPai managed block", _read(claude))
+
+    def test_uninstall_removes_old_name_files_of_a_project_never_reopened(self):
+        from vesta.integrations import uninstall_vesta
+
+        cursor = _write(
+            self.root / ".cursor" / "rules" / "opai.mdc",
+            "---\ndescription: Vesta local-first, cost-aware routing and safety "
+            "policy\nalwaysApply: true\n---\n" + GENERATED_BLOCK + "\n",
+        )
+        activation = _write(self.root / ".opaihub" / "activation.json", "{}")
+        mine = _write(self.root / ".opaihub" / "ledger.jsonl", "{}\n")
+
+        planned = uninstall_vesta(self.root, home=self.home, dry_run=True)
+        self.assertIn(str(cursor), planned["planned_path_removals"])
+        self.assertIn(str(activation), planned["planned_path_removals"])
+        self.assertTrue(cursor.exists())
+
+        uninstall_vesta(self.root, home=self.home, dry_run=False)
+
+        self.assertFalse(cursor.exists())
+        self.assertFalse(activation.exists())
+        self.assertTrue(mine.exists())
 
     def test_user_edited_legacy_files_are_kept(self):
         cline = _write(

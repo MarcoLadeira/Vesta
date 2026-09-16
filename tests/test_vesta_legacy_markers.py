@@ -80,11 +80,13 @@ class LegacyManagedBlockTests(unittest.TestCase):
             for client in client_integrations_status(self.project, self.home)["clients"]
         }
         for client_id in ("claude", "codex"):
-            # Recognised as managed; the only thing left to repair is the global
-            # discovery file this bare test home does not have.
+            # Recognised as managed, but flagged for repair: the old block names
+            # commands that no longer exist.
+            self.assertEqual(len(clients[client_id]["project_managed"]), 1)
+            self.assertEqual(clients[client_id]["status"], "broken")
             self.assertEqual(
                 clients[client_id]["reason"],
-                "Project file is managed but global discovery file is missing.",
+                "Vesta managed block was written before the rename; repair it.",
             )
 
         status = project_status(self.project, home=self.home)

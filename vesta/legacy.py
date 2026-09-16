@@ -783,23 +783,103 @@ def _rmdir_quietly(path: Path) -> None:
         pass
 
 
+def legacy_project_artifacts(
+    project_root: Path, *, ignore_lines: Iterable[str] = ()
+) -> list[Path]:
+    """Old-name files in a project that hold only what Vesta generated."""
+
+    root = Path(project_root)
+    found: list[Path] = []
+    for parts in (LEGACY_CLINE_RULE, LEGACY_CURSOR_RULE):
+        path = root.joinpath(*parts)
+        text = _read(path)
+        if text is not None and is_generated_rule_file(text):
+            found.append(path)
+    ignore = root / LEGACY_IGNORE_FILENAME
+    text = _read(ignore)
+    if text is not None and is_generated_ignore_file(text, ignore_lines):
+        found.append(ignore)
+    return found
+
+
 def remove_legacy_project_artifacts(
     project_root: Path, *, ignore_lines: Iterable[str] = ()
 ) -> list[str]:
     """Delete old-name rule and ignore files Vesta generated in a project."""
 
-    root = Path(project_root)
     removed: list[str] = []
-    for parts in (LEGACY_CLINE_RULE, LEGACY_CURSOR_RULE):
-        path = root.joinpath(*parts)
-        text = _read(path)
-        if text is not None and is_generated_rule_file(text):
-            _unlink(path, removed)
-    ignore = root / LEGACY_IGNORE_FILENAME
-    text = _read(ignore)
-    if text is not None and is_generated_ignore_file(text, ignore_lines):
-        _unlink(ignore, removed)
+    for path in legacy_project_artifacts(project_root, ignore_lines=ignore_lines):
+        _unlink(path, removed)
     return removed
+
+
+# Files that carry Vesta's managed instruction block in a project.
+PROJECT_INSTRUCTION_FILES = (
+    "AGENTS.md",
+    "CLAUDE.md",
+    "GEMINI.md",
+    ".github/copilot-instructions.md",
+)
+# Startup reads a few small files per known project; never an unbounded walk.
+_MAX_KNOWN_PROJECTS = 25
+
+
+def known_project_roots(home: Path | None = None) -> list[Path]:
+    """Projects Vesta was activated in or opened: the consent manifest's root
+    and the desktop app's recent workspaces, existing directories only."""
+
+    base = _user_home(home)
+    candidates: list[str] = []
+    try:
+        manifest = json.loads(_read(home_item(base, "global.json")) or "{}")
+        if isinstance(manifest, dict) and manifest.get("project_root"):
+            candidates.append(str(manifest["project_root"]))
+    except ValueError:
+        pass
+    try:
+        recents = json.loads(_read(home_item(base, "gui_workspaces.json")) or "[]")
+        if isinstance(recents, list):
+            candidates.extend(str(entry) for entry in recents)
+    except ValueError:
+        pass
+    roots: list[Path] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        try:
+            path = Path(candidate).expanduser()
+            key = _norm(path)
+            if key in seen or not path.is_dir():
+                continue
+        except (OSError, RuntimeError, ValueError):
+            continue
+        seen.add(key)
+        roots.append(path)
+        if len(roots) >= _MAX_KNOWN_PROJECTS:
+            break
+    return roots
+
+
+def has_legacy_instruction_block(path: Path) -> bool:
+    text = _read(path)
+    return text is not None and LEGACY_START_MARKER in text
+
+
+def projects_with_legacy_blocks(home: Path | None = None) -> list[Path]:
+    """Known projects whose instruction files still hold a pre-rename block.
+
+    Those blocks tell every agent in the project to run commands that no
+    longer exist, and activation -- which would rewrite them -- may never run
+    there again.
+    """
+
+    return [
+        root
+        for root in known_project_roots(home)
+        if any(
+            has_legacy_instruction_block(root / name)
+            for name in PROJECT_INSTRUCTION_FILES
+        )
+    ]
 
 
 def legacy_global_artifacts_present(home: Path | None = None) -> bool:
@@ -839,6 +919,7 @@ def run_startup_migrations(
         "adopted_env": [],
         "home": None,
         "legacy_integrations": False,
+        "legacy_project_blocks": [],
     }
     try:
         report["adopted_env"] = adopt_legacy_environment(environ)
@@ -850,6 +931,12 @@ def run_startup_migrations(
         pass
     try:
         report["legacy_integrations"] = legacy_global_artifacts_present(home)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        report["legacy_project_blocks"] = [
+            str(root) for root in projects_with_legacy_blocks(home)
+        ]
     except Exception:  # noqa: BLE001
         pass
     return report

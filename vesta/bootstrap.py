@@ -679,12 +679,26 @@ def _upgrade_legacy_install(*, home: Path | None = None) -> dict[str, object]:
     from . import legacy
 
     report = legacy.run_startup_migrations(home=home)
-    if report.get("legacy_integrations") and not legacy.env_flag("VESTA_AGENT_SESSION"):
+    if legacy.env_flag("VESTA_AGENT_SESSION"):
+        return report
+    if report.get("legacy_integrations"):
         try:
             integrations = importlib.import_module("vesta.integrations")
             report["integrations"] = integrations.upgrade_legacy_global_install(home)
         except Exception:  # noqa: BLE001 - retried on the next start
             report["integrations"] = {"status": "failed"}
+    if report.get("legacy_project_blocks"):
+        # Projects keep an old block until activation runs there again, which
+        # may be never; their agents would keep being told to run old commands.
+        try:
+            integrations = importlib.import_module("vesta.integrations")
+            report["project_blocks"] = [
+                path
+                for root in report["legacy_project_blocks"]
+                for path in integrations.upgrade_legacy_project_blocks(Path(root))
+            ]
+        except Exception:  # noqa: BLE001 - retried on the next start
+            report["project_blocks"] = []
     return report
 
 

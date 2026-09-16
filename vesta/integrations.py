@@ -292,6 +292,35 @@ def _write_project_instructions(project_root: Path) -> list[str]:
     return written
 
 
+def upgrade_legacy_project_blocks(project_root: Path) -> list[str]:
+    """Rewrite the managed blocks an install from before the rename left here.
+
+    Only files that already hold an old-marker block change; the block is
+    replaced in place of the old one and the user's text is kept. Never raises:
+    it runs at startup for every known project.
+    """
+
+    written: list[str] = []
+    try:
+        root = Path(project_root).expanduser().resolve()
+        block = project_instruction_text(root)
+        for name in legacy.PROJECT_INSTRUCTION_FILES:
+            path = root / name
+            if path.is_symlink() or not legacy.has_legacy_instruction_block(path):
+                continue
+            try:
+                existing = path.read_text(encoding="utf-8")
+                written.append(
+                    str(_write(path, _replace_managed_block_at_top(existing, block)))
+                )
+            except (OSError, UnicodeError):
+                continue
+        written.extend(remove_legacy_project_files(root))
+    except Exception:  # noqa: BLE001 - startup must never fail here
+        pass
+    return written
+
+
 def remove_legacy_project_files(project_root: Path) -> list[str]:
     """Delete the pre-rename rule and ignore files Vesta generated here.
 
@@ -307,6 +336,24 @@ def remove_legacy_project_files(project_root: Path) -> list[str]:
         )
     except Exception:  # noqa: BLE001 - cleanup must never block activation
         return []
+
+
+def _legacy_project_files(project_root: Path) -> list[Path]:
+    """What an uninstall removes of a project set up before the rename."""
+    from vestahub.context_engine import managed_ignore_lines
+
+    state = legacy.legacy_project_state_dir(project_root)
+    owned = [state / "project-instructions.md", state / "activation.json"]
+    try:
+        owned.extend(
+            legacy.legacy_project_artifacts(
+                project_root,
+                ignore_lines=[*AI_IGNORE_PATTERNS, *managed_ignore_lines()],
+            )
+        )
+    except Exception:  # noqa: BLE001 - never block an uninstall
+        pass
+    return owned
 
 
 def _planned_project_files(project_root: Path) -> list[str]:
@@ -1210,6 +1257,8 @@ def uninstall_vesta(
                 root / ".clinerules" / "vesta.md",
                 root / ".vestahub" / "project-instructions.md",
                 root / ".vestahub" / "activation.json",
+                # A project not opened since the rename still has the old names.
+                *_legacy_project_files(root),
             ]
         )
 

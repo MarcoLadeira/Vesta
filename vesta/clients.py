@@ -78,6 +78,12 @@ def _has_vesta_block(path: Path) -> bool:
     return START_MARKER in text and END_MARKER in text
 
 
+def _has_legacy_block(path: Path) -> bool:
+    from vesta.legacy import has_legacy_instruction_block
+
+    return has_legacy_instruction_block(path)
+
+
 def _client_status(spec: dict[str, Any]) -> dict[str, Any]:
     project_files = spec["project_files"]
     global_files = spec["global_files"]
@@ -86,7 +92,12 @@ def _client_status(spec: dict[str, Any]) -> dict[str, Any]:
     project_managed = [path for path in project_files if _has_vesta_block(path)]
     global_present = [path for path in global_files if path.exists()]
 
-    if project_managed:
+    if any(_has_legacy_block(path) for path in project_managed):
+        # Counted as managed because the old markers are recognised, but the
+        # block names commands that no longer exist.
+        status = "broken"
+        reason = "Vesta managed block was written before the rename; repair it."
+    elif project_managed:
         status = "active"
         reason = "Vesta managed block present."
     elif project_present:
