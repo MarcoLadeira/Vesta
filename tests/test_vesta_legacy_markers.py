@@ -181,6 +181,23 @@ class LegacyIgnoreRulesTests(unittest.TestCase):
         self.assertIn("custom-cache/", text)
         self.assertEqual(text.count(".git/"), 1)
 
+    def test_ai_ignore_files_replace_the_old_generated_patterns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".cursorignore").write_text(
+                "# OPai context-slimming rules\n.git/\n.opaihub/cache/\n"
+                ".opaihub/logs/\nopai.egg-info/\n*.log\n\nmy-secrets/\n",
+                encoding="utf-8",
+            )
+
+            write_ai_ignore_files(root)
+            lines = (root / ".cursorignore").read_text(encoding="utf-8").splitlines()
+
+        self.assertFalse([line for line in lines if "opai" in line.lower()], lines)
+        for line in (".vestahub/cache/", ".vestahub/logs/", "vesta.egg-info/"):
+            self.assertEqual(lines.count(line), 1, line)
+        self.assertIn("my-secrets/", lines)
+
 
 if __name__ == "__main__":
     unittest.main()

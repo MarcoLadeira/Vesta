@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 # The header these rules were written under before the rebrand to Vesta.
-from vesta.legacy import LEGACY_IGNORE_HEADER
+from vesta.legacy import LEGACY_IGNORE_HEADER, legacy_spelling
 
 
 AI_IGNORE_FILES = [
@@ -88,6 +88,29 @@ def _append_unique(existing: str, lines: list[str]) -> str:
     return body + "\n\n" + "\n".join(missing).rstrip() + "\n"
 
 
+def _drop_legacy_pattern_lines(text: str) -> str:
+    """``text`` without the lines an install from before the rename generated.
+
+    Those lines name the old state directory and package, so they match nothing
+    any more; the current spelling of each is appended in their place. Every
+    other line is the user's and stays.
+    """
+
+    lines = text.splitlines()
+    kept = [line for line in lines if line.strip() not in _LEGACY_PATTERN_LINES]
+    if len(kept) == len(lines):
+        return text
+    return "\n".join(kept) + ("\n" if text.endswith("\n") else "")
+
+
+# The pre-rename spelling of each generated pattern that the rename changed.
+_LEGACY_PATTERN_LINES = {
+    legacy_spelling(line)
+    for line in AI_IGNORE_PATTERNS[1:]
+    if legacy_spelling(line) != line
+}
+
+
 def write_ai_ignore_files(project_root: Path) -> list[str]:
     root = project_root.expanduser().resolve()
     written: list[str] = []
@@ -96,6 +119,7 @@ def write_ai_ignore_files(project_root: Path) -> list[str]:
         existing = path.read_text(encoding="utf-8") if path.exists() else ""
         # Rename the old header in place rather than appending a second one.
         current = existing.replace(LEGACY_IGNORE_HEADER, AI_IGNORE_PATTERNS[0])
+        current = _drop_legacy_pattern_lines(current)
         updated = _append_unique(current, AI_IGNORE_PATTERNS)
         if updated != existing:
             path.write_text(updated, encoding="utf-8")
