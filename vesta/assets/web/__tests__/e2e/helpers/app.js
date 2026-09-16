@@ -175,8 +175,10 @@ export async function openSettings(page, id) {
   }
 }
 
+// [Settings page, destination]. The Prompt Library is a reusable tool under
+// Integrations; the insight pages sit in Advanced's "Tools & insights".
 const SETTINGS_TOOL_ROUTES = {
-  "Prompt Library": ["plugins", "prompts"],
+  "Prompt Library": ["connections", "prompts"],
   Agents: ["agents", "agents"],
   Workflows: ["agents", "workflows"],
   "Proof Bundle": ["agents", "proof"],
@@ -217,8 +219,13 @@ export async function openNav(page, label) {
   const route = SETTINGS_TOOL_ROUTES[label] || ["advanced", null];
   await openNav(page, "Settings");
   await page.locator(`.settings-rail-item[data-rail-target="${route[0]}"]`).click();
+  // Advanced keeps its tools folded away; open the disclosure as a user would.
+  const tools = page.locator("details[data-settings-tools]:visible");
+  if ((await tools.count()) && !(await tools.first().evaluate((node) => node.open))) {
+    await tools.first().locator("summary").click();
+  }
   const destination = route[1]
-    ? page.locator(`[data-go-view="${route[1]}"]`)
+    ? page.locator(`[data-go-view="${route[1]}"]:visible`).first()
     : page.locator(`[data-go-view]:visible`).filter({ hasText: label }).first();
   await destination.click();
 }
