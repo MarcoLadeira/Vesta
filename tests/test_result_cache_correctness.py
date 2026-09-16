@@ -9,8 +9,8 @@ import json
 from pathlib import Path
 from unittest import mock
 
-from opaihub import result_cache
-from opaihub.evidence_cache import (
+from vestahub import result_cache
+from vestahub.evidence_cache import (
     DEFAULT_FINGERPRINT_LIMITS,
     FingerprintLimits,
     RepoFingerprint,
@@ -259,7 +259,7 @@ class ResultCacheEnvelopeTests(unittest.TestCase):
             (root / "payload.bin").write_bytes(b"\x00binary")
             path = result_cache.store(root, "summarize app", "local-test", "answer")
             lookup = result_cache.lookup_with_meta(root, "summarize app", "local-test")
-            answers = root / ".opaihub" / "answers"
+            answers = root / ".vestahub" / "answers"
 
         self.assertIsNone(path)
         self.assertEqual(lookup.outcome, "bypass")
@@ -326,7 +326,7 @@ class ResultCacheEnvelopeTests(unittest.TestCase):
 
 class RepositoryWorkCacheTests(unittest.TestCase):
     def test_uncacheable_assessment_never_reuses_gui_repository_work(self):
-        from opaihub.intent_router import _cached_repo_work, clear_repo_work_cache
+        from vestahub.intent_router import _cached_repo_work, clear_repo_work_cache
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -346,7 +346,7 @@ class RepositoryWorkCacheTests(unittest.TestCase):
             )
             clear_repo_work_cache()
             with mock.patch(
-                "opaihub.evidence_cache.assess_repo_fingerprint",
+                "vestahub.evidence_cache.assess_repo_fingerprint",
                 return_value=unsafe,
             ):
                 first = _cached_repo_work(root, "context", compute)

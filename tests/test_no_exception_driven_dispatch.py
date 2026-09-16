@@ -20,7 +20,7 @@ boundary — real cost, real streamed output, a real subprocess — before an
 *unrelated* internal ``TypeError`` was raised. If that exception's message
 merely happens to mention the argument name, the retry silently dispatches
 the same operation twice. Capability must be decided from the signature
-before dispatch (``opaihub.ask._supports_kwarg``), never from an exception
+before dispatch (``vestahub.ask._supports_kwarg``), never from an exception
 after it.
 
 Detection is AST-based, not textual: it looks for a membership test against
@@ -44,7 +44,7 @@ import unittest
 from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-PRODUCTION_PACKAGES = ("opaihub", "opai")
+PRODUCTION_PACKAGES = ("vestahub", "vesta")
 
 
 def _production_sources() -> list[Path]:
@@ -120,7 +120,7 @@ class ExceptionDrivenDispatchTests(unittest.TestCase):
             "exception-driven dispatch fallback reintroduced at: "
             + ", ".join(offenders)
             + " — decide capability from inspect.signature before dispatch "
-            "(see opaihub.ask._supports_kwarg), not from exception text after it",
+            "(see vestahub.ask._supports_kwarg), not from exception text after it",
         )
 
     def test_the_detector_actually_detects_the_banned_shape(self) -> None:

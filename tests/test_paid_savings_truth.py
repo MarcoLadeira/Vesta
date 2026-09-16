@@ -8,19 +8,19 @@ from pathlib import Path
 
 from unittest import mock
 
-from opai.app_state import _ask_account
-from opaihub.gui_pipeline import (
+from vesta.app_state import _ask_account
+from vestahub.gui_pipeline import (
     _gate_receipt_savings,
     build_savings_receipt,
     handle_gui_message,
 )
-from opaihub.ledger import (
+from vestahub.ledger import (
     read_events,
     record_route_decision,
     summarize_ledger,
     unresolved_model_calls,
 )
-from opaihub.savings import build_savings_report
+from vestahub.savings import build_savings_report
 
 from tests._helpers import FakeAccountRunner, FakeLocalRunner, make_repo
 
@@ -326,7 +326,7 @@ class PipelineSpendTruthTests(unittest.TestCase):
     def test_pre_dispatch_cost_identity_failure_blocks_paid_call(self):
         fake = FakeAccountRunner(text="done", cost=0.01)
         with mock.patch(
-            "opaihub.ledger.record_model_call_started",
+            "vestahub.ledger.record_model_call_started",
             side_effect=OSError("ledger is read-only"),
         ):
             result = _ask_account(
@@ -345,10 +345,10 @@ class PipelineSpendTruthTests(unittest.TestCase):
     def test_final_cost_persistence_failure_degrades_receipt_not_answer(self):
         with (
             mock.patch(
-                "opaihub.ledger.reconcile_observed_model_calls",
+                "vestahub.ledger.reconcile_observed_model_calls",
                 side_effect=OSError("disk full"),
             ),
-            mock.patch("opaihub.ledger.record_model_call") as legacy_writer,
+            mock.patch("vestahub.ledger.record_model_call") as legacy_writer,
         ):
             result = handle_gui_message(
                 self.root,
@@ -366,7 +366,7 @@ class PipelineSpendTruthTests(unittest.TestCase):
         legacy_writer.assert_not_called()
         self.assertEqual(len(unresolved_model_calls(self.root)), 1)
 
-        from opaihub.ledger import (
+        from vestahub.ledger import (
             pending_model_call_observations,
             reconcile_observed_model_calls,
         )
@@ -468,8 +468,8 @@ class VerdictGatedSavingsTests(unittest.TestCase):
             }
 
         with (
-            mock.patch("opaihub.local_runner.runner_for_model", return_value=selected),
-            mock.patch("opaihub.ask.run_ask", side_effect=partial_run_ask),
+            mock.patch("vestahub.local_runner.runner_for_model", return_value=selected),
+            mock.patch("vestahub.ask.run_ask", side_effect=partial_run_ask),
         ):
             res = handle_gui_message(
                 self.root,

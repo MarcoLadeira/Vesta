@@ -2,7 +2,7 @@
 
 ## Purpose
 
-OPai must treat qualification as evidence about one immutable candidate, not as
+Vesta must treat qualification as evidence about one immutable candidate, not as
 the presence of a green-looking workflow. Every required lane must run
 automatically in its trust domain, record the checked-out commit, and fail
 closed when a tool, runner, credential, artifact, or prerequisite is absent.
@@ -80,9 +80,9 @@ test, security, build, and policy failures retain their own classifications.
   health preflight first checks the required labelled runner and emits
   `runner_unavailable` evidence instead of leaving the authoritative gate queued.
 - Provider canaries run only on a schedule or reviewed manual dispatch in the
-  `opai-provider-canary` environment. They require explicit non-production,
+  `vesta-provider-canary` environment. They require explicit non-production,
   budget, and cloud-test acknowledgements and never run on pull requests.
-- Signing remains in `opai-production-signing`; untrusted code never receives
+- Signing remains in `vesta-production-signing`; untrusted code never receives
   signing/provider credentials. Production release qualification consumes only
   evidence built in the same run for the exact tag commit.
 

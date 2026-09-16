@@ -1,7 +1,7 @@
 """#613 Stage 2: github_connector's shadow journal, and the secret it must never mirror.
 
-Stage 1 named ``opaihub/github_connector.py`` JOURNAL_OWNED -- "operations:
-GitHub delivery". ``~/.opai/github.json`` records who Vesta is connected to and
+Stage 1 named ``vestahub/github_connector.py`` JOURNAL_OWNED -- "operations:
+GitHub delivery". ``~/.vesta/github.json`` records who Vesta is connected to and
 whether the user has consented to pushes and to anonymous public reads, so it
 is a *consent* record in the same family as ``integrations``.
 
@@ -28,8 +28,8 @@ from unittest import mock
 
 from _helpers import isolated_home
 
-from opaihub import github_connector
-from opaihub.github_connector import (
+from vestahub import github_connector
+from vestahub.github_connector import (
     _config_path,
     _update_config,
     github_config_contradiction_report,

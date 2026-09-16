@@ -4,16 +4,16 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opai.app_state import available_models
+from vesta.app_state import available_models
 
 # Aliased: the production name starts with `test_`, and importing it unaliased
 # makes pytest collect it as a test function (fixture 'account_id' not found).
-from opaihub.accounts import (
+from vestahub.accounts import (
     account_models,
     connection_for_account,
     test_account_connection as check_account_connection,
 )
-from opaihub import accounts
+from vestahub import accounts
 
 
 class _Completed:
@@ -33,7 +33,7 @@ class ProviderConnectionTests(unittest.TestCase):
             desktop_cli.parent.mkdir(parents=True)
             desktop_cli.write_text("binary", encoding="utf-8")
             with (
-                mock.patch("opaihub.accounts._which", return_value=None),
+                mock.patch("vestahub.accounts._which", return_value=None),
                 mock.patch.dict(
                     "os.environ",
                     {"LOCALAPPDATA": str(local_app_data), "PATH": ""},
@@ -91,7 +91,7 @@ class ProviderConnectionTests(unittest.TestCase):
             home = Path(tmp)
             (home / ".claude").mkdir()
             (home / ".claude" / ".credentials.json").touch()
-            with mock.patch("opaihub.accounts._which", return_value="/bin/claude"):
+            with mock.patch("vestahub.accounts._which", return_value="/bin/claude"):
                 connection = check_account_connection(
                     "claude", home=home, run=lambda argv: _Completed(0, "logged in")
                 )
@@ -106,7 +106,7 @@ class ProviderConnectionTests(unittest.TestCase):
             home = Path(tmp)
             (home / ".claude").mkdir()
             (home / ".claude" / ".credentials.json").touch()
-            with mock.patch("opaihub.accounts._which", return_value="/bin/claude"):
+            with mock.patch("vestahub.accounts._which", return_value="/bin/claude"):
                 connection = check_account_connection(
                     "claude",
                     home=home,
@@ -124,7 +124,7 @@ class ProviderConnectionTests(unittest.TestCase):
             home = Path(tmp)
             (home / ".claude").mkdir()
             (home / ".claude" / ".credentials.json").touch()
-            with mock.patch("opaihub.accounts._which", return_value="/bin/claude"):
+            with mock.patch("vestahub.accounts._which", return_value="/bin/claude"):
                 connection = check_account_connection(
                     "claude",
                     home=home,
@@ -140,7 +140,7 @@ class ProviderConnectionTests(unittest.TestCase):
             (home / ".claude").mkdir()
             (home / ".claude" / ".credentials.json").touch()
             payload = '{"loggedIn":true,"orgId":"org-401-example"}'
-            with mock.patch("opaihub.accounts._which", return_value="/bin/claude"):
+            with mock.patch("vestahub.accounts._which", return_value="/bin/claude"):
                 connection = check_account_connection(
                     "claude", home=home, run=lambda argv: _Completed(0, payload)
                 )
@@ -154,9 +154,9 @@ class ProviderConnectionTests(unittest.TestCase):
             (home / ".codex").mkdir()
             (home / ".codex" / "auth.json").touch()
             with (
-                mock.patch("opaihub.accounts._which", return_value="/bin/codex"),
+                mock.patch("vestahub.accounts._which", return_value="/bin/codex"),
                 mock.patch(
-                    "opaihub.accounts._codex_cli_candidates",
+                    "vestahub.accounts._codex_cli_candidates",
                     return_value=["/bin/codex"],
                 ),
             ):
@@ -191,9 +191,9 @@ class ProviderConnectionTests(unittest.TestCase):
                 return _Completed(0, "Logged in using ChatGPT")
 
             with (
-                mock.patch("opaihub.accounts._which", return_value=str(first)),
+                mock.patch("vestahub.accounts._which", return_value=str(first)),
                 mock.patch(
-                    "opaihub.accounts._codex_cli_candidates",
+                    "vestahub.accounts._codex_cli_candidates",
                     return_value=[str(first), str(second)],
                 ),
             ):
@@ -201,7 +201,7 @@ class ProviderConnectionTests(unittest.TestCase):
                     "codex", home=home, run=run, force=True
                 )
             stored = json.loads(
-                (home / ".opai" / "connection_history.json").read_text(encoding="utf-8")
+                (home / ".vesta" / "connection_history.json").read_text(encoding="utf-8")
             )
 
         self.assertEqual(connection["authStatus"], "connected")
@@ -225,9 +225,9 @@ class ProviderConnectionTests(unittest.TestCase):
             (home / ".codex").mkdir()
             (home / ".codex" / "auth.json").touch()
             with (
-                mock.patch("opaihub.accounts._which", return_value="/bin/codex"),
+                mock.patch("vestahub.accounts._which", return_value="/bin/codex"),
                 mock.patch(
-                    "opaihub.accounts._codex_cli_candidates",
+                    "vestahub.accounts._codex_cli_candidates",
                     return_value=["/bin/codex"],
                 ),
             ):
@@ -250,7 +250,7 @@ class ProviderConnectionTests(unittest.TestCase):
             home = Path(tmp)
             (home / ".codex").mkdir()
             (home / ".codex" / "auth.json").touch()
-            with mock.patch("opaihub.accounts._which", return_value="/bin/codex"):
+            with mock.patch("vestahub.accounts._which", return_value="/bin/codex"):
                 chatgpt = check_account_connection(
                     "codex",
                     home=home,
@@ -306,7 +306,7 @@ class ProviderConnectionTests(unittest.TestCase):
         }
 
         with mock.patch(
-            "opaihub.accounts._account_cli_version",
+            "vestahub.accounts._account_cli_version",
             return_value="codex-cli 0.128.0",
         ):
             options = account_models(
@@ -353,11 +353,11 @@ class ProviderConnectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with (
                 mock.patch(
-                    "opaihub.accounts.list_connected_accounts", return_value=[account]
+                    "vestahub.accounts.list_connected_accounts", return_value=[account]
                 ),
-                mock.patch("opaihub.local_runner.list_local_models", return_value=[]),
+                mock.patch("vestahub.local_runner.list_local_models", return_value=[]),
                 mock.patch(
-                    "opaihub.accounts.provider_connection_doctor",
+                    "vestahub.accounts.provider_connection_doctor",
                     return_value=[
                         {
                             "providerId": "codex",
@@ -400,11 +400,11 @@ class ProviderConnectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with (
                 mock.patch(
-                    "opaihub.accounts.list_connected_accounts", return_value=[account]
+                    "vestahub.accounts.list_connected_accounts", return_value=[account]
                 ),
-                mock.patch("opaihub.local_runner.list_local_models", return_value=[]),
+                mock.patch("vestahub.local_runner.list_local_models", return_value=[]),
                 mock.patch(
-                    "opaihub.accounts.provider_connection_doctor",
+                    "vestahub.accounts.provider_connection_doctor",
                     return_value=[
                         {
                             "providerId": "codex",
@@ -414,7 +414,7 @@ class ProviderConnectionTests(unittest.TestCase):
                     ],
                 ),
                 mock.patch(
-                    "opaihub.accounts.test_account_connection",
+                    "vestahub.accounts.test_account_connection",
                     return_value={
                         "providerId": "codex",
                         "authStatus": "connected",
@@ -422,11 +422,11 @@ class ProviderConnectionTests(unittest.TestCase):
                     },
                 ) as connection_probe,
                 mock.patch(
-                    "opaihub.accounts._account_cli_version",
+                    "vestahub.accounts._account_cli_version",
                     return_value="codex-cli 0.151.0",
                 ),
                 mock.patch(
-                    "opaihub.accounts._codex_cli_models", return_value=discovered
+                    "vestahub.accounts._codex_cli_models", return_value=discovered
                 ) as catalog_probe,
             ):
                 payload = available_models(Path(tmp), discover_accounts=True)
@@ -461,11 +461,11 @@ class ProviderConnectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with (
                 mock.patch(
-                    "opaihub.accounts.list_connected_accounts", return_value=[account]
+                    "vestahub.accounts.list_connected_accounts", return_value=[account]
                 ),
-                mock.patch("opaihub.local_runner.list_local_models", return_value=[]),
+                mock.patch("vestahub.local_runner.list_local_models", return_value=[]),
                 mock.patch(
-                    "opaihub.accounts.provider_connection_doctor",
+                    "vestahub.accounts.provider_connection_doctor",
                     return_value=[{"providerId": "codex", "authStatus": "connected"}],
                 ),
             ):
@@ -488,7 +488,7 @@ class ProviderConnectionTests(unittest.TestCase):
             (home / ".copilot").mkdir()
             (home / ".copilot" / "config.json").touch()
             run = mock.Mock()
-            with mock.patch("opaihub.accounts._which", return_value="/bin/copilot"):
+            with mock.patch("vestahub.accounts._which", return_value="/bin/copilot"):
                 connection = check_account_connection("copilot", home=home, run=run)
 
         run.assert_not_called()
@@ -512,9 +512,9 @@ class ProviderConnectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with (
                 mock.patch(
-                    "opaihub.accounts.list_connected_accounts", return_value=accounts
+                    "vestahub.accounts.list_connected_accounts", return_value=accounts
                 ),
-                mock.patch("opaihub.local_runner.list_local_models", return_value=[]),
+                mock.patch("vestahub.local_runner.list_local_models", return_value=[]),
             ):
                 payload = available_models(Path(tmp))
 
@@ -538,11 +538,11 @@ class ProviderConnectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with (
                 mock.patch(
-                    "opaihub.accounts.list_connected_accounts", return_value=accounts
+                    "vestahub.accounts.list_connected_accounts", return_value=accounts
                 ),
-                mock.patch("opaihub.local_runner.list_local_models", return_value=[]),
+                mock.patch("vestahub.local_runner.list_local_models", return_value=[]),
                 mock.patch(
-                    "opaihub.accounts.provider_connection_doctor",
+                    "vestahub.accounts.provider_connection_doctor",
                     return_value=[
                         {
                             "providerId": "claude",
@@ -575,7 +575,7 @@ class ProviderConnectionTests(unittest.TestCase):
             "login_hint": "Sign in",
         }
         with mock.patch(
-            "opaihub.accounts.list_connected_accounts", return_value=[account]
+            "vestahub.accounts.list_connected_accounts", return_value=[account]
         ):
             options = account_models()
 
@@ -599,7 +599,7 @@ class ProviderConnectionTests(unittest.TestCase):
             "login_hint": "Sign in",
         }
         with mock.patch(
-            "opaihub.accounts.list_connected_accounts", return_value=[account]
+            "vestahub.accounts.list_connected_accounts", return_value=[account]
         ):
             options = account_models()
 
@@ -623,7 +623,7 @@ class ProviderConnectionTests(unittest.TestCase):
             "login_hint": "Sign in",
         }
         with mock.patch(
-            "opaihub.accounts.list_connected_accounts", return_value=[account]
+            "vestahub.accounts.list_connected_accounts", return_value=[account]
         ):
             options = account_models()
 
@@ -643,7 +643,7 @@ class ProviderConnectionTests(unittest.TestCase):
             "login_hint": "Sign in",
         }
         with mock.patch(
-            "opaihub.accounts.list_connected_accounts", return_value=[account]
+            "vestahub.accounts.list_connected_accounts", return_value=[account]
         ):
             options = account_models()
 
@@ -668,9 +668,9 @@ class ProviderConnectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with (
                 mock.patch(
-                    "opaihub.accounts.list_connected_accounts", return_value=accounts
+                    "vestahub.accounts.list_connected_accounts", return_value=accounts
                 ),
-                mock.patch("opaihub.local_runner.list_local_models", return_value=[]),
+                mock.patch("vestahub.local_runner.list_local_models", return_value=[]),
             ):
                 payload = available_models(Path(tmp))
 
@@ -686,8 +686,8 @@ class ProviderConnectionTests(unittest.TestCase):
     def test_available_models_auto_has_routing_group(self):
         with tempfile.TemporaryDirectory() as tmp:
             with (
-                mock.patch("opaihub.accounts.list_connected_accounts", return_value=[]),
-                mock.patch("opaihub.local_runner.list_local_models", return_value=[]),
+                mock.patch("vestahub.accounts.list_connected_accounts", return_value=[]),
+                mock.patch("vestahub.local_runner.list_local_models", return_value=[]),
             ):
                 payload = available_models(Path(tmp))
 
@@ -706,9 +706,9 @@ class ProviderConnectionTests(unittest.TestCase):
         ]
         with tempfile.TemporaryDirectory() as tmp:
             with (
-                mock.patch("opaihub.accounts.list_connected_accounts", return_value=[]),
+                mock.patch("vestahub.accounts.list_connected_accounts", return_value=[]),
                 mock.patch(
-                    "opaihub.local_runner.list_local_models", return_value=fake_local
+                    "vestahub.local_runner.list_local_models", return_value=fake_local
                 ),
             ):
                 payload = available_models(Path(tmp))

@@ -12,13 +12,13 @@ from __future__ import annotations
 
 import unittest
 
-from opaihub.completion import (
+from vestahub.completion import (
     AcceptanceRequirement,
     CompletionVerdict,
     CompletionVerdictResult,
     ObjectiveRecord,
 )
-from opaihub.run_result_projection import (
+from vestahub.run_result_projection import (
     project_run_result,
     project_run_result_for_background_run,
 )

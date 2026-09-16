@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import unittest
 
-from opai.gui_modes import task_modes
-from opai.gui_prompts import (
+from vesta.gui_modes import task_modes
+from vesta.gui_prompts import (
     CATEGORIES,
     PROMPTS,
     categories_present,

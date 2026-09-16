@@ -10,7 +10,7 @@ import pytest
 
 from _helpers import FakeStreamingRunner, make_repo
 
-from opaihub.completion import (
+from vestahub.completion import (
     AcceptanceRequirement,
     CompletionResult,
     CompletionState,
@@ -262,8 +262,8 @@ def test_every_canonical_provider_error_code_is_explicitly_classified() -> None:
     provider code added tomorrow would otherwise become UNKNOWN silently.
     """
 
-    from opaihub.completion import _FAILURE_BY_ERROR_CODE
-    from opaihub.provider_protocol import ERROR_CODES
+    from vestahub.completion import _FAILURE_BY_ERROR_CODE
+    from vestahub.provider_protocol import ERROR_CODES
 
     unmapped = sorted(set(ERROR_CODES) - set(_FAILURE_BY_ERROR_CODE))
 
@@ -324,9 +324,9 @@ class _EvidenceRunner(FakeStreamingRunner):
 
 
 def test_pipeline_persists_one_manifest_verdict_and_receipt_contract() -> None:
-    from opaihub.checkpoints import load_run_checkpoint
-    from opaihub.gui_pipeline import handle_gui_message, last_savings_receipt
-    from opaihub.workflow_state import load_workflow_state
+    from vestahub.checkpoints import load_run_checkpoint
+    from vestahub.gui_pipeline import handle_gui_message, last_savings_receipt
+    from vestahub.workflow_state import load_workflow_state
 
     runner = _EvidenceRunner(
         {
@@ -397,8 +397,8 @@ def test_verification_receives_the_live_cancel_signal() -> None:
     import threading
     from unittest import mock
 
-    import opaihub.gui_pipeline as gui_pipeline_module
-    from opaihub.gui_pipeline import handle_gui_message
+    import vestahub.gui_pipeline as gui_pipeline_module
+    from vestahub.gui_pipeline import handle_gui_message
 
     runner = _EvidenceRunner(
         {
@@ -435,8 +435,8 @@ def test_verification_receives_the_live_cancel_signal() -> None:
 
 
 def test_partial_verdict_is_persisted_as_non_completed_checkpoint_state() -> None:
-    from opaihub.checkpoints import load_run_checkpoint
-    from opaihub.gui_pipeline import handle_gui_message
+    from vestahub.checkpoints import load_run_checkpoint
+    from vestahub.gui_pipeline import handle_gui_message
 
     runner = _EvidenceRunner(
         {
@@ -464,7 +464,7 @@ def test_partial_verdict_is_persisted_as_non_completed_checkpoint_state() -> Non
 
 
 def test_gui_provider_trace_cannot_bypass_the_persisted_verification_manifest() -> None:
-    from opaihub.gui_pipeline import handle_gui_message
+    from vestahub.gui_pipeline import handle_gui_message
 
     runner = _EvidenceRunner(
         {
@@ -502,7 +502,7 @@ def test_provider_diagnostics_never_become_persisted_verdict_reason() -> None:
 
 
 def test_pipeline_timeout_preserves_the_timeout_verdict() -> None:
-    from opaihub.gui_pipeline import handle_gui_message
+    from vestahub.gui_pipeline import handle_gui_message
 
     runner = _EvidenceRunner({"text": "", "cost": None, "timed_out": True})
     with tempfile.TemporaryDirectory() as tmp:
@@ -540,8 +540,8 @@ def test_active_task_deadline_has_cause_specific_completion_guidance() -> None:
 
 
 def test_blocked_terminal_run_persists_a_verdict_even_without_a_task_outcome() -> None:
-    from opaihub.gui_pipeline import handle_gui_message
-    from opaihub.ledger import read_events
+    from vestahub.gui_pipeline import handle_gui_message
+    from vestahub.ledger import read_events
 
     with tempfile.TemporaryDirectory() as tmp:
         root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
@@ -744,7 +744,7 @@ def test_checkpoint_rejects_non_json_mutable_leaves(mutable: object) -> None:
 # Round 2 (2026-07-24) status-honesty fixes: the verdict was wrong in BOTH
 # directions — a real commit read "Partial", and a refusal read "Completed".
 # ---------------------------------------------------------------------------
-def test_commit_made_outside_opais_tools_counts_as_change_evidence() -> None:
+def test_commit_made_outside_vestas_tools_counts_as_change_evidence() -> None:
     # A provider CLI commits through its own shell, and committing CLEARS the
     # dirty paths the run created — so a genuinely successful commit arrived
     # with no changed_files and no diff_review, and was stamped PARTIAL. The

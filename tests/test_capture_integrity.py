@@ -8,18 +8,18 @@ from pathlib import Path
 from unittest import mock
 
 from _helpers import FakeAccountRunner, make_repo
-from opai import app_state
-from opai.gui_desktop import run_once
-from opai.gui_view_model import build_view_model
-from opaihub.ledger import (
+from vesta import app_state
+from vesta.gui_desktop import run_once
+from vesta.gui_view_model import build_view_model
+from vestahub.ledger import (
     CAPTURE_RATE_DEFINITION,
     EVENT_CAPTURE_SESSION,
     read_events,
     record_capture_session,
     summarize_ledger,
 )
-from opaihub.proxy import proxy_run
-from opaihub.proxy import SUPPORTED_AGENTS
+from vestahub.proxy import proxy_run
+from vestahub.proxy import SUPPORTED_AGENTS
 
 
 def _capture_events(root: Path) -> list[dict]:
@@ -143,7 +143,7 @@ class CaptureSessionLedgerTests(unittest.TestCase):
     def test_fail_open_is_visible_as_an_uncaptured_attempt(self):
         runner = FakeAccountRunner(text="raw answer", cost=0.01)
         with mock.patch(
-            "opai.app_state._ask_account", side_effect=RuntimeError("proxy failed")
+            "vesta.app_state._ask_account", side_effect=RuntimeError("proxy failed")
         ):
             result = proxy_run(self.root, "task", agent="claude", runner=runner)
 
@@ -156,10 +156,10 @@ class CaptureSessionLedgerTests(unittest.TestCase):
     def test_model_ledger_failure_is_reported_without_breaking_the_answer(self):
         with (
             mock.patch(
-                "opaihub.ledger.reconcile_observed_model_calls",
+                "vestahub.ledger.reconcile_observed_model_calls",
                 side_effect=OSError("disk full"),
             ),
-            mock.patch("opaihub.ledger.record_model_call") as legacy_writer,
+            mock.patch("vestahub.ledger.record_model_call") as legacy_writer,
         ):
             result = proxy_run(
                 self.root,

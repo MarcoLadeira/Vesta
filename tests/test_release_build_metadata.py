@@ -12,8 +12,8 @@ import zipfile
 
 import pytest
 
-from opai.asset_identity import asset_manifest
-from opai.compatibility import runtime_compatibility_payload
+from vesta.asset_identity import asset_manifest
+from vesta.compatibility import runtime_compatibility_payload
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,7 +28,7 @@ def _source_copy(destination: Path) -> Path:
         ignore=shutil.ignore_patterns(
             ".git",
             ".worktrees",
-            ".opaihub",
+            ".vestahub",
             ".pytest_cache",
             ".ruff_cache",
             "__pycache__",
@@ -46,9 +46,9 @@ def _build(
 ) -> subprocess.CompletedProcess[str]:
     environment = dict(os.environ)
     if build_id is None:
-        environment.pop("OPAI_BUILD_ID", None)
+        environment.pop("VESTA_BUILD_ID", None)
     else:
-        environment["OPAI_BUILD_ID"] = build_id
+        environment["VESTA_BUILD_ID"] = build_id
     return subprocess.run(  # nosec B603 - isolated local packaging fixture
         [
             sys.executable,
@@ -76,8 +76,8 @@ def built_distributions(tmp_path_factory):
     output = temporary / "dist"
     result = _build(source, output, build_id=CANDIDATE_SHA)
     assert result.returncode == 0, result.stdout + result.stderr
-    wheel = next(output.glob("opai-*.whl"))
-    sdist = next(output.glob("opai-*.tar.gz"))
+    wheel = next(output.glob("vesta-*.whl"))
+    sdist = next(output.glob("vesta-*.tar.gz"))
     return source, wheel, sdist
 
 
@@ -86,7 +86,7 @@ def test_wheel_embeds_exact_candidate_sha_and_canonical_version(
 ) -> None:
     _source, wheel, _sdist = built_distributions
     with zipfile.ZipFile(wheel) as archive:
-        embedded = json.loads(archive.read("opai/_embedded_build.json"))
+        embedded = json.loads(archive.read("vesta/_embedded_build.json"))
         metadata_name = next(
             name for name in archive.namelist() if name.endswith(".dist-info/METADATA")
         )
@@ -96,7 +96,7 @@ def test_wheel_embeds_exact_candidate_sha_and_canonical_version(
     assert embedded["build_id"] == CANDIDATE_SHA
     assert embedded["release_channel"] == "alpha"
     assert embedded["schema_version"] == 1
-    assert embedded["assets"] == asset_manifest(ROOT / "opai" / "assets")
+    assert embedded["assets"] == asset_manifest(ROOT / "vesta" / "assets")
     assert embedded["compatibility"] == runtime_compatibility_payload()
     assert metadata["Version"] == embedded["application_version"]
 
@@ -109,7 +109,7 @@ def test_source_archive_carries_the_same_candidate_identity(
         member = next(
             item
             for item in archive.getmembers()
-            if item.name.endswith("/opai/_embedded_build.json")
+            if item.name.endswith("/vesta/_embedded_build.json")
         )
         stream = archive.extractfile(member)
         assert stream is not None
@@ -124,7 +124,7 @@ def test_distribution_build_does_not_mutate_the_source_checkout(
 ) -> None:
     source, _wheel, _sdist = built_distributions
 
-    assert not (source / "opai" / "_embedded_build.json").exists()
+    assert not (source / "vesta" / "_embedded_build.json").exists()
 
 
 def test_installed_wheel_reports_distribution_and_candidate_identity(
@@ -160,9 +160,9 @@ def test_installed_wheel_reports_distribution_and_candidate_identity(
             "-c",
             (
                 "import importlib.metadata as m, json; "
-                "from opai.release_identity import current_release_identity; "
+                "from vesta.release_identity import current_release_identity; "
                 "i=current_release_identity(); "
-                "print(json.dumps({'distribution': m.version('opai'), "
+                "print(json.dumps({'distribution': m.version('vesta'), "
                 "'identity': i.to_dict()}))"
             ),
         ],
@@ -181,8 +181,8 @@ def test_installed_wheel_reports_distribution_and_candidate_identity(
     assert payload["identity"]["build_id"] == CANDIDATE_SHA
     assert payload["identity"]["install_type"] == "installed_distribution"
     assert payload["identity"]["metadata_source"].endswith(
-        "opai\\_embedded_build.json"
-    ) or payload["identity"]["metadata_source"].endswith("opai/_embedded_build.json")
+        "vesta\\_embedded_build.json"
+    ) or payload["identity"]["metadata_source"].endswith("vesta/_embedded_build.json")
 
 
 def test_installed_wheel_without_dependencies_reports_missing_pyyaml_at_bootstrap(
@@ -213,7 +213,7 @@ def test_installed_wheel_without_dependencies_reports_missing_pyyaml_at_bootstra
     environment["PYTHONPATH"] = str(install_root)
     environment["PYTHONNOUSERSITE"] = "1"
     probe = subprocess.run(  # nosec B603 - fixed local interpreter probe
-        [sys.executable, "-S", "-m", "opai", "doctor", "--json"],
+        [sys.executable, "-S", "-m", "vesta", "doctor", "--json"],
         cwd=wheel.parent,
         env=environment,
         capture_output=True,
@@ -238,14 +238,14 @@ def test_installed_wheel_without_dist_info_reports_package_metadata_failure(
     install_root = tmp_path / "missing-dist-info"
     with zipfile.ZipFile(wheel) as archive:
         archive.extractall(install_root)
-    for metadata_dir in install_root.glob("opai-*.dist-info"):
+    for metadata_dir in install_root.glob("vesta-*.dist-info"):
         shutil.rmtree(metadata_dir)
     environment = dict(os.environ)
     environment["PYTHONPATH"] = str(install_root)
     environment["PYTHONNOUSERSITE"] = "1"
 
     probe = subprocess.run(  # nosec B603 - isolated local wheel payload
-        [sys.executable, "-S", "-m", "opai", "doctor", "--json"],
+        [sys.executable, "-S", "-m", "vesta", "doctor", "--json"],
         cwd=wheel.parent,
         env=environment,
         capture_output=True,
@@ -257,20 +257,20 @@ def test_installed_wheel_without_dist_info_reports_package_metadata_failure(
     assert probe.returncode == 78, probe.stdout + probe.stderr
     payload = json.loads(probe.stdout)
     assert payload["category"] == "package_metadata_unavailable"
-    assert payload["component"] == "opai-distribution-metadata"
+    assert payload["component"] == "vesta-distribution-metadata"
     assert payload["startup_mode"] == "installed_distribution"
     assert "unsupported_startup_mode" not in probe.stdout + probe.stderr
 
 
 def test_invalid_build_identity_fails_before_an_artifact_is_created() -> None:
-    from opai.build_metadata import BuildMetadataError, build_metadata_payload
+    from vesta.build_metadata import BuildMetadataError, build_metadata_payload
 
     with pytest.raises(
-        BuildMetadataError, match="OPAI_BUILD_ID must be an exact lowercase commit SHA"
+        BuildMetadataError, match="VESTA_BUILD_ID must be an exact lowercase commit SHA"
     ):
         build_metadata_payload(
             application_version="0.2.1a1",
-            environment={"OPAI_BUILD_ID": "not-a-commit"},
+            environment={"VESTA_BUILD_ID": "not-a-commit"},
         )
 
 
@@ -287,7 +287,7 @@ def test_runtime_reads_embedded_wheel_identity_without_git(tmp_path: Path) -> No
         ),
         encoding="utf-8",
     )
-    from opai.release_identity import load_release_identity
+    from vesta.release_identity import load_release_identity
 
     identity = load_release_identity(
         identity_paths=(),
@@ -302,7 +302,7 @@ def test_runtime_reads_embedded_wheel_identity_without_git(tmp_path: Path) -> No
 
 
 def test_local_build_without_candidate_sha_reports_unknown(tmp_path: Path) -> None:
-    from opai.build_metadata import build_metadata_payload
+    from vesta.build_metadata import build_metadata_payload
 
     embedded = build_metadata_payload(
         application_version="0.2.1a1", environment={}, source_root=ROOT

@@ -1,6 +1,6 @@
 import unittest
 
-from opai.provider_contract import (
+from vesta.provider_contract import (
     classify_error_code,
     dedupe_error_text,
     normalize_provider_error,
@@ -74,7 +74,7 @@ class ProviderErrorContractTests(unittest.TestCase):
         self.assertFalse(error["retryable"])
 
     def test_secret_values_are_redacted(self):
-        # #622: this delegates to opaihub.command_runner.redact, the one
+        # #622: this delegates to vestahub.command_runner.redact, the one
         # canonical redactor — assignment values need to be realistically
         # long (a real cookie/token isn't 6 characters) since that pattern's
         # 16-char minimum is a deliberate anti-over-redaction guard, not an
@@ -232,7 +232,7 @@ class TransientTransportClassificationTests(unittest.TestCase):
                 self.assertEqual(classify_error_code(detail), "PROVIDER_UNAVAILABLE")
 
     def test_transient_codes_are_the_ones_auto_retries(self):
-        from opaihub import auto_router
+        from vestahub import auto_router
 
         for detail in self.TIMEOUTS + self.NETWORK + self.UNAVAILABLE:
             with self.subTest(detail=detail):
@@ -246,7 +246,7 @@ class TransientTransportClassificationTests(unittest.TestCase):
         self.assertEqual(classify_error_code("the run took 5030 ms"), "UNKNOWN")
 
     def test_deterministic_failures_are_not_reclassified_as_transient(self):
-        from opaihub import auto_router
+        from vestahub import auto_router
 
         cases = {
             "429 rate limit exceeded": "PROVIDER_RATE_LIMITED",

@@ -24,9 +24,9 @@ from unittest import mock
 from contextlib import redirect_stdout
 from pathlib import Path
 
-from opai import cli
-from opaihub import background_runs, journal_backup
-from opaihub.journal_store import journal_path, open_store
+from vesta import cli
+from vestahub import background_runs, journal_backup
+from vestahub.journal_store import journal_path, open_store
 
 
 class _JournalCommandFixture(unittest.TestCase):
@@ -357,7 +357,7 @@ class CompactTests(_JournalCommandFixture):
 
         self.assertEqual(code, 0)
         payload = json.loads(output)
-        self.assertEqual(payload["report"], "opai-journal-retention")
+        self.assertEqual(payload["report"], "vesta-journal-retention")
 
     def test_compact_is_reachable_from_argv(self):
         args = cli.build_parser().parse_args(["journal", "compact", "--days", "7"])
@@ -383,7 +383,7 @@ class PendingTests(_JournalCommandFixture):
         return run.run_id
 
     def test_a_settled_project_says_so(self):
-        from opaihub.journal_store import open_store as _open
+        from vestahub.journal_store import open_store as _open
 
         _open(self.root).close()
 
@@ -402,7 +402,7 @@ class PendingTests(_JournalCommandFixture):
         self.assertIn("lease held", output)
 
     def test_an_unreconciled_operation_is_listed(self):
-        from opaihub import idempotency
+        from vestahub import idempotency
 
         self._unfinished_run()
         idempotency.begin(
@@ -439,7 +439,7 @@ class PendingTests(_JournalCommandFixture):
         case, not as boilerplate on every run.
         """
 
-        from opaihub import journal_liveness
+        from vestahub import journal_liveness
 
         self._unfinished_run()
 
@@ -462,7 +462,7 @@ class PendingTests(_JournalCommandFixture):
         sentence loses the only part that tells the reader what to look at.
         """
 
-        from opaihub import journal_liveness
+        from vestahub import journal_liveness
 
         self._unfinished_run()
 
@@ -484,7 +484,7 @@ class PendingTests(_JournalCommandFixture):
         which is the explanation for a different situation entirely.
         """
 
-        from opaihub import journal_liveness
+        from vestahub import journal_liveness
 
         self._unfinished_run()
 
@@ -523,7 +523,7 @@ class PendingTests(_JournalCommandFixture):
         deleting the branch that distinguishes them changed no test.
         """
 
-        from opaihub import journal_runtime
+        from vestahub import journal_runtime
 
         self._unfinished_run()
 

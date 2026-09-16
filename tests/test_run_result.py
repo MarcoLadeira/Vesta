@@ -6,7 +6,7 @@ from dataclasses import FrozenInstanceError
 import json
 import unittest
 
-from opaihub.run_result import RunResult, terminal_presentation
+from vestahub.run_result import RunResult, terminal_presentation
 
 
 FINAL_AT = "2026-08-02T12:34:56Z"

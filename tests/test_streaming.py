@@ -9,8 +9,8 @@ from pathlib import Path
 
 from _helpers import FakeStreamingRunner, make_repo
 
-from opai.provider_contract import normalize_provider_error
-from opaihub.gui_pipeline import handle_gui_message
+from vesta.provider_contract import normalize_provider_error
+from vestahub.gui_pipeline import handle_gui_message
 
 
 class AccountStreamingTests(unittest.TestCase):
@@ -168,7 +168,7 @@ class LocalStreamingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
             with mock.patch(
-                "opaihub.ask.run_ask",
+                "vestahub.ask.run_ask",
                 return_value={"status": "answered_locally", "answer": "local answer"},
             ):
                 result = handle_gui_message(

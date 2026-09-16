@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import unittest
 
-from opaihub.tool_loop import (
+from vestahub.tool_loop import (
     ChatTurn,
     ToolLoopController,
     ToolLoopPolicy,
@@ -134,7 +134,7 @@ class ReplayCompactionTests(unittest.TestCase):
             ChatTurn(
                 content=json.dumps(
                     {
-                        "opai_decision_version": 1,
+                        "vesta_decision_version": 1,
                         "state": "completed",
                         "evidence": ["read_file"],
                     }

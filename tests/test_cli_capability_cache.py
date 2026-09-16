@@ -17,7 +17,7 @@ from pathlib import Path
 
 from unittest import mock
 
-from opaihub import accounts
+from vestahub import accounts
 
 
 class _Result:

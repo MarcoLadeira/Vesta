@@ -1,8 +1,8 @@
-# OPai Alpha Trust Programme Implementation Plan
+# Vesta Alpha Trust Programme Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make OPai's free alpha fail closed around provider permissions, reject unsupported edit paths honestly, and count every model call exactly once.
+**Goal:** Make Vesta's free alpha fail closed around provider permissions, reject unsupported edit paths honestly, and count every model call exactly once.
 
 **Architecture:** Keep `AgentPolicy` as the shared intent source, add request-exact publish capabilities, and enforce provider limitations before launching native CLIs. Keep route decisions as comparison evidence while making model-call events the only spend source; propagate typed capability mismatches through the shared GUI/CLI core without receipts or false diff-review transitions.
 
@@ -12,13 +12,13 @@
 
 ## File responsibilities
 
-- `opaihub/agent_policy.py`: resolve the current request into exact read, edit, publish, and ship capabilities.
-- `opaihub/accounts.py`: construct native account CLI commands; Copilot remains read-only until it has granular tool controls.
-- `opai/app_state.py`: shared provider dispatch and typed capability gating for GUI and CLI.
-- `opaihub/ask.py`: local/cache execution; mutation requests must not use a prose answer cache or claim edit success.
-- `opaihub/gui_pipeline.py`: turn typed provider outcomes into honest runtime, receipt, and workflow state.
-- `opaihub/budget.py`: calculate spent budget from actual/estimated model-call events only.
-- `opaihub/ledger.py`: aggregate routing comparisons separately from spend.
+- `vestahub/agent_policy.py`: resolve the current request into exact read, edit, publish, and ship capabilities.
+- `vestahub/accounts.py`: construct native account CLI commands; Copilot remains read-only until it has granular tool controls.
+- `vesta/app_state.py`: shared provider dispatch and typed capability gating for GUI and CLI.
+- `vestahub/ask.py`: local/cache execution; mutation requests must not use a prose answer cache or claim edit success.
+- `vestahub/gui_pipeline.py`: turn typed provider outcomes into honest runtime, receipt, and workflow state.
+- `vestahub/budget.py`: calculate spent budget from actual/estimated model-call events only.
+- `vestahub/ledger.py`: aggregate routing comparisons separately from spend.
 - `tests/test_agent_autonomy.py`: intent/capability decision table.
 - `tests/test_copilot_connector.py`: Copilot command and dispatch safety contract.
 - `tests/test_ai_model_bugfixes.py`: direct local-runner regression contract.
@@ -34,7 +34,7 @@
 
 **Files:**
 - Modify: `tests/test_agent_autonomy.py`
-- Modify: `opaihub/agent_policy.py`
+- Modify: `vestahub/agent_policy.py`
 
 - [ ] **Step 1: Add failing capability-decision tests**
 
@@ -90,7 +90,7 @@ Expected: `test_plain_implementation_does_not_authorize_remote_git_operations` f
 
 - [ ] **Step 3: Split edit, publish, and ship capabilities**
 
-Replace the capability constants near the top of `opaihub/agent_policy.py` with:
+Replace the capability constants near the top of `vestahub/agent_policy.py` with:
 
 ```python
 _READ = frozenset({"read_files", "search_code", "inspect_git"})
@@ -181,7 +181,7 @@ Keep the existing mode selection, then replace the final `AgentPolicy` construct
 Run:
 
 ```powershell
-python -m pytest tests/test_agent_autonomy.py tests/test_provider_git_tools.py tests/test_provider_adapters.py tests/agent_evals/test_opaibench.py -q
+python -m pytest tests/test_agent_autonomy.py tests/test_provider_git_tools.py tests/test_provider_adapters.py tests/agent_evals/test_vestabench.py -q
 ```
 
 Expected: all tests pass; explicit PR/ship behavior remains available while a plain implementation has no remote Git capabilities.
@@ -189,7 +189,7 @@ Expected: all tests pass; explicit PR/ship behavior remains available while a pl
 - [ ] **Step 5: Commit the exact-capability change**
 
 ```powershell
-git add opaihub/agent_policy.py tests/test_agent_autonomy.py
+git add vestahub/agent_policy.py tests/test_agent_autonomy.py
 git commit -m "fix(policy): require explicit publish intent"
 ```
 
@@ -197,9 +197,9 @@ git commit -m "fix(policy): require explicit publish intent"
 
 **Files:**
 - Modify: `tests/test_copilot_connector.py`
-- Modify: `opaihub/accounts.py`
-- Modify: `opai/app_state.py`
-- Modify: `opaihub/gui_pipeline.py`
+- Modify: `vestahub/accounts.py`
+- Modify: `vesta/app_state.py`
+- Modify: `vestahub/gui_pipeline.py`
 
 - [ ] **Step 1: Replace unsafe Copilot command expectations with failing safety tests**
 
@@ -226,8 +226,8 @@ Add this method to `CopilotAppStateAskTests`:
 
 ```python
     def test_copilot_edit_request_fails_before_runner_launch(self):
-        from opai import app_state as A
-        from opaihub.ledger import read_events
+        from vesta import app_state as A
+        from vestahub.ledger import read_events
 
         fake = FakeAccountRunner(account_id="copilot", text="should not run")
         result = A.ask(
@@ -256,10 +256,10 @@ python -m pytest tests/test_copilot_connector.py::CopilotBuildCommandTests tests
 
 Expected: the two command tests fail because `--allow-all-tools` is present, and the dispatch test fails because the fake runner is called.
 
-- [ ] **Step 3: Make every OPai-generated Copilot command read-only**
+- [ ] **Step 3: Make every Vesta-generated Copilot command read-only**
 
 Replace the Copilot branch of `AccountRunner.build_command` in
-`opaihub/accounts.py` with:
+`vestahub/accounts.py` with:
 
 ```python
         if self.account_id == "copilot":
@@ -276,7 +276,7 @@ Replace the Copilot branch of `AccountRunner.build_command` in
 
 - [ ] **Step 4: Reject Copilot edits in the shared app-state dispatcher**
 
-In `_ask_account` in `opai/app_state.py`, immediately after the panic-mode
+In `_ask_account` in `vesta/app_state.py`, immediately after the panic-mode
 gate, add:
 
 ```python
@@ -286,7 +286,7 @@ gate, add:
             "provider": "copilot",
             "capability": "edit_files",
             "reason": (
-                "OPai cannot safely grant Copilot edit access because its "
+                "Vesta cannot safely grant Copilot edit access because its "
                 "non-interactive CLI currently exposes only an all-tools bypass."
             ),
             "hint": (
@@ -298,7 +298,7 @@ gate, add:
 
 - [ ] **Step 5: Propagate capability mismatches without receipts**
 
-In `_decorate` in `opaihub/gui_pipeline.py`, treat the typed mismatch as a
+In `_decorate` in `vestahub/gui_pipeline.py`, treat the typed mismatch as a
 blocked workflow:
 
 ```python
@@ -348,7 +348,7 @@ Expected: all tests pass, no generated Copilot command contains the bypass, and 
 - [ ] **Step 7: Commit the Copilot fail-closed change**
 
 ```powershell
-git add opaihub/accounts.py opai/app_state.py opaihub/gui_pipeline.py tests/test_copilot_connector.py
+git add vestahub/accounts.py vesta/app_state.py vestahub/gui_pipeline.py tests/test_copilot_connector.py
 git commit -m "fix(providers): fail closed for Copilot edits"
 ```
 
@@ -357,9 +357,9 @@ git commit -m "fix(providers): fail closed for Copilot edits"
 **Files:**
 - Modify: `tests/test_ai_model_bugfixes.py`
 - Modify: `tests/test_pipeline_routing_and_safety.py`
-- Modify: `opaihub/ask.py`
-- Modify: `opai/app_state.py`
-- Modify: `opaihub/gui_pipeline.py`
+- Modify: `vestahub/ask.py`
+- Modify: `vesta/app_state.py`
+- Modify: `vestahub/gui_pipeline.py`
 
 - [ ] **Step 1: Add a failing shared-core local-edit test**
 
@@ -368,7 +368,7 @@ class that already exercises `run_ask`:
 
 ```python
     def test_prose_only_local_runner_rejects_edit_before_cache_or_model_call(self):
-        from opaihub.ask import run_ask
+        from vestahub.ask import run_ask
 
         class ProseOnlyRunner:
             name = "ollama"
@@ -387,7 +387,7 @@ class that already exercises `run_ask`:
         runner = ProseOnlyRunner()
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
-            with mock.patch("opaihub.ask.result_cache.lookup") as cache_lookup:
+            with mock.patch("vestahub.ask.result_cache.lookup") as cache_lookup:
                 result = run_ask(
                     root,
                     "Fix app.py",
@@ -417,7 +417,7 @@ Add this method to the selected-local-model tests in
         }
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
-            with mock.patch("opaihub.ask.run_ask", return_value=mismatch) as run:
+            with mock.patch("vestahub.ask.run_ask", return_value=mismatch) as run:
                 result = handle_gui_message(
                     root,
                     "Fix app.py",
@@ -445,7 +445,7 @@ Expected: `run_ask` rejects the unknown `allow_edits` argument and the GUI path 
 - [ ] **Step 4: Add mutation intent to the local shared core**
 
 Add `allow_edits: bool = False` to the keyword-only arguments of `run_ask` in
-`opaihub/ask.py`. Preserve the cheap cache-first read path, skip cached answers
+`vestahub/ask.py`. Preserve the cheap cache-first read path, skip cached answers
 for mutation requests, and return a typed mismatch when a local runner is
 present:
 
@@ -476,7 +476,7 @@ present:
             "capability": "edit_files",
             "provider": str(getattr(active, "name", "local")),
             "reason": (
-                "The selected local runner can answer, but OPai has no bounded "
+                "The selected local runner can answer, but Vesta has no bounded "
                 "repository-tool adapter for it yet."
             ),
             "hint": (
@@ -495,7 +495,7 @@ so Auto can still offer a confirmed fallback.
 
 - [ ] **Step 5: Propagate edit intent from both callers**
 
-In the local branch of `opai.app_state.ask`, call:
+In the local branch of `vesta.app_state.ask`, call:
 
 ```python
     return run_ask(
@@ -509,7 +509,7 @@ In the local branch of `opai.app_state.ask`, call:
     )
 ```
 
-In the local GUI branch in `opaihub/gui_pipeline.py`, add
+In the local GUI branch in `vestahub/gui_pipeline.py`, add
 `allow_edits=allow_edits` to the existing `run_ask` call.
 
 - [ ] **Step 6: Return local mismatches without route, receipt, or diff review**
@@ -554,7 +554,7 @@ and local edit intent cannot become an answered result.
 - [ ] **Step 8: Commit the truthful local outcome change**
 
 ```powershell
-git add opaihub/ask.py opai/app_state.py opaihub/gui_pipeline.py tests/test_ai_model_bugfixes.py tests/test_pipeline_routing_and_safety.py
+git add vestahub/ask.py vesta/app_state.py vestahub/gui_pipeline.py tests/test_ai_model_bugfixes.py tests/test_pipeline_routing_and_safety.py
 git commit -m "fix(local): reject unsupported edit execution"
 ```
 
@@ -565,10 +565,10 @@ git commit -m "fix(local): reject unsupported edit execution"
 - Modify: `tests/test_savings_honesty.py`
 - Modify: `tests/test_budget_firewall.py`
 - Modify: `tests/test_cost_ledger.py`
-- Modify: `opai/app_state.py`
-- Modify: `opaihub/gui_pipeline.py`
-- Modify: `opaihub/budget.py`
-- Modify: `opaihub/ledger.py`
+- Modify: `vesta/app_state.py`
+- Modify: `vestahub/gui_pipeline.py`
+- Modify: `vestahub/budget.py`
+- Modify: `vestahub/ledger.py`
 
 - [ ] **Step 1: Assert GUI ownership of free-model route recording**
 
@@ -609,7 +609,7 @@ Add this method to `RecordAfterOutcomeTests` in `tests/test_savings_honesty.py`:
 
         selected = "free:gemini:gemini-3.1-flash-lite"
         with mock.patch(
-            "opaihub.local_runner.runner_for_model", return_value=FakeFreeRunner()
+            "vestahub.local_runner.runner_for_model", return_value=FakeFreeRunner()
         ):
             result = handle_gui_message(
                 self.root,
@@ -686,7 +686,7 @@ call has two route events, and route estimates appear in budget spend.
 - [ ] **Step 5: Add route-record ownership to app-state dispatch**
 
 Add `record_route: bool = True` to the keyword-only parameters of
-`opai.app_state.ask` and `_ask_free_model`. Forward it from `ask`:
+`vesta.app_state.ask` and `_ask_free_model`. Forward it from `ask`:
 
 ```python
         return _ask_free_model(
@@ -716,7 +716,7 @@ In `_ask_free_model`, pass it to the explicit runner:
     )
 ```
 
-In the free-model GUI call in `opaihub/gui_pipeline.py`, add:
+In the free-model GUI call in `vestahub/gui_pipeline.py`, add:
 
 ```python
             record_route=False,
@@ -727,7 +727,7 @@ calls keep their existing route event.
 
 - [ ] **Step 6: Make model calls the only budget-spend events**
 
-In `opaihub/budget.py`, change `_spent` to ignore route comparisons:
+In `vestahub/budget.py`, change `_spent` to ignore route comparisons:
 
 ```python
     for event in read_events(project_root):
@@ -739,7 +739,7 @@ Remove the now-unused `EVENT_ROUTE` import from the module.
 
 - [ ] **Step 7: Separate route estimates from spend in ledger summaries**
 
-In the summary dictionary in `summarize_ledger` in `opaihub/ledger.py`, replace
+In the summary dictionary in `summarize_ledger` in `vestahub/ledger.py`, replace
 the current combined spend expression with:
 
 ```python
@@ -766,7 +766,7 @@ alone drive spend and budget consumption.
 - [ ] **Step 9: Commit the single-entry accounting change**
 
 ```powershell
-git add opai/app_state.py opaihub/gui_pipeline.py opaihub/budget.py opaihub/ledger.py tests/test_free_models.py tests/test_savings_honesty.py tests/test_budget_firewall.py tests/test_cost_ledger.py
+git add vesta/app_state.py vestahub/gui_pipeline.py vestahub/budget.py vestahub/ledger.py tests/test_free_models.py tests/test_savings_honesty.py tests/test_budget_firewall.py tests/test_cost_ledger.py
 git commit -m "fix(cost): count model spend exactly once"
 ```
 
@@ -782,7 +782,7 @@ Under `### Security & privacy` in `CHANGELOG.md`, add:
 
 ```markdown
 - Safe Auto now fails closed when a native provider cannot enforce granular
-  edit permissions; OPai never enables Copilot's unbounded all-tools bypass.
+  edit permissions; Vesta never enables Copilot's unbounded all-tools bypass.
 - Push and pull-request authority now requires an explicit current request and
   is no longer implied by an ordinary implementation task.
 ```
@@ -804,7 +804,7 @@ Replace the final revenue sentence in `docs/PRODUCT_IDENTITY.md` with:
 ```markdown
 ## Launch and future pricing
 
-OPai launches fully free. The alpha optimizes for trust, successful tasks, and
+Vesta launches fully free. The alpha optimizes for trust, successful tasks, and
 measured cost reduction rather than artificial feature gates. Pricing will be
 introduced gradually only after real usage identifies future capabilities that
 create durable paid value; core safety and honest accounting will never be paid
@@ -857,8 +857,8 @@ skips plus the new regression tests.
 ```powershell
 python -B -m ruff format --check .
 python -B -m ruff check --no-cache .
-python -B -m bandit -r opai opaihub opcoding -q
-python -B -m opaihub validate
+python -B -m bandit -r vesta vestahub opcoding -q
+python -B -m vestahub validate
 git diff --check origin/main...HEAD
 ```
 
@@ -868,9 +868,9 @@ comments may print, but there are no Bandit findings.
 - [ ] **Step 4: Run local GUI and CLI smoke checks**
 
 ```powershell
-python -B -m opai version
-python -B -m opai gui --once
-python -B -m opaihub validate
+python -B -m vesta version
+python -B -m vesta gui --once
+python -B -m vestahub validate
 ```
 
 Expected: version reports `0.2.0a2`; GUI once returns JSON with `"ok": true`;
@@ -882,7 +882,7 @@ registry validation passes.
 git status --short --branch
 git diff --stat origin/main...HEAD
 git diff --check origin/main...HEAD
-python -m detect_secrets scan --all-files --exclude-files "(^|[\\/])\.opaihub([\\/]|$)|(^|[\\/])\.ruff_cache([\\/]|$)"
+python -m detect_secrets scan --all-files --exclude-files "(^|[\\/])\.vestahub([\\/]|$)|(^|[\\/])\.ruff_cache([\\/]|$)"
 ```
 
 Expected: only trust-programme code, tests, and documentation are present; no

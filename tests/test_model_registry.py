@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import unittest
 
-from opai import model_registry as reg
+from vesta import model_registry as reg
 
 
 class RegistryShapeTests(unittest.TestCase):
@@ -120,7 +120,7 @@ class DerivedTablesStayInSyncTests(unittest.TestCase):
     the registry, so they can never disagree again."""
 
     def test_accounts_tuples_match_the_registry(self):
-        from opaihub.accounts import CLAUDE_MODELS, CODEX_MODELS, COPILOT_MODELS
+        from vestahub.accounts import CLAUDE_MODELS, CODEX_MODELS, COPILOT_MODELS
 
         self.assertEqual(
             CLAUDE_MODELS, [(s.id, s.full) for s in reg.models_for("claude")]
@@ -135,7 +135,7 @@ class DerivedTablesStayInSyncTests(unittest.TestCase):
         )
 
     def test_provider_contract_display_matches_the_registry(self):
-        from opai.provider_contract import (
+        from vesta.provider_contract import (
             _CLAUDE_DISPLAY,
             _CODEX_DISPLAY,
             _COPILOT_DISPLAY,
@@ -147,7 +147,7 @@ class DerivedTablesStayInSyncTests(unittest.TestCase):
 
     def test_picker_labels_are_unchanged_end_to_end(self):
         # The user-visible labels must be byte-identical to before #170.
-        from opai.provider_contract import provider_display_name
+        from vesta.provider_contract import provider_display_name
 
         self.assertEqual(provider_display_name("claude", "opus"), "Claude · Opus 4.8")
         self.assertEqual(
@@ -165,10 +165,10 @@ class DoctorWiringTests(unittest.TestCase):
     def test_model_check_passes_for_a_registry_model(self):
         from unittest import mock
 
-        from opai.cli import _doctor_model_check
+        from vesta.cli import _doctor_model_check
 
         with mock.patch(
-            "opaihub.gui_preferences.load_gui_preferences",
+            "vestahub.gui_preferences.load_gui_preferences",
             return_value={"default_model": "account:claude:opus"},
         ):
             result = _doctor_model_check(_FAKE_ROOT, reg.validate)
@@ -178,10 +178,10 @@ class DoctorWiringTests(unittest.TestCase):
     def test_model_check_flags_a_stale_default_with_the_fallback(self):
         from unittest import mock
 
-        from opai.cli import _doctor_model_check
+        from vesta.cli import _doctor_model_check
 
         with mock.patch(
-            "opaihub.gui_preferences.load_gui_preferences",
+            "vestahub.gui_preferences.load_gui_preferences",
             return_value={"default_model": "account:claude:gpt-4-turbo"},
         ):
             result = _doctor_model_check(_FAKE_ROOT, reg.validate)
@@ -192,11 +192,11 @@ class DoctorWiringTests(unittest.TestCase):
     def test_model_check_skips_non_account_models(self):
         from unittest import mock
 
-        from opai.cli import _doctor_model_check
+        from vesta.cli import _doctor_model_check
 
         for model in ("auto", "free:gemini:flash", "ollama:qwen2.5-coder"):
             with mock.patch(
-                "opaihub.gui_preferences.load_gui_preferences",
+                "vestahub.gui_preferences.load_gui_preferences",
                 return_value={"default_model": model},
             ):
                 result = _doctor_model_check(_FAKE_ROOT, reg.validate)
@@ -205,10 +205,10 @@ class DoctorWiringTests(unittest.TestCase):
     def test_model_check_never_crashes_on_a_bad_prefs_file(self):
         from unittest import mock
 
-        from opai.cli import _doctor_model_check
+        from vesta.cli import _doctor_model_check
 
         with mock.patch(
-            "opaihub.gui_preferences.load_gui_preferences",
+            "vestahub.gui_preferences.load_gui_preferences",
             side_effect=ValueError("corrupt"),
         ):
             result = _doctor_model_check(_FAKE_ROOT, reg.validate)

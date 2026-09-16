@@ -23,11 +23,11 @@ import json
 import re
 from pathlib import Path
 
-from opai import brand
-from opai.gui_web import _stamp_empty_title
+from vesta import brand
+from vesta.gui_web import _stamp_empty_title
 
 
-_WEB = Path(__file__).resolve().parents[1] / "opai" / "assets" / "web"
+_WEB = Path(__file__).resolve().parents[1] / "vesta" / "assets" / "web"
 _INDEX = _WEB / "index.html"
 _E2E = _WEB / "__tests__" / "e2e"
 

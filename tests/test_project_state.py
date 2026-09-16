@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub.state import (
+from vestahub.state import (
     _state_backup_path,
     load_state,
     save_state,

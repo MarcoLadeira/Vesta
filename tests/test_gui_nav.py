@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import unittest
 
-from opai.gui_nav import (
+from vesta.gui_nav import (
     DEFAULT_VIEW,
     dashboard_sections,
     find_nav,
     nav_groups,
     nav_ids,
 )
-from opai.gui_view_model import SECTIONS
+from vesta.gui_view_model import SECTIONS
 
 
 class NavModelTests(unittest.TestCase):

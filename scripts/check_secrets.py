@@ -29,8 +29,8 @@ EXCLUDED_FILES = (
     r"(^|[/\\])\.opcoding-tools([/\\]|$)|"
     r"(^|[/\\])\.ruff_cache([/\\]|$)|"
     r"(^|[/\\])\.opcoding([/\\]|$)|"
-    r"(^|[/\\])\.opaihub([/\\]|$)|"
-    r"(^|[/\\])opai[/\\]assets[/\\].*\.png$"
+    r"(^|[/\\])\.vestahub([/\\]|$)|"
+    r"(^|[/\\])vesta[/\\]assets[/\\].*\.png$"
 )
 
 

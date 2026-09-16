@@ -16,7 +16,7 @@ from pathlib import Path
 from unittest import mock
 
 from _helpers import isolated_home
-from opaihub.accounts import (
+from vestahub.accounts import (
     CLAUDE_MODELS,
     CODEX_MODELS,
     AccountRunner,
@@ -24,7 +24,7 @@ from opaihub.accounts import (
     list_connected_accounts,
     runner_for_account,
 )
-from opaihub.local_models import classify_endpoint
+from vestahub.local_models import classify_endpoint
 
 _CLAUDE_CLI = "/fake/claude"
 _CODEX_CLI = "/fake/codex"
@@ -66,7 +66,7 @@ class ClaudeBuildCommandTests(unittest.TestCase):
         # (F23). The flag must never appear without the settings file.
         self.assertIn("--settings", cmd)
         settings_arg = cmd[cmd.index("--settings") + 1]
-        self.assertIn("opai-claude-hooks.json", settings_arg)
+        self.assertIn("vesta-claude-hooks.json", settings_arg)
 
     def test_safe_auto_does_not_add_dangerously_skip(self):
         cmd = self._runner().build_command("hi", allow_edits=True, mode="safe-auto")
@@ -217,9 +217,9 @@ class ClaudeCompleteTests(unittest.TestCase):
         runner = AccountRunner("claude", _CLAUDE_CLI, model="sonnet")
         ret = mock.Mock(stdout=stdout, stderr=stderr, returncode=returncode)
         if raises is not None:
-            with mock.patch("opaihub.accounts._hidden_run", side_effect=raises):
+            with mock.patch("vestahub.accounts._hidden_run", side_effect=raises):
                 return runner.complete("task")
-        with mock.patch("opaihub.accounts._hidden_run", return_value=ret):
+        with mock.patch("vestahub.accounts._hidden_run", return_value=ret):
             return runner.complete("task")
 
     def test_clean_json_returns_text_and_cost(self):
@@ -290,7 +290,7 @@ class CodexCompleteTests(unittest.TestCase):
                 raise raises
             return mock.Mock(stdout=stdout, stderr="", returncode=0)
 
-        with mock.patch("opaihub.accounts._hidden_run", side_effect=fake_hidden_run):
+        with mock.patch("vestahub.accounts._hidden_run", side_effect=fake_hidden_run):
             return runner.complete("task")
 
     def test_reads_answer_from_out_file(self):
@@ -320,7 +320,7 @@ class CodexCompleteTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 class HiddenRunFlagTests(unittest.TestCase):
     def _call_kwargs(self) -> dict:
-        from opaihub.accounts import _hidden_run
+        from vestahub.accounts import _hidden_run
 
         with mock.patch("subprocess.run") as mocked:
             mocked.return_value = mock.Mock(stdout="", stderr="", returncode=0)
@@ -373,7 +373,7 @@ class DetectionTests(unittest.TestCase):
             auth = home / ".claude" / ".credentials.json"
             auth.parent.mkdir(parents=True)
             auth.write_text("{}", encoding="utf-8")
-            with mock.patch("opaihub.accounts._which", return_value="/usr/bin/claude"):
+            with mock.patch("vestahub.accounts._which", return_value="/usr/bin/claude"):
                 accounts = list_connected_accounts(home)
             claude = next(a for a in accounts if a["id"] == "claude")
             self.assertTrue(claude["connected"])
@@ -383,7 +383,7 @@ class DetectionTests(unittest.TestCase):
     def test_claude_json_in_home_means_connected(self):
         with isolated_home() as home:
             (home / ".claude.json").write_text("{}", encoding="utf-8")
-            with mock.patch("opaihub.accounts._which", return_value="/usr/bin/claude"):
+            with mock.patch("vestahub.accounts._which", return_value="/usr/bin/claude"):
                 accounts = list_connected_accounts(home)
             claude = next(a for a in accounts if a["id"] == "claude")
             self.assertTrue(claude["connected"])
@@ -393,7 +393,7 @@ class DetectionTests(unittest.TestCase):
             auth = home / ".claude" / ".credentials.json"
             auth.parent.mkdir(parents=True)
             auth.write_text("{}", encoding="utf-8")
-            with mock.patch("opaihub.accounts._which", return_value=None):
+            with mock.patch("vestahub.accounts._which", return_value=None):
                 accounts = list_connected_accounts(home)
             claude = next(a for a in accounts if a["id"] == "claude")
             self.assertFalse(claude["connected"])
@@ -404,7 +404,7 @@ class DetectionTests(unittest.TestCase):
             auth = home / ".codex" / "auth.json"
             auth.parent.mkdir(parents=True)
             auth.write_text("{}", encoding="utf-8")
-            with mock.patch("opaihub.accounts._which", return_value="/usr/bin/codex"):
+            with mock.patch("vestahub.accounts._which", return_value="/usr/bin/codex"):
                 accounts = list_connected_accounts(home)
             codex = next(a for a in accounts if a["id"] == "codex")
             self.assertTrue(codex["connected"])
@@ -428,7 +428,7 @@ class DetectionTests(unittest.TestCase):
             auth = home / ".claude" / ".credentials.json"
             auth.parent.mkdir(parents=True)
             auth.write_text("{}", encoding="utf-8")
-            with mock.patch("opaihub.accounts._which", return_value="/usr/bin/claude"):
+            with mock.patch("vestahub.accounts._which", return_value="/usr/bin/claude"):
                 options = account_models(home)
             claude_opts = [o for o in options if o["provider"] == "claude"]
             self.assertEqual(len(claude_opts), len(CLAUDE_MODELS))
@@ -438,7 +438,7 @@ class DetectionTests(unittest.TestCase):
             auth = home / ".claude" / ".credentials.json"
             auth.parent.mkdir(parents=True)
             auth.write_text("{}", encoding="utf-8")
-            with mock.patch("opaihub.accounts._which", return_value="/usr/bin/claude"):
+            with mock.patch("vestahub.accounts._which", return_value="/usr/bin/claude"):
                 options = account_models(home)
             models = {o["model"] for o in options if o["provider"] == "claude"}
             self.assertIn("sonnet", models)
@@ -450,7 +450,7 @@ class DetectionTests(unittest.TestCase):
             auth = home / ".codex" / "auth.json"
             auth.parent.mkdir(parents=True)
             auth.write_text("{}", encoding="utf-8")
-            with mock.patch("opaihub.accounts._which", return_value="/usr/bin/codex"):
+            with mock.patch("vestahub.accounts._which", return_value="/usr/bin/codex"):
                 options = account_models(home)
             codex_opts = [o for o in options if o["provider"] == "codex"]
             self.assertGreater(len(codex_opts), 1)
@@ -466,7 +466,7 @@ class DetectionTests(unittest.TestCase):
             auth = home / ".claude" / ".credentials.json"
             auth.parent.mkdir(parents=True)
             auth.write_text("{}", encoding="utf-8")
-            with mock.patch("opaihub.accounts._which", return_value="/usr/bin/claude"):
+            with mock.patch("vestahub.accounts._which", return_value="/usr/bin/claude"):
                 runner = runner_for_account("claude", home=home)
             self.assertIsNotNone(runner)
             self.assertEqual(runner.account_id, "claude")  # type: ignore[union-attr]
@@ -476,7 +476,7 @@ class DetectionTests(unittest.TestCase):
             auth = home / ".claude" / ".credentials.json"
             auth.parent.mkdir(parents=True)
             auth.write_text("{}", encoding="utf-8")
-            with mock.patch("opaihub.accounts._which", return_value="/usr/bin/claude"):
+            with mock.patch("vestahub.accounts._which", return_value="/usr/bin/claude"):
                 runner = runner_for_account("claude", model="haiku", home=home)
             self.assertIsNotNone(runner)
             self.assertEqual(runner.model, "haiku")  # type: ignore[union-attr]

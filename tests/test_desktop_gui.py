@@ -7,10 +7,10 @@ from contextlib import redirect_stderr
 from io import StringIO
 from pathlib import Path
 
-from opai.cli import build_parser
-from opai import app_state as A
-from opai.gui_desktop import SECTIONS, card_metric_rows, run_once
-from opaihub.launch_readiness import build_launch_readiness
+from vesta.cli import build_parser
+from vesta import app_state as A
+from vesta.gui_desktop import SECTIONS, card_metric_rows, run_once
+from vestahub.launch_readiness import build_launch_readiness
 
 
 def _repo(root: Path) -> None:
@@ -78,10 +78,10 @@ class AppStateReadTests(unittest.TestCase):
             _repo(root)
             with (
                 mock.patch(
-                    "opai.clients.client_integrations_status", return_value=integrations
+                    "vesta.clients.client_integrations_status", return_value=integrations
                 ),
-                mock.patch("opai.clients.detect_stale_paths", return_value=[]),
-                mock.patch("opai.integrations.project_status", return_value=status),
+                mock.patch("vesta.clients.detect_stale_paths", return_value=[]),
+                mock.patch("vesta.integrations.project_status", return_value=status),
             ):
                 cards = A.agent_readiness(root)["clients"]
         return next(card for card in cards if card["id"] == "cursor")
@@ -129,7 +129,7 @@ class AppStateReadTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _repo(root)
-            from opaihub.benchmark import run_benchmark
+            from vestahub.benchmark import run_benchmark
 
             run_benchmark(root, suite="local", mode="both", write=True)
             bp = A.benchmark_proof(root)
@@ -280,17 +280,17 @@ class SafetyAndActionTests(unittest.TestCase):
 
         self.assertTrue(json_request["mutates"])
         self.assertEqual(json_request["apply"], ("proof_json", None))
-        self.assertIn(".opaihub/proof-bundle.json", json_request["confirm"])
+        self.assertIn(".vestahub/proof-bundle.json", json_request["confirm"])
         self.assertTrue(markdown_request["mutates"])
         self.assertEqual(markdown_request["apply"], ("proof_markdown", None))
-        self.assertIn(".opaihub/proof-bundle.md", markdown_request["confirm"])
+        self.assertIn(".vestahub/proof-bundle.md", markdown_request["confirm"])
         export.assert_called_once_with(
             root,
-            root / ".opaihub" / "proof-bundle.json",
+            root / ".vestahub" / "proof-bundle.json",
             fmt="json",
         )
         self.assertTrue(applied["ok"])
-        self.assertIn(".opaihub/proof-bundle.json", applied["text"])
+        self.assertIn(".vestahub/proof-bundle.json", applied["text"])
 
     def test_local_benchmark_runs_in_app_only_after_confirmation(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -332,7 +332,7 @@ class SafetyAndActionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _repo(root)
-            from opaihub.ledger import record_route_decision
+            from vestahub.ledger import record_route_decision
 
             record_route_decision(
                 root, "deploy SECRET token=sk-abcdef1234567890abcd", model_tier="L0"
@@ -349,7 +349,7 @@ class SafetyAndActionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _repo(root)
-            from opaihub.benchmark import run_benchmark
+            from vestahub.benchmark import run_benchmark
 
             run_benchmark(root, suite="local", mode="both", write=True)
             gate = A.run_benchmark_gate(
@@ -375,7 +375,7 @@ class RunOnceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _repo(root)
-            from opai.cli import main
+            from vesta.cli import main
             import io
             from contextlib import redirect_stdout
 
@@ -391,7 +391,7 @@ class RunOnceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _repo(root)
-            from opai.cli import main
+            from vesta.cli import main
             import io
             from contextlib import redirect_stdout
 
@@ -420,12 +420,12 @@ class RunOnceTests(unittest.TestCase):
         self.assertEqual(A.run_tool(root, "models")["title"], "Connect accounts")
 
     def test_ask_without_local_model_points_to_primary_models_command(self):
-        from opaihub.ask import run_ask
+        from vestahub.ask import run_ask
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _repo(root)
-            with mock.patch("opaihub.ask.detect_local_runner", return_value=None):
+            with mock.patch("vestahub.ask.detect_local_runner", return_value=None):
                 result = run_ask(root, "summarize this project", record=False)
 
         self.assertEqual(result["status"], "no_local_model")
@@ -435,13 +435,13 @@ class RunOnceTests(unittest.TestCase):
 class PremiumGuiContractTests(unittest.TestCase):
     def test_cli_accepts_screenshot_path_without_launching_parser(self):
         args = build_parser().parse_args(
-            ["gui", "--screenshot", ".opaihub/gui-smoke.png"]
+            ["gui", "--screenshot", ".vestahub/gui-smoke.png"]
         )
-        self.assertEqual(args.screenshot, ".opaihub/gui-smoke.png")
+        self.assertEqual(args.screenshot, ".vestahub/gui-smoke.png")
         self.assertFalse(args.once)
 
     def test_missing_pyside6_has_desktop_install_hint(self):
-        from opai.gui_desktop import dependency_status
+        from vesta.gui_desktop import dependency_status
 
         status = dependency_status()
         self.assertIn("available", status)
@@ -449,14 +449,14 @@ class PremiumGuiContractTests(unittest.TestCase):
         self.assertIn("desktop-gui", status["install_hint"])
 
     def test_view_model_has_premium_sections_and_safe_actions(self):
-        from opai.gui_view_model import build_view_model
+        from vesta.gui_view_model import build_view_model
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _repo(root)
             vm = build_view_model(root)
 
-        self.assertEqual(vm["theme"]["name"], "opai-premium-dark")
+        self.assertEqual(vm["theme"]["name"], "vesta-premium-dark")
         self.assertEqual(
             [section["id"] for section in vm["sections"]], [k for k, _ in SECTIONS]
         )
@@ -499,7 +499,7 @@ class PremiumGuiContractTests(unittest.TestCase):
         self.assertEqual(benchmark_kpi["value"], "Run local max")
 
     def test_context_waste_cost_is_clearly_an_estimate_not_spend(self):
-        from opai.gui_view_model import build_view_model
+        from vesta.gui_view_model import build_view_model
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -519,7 +519,7 @@ class PremiumGuiContractTests(unittest.TestCase):
         )
 
     def test_benchmark_zero_state_does_not_present_fixture_results_as_proof(self):
-        from opai.gui_view_model import build_view_model
+        from vesta.gui_view_model import build_view_model
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -538,8 +538,8 @@ class PremiumGuiContractTests(unittest.TestCase):
         self.assertNotIn('"16"', json.dumps(benchmark))
 
     def test_view_model_does_not_expose_raw_prompts_or_secrets(self):
-        from opai.gui_view_model import build_view_model
-        from opaihub.ledger import record_route_decision
+        from vesta.gui_view_model import build_view_model
+        from vestahub.ledger import record_route_decision
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -578,7 +578,7 @@ class PremiumGuiContractTests(unittest.TestCase):
         self.assertFalse(telemetry["degraded"])
 
     def _home_spend_telemetry_kpi(self, root: Path) -> dict:
-        from opai.gui_view_model import build_view_model
+        from vesta.gui_view_model import build_view_model
 
         vm = build_view_model(root)
         home = next(section for section in vm["sections"] if section["id"] == "home")
@@ -593,7 +593,7 @@ class PremiumGuiContractTests(unittest.TestCase):
         self.assertEqual(kpi["severity"], "success")
 
     def test_home_kpi_flags_partial_spend_telemetry(self):
-        from opaihub.cost_telemetry import (
+        from vestahub.cost_telemetry import (
             normalize_account_result,
             record_workflow_cost,
         )
@@ -604,7 +604,7 @@ class PremiumGuiContractTests(unittest.TestCase):
             record_workflow_cost(
                 root, "t1", normalize_account_result("claude", {"cost_usd": 0.5})
             )
-            events = root / ".opaihub" / "agent" / "events.jsonl"
+            events = root / ".vestahub" / "agent" / "events.jsonl"
             with events.open("a", encoding="utf-8") as handle:
                 handle.write("{ torn line without a close\n")
             kpi = self._home_spend_telemetry_kpi(root)
@@ -621,7 +621,7 @@ class PremiumGuiContractTests(unittest.TestCase):
         self.assertIn("--screenshot", stderr.getvalue())
 
     def test_screenshot_renderer_writes_nonblank_image_when_pyside_available(self):
-        from opai.gui_desktop import dependency_status, render_screenshot
+        from vesta.gui_desktop import dependency_status, render_screenshot
 
         if not dependency_status()["available"]:
             self.skipTest("PySide6 desktop extra is not installed")
@@ -639,7 +639,7 @@ class AccountConnectionTests(unittest.TestCase):
     execution paths inject a fake runner or force detection to None."""
 
     def test_detects_connected_account_when_cli_and_auth_present(self):
-        from opaihub import accounts
+        from vestahub import accounts
 
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
@@ -656,7 +656,7 @@ class AccountConnectionTests(unittest.TestCase):
         self.assertFalse(got["codex"]["connected"])  # no auth, no cli
 
     def test_cli_present_but_not_signed_in_is_not_connected(self):
-        from opaihub import accounts
+        from vestahub import accounts
 
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)  # no auth files anywhere
@@ -668,7 +668,7 @@ class AccountConnectionTests(unittest.TestCase):
         self.assertTrue(accts["claude"]["cli_present"])
 
     def test_account_runner_build_command_is_safe_by_default(self):
-        from opaihub.accounts import AccountRunner
+        from vestahub.accounts import AccountRunner
 
         claude = AccountRunner("claude", "/bin/claude", model="sonnet")
         read_only = claude.build_command("hi", allow_edits=False)
@@ -691,7 +691,7 @@ class AccountConnectionTests(unittest.TestCase):
         self.assertIn("--dangerously-skip-permissions", full_auto_claude)
         self.assertIn("--settings", full_auto_claude)
         settings_arg = full_auto_claude[full_auto_claude.index("--settings") + 1]
-        self.assertIn("opai-claude-hooks.json", settings_arg)
+        self.assertIn("vesta-claude-hooks.json", settings_arg)
 
         codex = AccountRunner("codex", "/bin/codex", model="gpt-5.4-mini")
         ro = codex.build_command("hi", allow_edits=False, out_file="/t/o.txt")
@@ -715,7 +715,7 @@ class AccountConnectionTests(unittest.TestCase):
     def test_account_complete_runs_hidden_without_console_window(self):
         import sys
 
-        from opaihub import accounts
+        from vestahub import accounts
 
         runner = accounts.AccountRunner("claude", "/bin/claude")
         fake = mock.MagicMock(stdout="hi there", stderr="")
@@ -762,7 +762,7 @@ class AccountConnectionTests(unittest.TestCase):
     def test_runner_returns_timed_out_instead_of_raising(self):
         import subprocess as sp
 
-        from opaihub import accounts
+        from vestahub import accounts
 
         runner = accounts.AccountRunner("claude", "/bin/claude", model="opus")
         with mock.patch.object(
@@ -774,7 +774,7 @@ class AccountConnectionTests(unittest.TestCase):
         self.assertTrue(out["timed_out"])
 
     def test_plan_mode_runs_the_model_not_a_canned_plan(self):
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         seen = {}
 
@@ -823,7 +823,7 @@ class AccountConnectionTests(unittest.TestCase):
             root = Path(tmp)
             _repo(root)
             result = A.ask(root, "do x", "account:claude", account_runner=FakeRunner())
-            from opaihub.ledger import read_events
+            from vestahub.ledger import read_events
 
             tiers = [e.get("model_tier") for e in read_events(root)]
         self.assertEqual(result["status"], "answered_by_account")
@@ -855,7 +855,7 @@ class AccountConnectionTests(unittest.TestCase):
             root = Path(tmp)
             _repo(root)
             # Force "not connected" so no real CLI is ever launched.
-            with mock.patch("opaihub.accounts.runner_for_account", return_value=None):
+            with mock.patch("vestahub.accounts.runner_for_account", return_value=None):
                 result = A.ask(root, "do x", "account:codex")
         self.assertEqual(result["status"], "account_not_connected")
         self.assertIn("codex", result["hint"])
@@ -875,7 +875,7 @@ class AccountConnectionTests(unittest.TestCase):
                 self.assertTrue(model.get("paid"))
 
     def test_claude_expands_into_selectable_models(self):
-        from opaihub import accounts
+        from vestahub import accounts
 
         fake_account = {
             "id": "claude",
@@ -919,7 +919,7 @@ class AccountConnectionTests(unittest.TestCase):
             root = Path(tmp)
             _repo(root)
             with mock.patch(
-                "opaihub.accounts.runner_for_account",
+                "vestahub.accounts.runner_for_account",
                 side_effect=fake_runner_for_account,
             ):
                 result = A.ask(root, "do x", "account:claude:opus")

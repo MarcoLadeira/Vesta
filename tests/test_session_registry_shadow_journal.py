@@ -1,6 +1,6 @@
 """#613 Stage 2: active provider sessions mirror into the shadow journal.
 
-``opaihub/session_registry.py`` is Stage 1's "leases: cross-process active
+``vestahub/session_registry.py`` is Stage 1's "leases: cross-process active
 provider sessions" -- one of the two entries the packaged-update work (#712)
 added to the inventory while Stage 2 was in progress, which is the ratchet
 doing its job on someone else's PR.
@@ -31,8 +31,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub import shadow_journal
-from opaihub.session_registry import SessionRegistry, durable_active_count
+from vestahub import shadow_journal
+from vestahub.session_registry import SessionRegistry, durable_active_count
 
 
 class SessionShadowTests(unittest.TestCase):

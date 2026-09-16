@@ -1,7 +1,7 @@
 # Vesta Brand System
 
 **One canonical source:** all product copy and identity constants live in
-`opai/brand.py`. The web GUI reads it through the boot payload, the CLI reads
+`vesta/brand.py`. The web GUI reads it through the boot payload, the CLI reads
 it directly, docs quote it. Change the brand there and every surface changes
 together — the GUI and terminal can never drift into different products.
 
@@ -31,7 +31,7 @@ did, what it cost, and what to do next — and nothing else.
   **a paid call is never presented as a saving** (`test_cli_stream`,
   `test_savings_honesty`).
 - **Errors:** say what happened + what to do next. Never a bare "something went
-  wrong" (`opai/activity.py::error_card`, `_FRIENDLY_ERRORS`).
+  wrong" (`vesta/activity.py::error_card`, `_FRIENDLY_ERRORS`).
 - **Activity:** truthful, present-tense steps ("Read file: app.py", "Waiting
   for Claude") — never fake completion (`test_activity`, Playwright specs).
 - **Buttons:** verbs, ≤3 words ("Send", "Stop", "Retry", "Use prompt").
@@ -46,7 +46,7 @@ did, what it cost, and what to do next — and nothing else.
 | **CLI Mirror** | Inspector shows the terminal twin of the current selection, ready to copy | GUI/CLI parity made visible |
 | **Empty-state promise** | "Build more. Burn less." + the receipt promise | 10-second identity |
 
-## Visual identity (implemented in `opai/assets/web/styles.css`)
+## Visual identity (implemented in `vesta/assets/web/styles.css`)
 
 - **Direction:** *Command Center × Honest Ledger* — a dark engineering cockpit
   whose accent color is the money signal.
@@ -65,7 +65,7 @@ did, what it cost, and what to do next — and nothing else.
 
 ## Do / don't
 
-- **Do** route new copy through `opai/brand.py` (GUI) or reuse its constants (CLI).
+- **Do** route new copy through `vesta/brand.py` (GUI) or reuse its constants (CLI).
 - **Do** keep provider names human ("Claude", not `account:claude:opus`) in
   prose; raw ids belong in code surfaces (CLI mirror, JSON).
 - **Don't** invent savings, round costs to look better, or show "completed"

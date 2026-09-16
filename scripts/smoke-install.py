@@ -18,7 +18,7 @@ EXTERNAL_STATE_ENV = {
     "MISTRAL_API_KEY",
     "GH_TOKEN",
     "GITHUB_TOKEN",
-    "OPAI_HUB_ROOT",
+    "VESTA_HUB_ROOT",
     "LOCAL_MODEL_URL",
     "LOCAL_MODEL_NAME",
     "OLLAMA_HOST",
@@ -43,7 +43,7 @@ _EXACT_BUILD_ID = re.compile(r"^[0-9a-f]{40}$")
 def resolve_candidate_build_id(
     candidate_sha: str | None, environment: Mapping[str, str]
 ) -> str:
-    value = str(candidate_sha or environment.get("OPAI_BUILD_ID") or "").lower()
+    value = str(candidate_sha or environment.get("VESTA_BUILD_ID") or "").lower()
     if _EXACT_BUILD_ID.fullmatch(value) is None:
         raise ValueError(
             "candidate SHA must name the exact lowercase commit for wheel smoke"
@@ -78,10 +78,10 @@ def wheel_build_command(python: Path, root: Path, wheelhouse: Path) -> list[str]
 def required_smoke_commands(python: Path) -> list[list[str]]:
     executable = str(python)
     return [
-        [executable, "-m", "opai", "--help"],
-        [executable, "-m", "opai", "doctor"],
-        [executable, "-m", "opaihub", "validate"],
-        [executable, "-m", "opai", "gui", "--once"],
+        [executable, "-m", "vesta", "--help"],
+        [executable, "-m", "vesta", "doctor"],
+        [executable, "-m", "vestahub", "validate"],
+        [executable, "-m", "vesta", "gui", "--once"],
     ]
 
 
@@ -89,7 +89,7 @@ def provider_catalog_smoke_command(python: Path) -> list[str]:
     """Load the packaged provider catalog from the isolated wheel install."""
 
     check = (
-        "from opaihub import provider_catalog\n"
+        "from vestahub import provider_catalog\n"
         f"expected = {_EXPECTED_PROVIDER_CATALOG_IDS!r}\n"
         "if not provider_catalog.catalog_bytes():\n"
         "    raise SystemExit('wheel provider catalog is empty')\n"
@@ -110,7 +110,7 @@ def installed_identity_smoke_command(python: Path, expected_build_id: str) -> li
         )
     check = (
         "import json, subprocess, sys\n"
-        "result = subprocess.run([sys.executable, '-m', 'opai', 'version', '--json'], "
+        "result = subprocess.run([sys.executable, '-m', 'vesta', 'version', '--json'], "
         "check=False, capture_output=True, text=True, timeout=30)\n"
         "if result.returncode != 0:\n"
         "    raise SystemExit(result.stdout + result.stderr)\n"
@@ -182,7 +182,7 @@ def prepare_smoke_project(home: Path) -> Path:
     project = home / "outside-project"
     project.mkdir(parents=True, exist_ok=True)
     (project / "pyproject.toml").write_text(
-        "[project]\nname = 'opai-smoke-project'\nversion = '0'\n",
+        "[project]\nname = 'vesta-smoke-project'\nversion = '0'\n",
         encoding="utf-8",
     )
     return project
@@ -208,7 +208,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--candidate-sha",
-        help="Exact candidate commit to embed and assert (or set OPAI_BUILD_ID).",
+        help="Exact candidate commit to embed and assert (or set VESTA_BUILD_ID).",
     )
     args = parser.parse_args()
 
@@ -221,7 +221,7 @@ def main() -> int:
     work_dir = Path(args.work_dir).expanduser().resolve() if args.work_dir else None
     created_work_dir = False
     if work_dir is None:
-        work_dir = Path(tempfile.mkdtemp(prefix="opai-smoke-")).resolve()
+        work_dir = Path(tempfile.mkdtemp(prefix="vesta-smoke-")).resolve()
         created_work_dir = True
     work_dir.mkdir(parents=True, exist_ok=True)
 
@@ -230,14 +230,14 @@ def main() -> int:
         wheelhouse.mkdir(parents=True, exist_ok=True)
 
         build_environment = dict(os.environ)
-        build_environment["OPAI_BUILD_ID"] = expected_build_id
+        build_environment["VESTA_BUILD_ID"] = expected_build_id
         run(
             wheel_build_command(Path(sys.executable), root, wheelhouse),
             root,
             env=build_environment,
         )
         wheels = sorted(
-            wheelhouse.glob(f"opai-{version}-*.whl"),
+            wheelhouse.glob(f"vesta-{version}-*.whl"),
             key=lambda path: path.stat().st_mtime,
             reverse=True,
         )
@@ -265,7 +265,7 @@ def main() -> int:
                 "--no-index",
                 "--find-links",
                 str(wheelhouse),
-                f"opai=={version}",
+                f"vesta=={version}",
             ],
             root,
         )
@@ -279,7 +279,7 @@ def main() -> int:
         # The web GUI ships as package data; a wheel without it silently falls
         # back to the legacy Qt window (issue #139). Fail the smoke instead.
         gui_assets_check = (
-            "from opai.gui_web import WEB_DIR\n"
+            "from vesta.gui_web import WEB_DIR\n"
             "import sys\n"
             "required = ['index.html', 'app.js', 'styles.css', 'activity.js',"
             " 'message-state.js', 'settings.js', 'onboarding.js']\n"
@@ -290,13 +290,13 @@ def main() -> int:
         )
 
         run(
-            [str(python), "-m", "opai", "version"],
+            [str(python), "-m", "vesta", "version"],
             outside_repo,
             env=smoke_env,
         )
         run([str(python), "-c", gui_assets_check], outside_repo, env=smoke_env)
         run(
-            [str(python), "-m", "opai", "hub", "list-tools"],
+            [str(python), "-m", "vesta", "hub", "list-tools"],
             outside_repo,
             env=smoke_env,
         )
@@ -304,7 +304,7 @@ def main() -> int:
             [
                 str(python),
                 "-m",
-                "opai",
+                "vesta",
                 "welcome",
                 "--compact",
                 "--no-color",

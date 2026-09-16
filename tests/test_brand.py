@@ -13,8 +13,8 @@ from unittest import mock
 
 from _helpers import make_repo
 
-from opai import brand
-from opai.brand import (
+from vesta import brand
+from vesta.brand import (
     TAGLINE,
     VESTA_MOTTOS,
     boot_brand,
@@ -83,7 +83,7 @@ class SessionMottoTests(unittest.TestCase):
             self.assertEqual(boot_brand()["emptyTitle"], first)
 
     def test_the_draw_is_over_the_whole_collection_unweighted(self):
-        with mock.patch("opai.brand.random.choice", return_value="x") as choice:
+        with mock.patch("vesta.brand.random.choice", return_value="x") as choice:
             self.assertEqual(brand._draw_motto(), "x")
         choice.assert_called_once_with(VESTA_MOTTOS)
 
@@ -91,7 +91,7 @@ class SessionMottoTests(unittest.TestCase):
         # A seeded generator in place of the module's: deterministic, and it
         # still exercises the real draw. 15,000 draws put each line near 1,000;
         # +/-150 is about five standard deviations.
-        with mock.patch("opai.brand.random", random.Random(20260916)):
+        with mock.patch("vesta.brand.random", random.Random(20260916)):
             counts = Counter(brand._draw_motto() for _ in range(15_000))
         self.assertEqual(set(counts), set(VESTA_MOTTOS))
         for motto, count in counts.items():
@@ -101,7 +101,7 @@ class SessionMottoTests(unittest.TestCase):
         # A launch is a new process. Eight of them all landing on one line by
         # chance is a 1-in-170-million event, so agreement means no fresh draw.
         repo = Path(__file__).resolve().parents[1]
-        script = "from opai.brand import empty_title; print(empty_title())"
+        script = "from vesta.brand import empty_title; print(empty_title())"
         seen = [
             subprocess.run(  # noqa: S603 - fixed argv, no shell
                 [sys.executable, "-c", script],
@@ -157,7 +157,7 @@ class CliMirrorTests(unittest.TestCase):
 
 class BootPayloadBrandTests(unittest.TestCase):
     def test_boot_payload_carries_brand(self):
-        from opai.gui_web import boot_payload
+        from vesta.gui_web import boot_payload
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
@@ -166,7 +166,7 @@ class BootPayloadBrandTests(unittest.TestCase):
         self.assertIn(payload["brand"]["emptyTitle"], VESTA_MOTTOS)
 
     def test_every_boot_in_one_run_carries_the_same_motto(self):
-        from opai.gui_web import boot_payload
+        from vesta.gui_web import boot_payload
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))

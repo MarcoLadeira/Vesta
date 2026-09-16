@@ -2,13 +2,33 @@ import argparse
 from decimal import Decimal
 import hashlib
 import json
+from pathlib import Path
+import shutil
 import subprocess
 import sys
+import uuid
 
 import pytest
 
 from scripts import benchmark_agents_provider as benchmark
 from scripts.agents_benchmark_cases import CASES, oracle_source
+
+
+@pytest.fixture
+def workspace_root(tmp_path):
+    """An explicit, never-created workspace root that fits the Windows gate.
+
+    ``main()`` refuses a workspace root longer than 48 characters on Windows
+    before any consent or dispatch gate runs. Its default derives from
+    ``Path.home()``, so CLI tests that omit ``--workspace-root`` only reach the
+    gate under test when the ambient home is short; an isolated or long Windows
+    profile exits 2 first. pytest's ``tmp_path`` is itself too long on Windows,
+    so use a unique short directory on the same drive. Nothing in these tests
+    may create it; teardown removes it only if a regression did.
+    """
+    root = Path(tmp_path.anchor) / f"vesta-bench-{uuid.uuid4().hex[:8]}"
+    yield root
+    shutil.rmtree(root, ignore_errors=True)
 
 
 REFERENCE = {
@@ -162,7 +182,7 @@ def test_behavioral_oracle_rejects_baseline_accepts_independent_solution(
     assert result.returncode == 0, result.stderr.decode(errors="replace")
 
 
-def test_prepare_only_never_constructs_executor(tmp_path, monkeypatch):
+def test_prepare_only_never_constructs_executor(tmp_path, monkeypatch, workspace_root):
     monkeypatch.setattr(
         benchmark,
         "execute_run",
@@ -176,6 +196,8 @@ def test_prepare_only_never_constructs_executor(tmp_path, monkeypatch):
                 str(output),
                 "--model",
                 "codex:test",
+                "--workspace-root",
+                str(workspace_root),
                 "--budget-per-run-usd",
                 "1",
             ]
@@ -184,6 +206,7 @@ def test_prepare_only_never_constructs_executor(tmp_path, monkeypatch):
     )
     report = json.loads((output / "report.json").read_text())
     assert report["executed"] is False and report["results"] == []
+    assert not workspace_root.exists()
     assert report["aggregate_admission_budget_usd"] == "12"
     assert len(report["runs"]) == 12
     for name in CASES:
@@ -198,7 +221,9 @@ def test_invalid_budget(value):
         benchmark.money(value)
 
 
-def test_unknown_cost_stops_remaining_provider_dispatch(tmp_path, monkeypatch):
+def test_unknown_cost_stops_remaining_provider_dispatch(
+    tmp_path, monkeypatch, workspace_root
+):
     calls = []
 
     def execute(args, entry, directory):
@@ -220,6 +245,8 @@ def test_unknown_cost_stops_remaining_provider_dispatch(tmp_path, monkeypatch):
                 str(output),
                 "--model",
                 "codex:test",
+                "--workspace-root",
+                str(workspace_root),
                 "--budget-per-run-usd",
                 "1",
                 "--execute",
@@ -237,26 +264,42 @@ def test_positive_budget():
     assert benchmark.money("1.25") == Decimal("1.25")
 
 
-def test_account_quota_plan_requires_explicit_cloud_consent(tmp_path):
+def test_account_quota_plan_requires_explicit_cloud_consent(
+    tmp_path, capsys, monkeypatch, workspace_root
+):
+    # Planning an account-quota run must never reach a real account provider.
+    monkeypatch.setattr(
+        benchmark,
+        "execute_run",
+        lambda *_: pytest.fail("Provider dispatch during account-quota planning"),
+    )
     args = [
         "--output",
         str(tmp_path / "account"),
         "--model",
         "account:claude:sonnet",
+        "--workspace-root",
+        str(workspace_root),
         "--account-quota",
     ]
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as refused:
         benchmark.main(args)
+    # The refusal must come from the consent gate itself, not an unrelated
+    # usage error, and must not write a plan.
+    assert refused.value.code == 2
+    assert "explicit allow-cloud" in capsys.readouterr().err
+    assert not (tmp_path / "account").exists()
     assert benchmark.main([*args, "--allow-cloud"]) == 0
     report = json.loads((tmp_path / "account" / "report.json").read_text())
     assert report["budget_per_run_usd"] is None
     assert report["aggregate_admission_budget_usd"] is None
     assert report["maximum_assignment_attempts"] == 30
     assert report["executed"] is False
+    assert not workspace_root.exists()
 
 
 def test_retained_run_requires_real_integrated_verification(tmp_path, monkeypatch):
-    from opaihub import objective_execution
+    from vestahub import objective_execution
     from pathlib import Path
 
     real_executor = objective_execution.ObjectiveExecutor

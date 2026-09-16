@@ -10,12 +10,12 @@ Every step is a real command with an observable result.
 
 ## Checklist
 
-<!-- opai-release-identity: application_version=0.2.1a1; release_stage=alpha.1; published_tag=v0.2.1a1 -->
+<!-- vesta-release-identity: application_version=0.2.1a1; release_stage=alpha.1; published_tag=v0.2.1a1 -->
 - [ ] **CLI resolves.** `vesta version` begins with `Vesta 0.2.1a1 alpha.1`
       and reports either the exact packaged build SHA or the honest
       `development`/`unknown` fallback.
-<!-- /opai-release-identity -->
-      (Fallback before PATH reloads: `python -m opai version`.)
+<!-- /vesta-release-identity -->
+      (Fallback before PATH reloads: `python -m vesta version`.)
 - [ ] **Project activates.** `vesta activate` writes project instructions and
       returns `"status": "active"`.
 - [ ] **All six clients active.** `vesta doctor` shows `readiness: ready` and
@@ -25,14 +25,14 @@ Every step is a real command with an observable result.
   - [ ] `AGENTS.md` (Codex) contains the Vesta managed block
   - [ ] `CLAUDE.md` (Claude) contains the Vesta managed block
   - [ ] `.github/copilot-instructions.md` (Copilot)
-  - [ ] `.cursor/rules/opai.mdc` (Cursor)
-  - [ ] `.clinerules/opai.md` (Cline)
+  - [ ] `.cursor/rules/vesta.mdc` (Cursor)
+  - [ ] `.clinerules/vesta.md` (Cline)
 - [ ] **Routing is read-only.** `vesta route "show git status"` prints a compact
-      decision and does **not** create `.opaihub/ledger/usage.jsonl`.
+      decision and does **not** create `.vestahub/ledger/usage.jsonl`.
 - [ ] **Recording works.** `vesta route "fix a bug" --record` then
       `vesta savings` shows `routed_tasks >= 1` and a non-zero
       `estimated_savings_usd`.
-- [ ] **Privacy holds.** `.opaihub/ledger/usage.jsonl` contains only
+- [ ] **Privacy holds.** `.vestahub/ledger/usage.jsonl` contains only
       `task_hash` values — never your raw prompt text.
 - [ ] **Policy is enforced.** `vesta policy show` reports a profile; cloud tiers
       require confirmation.
@@ -47,7 +47,7 @@ Every step is a real command with an observable result.
 
 | Symptom | Fix |
 | --- | --- |
-| `op` / `opai` not found | Restart the shell, or use `python -m opai ...` |
+| `op` / `vesta` not found | Restart the shell, or use `python -m vesta ...` |
 | A client shows `broken`/`missing` | `vesta activate --repair` |
 | Moved the repo and discovery broke | `vesta doctor` reports `stale_paths`; run `vesta activate --repair` |
 | Superpowers not discovered | `vesta activate --install-superpowers` |

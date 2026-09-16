@@ -27,10 +27,10 @@ import time
 import unittest
 from unittest import mock
 
-from opai.activity import ActivitySession
-from opaihub import accounts
-from opaihub.accounts import AccountRunner
-from opaihub.completion import (
+from vesta.activity import ActivitySession
+from vestahub import accounts
+from vestahub.accounts import AccountRunner
+from vestahub.completion import (
     MEASURED_EVIDENCE_KEYS,
     CompletionVerdict,
     evaluate_completion,
@@ -326,7 +326,7 @@ class StillRunningIsReportedAsItselfTests(unittest.TestCase):
             "status": "answered",
             "answer": "Started the suite; I'll report when it finishes.",
             "completion_state": "completed",
-            "changed_files": ["opaihub/context_engine.py"],
+            "changed_files": ["vestahub/context_engine.py"],
             **extra,
         }
         return evidence_payload(measured)

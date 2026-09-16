@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 
-from opai.cli import build_parser, cmd_update
-from opai.update.models import UpdateState
+from vesta.cli import build_parser, cmd_update
+from vesta.update.models import UpdateState
 
 
 def test_update_parser_exposes_canonical_lifecycle_commands():
@@ -33,9 +33,9 @@ def test_update_install_modes_are_mutually_exclusive():
 def test_developer_git_update_is_explicit_and_source_only(
     monkeypatch, capsys, tmp_path
 ):
-    from opai import cli
-    from opai.update.adapters import DeveloperGitUpdateAdapter
-    from opai.update.models import InstallType, InstalledBuild
+    from vesta import cli
+    from vesta.update.adapters import DeveloperGitUpdateAdapter
+    from vesta.update.models import InstallType, InstalledBuild
 
     adapter = DeveloperGitUpdateAdapter(tmp_path)
     monkeypatch.setattr(
@@ -59,7 +59,7 @@ def test_developer_git_update_is_explicit_and_source_only(
         },
     )()
     monkeypatch.setattr(
-        "opai.update.factory.create_update_service", lambda **_kwargs: service
+        "vesta.update.factory.create_update_service", lambda **_kwargs: service
     )
 
     assert cli.main(["update", "developer-git", "--json"]) == 0
@@ -69,7 +69,7 @@ def test_developer_git_update_is_explicit_and_source_only(
 
 
 def test_main_doctor_payload_contains_same_canonical_updater_state(monkeypatch, capsys):
-    from opai import cli
+    from vesta import cli
 
     update = {
         "schema_version": 1,
@@ -81,7 +81,7 @@ def test_main_doctor_payload_contains_same_canonical_updater_state(monkeypatch, 
             return update
 
     monkeypatch.setattr(
-        "opai.update.factory.create_update_service", lambda **_kwargs: Service()
+        "vesta.update.factory.create_update_service", lambda **_kwargs: Service()
     )
     monkeypatch.setattr(
         cli,
@@ -92,10 +92,10 @@ def test_main_doctor_payload_contains_same_canonical_updater_state(monkeypatch, 
             "superpowers": {},
         },
     )
-    monkeypatch.setattr("opaihub.validator.validate_all", lambda _root: {"ok": True})
-    monkeypatch.setattr("opaihub.loader.registry_items", lambda *_args: [])
-    monkeypatch.setattr("opaihub.local_models.discover_local_models", lambda _root: [])
-    monkeypatch.setattr("opai.model_registry.catalog", lambda: {})
+    monkeypatch.setattr("vestahub.validator.validate_all", lambda _root: {"ok": True})
+    monkeypatch.setattr("vestahub.loader.registry_items", lambda *_args: [])
+    monkeypatch.setattr("vestahub.local_models.discover_local_models", lambda _root: [])
+    monkeypatch.setattr("vesta.model_registry.catalog", lambda: {})
 
     assert cli.main(["doctor"]) == 0
     payload = json.loads(capsys.readouterr().out)

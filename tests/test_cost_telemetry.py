@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub.cost_telemetry import (
+from vestahub.cost_telemetry import (
     CostTelemetry,
     estimated_telemetry,
     normalize_account_result,
@@ -19,7 +19,7 @@ from opaihub.cost_telemetry import (
     summarize_cost_telemetry,
     usage_report_to_cost_telemetry,
 )
-from opaihub.usage_report import ProviderTurnUsage, UsageReport, UsageValue
+from vestahub.usage_report import ProviderTurnUsage, UsageReport, UsageValue
 
 from tests._helpers import FakeAccountRunner, make_repo
 
@@ -200,7 +200,7 @@ class LedgerTests(unittest.TestCase):
                 estimated_telemetry("claude", tokens=10, model=f"key {secret}"),
                 task=f"deploy with {secret}",
             )
-            raw = (root / ".opaihub" / "agent" / "events.jsonl").read_text("utf-8")
+            raw = (root / ".vestahub" / "agent" / "events.jsonl").read_text("utf-8")
             events = read_cost_events(root)
 
         self.assertNotIn(secret, raw)
@@ -251,7 +251,7 @@ class LedgerTests(unittest.TestCase):
     def test_nonfinite_persisted_telemetry_is_degraded_not_summed(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            path = root / ".opaihub" / "agent" / "events.jsonl"
+            path = root / ".vestahub" / "agent" / "events.jsonl"
             path.parent.mkdir(parents=True)
             path.write_text(
                 json.dumps(
@@ -278,7 +278,7 @@ class LedgerTests(unittest.TestCase):
 
 class PipelineTelemetryTests(unittest.TestCase):
     def test_account_turn_records_actual_telemetry_into_workflow_state(self):
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         runner = FakeAccountRunner(text="done", cost=0.0421)
         with tempfile.TemporaryDirectory() as tmp:
@@ -301,7 +301,7 @@ class PipelineTelemetryTests(unittest.TestCase):
         self.assertEqual(events[0]["metadata"]["cost_measurement"], "actual")
 
     def test_codex_style_missing_cost_stays_estimated_in_workflow_state(self):
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         runner = FakeAccountRunner(account_id="codex", text="done", cost=None)
         with tempfile.TemporaryDirectory() as tmp:
@@ -319,9 +319,9 @@ class PipelineTelemetryTests(unittest.TestCase):
         self.assertIsNone(telemetry["cost_usd"])
 
     def test_confirmation_limits_still_block_before_any_telemetry(self):
-        from opaihub.gui_pipeline import handle_gui_message
-        from opaihub.gui_preferences import save_usage_limit
-        from opaihub.ledger import record_model_call
+        from vestahub.gui_pipeline import handle_gui_message
+        from vestahub.gui_preferences import save_usage_limit
+        from vestahub.ledger import record_model_call
 
         model_id = "account:claude:haiku"
         with tempfile.TemporaryDirectory() as tmp:
@@ -337,7 +337,7 @@ class PipelineTelemetryTests(unittest.TestCase):
                 model_id=model_id,
                 provider_id="claude",
             )
-            with mock.patch("opai.app_state.ask") as provider_call:
+            with mock.patch("vesta.app_state.ask") as provider_call:
                 result = handle_gui_message(
                     root, "continue", model_id=model_id, mode="ask"
                 )
@@ -350,7 +350,7 @@ class PipelineTelemetryTests(unittest.TestCase):
 
 class CockpitTelemetryTests(unittest.TestCase):
     def test_cockpit_surfaces_actual_vs_estimated_spend(self):
-        from opai.cockpit import build_cockpit, render_cockpit
+        from vesta.cockpit import build_cockpit, render_cockpit
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -367,7 +367,7 @@ class CockpitTelemetryTests(unittest.TestCase):
         self.assertIn("$1.2500 actual", text)
 
     def test_cockpit_without_telemetry_says_so(self):
-        from opai.cockpit import build_cockpit, render_cockpit
+        from vesta.cockpit import build_cockpit, render_cockpit
 
         with tempfile.TemporaryDirectory() as tmp:
             text = render_cockpit(build_cockpit(Path(tmp)))
@@ -378,7 +378,7 @@ class DegradedTelemetryTests(unittest.TestCase):
     """#475: corrupt/torn cost events must not silently under-report spend."""
 
     def _events_path(self, root: Path) -> Path:
-        return root / ".opaihub" / "agent" / "events.jsonl"
+        return root / ".vestahub" / "agent" / "events.jsonl"
 
     def test_clean_telemetry_reports_complete(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -408,7 +408,7 @@ class DegradedTelemetryTests(unittest.TestCase):
         self.assertEqual(summary["skipped_events"], 2)
 
     def test_degraded_state_propagates_to_the_cockpit(self):
-        from opai.cockpit import build_cockpit
+        from vesta.cockpit import build_cockpit
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -422,7 +422,7 @@ class DegradedTelemetryTests(unittest.TestCase):
         self.assertGreaterEqual(cockpit["cost_telemetry"]["skipped_events"], 1)
 
     def test_cockpit_render_marks_degraded_totals_as_partial(self):
-        from opai.cockpit import build_cockpit, render_cockpit
+        from vesta.cockpit import build_cockpit, render_cockpit
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -438,7 +438,7 @@ class DegradedTelemetryTests(unittest.TestCase):
         self.assertIn("lower bound", text)
 
     def test_cockpit_render_says_unreadable_when_no_event_survives(self):
-        from opai.cockpit import build_cockpit, render_cockpit
+        from vesta.cockpit import build_cockpit, render_cockpit
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -450,7 +450,7 @@ class DegradedTelemetryTests(unittest.TestCase):
         self.assertNotIn("no provider calls recorded yet", text)
 
     def test_cockpit_render_of_clean_totals_has_no_partial_marker(self):
-        from opai.cockpit import build_cockpit, render_cockpit
+        from vesta.cockpit import build_cockpit, render_cockpit
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

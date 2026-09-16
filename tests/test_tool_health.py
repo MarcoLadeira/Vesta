@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub.tool_health import (
+from vestahub.tool_health import (
     KNOWN_TOOL_CHECKS,
     check_tool_health,
     is_known_tool,
@@ -164,7 +164,7 @@ class SummaryAndCliTests(unittest.TestCase):
         import io
         import json
 
-        from opaihub.cli import main
+        from vestahub.cli import main
 
         # ruff is installed in this environment (CI installs it); the per-tool
         # path must run a ruff command and return structured per-tool health.
@@ -182,7 +182,7 @@ class SummaryAndCliTests(unittest.TestCase):
         import contextlib
         import io
 
-        from opaihub.cli import main
+        from vestahub.cli import main
 
         out = io.StringIO()
         with contextlib.redirect_stdout(out):

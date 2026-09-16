@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub.accounts import (
+from vestahub.accounts import (
     _with_connection_history,
     disconnect_account,
     interactive_provider_login,
@@ -72,9 +72,9 @@ class ConnectionDoctorTests(unittest.TestCase):
                     )
                 )
 
-            with mock.patch("opaihub.accounts._which", return_value=str(cli)):
+            with mock.patch("vestahub.accounts._which", return_value=str(cli)):
                 check_account_connection("codex", home=home, run=run, force=True)
-                import opaihub.accounts as accounts
+                import vestahub.accounts as accounts
 
                 accounts._CONNECTION_HISTORY.clear()
                 entries = provider_connection_doctor(
@@ -82,7 +82,7 @@ class ConnectionDoctorTests(unittest.TestCase):
                 )
 
             codex = next(item for item in entries if item["providerId"] == "codex")
-            stored = (home / ".opai" / "connection_history.json").read_text(
+            stored = (home / ".vesta" / "connection_history.json").read_text(
                 encoding="utf-8"
             )
 
@@ -207,7 +207,7 @@ class ConnectionDoctorTests(unittest.TestCase):
             home = Path(tmp)
             (home / ".claude").mkdir()
             (home / ".claude" / ".credentials.json").touch()
-            with mock.patch("opaihub.accounts._which", return_value="/bin/claude"):
+            with mock.patch("vestahub.accounts._which", return_value="/bin/claude"):
                 check_account_connection(
                     "claude",
                     home=home,
@@ -241,9 +241,9 @@ class ConnectionDoctorTests(unittest.TestCase):
             (home / ".claude").mkdir()
             (home / ".claude" / ".credentials.json").touch()
             with (
-                mock.patch("opaihub.accounts._which", return_value="/bin/claude"),
+                mock.patch("vestahub.accounts._which", return_value="/bin/claude"),
                 mock.patch(
-                    "opaihub.accounts._hidden_run",
+                    "vestahub.accounts._hidden_run",
                     return_value=_Completed(returncode=0),
                 ),
             ):
@@ -267,7 +267,7 @@ class ConnectionDoctorTests(unittest.TestCase):
     def test_changed_local_credential_evidence_supersedes_stale_history_health(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            with mock.patch("opaihub.accounts._which", return_value="/bin/claude"):
+            with mock.patch("vestahub.accounts._which", return_value="/bin/claude"):
                 check_account_connection("claude", home=home)
                 (home / ".claude").mkdir()
                 (home / ".claude" / ".credentials.json").touch()
@@ -383,7 +383,7 @@ class InteractiveProviderLoginTests(unittest.TestCase):
             return {"providerId": provider, "authStatus": "connected", "detected": True}
 
         with mock.patch(
-            "opaihub.accounts.provider_child_env",
+            "vestahub.accounts.provider_child_env",
             return_value=({"PATH": "safe"}, ["ANTHROPIC_API_KEY", "CLAUDECODE"]),
         ):
             result = interactive_provider_login(

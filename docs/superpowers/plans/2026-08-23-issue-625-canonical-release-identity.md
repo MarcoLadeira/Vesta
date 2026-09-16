@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Give every OPai runtime, artifact, evidence, and current documentation surface one canonical application/build identity and fail every incomplete or unsupported startup before deep initialization with a stable actionable diagnostic.
+**Goal:** Give every Vesta runtime, artifact, evidence, and current documentation surface one canonical application/build identity and fail every incomplete or unsupported startup before deep initialization with a stable actionable diagnostic.
 
 **Architecture:** `pyproject.toml [project].version` remains the only human-edited application version. A generated Python projection and embedded build/artifact JSON supply dependency-light runtime identity, while a structural validator and build hooks reject drift; a stdlib-only bootstrap module classifies startup mode and prerequisites before importing the CLI/GUI/runtime graph. Existing updater, desktop artifact, release-preflight, failure-redaction, and schema contracts are extended through narrow adapters rather than replaced.
 
-**Tech Stack:** Python 3.10+, setuptools, importlib metadata/resources, pytest/unittest, PySide6/QtWebEngine optional desktop runtime, existing OPai release/update modules, GitHub Actions.
+**Tech Stack:** Python 3.10+, setuptools, importlib metadata/resources, pytest/unittest, PySide6/QtWebEngine optional desktop runtime, existing Vesta release/update modules, GitHub Actions.
 
 **Spec:** `docs/superpowers/specs/2026-08-23-issue-625-canonical-release-identity-design.md`
 
@@ -26,16 +26,16 @@
 ### Task 1: Canonical application identity and generated projection
 
 **Files:**
-- Create: `opai/release_identity.py`
-- Create: `opai/_generated_release.py`
+- Create: `vesta/release_identity.py`
+- Create: `vesta/_generated_release.py`
 - Create: `scripts/generate_release_identity.py`
 - Create: `tests/test_release_identity.py`
-- Modify: `opai/__init__.py`
-- Modify: `opaihub/__init__.py`
+- Modify: `vesta/__init__.py`
+- Modify: `vestahub/__init__.py`
 - Modify: `pyproject.toml`
 
 **Interfaces:**
-- Consumes: `[project].version` from `pyproject.toml`; optional embedded `release-identity.json`; `importlib.metadata.version("opai")`.
+- Consumes: `[project].version` from `pyproject.toml`; optional embedded `release-identity.json`; `importlib.metadata.version("vesta")`.
 - Produces: immutable `ReleaseIdentity`, `current_release_identity()`, `identity_payload()`, `APPLICATION_VERSION`, `RELEASE_CHANNEL`, `DISPLAY_NAME`, and `PUBLISHED_TAG`.
 
 - [ ] **Step 1: Write failing canonical identity tests**
@@ -58,7 +58,7 @@ def test_packaged_identity_ignores_neighbouring_checkout(tmp_path):
 
 Run: `python -m pytest tests/test_release_identity.py -q`
 
-Expected: collection/import failure because `opai.release_identity` does not exist.
+Expected: collection/import failure because `vesta.release_identity` does not exist.
 
 - [ ] **Step 3: Implement the generated projection and dependency-light loader**
 
@@ -83,13 +83,13 @@ The loader validates embedded schema/version/build data, verifies installed
 distribution metadata against the generated projection, and uses the generated
 development projection only for a verified source/editable mode. Replace both
 manually maintained package versions with imports from the generated projection
-and remove `[tool.opai].release`.
+and remove `[tool.vesta].release`.
 
 - [ ] **Step 4: Generate and verify the projection**
 
 Run: `python scripts/generate_release_identity.py --check`
 
-Expected: PASS with `0.2.1a1`, `alpha`, display `OPai 0.2.1 Alpha.1`, and tag `v0.2.1a1` matching the checked-in generated module.
+Expected: PASS with `0.2.1a1`, `alpha`, display `Vesta 0.2.1 Alpha.1`, and tag `v0.2.1a1` matching the checked-in generated module.
 
 - [ ] **Step 5: Run focused identity/package tests**
 
@@ -106,14 +106,14 @@ feat(release): establish canonical application identity
 ### Task 2: Structural drift gate and CI integration
 
 **Files:**
-- Create: `opai/release_validation.py`
+- Create: `vesta/release_validation.py`
 - Create: `scripts/check_release_identity.py`
 - Create: `tests/test_release_identity_drift.py`
 - Modify: `scripts/ci_local.py`
 - Modify: `tests/test_ci_local.py`
 - Modify: `tests/test_ci_architecture.py`
 - Modify: `scripts/desktop_release_transport.py`
-- Modify: `opaihub/release_preflight.py`
+- Modify: `vestahub/release_preflight.py`
 - Modify: `tests/test_release_transport_python_compat.py`
 - Modify: `tests/test_release_preflight.py`
 
@@ -158,13 +158,13 @@ class IdentityDrift:
 
 def validate_release_identity(root: Path) -> tuple[IdentityDrift, ...]:
     expected = read_project_release(root / "pyproject.toml").application_version
-    generated = read_generated_release(root / "opai" / "_generated_release.py")
+    generated = read_generated_release(root / "vesta" / "_generated_release.py")
     if generated.application_version == expected:
         return ()
     return (
         IdentityDrift(
             surface="generated_runtime_projection",
-            path=root / "opai" / "_generated_release.py",
+            path=root / "vesta" / "_generated_release.py",
             expected=expected,
             actual=generated.application_version,
             remediation="Run: python scripts/generate_release_identity.py",
@@ -198,19 +198,19 @@ test(release): add canonical identity drift gate
 - Create: `setup.py`
 - Create: `tests/test_release_build_metadata.py`
 - Modify: `pyproject.toml`
-- Modify: `opai/release_identity.py`
+- Modify: `vesta/release_identity.py`
 - Modify: `tests/test_packaging.py`
 
 **Interfaces:**
-- Consumes: setuptools distribution version plus `OPAI_BUILD_ID` and optional `OPAI_RELEASE_CHANNEL` in the build environment.
+- Consumes: setuptools distribution version plus `VESTA_BUILD_ID` and optional `VESTA_RELEASE_CHANNEL` in the build environment.
 - Produces: `_embedded_build.json` inside wheel/sdist build outputs without modifying the source checkout.
 
 - [ ] **Step 1: Write failing wheel, sdist, editable, Git-unavailable, and corrupt-metadata tests**
 
 ```python
 def test_wheel_embeds_exact_candidate_sha(tmp_path):
-    wheel = build_wheel(tmp_path, env={"OPAI_BUILD_ID": "b" * 40})
-    identity = json_from_wheel(wheel, "opai/_embedded_build.json")
+    wheel = build_wheel(tmp_path, env={"VESTA_BUILD_ID": "b" * 40})
+    identity = json_from_wheel(wheel, "vesta/_embedded_build.json")
     assert identity == {"schema_version": 1, "build_id": "b" * 40}
 
 def test_source_archive_without_build_sha_is_honest(tmp_path):
@@ -255,13 +255,13 @@ feat(version): embed exact build identity in distributions
 ### Task 4: CLI, GUI, doctor, receipt, and support projections
 
 **Files:**
-- Modify: `opai/cli.py`
-- Modify: `opai/app_state.py`
-- Modify: `opai/gui_view_model.py`
-- Modify: `opai/gui_web.py`
-- Modify: `opai/gui_desktop.py`
-- Modify: `opaihub/receipt.py`
-- Modify: `opaihub/support_bundle.py`
+- Modify: `vesta/cli.py`
+- Modify: `vesta/app_state.py`
+- Modify: `vesta/gui_view_model.py`
+- Modify: `vesta/gui_web.py`
+- Modify: `vesta/gui_desktop.py`
+- Modify: `vestahub/receipt.py`
+- Modify: `vestahub/support_bundle.py`
 - Modify: `tests/test_positioning_and_cli.py`
 - Modify: `tests/test_gui_web.py`
 - Modify: `tests/test_desktop_gui.py`
@@ -320,13 +320,13 @@ feat(cli): unify version diagnostics and evidence metadata
 ### Task 5: Dependency-light startup and configuration classification
 
 **Files:**
-- Create: `opai/bootstrap.py`
-- Create: `opai/__main__.py`
+- Create: `vesta/bootstrap.py`
+- Create: `vesta/__main__.py`
 - Create: `tests/test_bootstrap_preflight.py`
 - Modify: `pyproject.toml`
 - Modify: `scripts/desktop_cli_entry.py`
 - Modify: `scripts/desktop_gui_entry.py`
-- Modify: `opaihub/registry.py`
+- Modify: `vestahub/registry.py`
 - Modify: `tests/test_runtime_dependencies.py`
 
 **Interfaces:**
@@ -356,7 +356,7 @@ and safe compact JSON/text rendering.
 
 Run: `python -m pytest tests/test_bootstrap_preflight.py tests/test_runtime_dependencies.py -q`
 
-Expected: FAIL because entrypoints import `opai.cli` directly and registry
+Expected: FAIL because entrypoints import `vesta.cli` directly and registry
 dependency/configuration errors do not share a typed startup contract.
 
 - [ ] **Step 3: Implement the stdlib-only bootstrap boundary**
@@ -373,7 +373,7 @@ class BootstrapCategory(str, Enum):
 
 def cli_main(argv=None):
     require_preflight(argv or sys.argv[1:])
-    from opai.cli import main
+    from vesta.cli import main
     return main(argv)
 ```
 
@@ -396,11 +396,11 @@ fix(bootstrap): classify startup prerequisites before runtime imports
 ### Task 6: Packaged web asset integrity and schema-before-mutation
 
 **Files:**
-- Create: `opai/runtime_compatibility.py`
-- Modify: `opai/gui_web.py`
-- Modify: `opai/bootstrap.py`
-- Modify: `opai/update/packaging.py`
-- Modify: `opai/update/release.py`
+- Create: `vesta/runtime_compatibility.py`
+- Modify: `vesta/gui_web.py`
+- Modify: `vesta/bootstrap.py`
+- Modify: `vesta/update/packaging.py`
+- Modify: `vesta/update/release.py`
 - Modify: `tests/test_gui_web.py`
 - Modify: `tests/test_bootstrap_preflight.py`
 - Modify: `tests/test_update_packaging.py`
@@ -417,7 +417,7 @@ fix(bootstrap): classify startup prerequisites before runtime imports
 def test_packaged_gui_fails_closed_on_asset_integrity(failure, packaged_gui):
     diagnostic = packaged_gui.preflight(after=apply_failure(failure))
     assert diagnostic.category in {"missing_packaged_asset", "package_integrity_failure"}
-    assert diagnostic.remediation == "Reinstall this OPai artifact from a verified release."
+    assert diagnostic.remediation == "Reinstall this Vesta artifact from a verified release."
 
 def test_newer_runtime_schema_blocks_before_mutation(tmp_path):
     mutated = False
@@ -467,7 +467,7 @@ fix(packaging): bind packaged assets to runtime identity
 ### Task 7: Candidate identity through native artifacts and qualification evidence
 
 **Files:**
-- Modify: `opaihub/desktop_artifacts.py`
+- Modify: `vestahub/desktop_artifacts.py`
 - Modify: `scripts/build_desktop_artifacts.py`
 - Modify: `scripts/finalize_desktop_artifact.py`
 - Modify: `scripts/smoke_desktop_artifacts.py`

@@ -4,11 +4,11 @@ from unittest import mock
 
 import pytest
 
-from opaihub.gui_preferences import load_gui_preferences, save_gui_preferences
+from vestahub.gui_preferences import load_gui_preferences, save_gui_preferences
 
 
 def test_team_timeline_is_ordered_durable_bounded_and_objective_scoped(tmp_path):
-    from opaihub.agent_objectives import ObjectiveStore
+    from vestahub.agent_objectives import ObjectiveStore
 
     store = ObjectiveStore(tmp_path)
     obj = store.create("Repair API", [{"name": "api", "objective": "Repair auth"}])
@@ -55,11 +55,11 @@ def test_team_timeline_is_ordered_durable_bounded_and_objective_scoped(tmp_path)
 
 
 def test_unsupported_host_rejects_submission_before_creating_an_objective(tmp_path):
-    from opai.agents_bridge import create_objective_payload
+    from vesta.agents_bridge import create_objective_payload
 
     with (
-        mock.patch("opaihub.process_tree.sys.platform", "darwin"),
-        mock.patch("opai.agents_bridge.ObjectiveStore") as store,
+        mock.patch("vestahub.process_tree.sys.platform", "darwin"),
+        mock.patch("vesta.agents_bridge.ObjectiveStore") as store,
     ):
         with pytest.raises(ValueError, match="unavailable on this host"):
             create_objective_payload(
@@ -70,8 +70,8 @@ def test_unsupported_host_rejects_submission_before_creating_an_objective(tmp_pa
 
 
 def test_agent_rename_is_durable_metadata_and_preserves_execution_identity(tmp_path):
-    from opai.agents_bridge import control_objective_payload
-    from opaihub.agent_objectives import ObjectiveStore
+    from vesta.agents_bridge import control_objective_payload
+    from vestahub.agent_objectives import ObjectiveStore
 
     store = ObjectiveStore(tmp_path)
     created = store.create(
@@ -127,7 +127,7 @@ def test_multi_agent_preference_is_explicit_boolean_and_independent(tmp_path):
 
 
 def test_objective_submission_uses_stable_identity_and_bounded_user_authority(tmp_path):
-    from opai.agents_bridge import create_objective_payload
+    from vesta.agents_bridge import create_objective_payload
 
     store = mock.Mock()
     store.create.return_value = {"objective_id": "o"}
@@ -139,7 +139,7 @@ def test_objective_submission_uses_stable_identity_and_bounded_user_authority(tm
         "allowCloud": "true",
         "history": ["private"],
     }
-    with mock.patch("opai.agents_bridge.ObjectiveStore", return_value=store):
+    with mock.patch("vesta.agents_bridge.ObjectiveStore", return_value=store):
         create_objective_payload(tmp_path, payload)
         first = store.create.call_args
         create_objective_payload(tmp_path, payload)
@@ -151,11 +151,11 @@ def test_objective_submission_uses_stable_identity_and_bounded_user_authority(tm
 
 
 def test_control_targets_canonical_ids_and_never_grants_cloud_implicitly(tmp_path):
-    from opai.agents_bridge import control_objective_payload
+    from vesta.agents_bridge import control_objective_payload
 
     executor = mock.Mock()
     executor.control.return_value = {"objective_id": "o", "status": "stopping"}
-    with mock.patch("opai.agents_bridge.ObjectiveExecutor", return_value=executor):
+    with mock.patch("vesta.agents_bridge.ObjectiveExecutor", return_value=executor):
         result = control_objective_payload(
             tmp_path, {"objective_id": "o", "assignment_id": "a", "action": "cancel"}
         )
@@ -170,9 +170,9 @@ def test_control_targets_canonical_ids_and_never_grants_cloud_implicitly(tmp_pat
 
 
 def test_invalid_submission_never_reaches_runtime(tmp_path):
-    from opai.agents_bridge import create_objective_payload
+    from vesta.agents_bridge import create_objective_payload
 
-    with mock.patch("opai.agents_bridge.ObjectiveStore") as store:
+    with mock.patch("vesta.agents_bridge.ObjectiveStore") as store:
         for payload in (
             [],
             {},
@@ -185,13 +185,13 @@ def test_invalid_submission_never_reaches_runtime(tmp_path):
 
 
 def test_objective_listing_recovers_expired_owners_before_projection(tmp_path):
-    from opai.agents_bridge import objectives_payload
+    from vesta.agents_bridge import objectives_payload
 
     store = mock.Mock()
     store.list_objectives.return_value = [
         {"objective_id": "o", "status": "needs_attention"}
     ]
-    with mock.patch("opai.agents_bridge.ObjectiveStore", return_value=store):
+    with mock.patch("vesta.agents_bridge.ObjectiveStore", return_value=store):
         result = objectives_payload(tmp_path)
     assert store.method_calls == [
         mock.call.recover_expired(),
@@ -201,8 +201,8 @@ def test_objective_listing_recovers_expired_owners_before_projection(tmp_path):
 
 
 def test_objective_creation_captures_bypass_authority(tmp_path):
-    from opai.agents_bridge import create_objective_payload
-    from opaihub.agent_objectives import ObjectiveStore
+    from vesta.agents_bridge import create_objective_payload
+    from vestahub.agent_objectives import ObjectiveStore
 
     created = create_objective_payload(
         tmp_path, {"text": "Update independent modules", "bypassPermissions": True}

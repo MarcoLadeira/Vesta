@@ -7,7 +7,7 @@ router each reasoned about providers differently. Adding a provider meant editin
 many files, and the UI could not uniformly answer *what can this provider do* or
 *is it healthy right now*.
 
-`opaihub/provider_capabilities.py` is the single source of truth those surfaces
+`vestahub/provider_capabilities.py` is the single source of truth those surfaces
 read. It is the foundation of the provider-lifecycle epic (#295) and the natural
 companion to the model registry (#170).
 

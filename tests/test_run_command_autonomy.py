@@ -16,7 +16,7 @@ import unittest
 from pathlib import Path
 from typing import Any
 
-from opaihub.provider_tools import RepositoryToolExecutor
+from vestahub.provider_tools import RepositoryToolExecutor
 
 PUSH = "git push -u origin feature"
 FORCE_PUSH = "git push --force origin main"

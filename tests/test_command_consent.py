@@ -5,7 +5,7 @@ confirmation", and a push then ran with no confirmation UI at all. The structura
 cause was that neither execution channel could ask: Vesta's own tool executor ran
 ``git_push`` as soon as Settings consent existed, and a provider CLI's push was
 gated only by a PreToolUse hook, which can allow or deny but has no interactive
-channel. ``opaihub.command_consent`` is that channel — a refusal recorded by one
+channel. ``vestahub.command_consent`` is that channel — a refusal recorded by one
 process and read by another, plus a one-shot grant flowing the other way.
 
 These tests pin the properties the promise depends on: an approval is for one
@@ -25,7 +25,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub import command_consent
+from vestahub import command_consent
 
 
 class _IsolatedConsent(unittest.TestCase):
@@ -35,12 +35,12 @@ class _IsolatedConsent(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         patcher = mock.patch.dict(
-            os.environ, {"OPAI_COMMAND_CONSENT_DIR": self._tmp.name}
+            os.environ, {"VESTA_COMMAND_CONSENT_DIR": self._tmp.name}
         )
         patcher.start()
         self.addCleanup(patcher.stop)
         # Run identity is ambient in two places -- the per-turn context set by
-        # begin_turn, and OPAI_RUN_ID in the environment. Both are cleared, or
+        # begin_turn, and VESTA_RUN_ID in the environment. Both are cleared, or
         # one test's run leaks into the next and the isolation this fixture
         # exists for would only be half true.
         os.environ.pop(command_consent.RUN_ENV, None)
@@ -172,7 +172,7 @@ class UnwritableStoreTests(_IsolatedConsent):
     def test_an_unwritable_directory_grants_nothing(self):
         with mock.patch.dict(
             os.environ,
-            {"OPAI_COMMAND_CONSENT_DIR": str(self.dir / "a.txt" / "nested")},
+            {"VESTA_COMMAND_CONSENT_DIR": str(self.dir / "a.txt" / "nested")},
         ):
             (self.dir / "a.txt").write_text("blocker", encoding="utf-8")
             command_consent.begin_turn("git push")
@@ -223,7 +223,7 @@ class OneApprovalAuthorisesExactlyOneCommandTests(_IsolatedConsent):
         command_consent.begin_turn("git push")
         script = (
             "import sys; sys.path.insert(0, r'{cwd}')\n"
-            "from opaihub import command_consent\n"
+            "from vestahub import command_consent\n"
             "print('YES' if command_consent.consume_grant('git push') else 'NO')\n"
         ).format(cwd=os.getcwd())
         children = [
@@ -231,7 +231,7 @@ class OneApprovalAuthorisesExactlyOneCommandTests(_IsolatedConsent):
                 [sys.executable, "-c", script],
                 stdout=subprocess.PIPE,
                 text=True,
-                env={**os.environ, "OPAI_COMMAND_CONSENT_DIR": str(self.dir)},
+                env={**os.environ, "VESTA_COMMAND_CONSENT_DIR": str(self.dir)},
             )
             for _ in range(6)
         ]
@@ -446,7 +446,7 @@ class ApprovalsBelongToOneRunTests(_IsolatedConsent):
 
         The process that spends a grant is the PreToolUse hook, and Vesta does
         not launch it: Vesta launches the *provider's* CLI, and that launches
-        the hook. Whether OPAI_RUN_ID survives that middle hop is a third
+        the hook. Whether VESTA_RUN_ID survives that middle hop is a third
         party's decision.
 
         So "I cannot say which run I am" must not be a refusal. A provider
@@ -508,7 +508,7 @@ class ApprovalsBelongToOneRunTests(_IsolatedConsent):
         command_consent.begin_turn("git push", run="run-A")
         script = (
             "import sys; sys.path.insert(0, r'{cwd}')\n"
-            "from opaihub import command_consent\n"
+            "from vestahub import command_consent\n"
             "print('YES' if command_consent.consume_grant('git push') else 'NO')\n"
         ).format(cwd=os.getcwd())
 
@@ -519,7 +519,7 @@ class ApprovalsBelongToOneRunTests(_IsolatedConsent):
                 text=True,
                 env={
                     **os.environ,
-                    "OPAI_COMMAND_CONSENT_DIR": str(self.dir),
+                    "VESTA_COMMAND_CONSENT_DIR": str(self.dir),
                     command_consent.RUN_ENV: run,
                 },
             )
@@ -552,7 +552,7 @@ class RunIdentityReachesTheChildTests(_IsolatedConsent):
     """The plumbing, without which the check above would refuse everything."""
 
     def test_a_provider_child_is_told_which_run_it_serves(self):
-        from opaihub.proc import provider_child_env
+        from vestahub.proc import provider_child_env
 
         command_consent.begin_turn("git push", run="turn-42")
         env, _removed = provider_child_env("claude", autonomy="safe-auto")
@@ -562,7 +562,7 @@ class RunIdentityReachesTheChildTests(_IsolatedConsent):
     def test_a_stale_inherited_run_is_dropped(self):
         """Same rule as autonomy: an identity nobody set here is not inherited."""
 
-        from opaihub.proc import provider_child_env
+        from vestahub.proc import provider_child_env
 
         command_consent.end_turn()
         env, _removed = provider_child_env(
@@ -584,7 +584,7 @@ class ThePipelineActuallyBindsTheGrantTests(unittest.TestCase):
     def test_handle_gui_message_arms_the_grant_for_its_own_turn(self):
         from pathlib import Path as _Path
 
-        source = _Path("opaihub/gui_pipeline.py").read_text(encoding="utf-8")
+        source = _Path("vestahub/gui_pipeline.py").read_text(encoding="utf-8")
 
         self.assertIn(
             "command_consent.begin_turn(command_grant, run=turn_id)",

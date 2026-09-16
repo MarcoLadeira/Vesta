@@ -11,8 +11,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Mapping
 
-from opaihub.provider_catalog import PROTOCOL_VERSION, provider_record
-from opaihub.provider_protocol import (
+from vestahub.provider_catalog import PROTOCOL_VERSION, provider_record
+from vestahub.provider_protocol import (
     AdapterRequest,
     AdapterSLO,
     EventKind,

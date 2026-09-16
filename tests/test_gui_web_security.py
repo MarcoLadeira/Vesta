@@ -14,10 +14,10 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-GUI_WEB = ROOT / "opai" / "gui_web.py"
-INDEX_HTML = ROOT / "opai" / "assets" / "web" / "index.html"
-APP_JS = ROOT / "opai" / "assets" / "web" / "app.js"
-MARKDOWN_RENDERER_JS = ROOT / "opai" / "assets" / "web" / "markdown-renderer.js"
+GUI_WEB = ROOT / "vesta" / "gui_web.py"
+INDEX_HTML = ROOT / "vesta" / "assets" / "web" / "index.html"
+APP_JS = ROOT / "vesta" / "assets" / "web" / "app.js"
+MARKDOWN_RENDERER_JS = ROOT / "vesta" / "assets" / "web" / "markdown-renderer.js"
 
 
 class WebEngineLockdownTests(unittest.TestCase):

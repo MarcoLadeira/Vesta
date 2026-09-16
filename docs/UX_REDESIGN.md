@@ -6,7 +6,7 @@
 > settings page, Inter font), see **`UX_UI_REDESIGN_REPORT.md`**,
 > **`DESIGN_SYSTEM.md`**, **`PRODUCT_VISION.md`**, and **`FEATURE_ROADMAP.md`**.
 
-_Stack: PySide6 desktop GUI (`opai/gui_desktop.py`). Not a web app — there is no
+_Stack: PySide6 desktop GUI (`vesta/gui_desktop.py`). Not a web app — there is no
 React/Tailwind/Playwright layer._
 
 ## Design principle (deliberate)
@@ -29,7 +29,7 @@ a command palette and keyboard shortcuts, not in always-on side panels.
 
 ## Engineering shape
 
-The data + formatting live in **`opai/gui_controls.py`** — Qt-free and
+The data + formatting live in **`vesta/gui_controls.py`** — Qt-free and
 dependency-light, so the palette commands, model badges, header strip, shortcut
 list, and state messages are **unit-tested headlessly** (`tests/test_gui_controls.py`,
 24 pure tests). The PySide widgets consume those helpers. A guarded headless

@@ -2,8 +2,8 @@
 
 ## Status
 
-Canonical GitHub epic: [#569](https://github.com/MarcoLadeira/OPai/issues/569)  
-Parent programme: [#561](https://github.com/MarcoLadeira/OPai/issues/561)
+Canonical GitHub epic: [#569](https://github.com/MarcoLadeira/Vesta/issues/569)  
+Parent programme: [#561](https://github.com/MarcoLadeira/Vesta/issues/561)
 
 This document is the repository-level architecture and delivery index for Vesta's self-healing convergence programme. GitHub issues remain the authoritative work backlog; this file records stable ownership, invariants, sequence and evidence expectations for maintainers and coding agents.
 
@@ -117,7 +117,7 @@ Production recovery begins with reviewed, versioned recipes. Learned skills and 
 | #654 | Verified recovery-skill admission |
 | #655 | Cost-aware shadow recovery policy |
 | #656 | Recovery UX and CLI parity |
-| #657 | 240-scenario Self-Healing OPaiBench |
+| #657 | 240-scenario Self-Healing VestaBench |
 
 ## Implementation order
 

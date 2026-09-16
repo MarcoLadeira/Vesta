@@ -29,7 +29,7 @@
   ],
   "tools": [
     {
-      "id": "opai-cli",
+      "id": "vesta-cli",
       "name": "Vesta CLI",
       "category": "automation",
       "description": "Branded 0.2.0 alpha.1 CLI for one-command local Vesta installation, hub access, dashboards, benchmarks, governance, and low-cost workflow entry points.",
@@ -56,13 +56,13 @@
         "dashboard paths"
       ],
       "tags": [
-        "opai",
+        "vesta",
         "installer",
         "hub",
         "local-first"
       ],
       "docs_url": "hub/docs/INSTALL.md",
-      "notes": "Public brand wrapper over OP AI Hub; defaults do not install cloud tools or spend credits.",
+      "notes": "Public brand wrapper over Vesta Hub; defaults do not install cloud tools or spend credits.",
       "enabled_by_default": true
     },
     {
@@ -99,12 +99,12 @@
         "local-first"
       ],
       "docs_url": "docs/commands.md",
-      "notes": "Existing backend for OP AI Hub Phase 1.",
+      "notes": "Existing backend for Vesta Hub Phase 1.",
       "enabled_by_default": true
     },
     {
       "id": "op-ai-hub-cli",
-      "name": "OP AI Hub CLI",
+      "name": "Vesta Hub CLI",
       "category": "automation",
       "description": "Registry-first hub CLI for tools, agents, workflows, MCP, cost, and health checks.",
       "status": "installed",
@@ -116,9 +116,9 @@
       "requires_api_key": false,
       "env_vars": [],
       "install_command": "included",
-      "run_command": "python -m opaihub --help",
+      "run_command": "python -m vestahub --help",
       "health_check": {
-        "command": "python -m opaihub --help"
+        "command": "python -m vestahub --help"
       },
       "inputs": [
         "registry metadata"

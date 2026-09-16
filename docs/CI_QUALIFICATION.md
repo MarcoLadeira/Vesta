@@ -1,6 +1,6 @@
 # CI qualification and merge governance
 
-Issue [#621](https://github.com/MarcoLadeira/OPai/issues/621) defines one rule:
+Issue [#621](https://github.com/MarcoLadeira/Vesta/issues/621) defines one rule:
 qualification is evidence about an exact commit, not merely a green workflow.
 Missing tools, skipped required checks, stale evidence, runner outages, absent
 credentials, and failed artifact uploads are non-success states.
@@ -15,7 +15,7 @@ credentials, and failed artifact uploads are non-success states.
 | Full supply chain | Monday 03:17 UTC and manual `full` dispatch | GitHub-hosted, credential-free | full pytest plus `pip-audit` |
 | Native wheel | Monday 03:17 UTC and manual `full` dispatch | Ephemeral Windows/Linux/macOS runners | isolated wheel install/smoke for the exact SHA |
 | Trusted self-hosted | Every push to `main`; main-only dispatch | Long-lived labelled Windows runner after a hosted health preflight | exact-SHA Python component; never PR code |
-| Provider canary | Tuesday 04:43 UTC and main-only dispatch | `opai-provider-canary` protected environment, non-production accounts, bounded budget | exact-SHA selected-provider fixed-response evidence |
+| Provider canary | Tuesday 04:43 UTC and main-only dispatch | `vesta-provider-canary` protected environment, non-production accounts, bounded budget | exact-SHA selected-provider fixed-response evidence |
 | Desktop/release | Every annotated `v*` tag for unsigned rehearsal; protected main dispatch for production | Hosted source/web/native; provider and signing environments only after ancestry checks | same-run source, web, provider, platform build, signature, smoke, archive and attestation evidence |
 | Release source preflight | Every `release/**`/`rc/**` push and manual dispatch | Credential-free, read-only source qualification | exact candidate, mandatory `full` profile, typed source evidence; final artifact qualification remains pending |
 
@@ -71,18 +71,18 @@ CI uses `--component` only to parallelize it.
 
 ```powershell
 # Full PR-equivalent contract: Python + hostile + web.
-python scripts/ci_local.py --profile fast --manifest .opaihub/ci-evidence/fast.json
+python scripts/ci_local.py --profile fast --manifest .vestahub/ci-evidence/fast.json
 
 # One parallelizable component.
-python scripts/ci_local.py --profile fast --component python --manifest .opaihub/ci-evidence/python.json
-python scripts/ci_local.py --profile fast --component hostile --manifest .opaihub/ci-evidence/hostile.json
-python scripts/ci_local.py --profile fast --component web --manifest .opaihub/ci-evidence/web.json
+python scripts/ci_local.py --profile fast --component python --manifest .vestahub/ci-evidence/python.json
+python scripts/ci_local.py --profile fast --component hostile --manifest .vestahub/ci-evidence/hostile.json
+python scripts/ci_local.py --profile fast --component web --manifest .vestahub/ci-evidence/web.json
 
 # Adds full pytest and dependency audit.
-python scripts/ci_local.py --profile full --manifest .opaihub/ci-evidence/full.json
+python scripts/ci_local.py --profile full --manifest .vestahub/ci-evidence/full.json
 
 # Current-platform clean wheel install.
-python scripts/ci_local.py --profile native --manifest .opaihub/ci-evidence/native.json
+python scripts/ci_local.py --profile native --manifest .vestahub/ci-evidence/native.json
 
 # Protected only: requires explicit non-production/provider/model/budget gates.
 python scripts/ci_local.py --profile provider-canary --candidate-sha <sha>
@@ -136,18 +136,18 @@ network outages are infrastructure rather than product failures.
   API for an idle online runner with exactly the required labels before the
   long-lived machine is queued. Dispatch from a non-`main` ref cannot reach it.
 - Provider jobs run only from trusted `main` and require the protected
-  `opai-provider-canary` environment. The runner enforces a non-production
+  `vesta-provider-canary` environment. The runner enforces a non-production
   acknowledgement, an explicit provider/model allowlist, and exactly one fixed
   remote prompt per selected provider. Qualification requires the sandbox
   ledger to bind that call to the exact provider/model, provider-observed token
   usage, and a known non-negative cost; local, cached, fallback, estimated, or
   missing evidence fails closed. The cumulative observed cost must not exceed
-  `OPAI_PROVIDER_CANARY_MAX_USD`, which itself may not exceed USD 1.00. This is
+  `VESTA_PROVIDER_CANARY_MAX_USD`, which itself may not exceed USD 1.00. This is
   a post-call qualification threshold, not a preventive billing control, so the
   non-production account must also enforce a hard provider-side spend cap.
 - Production provider code is checked out only after a credential-free job
   proves the annotated tag commit is reachable from the reviewed main workflow
-  revision. Signing remains in `opai-production-signing`.
+  revision. Signing remains in `vesta-production-signing`.
 
 ## GitHub administrator action
 
@@ -158,11 +158,11 @@ Configure a ruleset targeting `main`, `release/**`, and `rc/**` with:
 3. At least one approval, stale approvals dismissed, Code Owner approval for
    workflow/CI/release files, and conversation resolution.
 4. No bypass, force push, or branch deletion.
-5. Protected `opai-runner-health`, `opai-provider-canary`, and
-   `opai-production-signing` environments, main-only deployment branches,
+5. Protected `vesta-runner-health`, `vesta-provider-canary`, and
+   `vesta-production-signing` environments, main-only deployment branches,
    required reviewers where credentials can spend/sign, and self-review
    disabled. The runner-health environment needs a read-only fine-grained
-   `OPAI_RUNNER_HEALTH_TOKEN` with repository Administration read permission.
+   `VESTA_RUNNER_HEALTH_TOKEN` with repository Administration read permission.
 
 As audited on 2026-08-09, GitHub returned HTTP 403 for both rulesets and legacy
 branch protection because this is a private repository on a plan without those
@@ -175,9 +175,9 @@ billing/spend limits, the only self-hosted runner offline, and no protected
 environments/secrets/variables configured. Those are external
 `infrastructure_blocked` conditions, not repository success. The macOS desktop
 lock and real Windows/macOS signing/install evidence remain owned by
-[#290](https://github.com/MarcoLadeira/OPai/issues/290),
-[#355](https://github.com/MarcoLadeira/OPai/issues/355), and
-[#624](https://github.com/MarcoLadeira/OPai/issues/624).
+[#290](https://github.com/MarcoLadeira/Vesta/issues/290),
+[#355](https://github.com/MarcoLadeira/Vesta/issues/355), and
+[#624](https://github.com/MarcoLadeira/Vesta/issues/624).
 
 ## Failure drills and diagnosis
 

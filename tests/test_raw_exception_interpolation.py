@@ -54,7 +54,7 @@ import unittest
 from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-PRODUCTION_PACKAGES = ("opaihub", "opai")
+PRODUCTION_PACKAGES = ("vestahub", "vesta")
 
 # Calls that sanitise their argument. A reference to the exception inside one
 # of these is already at the boundary #622 asks for and is not counted.
@@ -69,7 +69,7 @@ REDACTORS = frozenset(
         "_policy_finding",
         # The migration adapter functional requirement 2 asks for: bounded,
         # redacted, fail-closed text for a site that cannot carry a full
-        # BoundaryError. See opaihub/boundary_errors.py.
+        # BoundaryError. See vestahub/boundary_errors.py.
         "safe_detail",
     }
 )
@@ -241,7 +241,7 @@ class RawInterpolationProhibitionTests(unittest.TestCase):
             {},
             "raw exception interpolation reappeared (module: count). Route it "
             "through safe_detail() at the boundary -- see #622 and "
-            "opaihub/boundary_errors.py.",
+            "vestahub/boundary_errors.py.",
         )
 
     def test_no_module_exceeds_its_recorded_debt(self) -> None:
@@ -355,7 +355,7 @@ class DetectorTests(unittest.TestCase):
         )
         self.assertGreater(scanned, 100, "the scan is not reaching the packages")
 
-        witness = REPOSITORY_ROOT / "opai" / "gui_web.py"
+        witness = REPOSITORY_ROOT / "vesta" / "gui_web.py"
         self.assertTrue(witness.exists(), "the witness module moved; pick another")
         self.assertEqual(
             raw_interpolations(witness.read_text(encoding="utf-8")),
@@ -396,7 +396,7 @@ class FalsePositivesAreTheOtherFailureTests(unittest.TestCase):
     def test_the_repository_probe_error_keeps_its_category(self) -> None:
         """The regression itself, pinned against the real class."""
 
-        from opaihub.repository_safety import RepositoryProbeError
+        from vestahub.repository_safety import RepositoryProbeError
 
         error = RepositoryProbeError("repository_missing", "/home/me/secret/path")
 
@@ -405,7 +405,7 @@ class FalsePositivesAreTheOtherFailureTests(unittest.TestCase):
     def test_that_errors_free_text_is_redacted_at_construction(self) -> None:
         """Which is why reading ``.reason`` needs no further redaction."""
 
-        from opaihub.repository_safety import RepositoryProbeError
+        from vestahub.repository_safety import RepositoryProbeError
 
         error = RepositoryProbeError(
             "repository_missing",

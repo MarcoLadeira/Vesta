@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import unittest
 
-from opai.update.report import (
+from vesta.update.report import (
     freshness_phrase,
     humanise_age,
     render_status_lines,
@@ -78,7 +78,7 @@ class StatusRenderingTests(unittest.TestCase):
         base = {
             "showing_cached_result": False,
             "last_remote_check_at": _ago(minutes=2),
-            "ownership": {"owner": "opai", "mechanism": "git", "self_updatable": True},
+            "ownership": {"owner": "vesta", "mechanism": "git", "self_updatable": True},
         }
         base.update(discovery)
         return {"operation": {"state": "up_to_date"}, "discovery": base}
@@ -95,11 +95,11 @@ class StatusRenderingTests(unittest.TestCase):
                 "owner": "pipx",
                 "mechanism": "pipx",
                 "self_updatable": False,
-                "remediation": "Update with `pipx upgrade opai`.",
+                "remediation": "Update with `pipx upgrade vesta`.",
             }
         )
         lines = render_status_lines(payload, now=NOW)
-        self.assertTrue(any("pipx upgrade opai" in line for line in lines))
+        self.assertTrue(any("pipx upgrade vesta" in line for line in lines))
 
     def test_a_self_updatable_install_is_not_told_to_run_anything(self) -> None:
         lines = render_status_lines(self._payload(), now=NOW)
@@ -159,7 +159,7 @@ class UserFacingCopyTests(unittest.TestCase):
         # 4 commits behind origin/main; update with the explicit developer
         # update command." Calling it "Manual update required" told someone
         # with a working Update button that they had to act by hand.
-        from opai.update.report import user_facing
+        from vesta.update.report import user_facing
 
         copy = user_facing(
             self._payload("unsupported_install", ownership={"self_updatable": True})
@@ -169,8 +169,8 @@ class UserFacingCopyTests(unittest.TestCase):
         self.assertNotIn("origin/main", copy["message"])
         self.assertNotIn("commits", copy["message"])
 
-    def test_an_installation_opai_cannot_update_names_no_command(self) -> None:
-        from opai.update.report import user_facing
+    def test_an_installation_vesta_cannot_update_names_no_command(self) -> None:
+        from vesta.update.report import user_facing
 
         copy = user_facing(
             self._payload("unsupported_install", ownership={"self_updatable": False})
@@ -184,7 +184,7 @@ class UserFacingCopyTests(unittest.TestCase):
         # The structural guard. Every state, checked against the vocabulary
         # that belongs in `vesta update doctor` rather than in front of someone
         # who wants the new version.
-        from opai.update.report import _USER_MESSAGES, _USER_TITLES, user_facing
+        from vesta.update.report import _USER_MESSAGES, _USER_TITLES, user_facing
 
         banned = (
             "transactionally",

@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from scripts.agents_benchmark_cases import CASES, oracle_source  # noqa: E402
-from opaihub.atomic_io import atomic_write_text  # noqa: E402
+from vestahub.atomic_io import atomic_write_text  # noqa: E402
 
 
 def money(value):
@@ -58,7 +58,7 @@ def prepare_run(directory, name):
         target = root / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
-    (root / ".gitignore").write_text(".opaihub/\n__pycache__/\n", encoding="utf-8")
+    (root / ".gitignore").write_text(".vestahub/\n__pycache__/\n", encoding="utf-8")
     (root / "pyproject.toml").write_text(
         "[project]\nname='agents-provider-qualification'\nversion='0.0.0'\n",
         encoding="utf-8",
@@ -74,7 +74,7 @@ def prepare_run(directory, name):
                 "command": [
                     sys.executable,
                     "-c",
-                    "import ast; from pathlib import Path; [ast.parse(p.read_text(encoding='utf-8')) for p in Path('.').rglob('*.py') if '.opaihub' not in p.parts]",
+                    "import ast; from pathlib import Path; [ast.parse(p.read_text(encoding='utf-8')) for p in Path('.').rglob('*.py') if '.vestahub' not in p.parts]",
                 ],
             },
             {
@@ -93,7 +93,7 @@ def prepare_run(directory, name):
             },
         ],
     }
-    (root / "opai-verification-policy.yaml").write_text(
+    (root / "vesta-verification-policy.yaml").write_text(
         json.dumps(policy), encoding="utf-8"
     )
     git(root, "init")
@@ -157,8 +157,8 @@ def plan(args):
 
 
 def execute_run(args, entry, directory):
-    from opaihub.agent_objectives import ObjectiveStore
-    from opaihub.objective_execution import ObjectiveExecutor
+    from vestahub.agent_objectives import ObjectiveStore
+    from vestahub.objective_execution import ObjectiveExecutor
 
     directory.mkdir(parents=True, exist_ok=False)
     workspace = args.workspace_root.resolve() / uuid.uuid4().hex[:12]
@@ -244,7 +244,7 @@ def main(argv=None):
     parser.add_argument(
         "--workspace-root",
         type=Path,
-        default=Path.home() / ".opaihub" / "benchmark",
+        default=Path.home() / ".vestahub" / "benchmark",
         help="Short retained fixture path, separate from the report directory",
     )
     funding = parser.add_mutually_exclusive_group(required=True)

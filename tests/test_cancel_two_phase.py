@@ -29,7 +29,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub.run_state import RunState, can_transition, transition
+from vestahub.run_state import RunState, can_transition, transition
 
 
 class ShortcutRefusedTests(unittest.TestCase):
@@ -87,7 +87,7 @@ class BackgroundRunCancelTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_a_cancel_racing_execution_still_reaches_a_terminal_state(self) -> None:
-        from opaihub.background_runs import (
+        from vestahub.background_runs import (
             _coerce_run_state,
             _transition_run,
             enqueue_automation,
@@ -128,7 +128,7 @@ class BackgroundRunCancelTests(unittest.TestCase):
         # state — so without the acknowledge-first step this run would sit in
         # RUNNING forever instead of ending. Exercises the fallback directly,
         # because the ordinary `request_cancel` path never reaches it.
-        from opaihub.background_runs import (
+        from vestahub.background_runs import (
             BackgroundRunner,
             _coerce_run_state,
             _transition_run,
@@ -179,7 +179,7 @@ class BackgroundRunCancelTests(unittest.TestCase):
         # The point of two phases is that support can tell a stubborn child
         # process from a UI-only state error. That needs both moments on the
         # record, in order.
-        from opaihub.background_runs import (
+        from vestahub.background_runs import (
             enqueue_automation,
             load_run,
             request_cancel,

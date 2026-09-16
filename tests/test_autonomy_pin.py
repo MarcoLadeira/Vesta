@@ -20,12 +20,12 @@ import unittest
 from unittest import mock
 from pathlib import Path
 
-from opaihub.autonomy import (
+from vestahub.autonomy import (
     AutonomyDecision,
     effective_mode,
     resolve_startup_mode,
 )
-from opaihub.gui_preferences import (
+from vestahub.gui_preferences import (
     load_gui_preferences,
     pin_full_auto,
     preference_path,
@@ -161,9 +161,9 @@ class PreferenceMigrationTests(unittest.TestCase):
         path = preference_path(self.root)
         with (
             mock.patch(
-                "opaihub.gui_preferences.interprocess_transaction"
+                "vestahub.gui_preferences.interprocess_transaction"
             ) as transaction,
-            mock.patch("opaihub.gui_preferences.atomic_write_text") as atomic_write,
+            mock.patch("vestahub.gui_preferences.atomic_write_text") as atomic_write,
         ):
             transaction.return_value.__enter__.return_value = None
             save_gui_preferences(self.root, {"density": "compact"})
@@ -182,7 +182,7 @@ class SurfaceParityTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_pipeline_runs_the_mode_it_was_asked_for(self):
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
         from tests._helpers import FakeAccountRunner
 
         result = handle_gui_message(
@@ -197,8 +197,8 @@ class SurfaceParityTests(unittest.TestCase):
         self.assertFalse(result["autonomy"]["downgraded"])
 
     def test_web_and_desktop_boot_report_the_same_effective_mode(self):
-        from opai.gui_desktop import run_once
-        from opai.gui_web import boot_payload
+        from vesta.gui_desktop import run_once
+        from vesta.gui_web import boot_payload
 
         # A bare full-auto default, with no pin and no acknowledgement: the
         # exact file shape that used to be rewritten on the way in. Both
@@ -218,7 +218,7 @@ class SurfaceParityTests(unittest.TestCase):
         import contextlib
         import io
 
-        from opai.cli import main
+        from vesta.cli import main
 
         def run(args):
             out = io.StringIO()

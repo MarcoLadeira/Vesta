@@ -16,7 +16,7 @@ from __future__ import annotations
 import inspect
 import os
 
-from opai import gui_web
+from vesta import gui_web
 
 
 def test_the_flag_is_set_when_nothing_was_there(monkeypatch):

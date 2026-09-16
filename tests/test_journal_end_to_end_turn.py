@@ -25,8 +25,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from _helpers import FakeStreamingRunner, make_repo  # noqa: E402
 
-from opaihub import journal_projections, journal_runtime, journal_store  # noqa: E402
-from opaihub.gui_pipeline import handle_gui_message  # noqa: E402
+from vestahub import journal_projections, journal_runtime, journal_store  # noqa: E402
+from vestahub.gui_pipeline import handle_gui_message  # noqa: E402
 
 
 class _RealTurn(unittest.TestCase):
@@ -90,7 +90,7 @@ class TheUserGetsTheirAnswerTests(_RealTurn):
         result = self.turn()
 
         rendered = repr(result).lower()
-        for leak in ("journal.sqlite", "sqlite3", "traceback", "opaihub.journal"):
+        for leak in ("journal.sqlite", "sqlite3", "traceback", "vestahub.journal"):
             self.assertNotIn(leak, rendered, f"{leak!r} reached the user")
 
 

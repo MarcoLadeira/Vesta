@@ -7,7 +7,7 @@ of bug: ``_LEGACY_STATUS_FOR_RUN_STATE`` — canonical ``RunState`` to the
 pre-#379 compatibility word — was missing ``VERIFYING`` and
 ``NEEDS_ATTENTION``. ``NEEDS_ATTENTION`` is reachable: any workflow executor
 that reports it as its completion verdict (a real, already-wired terminal
-state — see ``opaihub/completion.py``) hits
+state — see ``vestahub/completion.py``) hits
 
     changes.pop("legacy_status", _LEGACY_STATUS_FOR_RUN_STATE[next_state])
 
@@ -18,7 +18,7 @@ forever: no error surfaced, no retry possible, nothing to click.
 
 Reproduced empirically before any fix landed here:
 
-    >>> from opaihub.background_runs import BackgroundRunner, enqueue_automation, load_run
+    >>> from vestahub.background_runs import BackgroundRunner, enqueue_automation, load_run
     >>> run = enqueue_automation(root, "bug_fix", "do a thing")
     >>> executor = lambda *a: {"run_state": "needs_attention", "status": "needs_attention"}
     >>> BackgroundRunner(root, executor=executor).start(run.run_id).join(timeout=10)
@@ -31,7 +31,7 @@ updating the map degrades instead of taking down the worker thread).
 
 Follow-up (#612 AC1): completing the map by hand fixed the instance but not
 the *class* — the map was still hand-maintained beside the enum it had to
-track. It is now generated from ``opaihub/lifecycle_schema.json``, and the
+track. It is now generated from ``vestahub/lifecycle_schema.json``, and the
 generator refuses to emit an incomplete or terminality-inconsistent
 projection at all, so the same mistake is a build failure behind CI's
 ``--check`` drift gate rather than a runtime crash. ``GeneratedProjectionTests``
@@ -44,14 +44,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub.background_runs import (
+from vestahub.background_runs import (
     _LEGACY_STATUS_FOR_RUN_STATE,
     _legacy_status_for,
     BackgroundRunner,
     enqueue_automation,
     load_run,
 )
-from opaihub.run_state import RunState
+from vestahub.run_state import RunState
 
 
 class TotalityTests(unittest.TestCase):
@@ -69,7 +69,7 @@ class TotalityTests(unittest.TestCase):
         # *future* state added without updating the map above. Confirm it
         # degrades to a real, already-understood legacy word rather than
         # inventing a new one older consumers cannot interpret.
-        from opaihub.background_runs import RUN_STATUSES
+        from vestahub.background_runs import RUN_STATUSES
 
         for state in RunState:
             self.assertIn(_legacy_status_for(state), RUN_STATUSES, state)
@@ -128,7 +128,7 @@ class CrashRegressionTests(unittest.TestCase):
             if state is not RunState.NEEDS_ATTENTION
         }
         with mock.patch(
-            "opaihub.background_runs._LEGACY_STATUS_FOR_RUN_STATE", trimmed
+            "vestahub.background_runs._LEGACY_STATUS_FOR_RUN_STATE", trimmed
         ):
             result = _legacy_status_for(RunState.NEEDS_ATTENTION)
         self.assertEqual(result, "blocked")
@@ -143,8 +143,8 @@ class GeneratedProjectionTests(unittest.TestCase):
     """
 
     def test_runtime_tables_are_the_generated_ones(self) -> None:
-        from opaihub import background_runs
-        from opaihub.generated_lifecycle import (
+        from vestahub import background_runs
+        from vestahub.generated_lifecycle import (
             BACKGROUND_REASON_FOR_STATUS,
             BACKGROUND_STATE_FOR_STATUS,
             BACKGROUND_STATUS_FOR_STATE,
@@ -182,8 +182,8 @@ class GeneratedProjectionTests(unittest.TestCase):
         AWAITING_INPUT to canonical BLOCKED themselves before persisting —
         but a latent lie is still a lie, and the generator now refuses it.
         """
-        from opaihub.background_runs import TERMINAL_STATUSES
-        from opaihub.run_state import TERMINAL_STATES
+        from vestahub.background_runs import TERMINAL_STATUSES
+        from vestahub.run_state import TERMINAL_STATES
 
         for state, word in _LEGACY_STATUS_FOR_RUN_STATE.items():
             with self.subTest(state=state.value, word=word):

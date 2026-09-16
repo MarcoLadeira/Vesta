@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub.parallel_agents import (
+from vestahub.parallel_agents import (
     AgentAssignment,
     OwnershipError,
     SharedFileConflictError,
@@ -23,7 +23,7 @@ from opaihub.parallel_agents import (
     release_assignment,
     save_assignment,
 )
-from opaihub.repo_context import DirtyConflictError
+from vestahub.repo_context import DirtyConflictError
 from _helpers import make_repo
 
 

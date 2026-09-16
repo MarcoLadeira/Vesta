@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub.provider_tools import RepositoryToolExecutor
+from vestahub.provider_tools import RepositoryToolExecutor
 from tests._helpers import make_repo
 
 
@@ -55,7 +55,7 @@ class RepositoryToolExecutorTests(unittest.TestCase):
             )
             names = [item["function"]["name"] for item in executor.schemas()]
             with mock.patch(
-                "opaihub.github_connector.search_issues",
+                "vestahub.github_connector.search_issues",
                 return_value={
                     "ok": True,
                     "issues": [{"number": 7, "title": "Bounded fix"}],
@@ -90,11 +90,11 @@ class RepositoryToolExecutorTests(unittest.TestCase):
             root = make_repo(Path(tmp), commit=True)
             with (
                 mock.patch(
-                    "opaihub.github_connector.stored_github_token",
+                    "vestahub.github_connector.stored_github_token",
                     return_value=("", ""),
                 ),
                 mock.patch(
-                    "opaihub.github_connector.public_read_allowed", return_value=True
+                    "vestahub.github_connector.public_read_allowed", return_value=True
                 ),
             ):
                 executor = RepositoryToolExecutor(
@@ -104,7 +104,7 @@ class RepositoryToolExecutorTests(unittest.TestCase):
                 )
             names = [item["function"]["name"] for item in executor.schemas()]
             with mock.patch(
-                "opaihub.github_connector.search_issues",
+                "vestahub.github_connector.search_issues",
                 return_value={
                     "ok": True,
                     "issues": [],
@@ -133,7 +133,7 @@ class RepositoryToolExecutorTests(unittest.TestCase):
                 {"state": "deleted", "labels": "bug", "limit": 51},
             )
             with mock.patch(
-                "opaihub.github_connector.search_issues",
+                "vestahub.github_connector.search_issues",
                 return_value={
                     "ok": False,
                     "reason": "rate_limit",

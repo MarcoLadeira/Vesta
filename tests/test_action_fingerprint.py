@@ -14,14 +14,14 @@ import random
 import tempfile
 import unittest
 
-from opaihub.action_fingerprint import (
+from vestahub.action_fingerprint import (
     EquivalenceLevel,
     SideEffectClass,
     compare_actions,
     fingerprint_action,
 )
-from opaihub.completion import CompletionState
-from opaihub.tool_loop import ChatTurn, ToolLoopController, ToolLoopPolicy
+from vestahub.completion import CompletionState
+from vestahub.tool_loop import ChatTurn, ToolLoopController, ToolLoopPolicy
 
 
 class ActionFingerprintCorpusTests(unittest.TestCase):
@@ -340,7 +340,7 @@ def _done() -> ChatTurn:
     return ChatTurn(
         content=json.dumps(
             {
-                "opai_decision_version": 1,
+                "vesta_decision_version": 1,
                 "state": "completed",
                 "summary": "done",
                 "evidence": [],

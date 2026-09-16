@@ -19,13 +19,13 @@ from pathlib import Path
 
 from _helpers import make_repo
 
-from opai.gui_recents import (
+from vesta.gui_recents import (
     begin_thread_turn,
     finish_thread_turn,
     load_thread,
     refresh_thread_lease,
 )
-from opaihub import owner_lease as lease
+from vestahub import owner_lease as lease
 
 
 class LivenessTests(unittest.TestCase):
@@ -161,7 +161,7 @@ class ThreadPersistenceTests(unittest.TestCase):
     def test_only_whitelisted_lease_fields_are_persisted(self) -> None:
         # This file is read on every boot, so it must never become a place
         # arbitrary structure can be stored.
-        from opai.gui_recents import _clean_lease
+        from vesta.gui_recents import _clean_lease
 
         cleaned = _clean_lease(
             {
@@ -176,7 +176,7 @@ class ThreadPersistenceTests(unittest.TestCase):
         self.assertEqual(set(cleaned), {"pid", "boot", "heartbeat_at", "acquired_at"})
 
     def test_a_malformed_lease_degrades_to_no_owner(self) -> None:
-        from opai.gui_recents import _clean_lease
+        from vesta.gui_recents import _clean_lease
 
         for junk in ("not a dict", 7, None, {"pid": "abc", "boot": "!!!"}):
             with self.subTest(junk=junk):
@@ -227,7 +227,7 @@ class ResumePayloadTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_the_resume_offer_reports_whether_the_owner_is_alive(self) -> None:
-        from opai.gui_web import _resume_payload
+        from vesta.gui_web import _resume_payload
 
         begin_thread_turn(
             self.root, request_id="req-1", text="fix it", mode="safe-auto"
@@ -239,7 +239,7 @@ class ResumePayloadTests(unittest.TestCase):
     def test_boot_does_not_mutate_the_thread(self) -> None:
         # The resume/start-fresh decision stays the user's. Reporting liveness
         # must not quietly rewrite the record it is reporting on.
-        from opai.gui_web import _resume_payload
+        from vesta.gui_web import _resume_payload
 
         begin_thread_turn(
             self.root, request_id="req-1", text="fix it", mode="safe-auto"

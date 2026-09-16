@@ -31,8 +31,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub import journal_store
-from opaihub.journal_store import journal_path, open_store, permissions_health
+from vestahub import journal_store
+from vestahub.journal_store import journal_path, open_store, permissions_health
 
 #: BUILTIN\Users by SID, so the tests do not depend on a localised group name.
 USERS_SID = "*S-1-5-32-545"

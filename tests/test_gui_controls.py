@@ -1,6 +1,6 @@
 """Qt-free tests for the desktop GUI control layer (command palette, badges,
 header strip, state messages). No display required — the logic lives in
-``opai.gui_controls`` precisely so it is testable headlessly.
+``vesta.gui_controls`` precisely so it is testable headlessly.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opai.gui_controls import (
+from vesta.gui_controls import (
     COMMANDS,
     SHORTCUTS,
     empty_state,
@@ -265,7 +265,7 @@ class StateMessageTests(unittest.TestCase):
     def test_thinking_text_uses_short_model_name(self):
         self.assertEqual(thinking_text("Claude · Sonnet"), "Claude is working…")
 
-    def test_thinking_text_defaults_to_opai(self):
+    def test_thinking_text_defaults_to_vesta(self):
         self.assertEqual(thinking_text(None), "Vesta is working…")
 
     def test_friendly_error_known_status_is_actionable(self):
@@ -384,7 +384,7 @@ class HeadlessWindowSmokeTests(unittest.TestCase):
     the desktop extra isn't installed (CI)."""
 
     def test_every_view_renders_without_crashing(self):
-        from opai.gui_desktop import render_screenshot
+        from vesta.gui_desktop import render_screenshot
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -6,11 +6,11 @@ Static single-file site for Vesta — the AI coding cost firewall — built arou
 ## The Funnel
 
 ```text
-visit -> pip install opai -> vesta doctor -> vesta savings -> share
+visit -> pip install vesta -> vesta doctor -> vesta savings -> share
 ```
 
 The page has exactly one goal: **install**. The single CTA is the install
-command itself (`pip install opai`, copy-to-clipboard). Secondary links go to
+command itself (`pip install vesta`, copy-to-clipboard). Secondary links go to
 GitHub and Discussions. After install, `vesta doctor` verifies the setup and
 `vesta savings` proves the value in numbers.
 
@@ -22,7 +22,7 @@ during alpha — no credit card, no invite.
 
 - `index.html` — the whole site (inline CSS + JS, no frameworks, no external
   dependencies except the mascot image)
-- `assets/opai-mascot.png` — mascot (also used as favicon and og:image)
+- `assets/vesta-mascot.png` — mascot (also used as favicon and og:image)
 - `_headers` — Cloudflare Pages security headers (already present)
 - `serve.py` — local preview helper
 
@@ -47,7 +47,7 @@ Build output directory: site
 or direct-upload with Wrangler:
 
 ```sh
-npx wrangler pages deploy site --project-name opai --branch main
+npx wrangler pages deploy site --project-name vesta --branch main
 ```
 
 `_headers` ships with the site and is applied automatically by Cloudflare Pages.

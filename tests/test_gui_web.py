@@ -17,9 +17,9 @@ from unittest import mock
 
 from _helpers import isolated_home, make_repo
 
-from opai import gui_permissions
-from opai.gui_recents import thread_status_for_result
-from opai.gui_web import (
+from vesta import gui_permissions
+from vesta.gui_recents import thread_status_for_result
+from vesta.gui_web import (
     WEB_DIR,
     _assistant_presentation,
     _attributed_changed_files,
@@ -29,8 +29,8 @@ from opai.gui_web import (
     settings_payload,
     web_available,
 )
-from opai.release_identity import current_release_identity
-from opaihub.run_result import RunResult
+from vesta.release_identity import current_release_identity
+from vestahub.run_result import RunResult
 
 
 class WebAvailableTests(unittest.TestCase):
@@ -98,8 +98,8 @@ class ThreadStatusHonestyTests(unittest.TestCase):
         )
 
     def test_partial_verdict_persists_as_partial_not_complete(self):
-        from opai.gui_recents import begin_thread_turn, load_thread
-        from opai.gui_web import _persist_turn_result
+        from vesta.gui_recents import begin_thread_turn, load_thread
+        from vesta.gui_web import _persist_turn_result
 
         with isolated_home():
             root = make_repo(Path(tempfile.mkdtemp()))
@@ -308,14 +308,14 @@ class AssistantPresentationProjectionTests(unittest.TestCase):
     def test_test_counts_come_only_from_a_valid_verification_manifest(self):
         from datetime import datetime, timedelta, timezone
 
-        from opaihub.verification_execution import (
+        from vestahub.verification_execution import (
             CheckRecord,
             CheckStatus,
             VerificationAttempt,
             VerificationExecutionContext,
             VerificationManifest,
         )
-        from opaihub.verification_policy import (
+        from vestahub.verification_policy import (
             PolicyCheck,
             PolicySource,
             VerificationPolicy,
@@ -464,7 +464,7 @@ class BootPayloadTests(unittest.TestCase):
     def test_inspector_is_deferred_at_boot_but_complete_on_demand(self):
         # Startup deferral (#246): boot no longer computes the inspector; the
         # inspector() slot serves the same complete payload when the panel opens.
-        from opai.gui_web import _inspector
+        from vesta.gui_web import _inspector
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
@@ -495,7 +495,7 @@ class BootPayloadTests(unittest.TestCase):
         # F20/F21: boot carries describe_controls — the single live reading of
         # Run mode + Task focus + the next run's agent mode — and it changes
         # when the persisted focus changes.
-        from opaihub.gui_preferences import save_gui_preferences
+        from vestahub.gui_preferences import save_gui_preferences
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
@@ -520,7 +520,7 @@ class BootPayloadTests(unittest.TestCase):
         where the shell painted the panel open before any preference was known.
         This pins the payload half so the two cannot drift apart later.
         """
-        from opaihub.gui_preferences import save_gui_preferences
+        from vestahub.gui_preferences import save_gui_preferences
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
@@ -539,8 +539,8 @@ class BootPayloadTests(unittest.TestCase):
         selected mode and turning it off could not give it back. As a switch it
         composes: the mode persists underneath and reappears when it is off.
         """
-        from opaihub.command_policy import resolve_autonomy
-        from opaihub.gui_preferences import load_gui_preferences, save_gui_preferences
+        from vestahub.command_policy import resolve_autonomy
+        from vestahub.gui_preferences import load_gui_preferences, save_gui_preferences
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
@@ -561,13 +561,13 @@ class BootPayloadTests(unittest.TestCase):
 
     def test_the_bypass_switch_is_persistable_from_the_bridge(self):
         # A switch the front end cannot save is not a switch.
-        from opai.gui_web import _BRIDGE_PREFERENCE_KEYS
+        from vesta.gui_web import _BRIDGE_PREFERENCE_KEYS
 
         self.assertIn("bypass_permissions", _BRIDGE_PREFERENCE_KEYS)
 
     def test_the_stored_default_and_the_payload_fallback_agree(self):
         # The bug was a disagreement between these two, so assert them together.
-        from opaihub.gui_preferences import DEFAULT_PREFERENCES
+        from vestahub.gui_preferences import DEFAULT_PREFERENCES
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
@@ -580,8 +580,8 @@ class BootPayloadTests(unittest.TestCase):
         # F21: the persisted "Agent mode" row is the last completed run; the
         # new "Agent mode (next run)" row + payload field are computed live
         # from the CURRENT run mode + focus selection.
-        from opai.gui_modes import describe_controls
-        from opai.gui_web import _inspector
+        from vesta.gui_modes import describe_controls
+        from vesta.gui_web import _inspector
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
@@ -605,7 +605,7 @@ class BootPayloadTests(unittest.TestCase):
     def test_inspector_surfaces_github_push_readiness_only_when_editing(self):
         # #300: an edit-capable run shows GitHub push readiness up front; a
         # read-only Ask run doesn't clutter the panel with it.
-        from opai.gui_web import _github_row_value, _inspector
+        from vesta.gui_web import _github_row_value, _inspector
 
         # #818: "ready" used to mean `bool(token)` and rendered as a promise
         # about the future. An expired, revoked, wrong-scope or mistyped token
@@ -664,7 +664,7 @@ class BootPayloadTests(unittest.TestCase):
         # every finished turn, so it has to see the post-commit truth.
         import subprocess
 
-        from opai.gui_web import _workspace
+        from vesta.gui_web import _workspace
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
@@ -690,7 +690,7 @@ class BootPayloadTests(unittest.TestCase):
         self.assertIn("Auto", payload["status"]["line"])
 
     def test_boot_payload_never_leaks_a_recorded_secret(self):
-        from opaihub.ledger import record_route_decision
+        from vestahub.ledger import record_route_decision
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
@@ -706,7 +706,7 @@ class BootPayloadTests(unittest.TestCase):
 
 class StreamTokenPayloadTests(unittest.TestCase):
     def test_block_marker_is_present_only_for_a_new_message(self):
-        from opai.gui_web import _stream_token_payload
+        from vesta.gui_web import _stream_token_payload
 
         self.assertEqual(
             _stream_token_payload("request-1", "hello", start_block=False),
@@ -794,7 +794,7 @@ class WebAssetsTests(unittest.TestCase):
 
 class SettingsPayloadTests(unittest.TestCase):
     def test_custom_account_models_are_projected_into_the_live_catalog(self):
-        from opai.gui_web import _models
+        from vesta.gui_web import _models
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
@@ -832,8 +832,8 @@ class SettingsPayloadTests(unittest.TestCase):
                 "connections": [],
             }
             with (
-                mock.patch.dict("os.environ", {"OPAI_MODEL_OVERRIDES": str(overrides)}),
-                mock.patch("opai.gui_web.A.available_models", return_value=base),
+                mock.patch.dict("os.environ", {"VESTA_MODEL_OVERRIDES": str(overrides)}),
+                mock.patch("vesta.gui_web.A.available_models", return_value=base),
             ):
                 payload = _models(root, discover_local=False)
 
@@ -869,12 +869,12 @@ class SettingsPayloadTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with (
-                mock.patch.dict("os.environ", {"OPAI_MODEL_OVERRIDES": str(overrides)}),
-                mock.patch("opai.gui_web._cached_update_check", return_value={}),
+                mock.patch.dict("os.environ", {"VESTA_MODEL_OVERRIDES": str(overrides)}),
+                mock.patch("vesta.gui_web._cached_update_check", return_value={}),
             ):
                 payload = settings_payload(root)
 
-        self.assertEqual(payload["modelOverrides"]["path"], "~/.opai/models.json")
+        self.assertEqual(payload["modelOverrides"]["path"], "~/.vesta/models.json")
         self.assertEqual(
             payload["modelOverrides"]["providers"]["codex"]["models"][0]["id"],
             "gpt-custom",
@@ -882,7 +882,7 @@ class SettingsPayloadTests(unittest.TestCase):
         self.assertEqual(payload["modelOverrides"]["hidden"]["codex"], ["gpt-old"])
 
     def test_about_exposes_the_same_asset_build_identity_as_boot(self):
-        from opai.compatibility import runtime_compatibility_payload
+        from vesta.compatibility import runtime_compatibility_payload
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
@@ -897,7 +897,7 @@ class SettingsPayloadTests(unittest.TestCase):
         )
 
     def test_settings_exposes_normalized_connections(self):
-        from opaihub.provider_catalog import provider_ids
+        from vestahub.provider_catalog import provider_ids
 
         accounts = [
             {
@@ -917,11 +917,11 @@ class SettingsPayloadTests(unittest.TestCase):
             root = make_repo(Path(tmp))
             with (
                 mock.patch(
-                    "opaihub.accounts._account_cli_version",
+                    "vestahub.accounts._account_cli_version",
                     side_effect=AssertionError("synchronous CLI version lookup"),
                 ),
                 mock.patch(
-                    "opaihub.accounts.list_connected_accounts", return_value=accounts
+                    "vestahub.accounts.list_connected_accounts", return_value=accounts
                 ),
             ):
                 payload = settings_payload(root)
@@ -990,12 +990,12 @@ class SettingsPayloadTests(unittest.TestCase):
     def test_settings_exposes_one_capability_truth(self):
         # #168: the picker/settings/doctor read one provider capability table,
         # and every doctor entry carries the canonical health state.
-        from opaihub.provider_capabilities import ProviderHealth, all_provider_profiles
+        from vestahub.provider_capabilities import ProviderHealth, all_provider_profiles
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
             with mock.patch(
-                "opaihub.accounts._account_cli_version",
+                "vestahub.accounts._account_cli_version",
                 side_effect=AssertionError("synchronous CLI version lookup"),
             ):
                 payload = settings_payload(root)
@@ -1010,7 +1010,7 @@ class ScaffoldAppPayloadTests(unittest.TestCase):
     """GUI "New app" contract (#276): the Bridge slot's Qt-free core."""
 
     def test_scaffolds_under_the_workspace_root(self):
-        from opai.gui_web import scaffold_app_payload
+        from vesta.gui_web import scaffold_app_payload
 
         with tempfile.TemporaryDirectory() as tmp:
             payload = scaffold_app_payload(
@@ -1023,7 +1023,7 @@ class ScaffoldAppPayloadTests(unittest.TestCase):
             json.dumps(payload)  # serializable for the wire
 
     def test_empty_description_is_a_clean_error(self):
-        from opai.gui_web import scaffold_app_payload
+        from vesta.gui_web import scaffold_app_payload
 
         with tempfile.TemporaryDirectory() as tmp:
             payload = scaffold_app_payload(Path(tmp), json.dumps({"description": ""}))
@@ -1031,7 +1031,7 @@ class ScaffoldAppPayloadTests(unittest.TestCase):
             self.assertIn("Describe", payload["error"])
 
     def test_clobber_and_malformed_json_never_raise(self):
-        from opai.gui_web import scaffold_app_payload
+        from vesta.gui_web import scaffold_app_payload
 
         with tempfile.TemporaryDirectory() as tmp:
             taken = Path(tmp) / "taken"
@@ -1045,7 +1045,7 @@ class ScaffoldAppPayloadTests(unittest.TestCase):
             self.assertFalse(scaffold_app_payload(Path(tmp), "{not json")["ok"])
 
     def test_app_receipt_payload_round_trip(self):
-        from opai.gui_web import app_receipt_payload, scaffold_app_payload
+        from vesta.gui_web import app_receipt_payload, scaffold_app_payload
 
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(app_receipt_payload(Path(tmp))["status"], "not_an_app")
@@ -1061,7 +1061,7 @@ class ScaffoldAppPayloadTests(unittest.TestCase):
         # #276: the workspace payload tells the GUI to offer Build mode.
         from _helpers import make_repo
 
-        from opai.gui_web import boot_payload, scaffold_app_payload
+        from vesta.gui_web import boot_payload, scaffold_app_payload
 
         with tempfile.TemporaryDirectory() as tmp:
             plain_dir = Path(tmp) / "plain"
@@ -1081,7 +1081,7 @@ class ScaffoldAppPayloadTests(unittest.TestCase):
     def test_nested_scaffold_is_the_workspace_even_inside_a_parent_repo(self):
         from _helpers import make_repo
 
-        from opai.gui_web import boot_payload, scaffold_app_payload
+        from vesta.gui_web import boot_payload, scaffold_app_payload
 
         with tempfile.TemporaryDirectory() as tmp:
             repo = make_repo(Path(tmp))
@@ -1099,7 +1099,7 @@ class ScaffoldAppPayloadTests(unittest.TestCase):
 
 class ContextPickerPayloadTests(unittest.TestCase):
     def test_picker_returns_only_workspace_relative_paths(self):
-        from opai.gui_web import context_picker_payload
+        from vesta.gui_web import context_picker_payload
 
         with (
             tempfile.TemporaryDirectory() as tmp,
@@ -1118,7 +1118,7 @@ class ContextPickerPayloadTests(unittest.TestCase):
         self.assertEqual(payload["rejected"], 1)
 
     def test_folder_paths_keep_a_trailing_slash(self):
-        from opai.gui_web import context_picker_payload
+        from vesta.gui_web import context_picker_payload
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
@@ -1150,7 +1150,7 @@ class PermissionsPrivacyPayloadTests(unittest.TestCase):
     """Permissions & Privacy pages (#239) are backed by real, derived data."""
 
     def test_mode_permissions_cover_every_mode_and_mark_the_active_one(self):
-        from opaihub.gui_preferences import MODES
+        from vestahub.gui_preferences import MODES
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
@@ -1183,7 +1183,7 @@ class OnboardingPreferenceTests(unittest.TestCase):
         self.assertFalse(prefs["onboardingSeen"])
 
     def test_marking_seen_persists_and_surfaces_at_boot(self):
-        from opaihub.gui_preferences import save_gui_preferences
+        from vestahub.gui_preferences import save_gui_preferences
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
@@ -1192,7 +1192,7 @@ class OnboardingPreferenceTests(unittest.TestCase):
             self.assertTrue(boot_payload(root)["prefs"]["onboardingSeen"])
 
     def test_non_boolean_flag_is_coerced(self):
-        from opaihub.gui_preferences import save_gui_preferences
+        from vestahub.gui_preferences import save_gui_preferences
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
@@ -1204,7 +1204,7 @@ class AppearancePreferenceTests(unittest.TestCase):
     """Appearance prefs (#241): persisted, sanitized, and surfaced at boot."""
 
     def test_appearance_prefs_round_trip_and_reach_boot(self):
-        from opaihub.gui_preferences import save_gui_preferences
+        from vestahub.gui_preferences import save_gui_preferences
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
@@ -1231,7 +1231,7 @@ class AppearancePreferenceTests(unittest.TestCase):
             self.assertEqual(prefs["composerStyle"], "command")
 
     def test_invalid_appearance_values_sanitize_to_defaults(self):
-        from opaihub.gui_preferences import save_gui_preferences
+        from vestahub.gui_preferences import save_gui_preferences
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
@@ -1268,7 +1268,7 @@ class AppearancePreferenceTests(unittest.TestCase):
         self.assertEqual(prefs["composerStyle"], "toolbar")
 
     def test_bridge_allows_response_and_composer_presentation_preferences(self):
-        from opai.gui_web import _BRIDGE_PREFERENCE_KEYS
+        from vesta.gui_web import _BRIDGE_PREFERENCE_KEYS
 
         self.assertIn("response_density", _BRIDGE_PREFERENCE_KEYS)
         self.assertIn("composer_style", _BRIDGE_PREFERENCE_KEYS)
@@ -1284,8 +1284,8 @@ class ThemePreferenceTests(unittest.TestCase):
             self.assertEqual(boot_payload(root)["prefs"]["theme"], "viber-coder")
 
     def test_a_theme_saved_in_one_workspace_holds_in_every_workspace(self):
-        from opai.gui_web import save_page_preference
-        from opaihub.gui_preferences import load_gui_preferences
+        from vesta.gui_web import save_page_preference
+        from vestahub.gui_preferences import load_gui_preferences
 
         with (
             isolated_home(),
@@ -1302,30 +1302,30 @@ class ThemePreferenceTests(unittest.TestCase):
             self.assertNotIn("theme", load_gui_preferences(here))
 
     def test_settings_reads_the_app_wide_theme(self):
-        from opai.gui_theme import save_theme
+        from vesta.gui_theme import save_theme
 
         with isolated_home(), tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
             save_theme("system")
-            with mock.patch("opai.gui_web._cached_update_check", return_value={}):
+            with mock.patch("vesta.gui_web._cached_update_check", return_value={}):
                 payload = settings_payload(root)
         self.assertEqual(payload["prefs"]["theme"], "system")
 
     def test_a_theme_that_cannot_be_saved_does_not_break_the_window(self):
-        from opai.gui_web import save_page_preference
+        from vesta.gui_web import save_page_preference
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
             with (
-                mock.patch("opai.gui_web.save_theme", side_effect=OSError("read-only")),
-                self.assertLogs("opai.gui_web", level="WARNING") as logged,
+                mock.patch("vesta.gui_web.save_theme", side_effect=OSError("read-only")),
+                self.assertLogs("vesta.gui_web", level="WARNING") as logged,
             ):
                 save_page_preference(root, "theme", "light")
         self.assertIn("could not save the GUI theme", logged.output[0])
 
     def test_project_preferences_keep_their_existing_guards(self):
-        from opai.gui_web import save_page_preference
-        from opaihub.gui_preferences import load_gui_preferences
+        from vesta.gui_web import save_page_preference
+        from vestahub.gui_preferences import load_gui_preferences
 
         with isolated_home(), tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
@@ -1353,14 +1353,14 @@ class RuntimeIndexUrlTests(unittest.TestCase):
     file that does not exist."""
 
     def test_missing_index_html_raises_instead_of_loading_nothing(self):
-        from opai.gui_web import _runtime_index_url
+        from vesta.gui_web import _runtime_index_url
 
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(FileNotFoundError):
                 _runtime_index_url(Path(tmp))
 
     def test_present_index_html_still_resolves_to_an_existing_file(self):
-        from opai.gui_web import _runtime_index_url
+        from vesta.gui_web import _runtime_index_url
 
         with tempfile.TemporaryDirectory() as tmp:
             web_dir = Path(tmp)
@@ -1375,7 +1375,7 @@ class RuntimeIndexUrlTests(unittest.TestCase):
     def test_the_launch_copy_opens_in_the_saved_theme(self):
         # The first frame is painted before the bridge boots, so the theme has
         # to be on <html> already or a light-theme launch starts dark.
-        from opai.gui_web import _runtime_index_url
+        from vesta.gui_web import _runtime_index_url
 
         with tempfile.TemporaryDirectory() as tmp:
             web_dir = Path(tmp)
@@ -1390,8 +1390,8 @@ class RuntimeIndexUrlTests(unittest.TestCase):
     def test_the_launch_copy_opens_on_this_runs_motto(self):
         # Same first-frame rule as the theme: the headline has to be in the
         # markup, or the window opens blank and the motto pops in on boot.
-        from opai.brand import empty_title
-        from opai.gui_web import _runtime_index_url
+        from vesta.brand import empty_title
+        from vesta.gui_web import _runtime_index_url
 
         empty = '<div class="empty" id="empty"><div class="empty-mark"></div><h1></h1></div>'
         with tempfile.TemporaryDirectory() as tmp:
@@ -1412,16 +1412,16 @@ class RuntimeIndexUrlTests(unittest.TestCase):
         self.assertIn(f"<h1>{empty_title()}</h1>", again)
 
     def test_the_stamped_motto_is_escaped_as_text(self):
-        from opai.gui_web import _stamp_empty_title
+        from vesta.gui_web import _stamp_empty_title
 
         html = '<div class="empty" id="empty"><h1></h1></div>'
-        with mock.patch("opai.brand.empty_title", return_value="Fire & <Light>"):
+        with mock.patch("vesta.brand.empty_title", return_value="Fire & <Light>"):
             self.assertIn("<h1>Fire &amp; &lt;Light&gt;</h1>", _stamp_empty_title(html))
 
     def test_unwritable_directory_falls_back_to_the_plain_file_not_an_error(self):
         # The narrower except OSError still does its original job: an
         # existing source file plus a write failure degrades gracefully.
-        from opai.gui_web import _runtime_index_url
+        from vesta.gui_web import _runtime_index_url
 
         with tempfile.TemporaryDirectory() as tmp:
             web_dir = Path(tmp)
@@ -1444,7 +1444,7 @@ class AnUnreadableLedgerIsNotZeroSpendTests(unittest.TestCase):
     """
 
     def _status_with_a_broken_ledger(self):
-        from opai import gui_web
+        from vesta import gui_web
 
         with mock.patch.object(
             gui_web, "cached_overview", side_effect=OSError("ledger unreadable")
@@ -1458,7 +1458,7 @@ class AnUnreadableLedgerIsNotZeroSpendTests(unittest.TestCase):
         self.assertIsNone(status["saved"])
 
     def test_the_header_line_says_so_instead_of_showing_zero_dollars(self):
-        from opai.gui_controls import UNKNOWN_SPEND
+        from vesta.gui_controls import UNKNOWN_SPEND
 
         line = self._status_with_a_broken_ledger()["line"]
 
@@ -1468,7 +1468,7 @@ class AnUnreadableLedgerIsNotZeroSpendTests(unittest.TestCase):
     def test_a_working_ledger_is_unaffected(self):
         """The guard must not make a real zero unreportable."""
 
-        from opai import gui_web
+        from vesta import gui_web
 
         with (
             mock.patch.object(
@@ -1498,7 +1498,7 @@ class TheLedgersOwnCompletenessJudgementReachesTheHeaderTests(unittest.TestCase)
     """
 
     def test_a_partial_total_survives_the_whole_chain(self):
-        from opai import gui_web
+        from vesta import gui_web
 
         with (
             mock.patch.object(
@@ -1517,7 +1517,7 @@ class TheLedgersOwnCompletenessJudgementReachesTheHeaderTests(unittest.TestCase)
         self.assertIn("at least $2.50 today", status["line"])
 
     def test_a_complete_total_is_not_hedged(self):
-        from opai import gui_web
+        from vesta import gui_web
 
         with (
             mock.patch.object(
@@ -1540,7 +1540,7 @@ class TheLedgersOwnCompletenessJudgementReachesTheHeaderTests(unittest.TestCase)
         """Read against a real project rather than a mock, so a renamed key in
         `budget_status` breaks this instead of passing silently."""
 
-        from opai.app_state import inspector_state
+        from vesta.app_state import inspector_state
 
         with tempfile.TemporaryDirectory() as tmp:
             budget = inspector_state(Path(tmp))["budget"]
@@ -1553,14 +1553,14 @@ class TheLedgersOwnCompletenessJudgementReachesTheHeaderTests(unittest.TestCase)
         """`inspector_state` against a ledger that reports what we say.
 
         `budget_status` is imported inside the function, so the patch has to
-        land on `opaihub.budget`, not on a name bound in `app_state`.
+        land on `vestahub.budget`, not on a name bound in `app_state`.
         """
 
-        import opaihub.budget
-        from opai.app_state import inspector_state
+        import vestahub.budget
+        from vesta.app_state import inspector_state
 
         with (
-            mock.patch.object(opaihub.budget, "budget_status", return_value=status),
+            mock.patch.object(vestahub.budget, "budget_status", return_value=status),
             tempfile.TemporaryDirectory() as tmp,
         ):
             return inspector_state(Path(tmp))["budget"]
@@ -1656,7 +1656,7 @@ class AVerdictIsAboutOneTokenTests(unittest.TestCase):
     """#818 review finding 9: a verdict outlived the token it was about."""
 
     def setUp(self) -> None:
-        from opaihub import github_connector
+        from vestahub import github_connector
 
         self.gc = github_connector
         self._tmp = tempfile.TemporaryDirectory()
@@ -1717,7 +1717,7 @@ class AVerdictIsAboutOneTokenTests(unittest.TestCase):
         )
 
     def test_an_old_valid_check_is_not_rendered_as_ready(self):
-        from opai.gui_web import _github_row_value
+        from vesta.gui_web import _github_row_value
 
         row = _github_row_value(
             {"ready": True, "verification": "valid", "verification_fresh": False}
@@ -1742,7 +1742,7 @@ class GithubReadinessCitesACheckTests(unittest.TestCase):
     """
 
     def test_a_verdict_is_remembered_so_a_later_claim_can_cite_it(self):
-        from opaihub import github_connector
+        from vestahub import github_connector
 
         with tempfile.TemporaryDirectory() as tmp:
             with mock.patch.object(
@@ -1758,7 +1758,7 @@ class GithubReadinessCitesACheckTests(unittest.TestCase):
         self.assertTrue(found["fresh"])
 
     def test_a_rejection_is_remembered_too(self):
-        from opaihub import github_connector
+        from vestahub import github_connector
 
         with tempfile.TemporaryDirectory() as tmp:
             with mock.patch.object(
@@ -1772,7 +1772,7 @@ class GithubReadinessCitesACheckTests(unittest.TestCase):
         self.assertEqual(found["status"], github_connector.VERIFICATION_REJECTED)
 
     def test_never_checked_reads_as_unknown_not_as_valid(self):
-        from opaihub import github_connector
+        from vestahub import github_connector
 
         with tempfile.TemporaryDirectory() as tmp:
             with mock.patch.object(
@@ -1792,7 +1792,7 @@ class GithubReadinessCitesACheckTests(unittest.TestCase):
         stay clear of anything that looks like one.
         """
 
-        from opaihub import github_connector
+        from vestahub import github_connector
 
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "github.json"
@@ -1818,7 +1818,7 @@ class GithubReadinessCitesACheckTests(unittest.TestCase):
         `gui_pipeline.handle_gui_message` uses for its terminal event.
         """
 
-        from opaihub import github_connector
+        from vestahub import github_connector
 
         cases = [
             (200, {"login": "someone"}, github_connector.VERIFICATION_VALID),
@@ -1848,7 +1848,7 @@ class GithubReadinessCitesACheckTests(unittest.TestCase):
                 self.assertEqual(found["status"], expected)
 
     def test_readiness_carries_the_verdict_to_whoever_renders_it(self):
-        from opaihub import github_connector
+        from vestahub import github_connector
 
         with tempfile.TemporaryDirectory() as tmp:
             with (

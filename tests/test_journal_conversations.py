@@ -30,7 +30,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub import journal_conversations, journal_runtime, journal_store
+from vestahub import journal_conversations, journal_runtime, journal_store
 
 NOW = "2026-09-10T10:00:00+00:00"
 LATER = "2026-09-10T10:05:00+00:00"
@@ -41,7 +41,7 @@ class _Workspace(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.root = Path(self._tmp.name)
-        self.conversations = self.root / ".opaihub" / "gui" / "conversations"
+        self.conversations = self.root / ".vestahub" / "gui" / "conversations"
         self.conversations.mkdir(parents=True, exist_ok=True)
 
     def write_conversation(self, conversation_id: str, *statuses: str) -> None:
@@ -258,7 +258,7 @@ class DoctorActuallyAsksTests(_Workspace):
     """A comparator no surface calls would be the eighth of these."""
 
     def test_journal_doctor_reports_the_cross_surface_parity(self):
-        from opai import cli
+        from vesta import cli
 
         self.write_turns("conv-1", ("partial", "run-1"))
         self.record_run("run-1", "completed")
@@ -270,7 +270,7 @@ class DoctorActuallyAsksTests(_Workspace):
         self.assertEqual(facts["turn_parity_disagreements"], 1)
 
     def test_doctor_reports_the_unjoinable_count(self):
-        from opai import cli
+        from vesta import cli
 
         self.write_conversation("conv-1", "complete")
         self.record_run("run-1", "completed")

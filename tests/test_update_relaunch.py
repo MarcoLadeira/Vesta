@@ -16,14 +16,14 @@ from pathlib import Path
 
 import pytest
 
-from opai.update.relaunch import relaunch_command, schedule_relaunch
+from vesta.update.relaunch import relaunch_command, schedule_relaunch
 
 
-PY_LAUNCH = [str(Path("/opt/opai/opai/__main__.py")), "gui"]
+PY_LAUNCH = [str(Path("/opt/vesta/vesta/__main__.py")), "gui"]
 
 
 def test_module_launch_is_rerun_through_the_same_interpreter():
-    """`pythonw -m opai gui` must come back as `pythonw -m opai gui`.
+    """`pythonw -m vesta gui` must come back as `pythonw -m vesta gui`.
 
     Reusing ``sys.executable`` is what keeps a windowed process windowed on
     Windows, and what keeps a virtualenv's Vesta from being replaced by some
@@ -33,11 +33,11 @@ def test_module_launch_is_rerun_through_the_same_interpreter():
         executable="/usr/bin/pythonw", argv=PY_LAUNCH, frozen=False
     )
 
-    assert command == ["/usr/bin/pythonw", "-m", "opai", "gui"]
+    assert command == ["/usr/bin/pythonw", "-m", "vesta", "gui"]
 
 
 def test_existing_launcher_is_rerun_as_itself(tmp_path: Path):
-    launcher = tmp_path / "opai-gui.exe"
+    launcher = tmp_path / "vesta-gui.exe"
     launcher.write_bytes(b"stub")
 
     command = relaunch_command(
@@ -52,8 +52,8 @@ def test_existing_launcher_is_rerun_as_itself(tmp_path: Path):
 def test_a_launcher_is_never_rewritten_as_a_module_launch(tmp_path: Path):
     """The regression this file exists for.
 
-    ``opai-gui.exe`` carries its subcommand *inside* the entry point, not in
-    argv. Falling back to ``-m opai`` with argv[1:] silently drops ``gui`` and
+    ``vesta-gui.exe`` carries its subcommand *inside* the entry point, not in
+    argv. Falling back to ``-m vesta`` with argv[1:] silently drops ``gui`` and
     relaunches the CLI with no command -- an app that closed itself and did
     not come back.
     """
@@ -68,10 +68,10 @@ def test_a_launcher_is_never_rewritten_as_a_module_launch(tmp_path: Path):
 
 def test_frozen_bundles_rerun_the_bundle():
     command = relaunch_command(
-        executable="/Apps/OPai.exe", argv=["/Apps/OPai.exe", "gui"], frozen=True
+        executable="/Apps/Vesta.exe", argv=["/Apps/Vesta.exe", "gui"], frozen=True
     )
 
-    assert command == ["/Apps/OPai.exe", "gui"]
+    assert command == ["/Apps/Vesta.exe", "gui"]
 
 
 @pytest.mark.parametrize(
@@ -79,7 +79,7 @@ def test_frozen_bundles_rerun_the_bundle():
     [
         ("", PY_LAUNCH),  # no interpreter to reuse
         ("/usr/bin/pythonw", []),  # nothing to read the shape from
-        ("/usr/bin/pythonw", ["opai"]),  # neither a launcher nor a module
+        ("/usr/bin/pythonw", ["vesta"]),  # neither a launcher nor a module
     ],
     ids=["no-executable", "no-argv", "unrecognised"],
 )
@@ -110,7 +110,7 @@ def test_a_frozen_bundle_cannot_host_the_supervisor(monkeypatch):
     calls: list[object] = []
     monkeypatch.setattr(sys, "frozen", True, raising=False)
 
-    armed = schedule_relaunch(["/Apps/OPai.exe"], spawn=lambda *a, **k: calls.append(a))
+    armed = schedule_relaunch(["/Apps/Vesta.exe"], spawn=lambda *a, **k: calls.append(a))
 
     assert armed is False
     assert calls == []

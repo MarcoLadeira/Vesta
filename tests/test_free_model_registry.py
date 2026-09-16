@@ -1,7 +1,7 @@
 """Free-tier / model-registry consistency (F2, QA E2E 2026-07-17).
 
-The GUI picker merges account models (from ``opai.model_registry``) with free
-API models (from ``opaihub.free_models``). Before this test, the free models
+The GUI picker merges account models (from ``vesta.model_registry``) with free
+API models (from ``vestahub.free_models``). Before this test, the free models
 were a registry blind spot: visible in the picker, absent from the one
 validation path. These tests pin the two modules together so every
 picker-visible free model is registered — with honest capability metadata —
@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import unittest
 
-from opai import model_registry as reg
-from opaihub.free_models import FREE_MODEL_SPECS
+from vesta import model_registry as reg
+from vestahub.free_models import FREE_MODEL_SPECS
 
 
 class FreeProviderRegistrationTests(unittest.TestCase):
@@ -61,7 +61,7 @@ class FreeModelConsistencyTests(unittest.TestCase):
                         (provider, model_spec.id),
                         operational,
                         f"registered free model {provider}/{model_spec.id} has "
-                        "no operational spec in opaihub/free_models.py",
+                        "no operational spec in vestahub/free_models.py",
                     )
 
     def test_free_specs_are_well_formed(self):
@@ -106,7 +106,7 @@ class FreeValidationPathTests(unittest.TestCase):
 
     def test_account_catalog_stays_account_only(self):
         # The doctor/Connection-Doctor catalog is an account contract; free
-        # models surface through opaihub/free_models.py instead.
+        # models surface through vestahub/free_models.py instead.
         self.assertEqual(set(reg.catalog()), set(reg.providers()))
 
 

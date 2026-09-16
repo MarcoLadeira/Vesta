@@ -1,7 +1,6 @@
 import contextlib
 import io
 import json
-import os
 import socket
 import subprocess
 import sys
@@ -12,33 +11,40 @@ import urllib.request
 from pathlib import Path
 from unittest import mock
 
-from opai.cli import main
-from opai.cockpit import build_cockpit, render_cockpit
-from opai.integrations import activate_project, render_statusline
-from opai.visibility import write_visibility_status
-from opaihub.dashboard_html import build_dashboard_html
+from _helpers import isolated_home
+from vesta.cli import main
+from vesta.cockpit import build_cockpit, render_cockpit
+from vesta.integrations import activate_project, render_statusline
+from vesta.visibility import write_visibility_status
+from vestahub.dashboard_html import build_dashboard_html
 
 
-class CockpitTests(unittest.TestCase):
+class _HermeticHomeTestCase(unittest.TestCase):
+    """Every test here activates a project, so every test gets a throwaway home.
+
+    ``activate_project`` resolves ``Path.home()`` when no ``home`` is passed, and
+    ``vesta activate`` installs global integrations by default. A test without
+    this isolation rewrote the developer's real ``~/.claude/CLAUDE.md``,
+    ``~/.vesta`` and ``~/.agents/skills/vesta`` on every full unittest run.
+    Calls pass ``home=self.home`` explicitly as well, so the isolation does not
+    rest on the environment patch alone.
+    """
+
     def setUp(self):
-        # Hermetic home: a client's global-discovery files must not depend on
-        # (or pollute) the developer's real ~/. Without this, claude/codex/
-        # copilot read as "broken" on a clean machine (CI) but "active" locally,
-        # making the cockpit's ON state non-deterministic across environments.
-        self._home = tempfile.TemporaryDirectory()
-        self._env = mock.patch.dict(
-            os.environ, {"HOME": self._home.name, "USERPROFILE": self._home.name}
-        )
-        self._env.start()
+        stack = contextlib.ExitStack()
+        self.addCleanup(stack.close)
+        self.home = stack.enter_context(isolated_home()).resolve()
 
-    def tearDown(self):
-        self._env.stop()
-        self._home.cleanup()
+
+class CockpitTests(_HermeticHomeTestCase):
+    # Hermetic home also keeps the cockpit deterministic: without it claude/
+    # codex/copilot read as "broken" on a clean machine (CI) but "active"
+    # locally, making the ON state differ across environments.
 
     def test_cockpit_renders_obvious_on_state(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            activate_project(root, install_global=True)
+            activate_project(root, home=self.home, install_global=True)
 
             payload = build_cockpit(root)
             text = render_cockpit(payload)
@@ -53,7 +59,7 @@ class CockpitTests(unittest.TestCase):
     def test_status_human_aliases_cockpit(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            activate_project(root, install_global=True)
+            activate_project(root, home=self.home, install_global=True)
 
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
@@ -65,7 +71,7 @@ class CockpitTests(unittest.TestCase):
     def test_cockpit_command_supports_json(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            activate_project(root, install_global=True)
+            activate_project(root, home=self.home, install_global=True)
 
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
@@ -73,13 +79,13 @@ class CockpitTests(unittest.TestCase):
 
         self.assertEqual(code, 0)
         payload = json.loads(out.getvalue())
-        self.assertEqual(payload["report"], "opai-cockpit")
+        self.assertEqual(payload["report"], "vesta-cockpit")
         self.assertEqual(payload["status"], "on")
 
     def test_project_statusline_is_compact_and_human(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            activate_project(root, install_global=True)
+            activate_project(root, home=self.home, install_global=True)
 
             line = render_statusline(project_root=root, width=120, color=False)
 
@@ -109,16 +115,20 @@ class CockpitTests(unittest.TestCase):
         )
 
 
-class VisibilityTests(unittest.TestCase):
+class VisibilityTests(_HermeticHomeTestCase):
     def test_visibility_install_writes_safe_status_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            activate_project(root, install_global=False)
+            # "on" needs every client's global discovery files. They used to
+            # come from the developer's real home -- installed there by the
+            # leaking `activate --repair` test that sorts before this one -- so
+            # install them into the throwaway home instead.
+            activate_project(root, home=self.home, install_global=True)
 
             result = write_visibility_status(root)
-            markdown = (root / "OPAI_STATUS.md").read_text(encoding="utf-8")
+            markdown = (root / "VESTA_STATUS.md").read_text(encoding="utf-8")
             payload = json.loads(
-                (root / ".opaihub" / "opai-status.json").read_text(encoding="utf-8")
+                (root / ".vestahub" / "vesta-status.json").read_text(encoding="utf-8")
             )
 
         self.assertEqual(result["status"], "installed")
@@ -131,29 +141,29 @@ class VisibilityTests(unittest.TestCase):
     def test_visibility_cli_install(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            activate_project(root, install_global=False)
+            activate_project(root, home=self.home, install_global=False)
 
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
                 code = main(["visibility", "install", "--project", str(root)])
 
         self.assertEqual(code, 0)
-        self.assertIn("OPAI_STATUS.md", out.getvalue())
+        self.assertIn("VESTA_STATUS.md", out.getvalue())
 
     def test_visibility_ignores_local_status_and_proof_artifacts(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / ".git" / "info").mkdir(parents=True)
-            activate_project(root, install_global=False)
+            activate_project(root, home=self.home, install_global=False)
 
             write_visibility_status(root)
             exclude = (root / ".git" / "info" / "exclude").read_text(encoding="utf-8")
 
-        self.assertIn("OPAI_STATUS.md", exclude)
-        self.assertIn(".opaihub/", exclude)
-        self.assertIn(".opaihub/opai-status.json", exclude)
-        self.assertIn(".opaihub/dashboard.html", exclude)
-        self.assertIn(".opaihub/benchmarks/", exclude)
+        self.assertIn("VESTA_STATUS.md", exclude)
+        self.assertIn(".vestahub/", exclude)
+        self.assertIn(".vestahub/vesta-status.json", exclude)
+        self.assertIn(".vestahub/dashboard.html", exclude)
+        self.assertIn(".vestahub/benchmarks/", exclude)
 
     def test_visibility_exclude_uses_exact_lines(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -161,16 +171,16 @@ class VisibilityTests(unittest.TestCase):
             info = root / ".git" / "info"
             info.mkdir(parents=True)
             (info / "exclude").write_text(
-                "# existing\n.opaihub/opai-status.json\n",
+                "# existing\n.vestahub/vesta-status.json\n",
                 encoding="utf-8",
             )
-            activate_project(root, install_global=False)
+            activate_project(root, home=self.home, install_global=False)
 
             write_visibility_status(root)
             exclude = (info / "exclude").read_text(encoding="utf-8")
 
-        self.assertIn(".opaihub/opai-status.json", exclude)
-        self.assertIn(".opaihub/", exclude)
+        self.assertIn(".vestahub/vesta-status.json", exclude)
+        self.assertIn(".vestahub/", exclude)
 
     def test_activate_repair_writes_visibility_files(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -182,16 +192,23 @@ class VisibilityTests(unittest.TestCase):
 
             self.assertEqual(code, 0)
             payload = json.loads(out.getvalue())
+            # `activate` installs global integrations by default; they must
+            # land in the throwaway home, never the developer's real one.
+            self.assertEqual(Path(payload["home"]).resolve(), self.home)
+            self.assertEqual(
+                Path(payload["global_integrations"]["manifest"]).resolve(),
+                self.home / ".vesta" / "global.json",
+            )
             self.assertIn("visibility", payload)
-            self.assertTrue((root / "OPAI_STATUS.md").exists())
-            self.assertTrue((root / ".opaihub" / "opai-status.json").exists())
+            self.assertTrue((root / "VESTA_STATUS.md").exists())
+            self.assertTrue((root / ".vestahub" / "vesta-status.json").exists())
 
 
-class DashboardVisibilityTests(unittest.TestCase):
+class DashboardVisibilityTests(_HermeticHomeTestCase):
     def test_html_dashboard_is_control_center(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            activate_project(root, install_global=False)
+            activate_project(root, home=self.home, install_global=False)
 
             path = build_dashboard_html(root)
             html = path.read_text(encoding="utf-8")
@@ -224,7 +241,7 @@ class DashboardVisibilityTests(unittest.TestCase):
                 [
                     sys.executable,
                     "-m",
-                    "opai",
+                    "vesta",
                     "dashboard",
                     "--serve",
                     "--port",

@@ -1,7 +1,7 @@
 import pytest
 
-from opaihub.agent_objectives import ObjectiveStore
-from opaihub.objective_execution import worker_prompt
+from vestahub.agent_objectives import ObjectiveStore
+from vestahub.objective_execution import worker_prompt
 
 
 def team(tmp_path):
@@ -224,7 +224,7 @@ def test_unstarted_blocked_receiver_can_disconnect_without_rewriting_executed_wo
 
 
 def test_missing_historical_message_timestamp_is_not_replaced_with_now():
-    from opai.gui_recents import _clean_messages
+    from vesta.gui_recents import _clean_messages
 
     assert (
         _clean_messages([{"role": "user", "text": "An old question"}])[0]["timestamp"]

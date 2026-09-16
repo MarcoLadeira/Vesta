@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from opai.provider_contract import normalize_provider_error
-from opaihub.deadlines import (
+from vesta.provider_contract import normalize_provider_error
+from vestahub.deadlines import (
     RECONCILE_BEFORE_RETRY,
     TASK_DEADLINE,
     UNKNOWN_TIMEOUT,

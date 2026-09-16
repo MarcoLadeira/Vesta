@@ -1,13 +1,28 @@
 #!/usr/bin/env sh
 set -eu
 
-OPAI_REPO_URL="${OPAI_REPO_URL:-https://github.com/MarcoLadeira/OPai.git}"
-OPAI_BRANCH="${OPAI_BRANCH:-main}"
-OPAI_INSTALL_ROOT="${OPAI_INSTALL_ROOT:-$HOME/.opai/source}"
-OPAI_PROJECT_ROOT="${OPAI_PROJECT_ROOT:-$(pwd)}"
-OPAI_PYTHON="${OPAI_PYTHON:-python}"
-WITH_TOOLS="${OPAI_WITH_TOOLS:-0}"
-NO_SUPERPOWERS="${OPAI_NO_SUPERPOWERS:-0}"
+# Vesta was called OPai. Adopt old OPAI_* installer settings whose VESTA_*
+# counterpart is unset (see vesta/legacy.py for the full list of legacy names).
+for name in REPO_URL BRANCH INSTALL_ROOT PROJECT_ROOT PYTHON WITH_TOOLS NO_SUPERPOWERS; do
+  eval "legacy_value=\${OPAI_$name:-}"
+  eval "current_set=\${VESTA_$name+x}"
+  if [ -n "$legacy_value" ] && [ -z "$current_set" ]; then
+    eval "VESTA_$name=\$legacy_value"
+  fi
+done
+# An install from before the rename lives in ~/.opai/source and the desktop app
+# may be running from it: update it in place rather than cloning a second copy.
+if [ -z "${VESTA_INSTALL_ROOT:-}" ] && [ ! -e "$HOME/.vesta/source" ] && [ -d "$HOME/.opai/source/.git" ]; then
+  VESTA_INSTALL_ROOT="$HOME/.opai/source"
+fi
+
+VESTA_REPO_URL="${VESTA_REPO_URL:-https://github.com/MarcoLadeira/Vesta.git}"
+VESTA_BRANCH="${VESTA_BRANCH:-main}"
+VESTA_INSTALL_ROOT="${VESTA_INSTALL_ROOT:-$HOME/.vesta/source}"
+VESTA_PROJECT_ROOT="${VESTA_PROJECT_ROOT:-$(pwd)}"
+VESTA_PYTHON="${VESTA_PYTHON:-python}"
+WITH_TOOLS="${VESTA_WITH_TOOLS:-0}"
+NO_SUPERPOWERS="${VESTA_NO_SUPERPOWERS:-0}"
 SHELL_ALIASES=1
 
 for arg in "$@"; do
@@ -41,25 +56,30 @@ else
     exit 127
   fi
 
-  if [ -d "$OPAI_INSTALL_ROOT/.git" ]; then
-    git -C "$OPAI_INSTALL_ROOT" fetch origin "$OPAI_BRANCH"
-    git -C "$OPAI_INSTALL_ROOT" checkout "$OPAI_BRANCH"
-    git -C "$OPAI_INSTALL_ROOT" pull --ff-only origin "$OPAI_BRANCH"
-  elif [ -e "$OPAI_INSTALL_ROOT" ]; then
-    if [ ! -f "$OPAI_INSTALL_ROOT/pyproject.toml" ]; then
-      printf "Install target exists but is not a Vesta checkout: %s\n" "$OPAI_INSTALL_ROOT" >&2
+  if [ -d "$VESTA_INSTALL_ROOT/.git" ]; then
+    git -C "$VESTA_INSTALL_ROOT" fetch origin "$VESTA_BRANCH"
+    git -C "$VESTA_INSTALL_ROOT" checkout "$VESTA_BRANCH"
+    git -C "$VESTA_INSTALL_ROOT" pull --ff-only origin "$VESTA_BRANCH"
+  elif [ -e "$VESTA_INSTALL_ROOT" ]; then
+    if [ ! -f "$VESTA_INSTALL_ROOT/pyproject.toml" ]; then
+      printf "Install target exists but is not a Vesta checkout: %s\n" "$VESTA_INSTALL_ROOT" >&2
       exit 1
     fi
   else
-    mkdir -p "$(dirname "$OPAI_INSTALL_ROOT")"
-    git clone --depth 1 --branch "$OPAI_BRANCH" "$OPAI_REPO_URL" "$OPAI_INSTALL_ROOT"
+    mkdir -p "$(dirname "$VESTA_INSTALL_ROOT")"
+    git clone --depth 1 --branch "$VESTA_BRANCH" "$VESTA_REPO_URL" "$VESTA_INSTALL_ROOT"
   fi
-  ROOT="$OPAI_INSTALL_ROOT"
+  ROOT="$VESTA_INSTALL_ROOT"
 fi
 
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
-"$OPAI_PYTHON" -m pip install -e "$ROOT"
+# Vesta was published as "opai". pip keeps the old distribution beside the new
+# one, and removing it afterwards would delete the launchers both record, so it
+# goes first. Not installed is fine.
+"$VESTA_PYTHON" -m pip uninstall -y opai >/dev/null 2>&1 || true
+
+"$VESTA_PYTHON" -m pip install -e "$ROOT"
 
 INSTALL_ARGS="--no-tools"
 if [ "$WITH_TOOLS" = "1" ]; then
@@ -72,12 +92,12 @@ if [ "$SHELL_ALIASES" = "1" ]; then
   INSTALL_ARGS="$INSTALL_ARGS --shell-aliases"
 fi
 
-"$OPAI_PYTHON" -m opai install --project "$OPAI_PROJECT_ROOT" $INSTALL_ARGS
+"$VESTA_PYTHON" -m vesta install --project "$VESTA_PROJECT_ROOT" $INSTALL_ARGS
 
-INSTALLED_VERSION="$("$OPAI_PYTHON" -m opai version 2>/dev/null || echo "Vesta installed")"
+INSTALLED_VERSION="$("$VESTA_PYTHON" -m vesta version 2>/dev/null || echo "Vesta installed")"
 printf "\n%s installed permanently.\n" "$INSTALLED_VERSION"
 printf "Source: %s\n" "$ROOT"
-printf "Activated project: %s\n" "$OPAI_PROJECT_ROOT"
+printf "Activated project: %s\n" "$VESTA_PROJECT_ROOT"
 printf "Restart terminals and AI clients once so aliases and skills reload.\n"
 printf "Use in any repo: op status\n"
 printf "Launch with Vesta: op launch codex\n"

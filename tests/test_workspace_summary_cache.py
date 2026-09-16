@@ -11,7 +11,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opai import app_state
+from vesta import app_state
 from tests._helpers import make_repo
 
 
@@ -155,8 +155,8 @@ class WorkspaceSummaryCacheTests(unittest.TestCase):
             self.assertEqual(summary["branch"], "")
 
     def test_badge_refresh_uses_one_git_probe_and_sees_live_dirty_paths(self) -> None:
-        from opai.gui_web import _workspace, _workspace_refresh
-        from opaihub import repository_safety
+        from vesta.gui_web import _workspace, _workspace_refresh
+        from vestahub import repository_safety
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(

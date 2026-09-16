@@ -12,8 +12,8 @@ import json
 import unittest
 from unittest import mock
 
-from opaihub import github_connector as gc
-from opai.gui_web import (
+from vestahub import github_connector as gc
+from vesta.gui_web import (
     github_connect_payload,
     github_disconnect_payload,
     github_set_push_payload,
@@ -111,12 +111,12 @@ class SettingsGithubBlockTests(unittest.TestCase):
         import tempfile
 
         from _helpers import make_repo
-        from opai.gui_web import settings_payload
+        from vesta.gui_web import settings_payload
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp))
             with mock.patch(
-                "opaihub.accounts._account_cli_version",
+                "vestahub.accounts._account_cli_version",
                 side_effect=AssertionError("synchronous CLI version lookup"),
             ):
                 payload = settings_payload(root)

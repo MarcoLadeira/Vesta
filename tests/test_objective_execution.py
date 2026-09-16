@@ -30,10 +30,10 @@ def git(root: Path, *args: str) -> str:
 class ObjectiveExecutionTests(unittest.TestCase):
     def module(self):
         self.assertIsNotNone(
-            importlib.util.find_spec("opaihub.objective_execution"),
+            importlib.util.find_spec("vestahub.objective_execution"),
             "A bounded objective execution service must exist",
         )
-        from opaihub import objective_execution
+        from vestahub import objective_execution
 
         return objective_execution
 
@@ -170,7 +170,7 @@ class ObjectiveExecutionTests(unittest.TestCase):
     def test_executor_integrates_actual_changes_without_touching_checkout(self):
         execution = self.module()
         self.assertTrue(hasattr(execution, "ObjectiveExecutor"))
-        from opaihub.agent_objectives import ObjectiveStore
+        from vestahub.agent_objectives import ObjectiveStore
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "repo"
@@ -196,8 +196,8 @@ class ObjectiveExecutionTests(unittest.TestCase):
                 files={
                     "a.md": "old a",
                     "b.md": "old b",
-                    ".gitignore": ".opaihub/\n",
-                    "opai-verification-policy.yaml": json.dumps(policy),
+                    ".gitignore": ".vestahub/\n",
+                    "vesta-verification-policy.yaml": json.dumps(policy),
                 },
                 commit=True,
             )
@@ -234,14 +234,14 @@ class ObjectiveExecutionTests(unittest.TestCase):
     def test_executor_scope_failure_preserves_independent_sibling(self):
         execution = self.module()
         self.assertTrue(hasattr(execution, "ObjectiveExecutor"))
-        from opaihub.agent_objectives import ObjectiveStore
+        from vestahub.agent_objectives import ObjectiveStore
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "repo"
             root.mkdir()
             make_repo(
                 root,
-                files={"a.md": "a", "b.md": "b", ".gitignore": ".opaihub/\n"},
+                files={"a.md": "a", "b.md": "b", ".gitignore": ".vestahub/\n"},
                 commit=True,
             )
             store = ObjectiveStore(root)

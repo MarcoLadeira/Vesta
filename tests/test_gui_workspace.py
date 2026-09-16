@@ -1,6 +1,6 @@
 """Tests for workspace switching persistence (Qt-free).
 
-Uses isolated_home so the developer's real ~/.opai/gui_workspaces.json is never
+Uses isolated_home so the developer's real ~/.vesta/gui_workspaces.json is never
 touched and the recents file is hermetic.
 """
 
@@ -12,14 +12,14 @@ from pathlib import Path
 
 from _helpers import isolated_home
 
-from opai.gui_workspace import (
+from vesta.gui_workspace import (
     add_recent_workspace,
     is_valid_workspace,
     load_recent_workspaces,
     resolve_gui_workspace,
     workspace_label,
 )
-from opaihub.app_scaffold import scaffold_app
+from vestahub.app_scaffold import scaffold_app
 
 
 class ValidationTests(unittest.TestCase):

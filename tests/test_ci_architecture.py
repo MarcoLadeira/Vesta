@@ -32,7 +32,7 @@ def _manifest() -> dict:
 
 def _ci_local():
     path = ROOT / "scripts" / "ci_local.py"
-    spec = importlib.util.spec_from_file_location("opai_ci_architecture_local", path)
+    spec = importlib.util.spec_from_file_location("vesta_ci_architecture_local", path)
     if spec is None or spec.loader is None:
         raise AssertionError("Could not load ci_local.py")
     module = importlib.util.module_from_spec(spec)
@@ -132,7 +132,7 @@ class CiArchitectureContractTests(unittest.TestCase):
         self.assertEqual(release["final_artifact_qualification"]["automatic"], [])
         self.assertEqual(
             release["final_artifact_qualification"]["protected_environment"],
-            "opai-production-signing",
+            "vesta-production-signing",
         )
 
     def test_hosted_required_jobs_run_exact_components_for_exact_candidate(
@@ -209,10 +209,10 @@ class CiArchitectureContractTests(unittest.TestCase):
         health = self_hosted["jobs"]["runner-health"]
         self.assertEqual(health["needs"], "dispatch-guard")
         self.assertEqual(health["runs-on"], "ubuntu-latest")
-        self.assertEqual(health["environment"]["name"], "opai-runner-health")
+        self.assertEqual(health["environment"]["name"], "vesta-runner-health")
         self.assertEqual(health["environment"]["deployment"], "false")
         health_source = str(health)
-        self.assertIn("secrets.OPAI_RUNNER_HEALTH_TOKEN", health_source)
+        self.assertIn("secrets.VESTA_RUNNER_HEALTH_TOKEN", health_source)
         self.assertNotIn("github.token", health_source)
         trusted = self_hosted["jobs"]["trusted-gate"]
         self.assertEqual(trusted["needs"], "runner-health")
@@ -246,7 +246,7 @@ class CiArchitectureContractTests(unittest.TestCase):
         self.assertIn("schedule", provider["on"])
         job = provider["jobs"]["provider-canary"]
         self.assertEqual(job["needs"], "dispatch-guard")
-        self.assertEqual(job["environment"]["name"], "opai-provider-canary")
+        self.assertEqual(job["environment"]["name"], "vesta-provider-canary")
         self.assertEqual(job["permissions"], {"contents": "read"})
         self.assertNotIn("secrets.", str(job.get("env", {})))
         canary_step = next(
@@ -361,7 +361,7 @@ class CiArchitectureContractTests(unittest.TestCase):
             },
         )
         provider = workflow["jobs"]["provider-qualification"]
-        self.assertEqual(provider["environment"]["name"], "opai-provider-canary")
+        self.assertEqual(provider["environment"]["name"], "vesta-provider-canary")
         self.assertIn("refs/heads/main", provider["if"])
         source_commands = "\n".join(
             str(step.get("run", ""))

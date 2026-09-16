@@ -11,9 +11,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opai.cli import main
-from opaihub.ledger import record_route_decision
-from opaihub.receipt import build_receipt, render_receipt_svg, verify_receipt
+from vesta.cli import main
+from vestahub.ledger import record_route_decision
+from vestahub.receipt import build_receipt, render_receipt_svg, verify_receipt
 
 
 def _repo(root: Path, *, name: str = "demo") -> None:

@@ -11,7 +11,7 @@ from unittest import mock
 
 import pytest
 
-from opaihub.free_models import (
+from vestahub.free_models import (
     FREE_MODEL_SPECS,
     list_free_models,
     spec_for_model_id,
@@ -100,7 +100,7 @@ class ListFreeModelsTests(unittest.TestCase):
     def setUp(self):
         # Hermetic: never consult the developer's real OS keyring — a stored
         # Gemini/Groq key on the machine must not flip "no key" assertions.
-        patcher = mock.patch("opaihub.credentials._default_backend", return_value=None)
+        patcher = mock.patch("vestahub.credentials._default_backend", return_value=None)
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -177,18 +177,18 @@ class ListFreeModelsTests(unittest.TestCase):
 class FreeAPIRunnerTests(unittest.TestCase):
     def setUp(self):
         # Hermetic: keep the real OS keyring out of runner_for_model key lookup.
-        patcher = mock.patch("opaihub.credentials._default_backend", return_value=None)
+        patcher = mock.patch("vestahub.credentials._default_backend", return_value=None)
         patcher.start()
         self.addCleanup(patcher.stop)
 
     def test_runner_rejects_non_https_api_endpoint(self):
-        from opaihub.local_runner import FreeAPIRunner
+        from vestahub.local_runner import FreeAPIRunner
 
         with self.assertRaisesRegex(ValueError, "HTTPS"):
             FreeAPIRunner("http://api.example.test/v1", "example-model", "test-key")
 
     def test_runner_available_with_key(self):
-        from opaihub.local_runner import FreeAPIRunner
+        from vestahub.local_runner import FreeAPIRunner
 
         runner = FreeAPIRunner(
             "https://generativelanguage.googleapis.com/v1beta/openai",
@@ -198,7 +198,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
         self.assertTrue(runner.available())
 
     def test_runner_unavailable_without_key(self):
-        from opaihub.local_runner import FreeAPIRunner
+        from vestahub.local_runner import FreeAPIRunner
 
         runner = FreeAPIRunner(
             "https://generativelanguage.googleapis.com/v1beta/openai",
@@ -208,7 +208,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
         self.assertFalse(runner.available())
 
     def test_runner_unavailable_with_whitespace_key(self):
-        from opaihub.local_runner import FreeAPIRunner
+        from vestahub.local_runner import FreeAPIRunner
 
         runner = FreeAPIRunner(
             "https://generativelanguage.googleapis.com/v1beta/openai",
@@ -218,7 +218,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
         self.assertFalse(runner.available())
 
     def test_runner_for_free_model_id_with_key(self):
-        from opaihub.local_runner import FreeAPIRunner, runner_for_model
+        from vestahub.local_runner import FreeAPIRunner, runner_for_model
 
         with mock.patch.dict(
             os.environ,
@@ -230,7 +230,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
         self.assertTrue(runner.available())
 
     def test_runner_for_free_model_id_without_key(self):
-        from opaihub.local_runner import FreeAPIRunner, runner_for_model
+        from vestahub.local_runner import FreeAPIRunner, runner_for_model
 
         with mock.patch.dict(os.environ, {"GOOGLE_API_KEY": ""}):
             runner = runner_for_model("free:gemini:gemini-3.1-flash-lite")
@@ -239,13 +239,13 @@ class FreeAPIRunnerTests(unittest.TestCase):
         self.assertFalse(runner.available())
 
     def test_runner_for_unknown_free_model_returns_none(self):
-        from opaihub.local_runner import runner_for_model
+        from vestahub.local_runner import runner_for_model
 
         runner = runner_for_model("free:unknown:nonexistent")
         self.assertIsNone(runner)
 
     def test_runner_complete_sends_auth_header(self):
-        from opaihub.local_runner import FreeAPIRunner
+        from vestahub.local_runner import FreeAPIRunner
 
         runner = FreeAPIRunner(
             "https://generativelanguage.googleapis.com/v1beta/openai",
@@ -268,7 +268,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
             return mock_response
 
         with mock.patch(
-            "opaihub.local_runner._http_json_cancellable", side_effect=fake_http
+            "vestahub.local_runner._http_json_cancellable", side_effect=fake_http
         ):
             result = runner.complete("What is 2+2?")
 
@@ -277,7 +277,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
         self.assertEqual(captured_headers["Authorization"], "Bearer sk-test-123")
 
     def test_runner_complete_with_system_prompt(self):
-        from opaihub.local_runner import FreeAPIRunner
+        from vestahub.local_runner import FreeAPIRunner
 
         runner = FreeAPIRunner(
             "https://api.groq.com/openai/v1", "openai/gpt-oss-120b", "key"
@@ -298,7 +298,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
             return mock_response
 
         with mock.patch(
-            "opaihub.local_runner._http_json_cancellable", side_effect=fake_http
+            "vestahub.local_runner._http_json_cancellable", side_effect=fake_http
         ):
             runner.complete("Hello", system="You are a coding assistant.")
 
@@ -307,7 +307,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
         self.assertEqual(messages[0]["content"], "You are a coding assistant.")
 
     def test_runner_tool_loop_reads_and_edits_real_repository(self):
-        from opaihub.local_runner import FreeAPIRunner
+        from vestahub.local_runner import FreeAPIRunner
 
         runner = FreeAPIRunner(
             "https://generativelanguage.googleapis.com/v1beta/openai",
@@ -362,7 +362,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
             with mock.patch(
-                "opaihub.local_runner._http_json_cancellable",
+                "vestahub.local_runner._http_json_cancellable",
                 side_effect=responses,
             ) as http:
                 result = runner.complete_with_tools(
@@ -384,14 +384,14 @@ class FreeAPIRunnerTests(unittest.TestCase):
             self.assertIn("apply_patch", tool_names)
 
     def test_read_only_tool_loop_does_not_expose_patch_tool(self):
-        from opaihub.local_runner import FreeAPIRunner
+        from vestahub.local_runner import FreeAPIRunner
 
         runner = FreeAPIRunner("https://api.groq.com/openai/v1", "model", "key")
         response = {"choices": [{"message": {"content": "Explanation"}}]}
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
             with mock.patch(
-                "opaihub.local_runner._http_json_cancellable", return_value=response
+                "vestahub.local_runner._http_json_cancellable", return_value=response
             ) as http:
                 result = runner.complete_with_tools(
                     "Explain app.py", project_root=root, allow_edits=False
@@ -405,10 +405,10 @@ class FreeAPIRunnerTests(unittest.TestCase):
         self.assertNotIn("apply_patch", names)
 
     def test_tool_loop_timeout_keeps_typed_evidence_and_run_identity(self):
-        from opaihub.completion import CompletionState
-        from opaihub.deadlines import DeadlineBudget, TASK_DEADLINE, timeout_event
-        from opaihub.local_runner import FreeAPIRunner
-        from opaihub.tool_loop import ToolLoopResult
+        from vestahub.completion import CompletionState
+        from vestahub.deadlines import DeadlineBudget, TASK_DEADLINE, timeout_event
+        from vestahub.local_runner import FreeAPIRunner
+        from vestahub.tool_loop import ToolLoopResult
 
         budget = DeadlineBudget(
             task_deadline_seconds=3600,
@@ -432,7 +432,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
         runner = FreeAPIRunner("https://api.groq.com/openai/v1", "model", "key")
         with (
             tempfile.TemporaryDirectory() as tmp,
-            mock.patch("opaihub.tool_loop.ToolLoopController") as controller,
+            mock.patch("vestahub.tool_loop.ToolLoopController") as controller,
         ):
             controller.return_value.run.return_value = outcome
             result = runner.complete_with_tools(
@@ -455,9 +455,9 @@ class FreeAPIRunnerTests(unittest.TestCase):
         self.assertTrue(result["timeout_event"]["run_id"])
 
     def test_task_limited_transport_timeout_is_not_retried_as_provider_failure(self):
-        from opaihub.deadlines import DeadlineBudget, TASK_DEADLINE
-        from opaihub.local_runner import FreeAPIRunner
-        from opaihub.tool_loop import ToolLoopPolicy
+        from vestahub.deadlines import DeadlineBudget, TASK_DEADLINE
+        from vestahub.local_runner import FreeAPIRunner
+        from vestahub.tool_loop import ToolLoopPolicy
 
         budget = DeadlineBudget(
             task_deadline_seconds=10,
@@ -495,7 +495,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
         with (
             tempfile.TemporaryDirectory() as tmp,
             mock.patch(
-                "opaihub.local_runner._http_json_cancellable", side_effect=fake_http
+                "vestahub.local_runner._http_json_cancellable", side_effect=fake_http
             ),
         ):
             root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
@@ -520,9 +520,9 @@ class FreeAPIRunnerTests(unittest.TestCase):
         self.assertTrue(result["timeout_event"]["progress_observed"])
 
     def test_shorter_provider_turn_timeout_remains_a_provider_failure(self):
-        from opaihub.deadlines import DeadlineBudget
-        from opaihub.local_runner import FreeAPIRunner
-        from opaihub.tool_loop import ToolLoopPolicy
+        from vestahub.deadlines import DeadlineBudget
+        from vestahub.local_runner import FreeAPIRunner
+        from vestahub.tool_loop import ToolLoopPolicy
 
         budget = DeadlineBudget(
             task_deadline_seconds=3600,
@@ -540,7 +540,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
         with (
             tempfile.TemporaryDirectory() as tmp,
             mock.patch(
-                "opaihub.local_runner._http_json_cancellable", side_effect=fake_http
+                "vestahub.local_runner._http_json_cancellable", side_effect=fake_http
             ),
         ):
             result = runner.complete_with_tools(
@@ -567,8 +567,8 @@ class FreeAPIRunnerTests(unittest.TestCase):
         self.assertTrue(boundary_error["operation_id"])
 
     def test_provider_response_after_task_deadline_cannot_execute_tools(self):
-        from opaihub.deadlines import DeadlineBudget, TASK_DEADLINE
-        from opaihub.local_runner import FreeAPIRunner
+        from vestahub.deadlines import DeadlineBudget, TASK_DEADLINE
+        from vestahub.local_runner import FreeAPIRunner
 
         budget = DeadlineBudget(
             task_deadline_seconds=10,
@@ -600,7 +600,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
         with (
             tempfile.TemporaryDirectory() as tmp,
             mock.patch(
-                "opaihub.local_runner._http_json_cancellable", return_value=response
+                "vestahub.local_runner._http_json_cancellable", return_value=response
             ) as http,
         ):
             root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
@@ -625,7 +625,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
         # external ceiling is honoured only when set (the GUI never sets it), and
         # a batch that would cross it stops recoverably — never a partial turn,
         # never a fake completion.
-        from opaihub.local_runner import FreeAPIRunner
+        from vestahub.local_runner import FreeAPIRunner
 
         runner = FreeAPIRunner("https://api.groq.com/openai/v1", "model", "key")
         response = {
@@ -658,7 +658,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
             with mock.patch(
-                "opaihub.local_runner._http_json_cancellable", return_value=response
+                "vestahub.local_runner._http_json_cancellable", return_value=response
             ):
                 result = runner.complete_with_tools(
                     "Read app.py",
@@ -676,7 +676,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
     def test_loop_stops_after_repeated_identical_failures(self):
         # #311: a model that keeps making the same failing call is not making
         # progress — the loop stops with an honest terminal instead of thrashing.
-        from opaihub.local_runner import FreeAPIRunner
+        from vestahub.local_runner import FreeAPIRunner
 
         runner = FreeAPIRunner("https://api.groq.com/openai/v1", "model", "key")
         failing = {
@@ -700,7 +700,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
             with mock.patch(
-                "opaihub.local_runner._http_json_cancellable", return_value=failing
+                "vestahub.local_runner._http_json_cancellable", return_value=failing
             ):
                 result = runner.complete_with_tools(
                     "Fix it", project_root=root, allow_edits=True
@@ -716,7 +716,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
     def test_loop_self_corrects_after_a_tool_error(self):
         # #311: a failed tool call is fed back; a correct follow-up completes the
         # task and the run ends cleanly (no stopped_reason).
-        from opaihub.local_runner import FreeAPIRunner
+        from vestahub.local_runner import FreeAPIRunner
 
         runner = FreeAPIRunner("https://api.groq.com/openai/v1", "model", "key")
 
@@ -747,7 +747,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
             with mock.patch(
-                "opaihub.local_runner._http_json_cancellable", side_effect=responses
+                "vestahub.local_runner._http_json_cancellable", side_effect=responses
             ):
                 result = runner.complete_with_tools(
                     "Set value to two.", project_root=root, allow_edits=True
@@ -763,8 +763,8 @@ class FreeAPIRunnerTests(unittest.TestCase):
     def test_guard_runs_before_every_provider_turn(self):
         # Task 6: the injected guard is consulted before each provider turn of a
         # continuous run — the first and every continuation.
-        from opaihub.execution_guard import GuardDecision, GuardOutcome
-        from opaihub.local_runner import FreeAPIRunner
+        from vestahub.execution_guard import GuardDecision, GuardOutcome
+        from vestahub.local_runner import FreeAPIRunner
 
         runner = FreeAPIRunner("https://api.groq.com/openai/v1", "model", "key")
 
@@ -805,7 +805,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
             with mock.patch(
-                "opaihub.local_runner._http_json_cancellable", side_effect=responses
+                "vestahub.local_runner._http_json_cancellable", side_effect=responses
             ):
                 runner.complete_with_tools(
                     "Explain app.py",
@@ -819,9 +819,9 @@ class FreeAPIRunnerTests(unittest.TestCase):
     def test_guard_block_reports_provider_blocked_not_completion(self):
         # A guard that blocks (e.g. panic/cap) stops the run honestly, with no
         # provider call and no fake completion.
-        from opaihub.completion import ProviderBlockedReason
-        from opaihub.execution_guard import GuardDecision, GuardOutcome
-        from opaihub.local_runner import FreeAPIRunner
+        from vestahub.completion import ProviderBlockedReason
+        from vestahub.execution_guard import GuardDecision, GuardOutcome
+        from vestahub.local_runner import FreeAPIRunner
 
         runner = FreeAPIRunner("https://api.groq.com/openai/v1", "model", "key")
 
@@ -832,7 +832,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
-            with mock.patch("opaihub.local_runner._http_json_cancellable") as http:
+            with mock.patch("vestahub.local_runner._http_json_cancellable") as http:
                 result = runner.complete_with_tools(
                     "Fix app.py",
                     project_root=root,
@@ -849,12 +849,12 @@ class FreeAPIRunnerTests(unittest.TestCase):
     # that does not replace the caller's own accounting decision.
 
     def test_each_provider_turn_records_a_started_and_finalized_ledger_pair(self):
-        from opaihub.ledger import (
+        from vestahub.ledger import (
             EVENT_MODEL_CALL,
             EVENT_MODEL_CALL_STARTED,
             read_events,
         )
-        from opaihub.local_runner import FreeAPIRunner
+        from vestahub.local_runner import FreeAPIRunner
 
         runner = FreeAPIRunner(
             "https://generativelanguage.googleapis.com/v1beta/openai",
@@ -894,7 +894,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
             with mock.patch(
-                "opaihub.local_runner._http_json_cancellable", side_effect=responses
+                "vestahub.local_runner._http_json_cancellable", side_effect=responses
             ):
                 runner.complete_with_tools(
                     "Explain app.py",
@@ -936,9 +936,9 @@ class FreeAPIRunnerTests(unittest.TestCase):
     ):
         # The two writers append to the SAME ledger event type usage.py sums —
         # a run must be covered by exactly one of them, never both.
-        from opaihub.ledger import EVENT_MODEL_CALL, read_events
-        from opaihub.local_runner import FreeAPIRunner
-        from opaihub.usage import build_usage_snapshots
+        from vestahub.ledger import EVENT_MODEL_CALL, read_events
+        from vestahub.local_runner import FreeAPIRunner
+        from vestahub.usage import build_usage_snapshots
 
         runner = FreeAPIRunner("https://api.groq.com/openai/v1", "model", "key")
         responses = [
@@ -969,7 +969,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
             with mock.patch(
-                "opaihub.local_runner._http_json_cancellable", side_effect=responses
+                "vestahub.local_runner._http_json_cancellable", side_effect=responses
             ):
                 runner.complete_with_tools(
                     "Read app.py",
@@ -997,8 +997,8 @@ class FreeAPIRunnerTests(unittest.TestCase):
         self,
     ):
         # The ask()-level caller must see the signal and not double-write.
-        from opaihub.ask import run_explicit_model
-        from opaihub.local_runner import FreeAPIRunner
+        from vestahub.ask import run_explicit_model
+        from vestahub.local_runner import FreeAPIRunner
 
         runner = FreeAPIRunner("https://api.groq.com/openai/v1", "model", "key")
         response = {
@@ -1008,7 +1008,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
             with mock.patch(
-                "opaihub.local_runner._http_json_cancellable", return_value=response
+                "vestahub.local_runner._http_json_cancellable", return_value=response
             ):
                 result = run_explicit_model(
                     root,
@@ -1053,7 +1053,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
         return _FakeConnection
 
     def test_transport_raises_on_401_blocking_path(self):
-        from opaihub.local_runner import _http_json_cancellable
+        from vestahub.local_runner import _http_json_cancellable
 
         body = json.dumps(
             {
@@ -1075,7 +1075,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
         self.assertIn("API key not valid", str(ctx.exception))
 
     def test_transport_raises_on_429_cancellable_path(self):
-        from opaihub.local_runner import _http_json_cancellable
+        from vestahub.local_runner import _http_json_cancellable
         import threading
 
         body = json.dumps(
@@ -1097,7 +1097,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
         self.assertIn("429", str(ctx.exception))
 
     def test_transport_raises_model_not_found_on_404(self):
-        from opaihub.local_runner import _http_json_cancellable
+        from vestahub.local_runner import _http_json_cancellable
 
         body = json.dumps({"error": {"message": "models/x is not found."}}).encode(
             "utf-8"
@@ -1112,7 +1112,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
         self.assertIn("model not found", str(ctx.exception))
 
     def test_transport_still_decodes_success_response(self):
-        from opaihub.local_runner import _http_json_cancellable
+        from vestahub.local_runner import _http_json_cancellable
 
         body = json.dumps({"choices": [{"message": {"content": "hi"}}]}).encode("utf-8")
         fake_conn = self._fake_https_connection(200, body)
@@ -1126,7 +1126,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
     def test_runner_complete_propagates_real_http_error(self):
         # Once the transport raises (fixed above), FreeAPIRunner.complete()
         # must let that propagate rather than swallowing it into "".
-        from opaihub.local_runner import FreeAPIRunner
+        from vestahub.local_runner import FreeAPIRunner
 
         runner = FreeAPIRunner(
             "https://generativelanguage.googleapis.com/v1beta/openai",
@@ -1134,14 +1134,14 @@ class FreeAPIRunnerTests(unittest.TestCase):
             "bad-key",
         )
         with mock.patch(
-            "opaihub.local_runner._http_json_cancellable",
+            "vestahub.local_runner._http_json_cancellable",
             side_effect=RuntimeError("HTTP 401: API key not valid."),
         ):
             with self.assertRaises(RuntimeError):
                 runner.complete("What is 2+2?")
 
     def test_runner_complete_raises_on_safety_block(self):
-        from opaihub.local_runner import FreeAPIRunner
+        from vestahub.local_runner import FreeAPIRunner
 
         runner = FreeAPIRunner(
             "https://generativelanguage.googleapis.com/v1beta/openai",
@@ -1152,7 +1152,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
             "choices": [{"message": {"content": ""}, "finish_reason": "content_filter"}]
         }
         with mock.patch(
-            "opaihub.local_runner._http_json_cancellable",
+            "vestahub.local_runner._http_json_cancellable",
             return_value=blocked_response,
         ):
             with self.assertRaisesRegex(RuntimeError, "safety filter"):
@@ -1161,7 +1161,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
     def test_runner_complete_empty_stop_still_returns_empty_string(self):
         # A genuinely empty-but-clean completion (finish_reason "stop") is not
         # a safety block — preserve the prior behaviour of returning "".
-        from opaihub.local_runner import FreeAPIRunner
+        from vestahub.local_runner import FreeAPIRunner
 
         runner = FreeAPIRunner(
             "https://generativelanguage.googleapis.com/v1beta/openai",
@@ -1172,7 +1172,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
             "choices": [{"message": {"content": ""}, "finish_reason": "stop"}]
         }
         with mock.patch(
-            "opaihub.local_runner._http_json_cancellable",
+            "vestahub.local_runner._http_json_cancellable",
             return_value=empty_response,
         ):
             self.assertEqual(runner.complete("Some prompt"), "")
@@ -1182,8 +1182,8 @@ class FreeAPIRunnerTests(unittest.TestCase):
         # failure as runner_error carrying the real HTTP detail, not a blank
         # answer (#219 - this is what let the generic "no answer" message
         # mask every real Gemini failure).
-        from opaihub.ask import run_explicit_model
-        from opaihub.local_runner import FreeAPIRunner
+        from vestahub.ask import run_explicit_model
+        from vestahub.local_runner import FreeAPIRunner
 
         runner = FreeAPIRunner(
             "https://generativelanguage.googleapis.com/v1beta/openai",
@@ -1193,7 +1193,7 @@ class FreeAPIRunnerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), commit=True)
             with mock.patch(
-                "opaihub.local_runner._http_json_cancellable",
+                "vestahub.local_runner._http_json_cancellable",
                 side_effect=RuntimeError("HTTP 401: API key not valid."),
             ):
                 result = run_explicit_model(
@@ -1215,7 +1215,7 @@ class AskFreeModelTests(unittest.TestCase):
     def test_ask_free_requires_confirmation(self):
         """ask() with a free: model returns confirmation_required without allow_cloud."""
         from pathlib import Path
-        from opai.app_state import ask
+        from vesta.app_state import ask
 
         with mock.patch.dict(
             os.environ,
@@ -1234,7 +1234,7 @@ class AskFreeModelTests(unittest.TestCase):
         self.assertIn("quota or billing", result["message"])
 
     def test_editable_free_confirmation_discloses_repository_file_transfer(self):
-        from opai.app_state import ask
+        from vesta.app_state import ask
 
         with mock.patch.dict(
             os.environ,
@@ -1254,7 +1254,7 @@ class AskFreeModelTests(unittest.TestCase):
     def test_ask_free_dispatches_with_allow_cloud(self):
         """ask() with allow_cloud=True dispatches through FreeAPIRunner."""
         from pathlib import Path
-        from opai.app_state import ask
+        from vesta.app_state import ask
 
         fake_result = {
             "status": "answered_locally",
@@ -1263,7 +1263,7 @@ class AskFreeModelTests(unittest.TestCase):
         }
         with (
             mock.patch(
-                "opaihub.ask.run_explicit_model", return_value=fake_result
+                "vestahub.ask.run_explicit_model", return_value=fake_result
             ) as run_explicit,
             mock.patch.dict(
                 os.environ,
@@ -1297,7 +1297,7 @@ class AskFreeModelTests(unittest.TestCase):
         # "needs_consent" with a blank answer — which then rendered as the
         # generic, misleading "check GOOGLE_API_KEY" message.
         from pathlib import Path
-        from opai.app_state import ask
+        from vesta.app_state import ask
 
         fake_result = {
             "status": "answered_locally",
@@ -1306,7 +1306,7 @@ class AskFreeModelTests(unittest.TestCase):
         }
         with (
             mock.patch(
-                "opaihub.ask.run_explicit_model", return_value=fake_result
+                "vestahub.ask.run_explicit_model", return_value=fake_result
             ) as run_explicit,
             mock.patch.dict(
                 os.environ,
@@ -1325,8 +1325,8 @@ class AskFreeModelTests(unittest.TestCase):
     def test_ask_free_forwards_the_deadline_budget(self):
         from pathlib import Path
 
-        from opai.app_state import ask
-        from opaihub.deadlines import DeadlineBudget
+        from vesta.app_state import ask
+        from vestahub.deadlines import DeadlineBudget
 
         budget = DeadlineBudget(
             task_deadline_seconds=3600,
@@ -1340,7 +1340,7 @@ class AskFreeModelTests(unittest.TestCase):
         }
         with (
             mock.patch(
-                "opaihub.ask.run_explicit_model", return_value=fake_result
+                "vestahub.ask.run_explicit_model", return_value=fake_result
             ) as run_explicit,
             mock.patch.dict(
                 os.environ,
@@ -1358,7 +1358,7 @@ class AskFreeModelTests(unittest.TestCase):
         self.assertIs(run_explicit.call_args.kwargs["deadline_budget"], budget)
 
     def test_editable_explicit_free_model_bypasses_auto_route_and_cache(self):
-        from opai.app_state import ask
+        from vesta.app_state import ask
 
         class AgenticRunner:
             name = "free-api"
@@ -1379,19 +1379,19 @@ class AskFreeModelTests(unittest.TestCase):
             root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
             with (
                 mock.patch(
-                    "opaihub.local_runner.runner_for_model",
+                    "vestahub.local_runner.runner_for_model",
                     return_value=AgenticRunner(),
                 ),
                 mock.patch(
-                    "opaihub.ask.recommend_model",
+                    "vestahub.ask.recommend_model",
                     side_effect=AssertionError("explicit provider must not reroute"),
                 ),
                 mock.patch(
-                    "opaihub.ask.result_cache.lookup",
+                    "vestahub.ask.result_cache.lookup",
                     side_effect=AssertionError("mutating result cache is unsafe"),
                 ),
                 mock.patch(
-                    "opaihub.ask.collect_evidence",
+                    "vestahub.ask.collect_evidence",
                     side_effect=AssertionError("GUI already built the task packet"),
                 ),
             ):
@@ -1410,7 +1410,7 @@ class AskFreeModelTests(unittest.TestCase):
     def test_ask_free_confirmation_message_mentions_provider(self):
         """Confirmation message must name the provider, not a generic label."""
         from pathlib import Path
-        from opai.app_state import ask
+        from vesta.app_state import ask
 
         with mock.patch.dict(
             os.environ,
@@ -1426,7 +1426,7 @@ class AskFreeModelTests(unittest.TestCase):
         self.assertIn("Gemini", result["message"])
 
     def test_gui_pipeline_dispatches_confirmed_free_model(self):
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         selected = "free:gemini:gemini-3.1-flash-lite"
         fake_result = {
@@ -1436,7 +1436,7 @@ class AskFreeModelTests(unittest.TestCase):
             "model_id": selected,
         }
         with tempfile.TemporaryDirectory() as tmp:
-            with mock.patch("opai.app_state.ask", return_value=fake_result) as ask_mock:
+            with mock.patch("vesta.app_state.ask", return_value=fake_result) as ask_mock:
                 result = handle_gui_message(
                     Path(tmp),
                     "Explain this project",
@@ -1451,7 +1451,7 @@ class AskFreeModelTests(unittest.TestCase):
         self.assertFalse(ask_mock.call_args.kwargs["record_route"])
 
     def test_gui_pipeline_passes_edit_authority_to_free_implementation(self):
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         selected = "free:gemini:gemini-3.1-flash-lite"
         fake_result = {
@@ -1464,7 +1464,7 @@ class AskFreeModelTests(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
-            with mock.patch("opai.app_state.ask", return_value=fake_result) as ask_mock:
+            with mock.patch("vesta.app_state.ask", return_value=fake_result) as ask_mock:
                 result = handle_gui_message(
                     root,
                     "Fix app.py and run tests.",
@@ -1478,7 +1478,7 @@ class AskFreeModelTests(unittest.TestCase):
         self.assertEqual(result["tool_trace"][-1]["tool"], "apply_patch")
 
     def test_gui_pipeline_cannot_bypass_free_model_confirmation(self):
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         selected = "free:gemini:gemini-3.1-flash-lite"
         with tempfile.TemporaryDirectory() as tmp:
@@ -1499,7 +1499,7 @@ class FreeToolCallingTests(unittest.TestCase):
     def test_free_read_only_run_offers_read_tools_and_loops(self):
         """tool_calling_enabled=True + allow_edits=False drives complete_with_tools
         with read-only authority — the model loops instead of narrating."""
-        from opaihub.ask import run_explicit_model
+        from vestahub.ask import run_explicit_model
 
         class RecordingLoopRunner:
             name = "free-api"
@@ -1542,8 +1542,8 @@ class FreeToolCallingTests(unittest.TestCase):
         self.assertEqual(result["completion_state"], "completed")
 
     def test_free_tool_loop_receives_the_deadline_budget(self):
-        from opaihub.ask import run_explicit_model
-        from opaihub.deadlines import DeadlineBudget
+        from vestahub.ask import run_explicit_model
+        from vestahub.deadlines import DeadlineBudget
 
         class RecordingLoopRunner:
             name = "free-api"
@@ -1587,7 +1587,7 @@ class FreeToolCallingTests(unittest.TestCase):
     def test_free_tool_loop_keeps_write_tools_gated_on_allow_edits(self):
         """allow_edits=False must reach the loop unchanged — write tools are
         derived from it inside the runner/executor."""
-        from opaihub.ask import run_explicit_model
+        from vestahub.ask import run_explicit_model
 
         class RecordingLoopRunner:
             name = "free-api"
@@ -1622,8 +1622,8 @@ class FreeToolCallingTests(unittest.TestCase):
     def test_no_tool_free_path_is_not_completed_when_nothing_happened(self):
         """F8: a single-shot free run with an empty answer used to default to
         'completed' — it must now report an honest non-completed state."""
-        from opaihub.ask import run_explicit_model
-        from opaihub.completion import result_is_completed
+        from vestahub.ask import run_explicit_model
+        from vestahub.completion import result_is_completed
 
         class ProseOnlyRunner:
             name = "free-api"
@@ -1649,8 +1649,8 @@ class FreeToolCallingTests(unittest.TestCase):
         self.assertFalse(result_is_completed(result))
 
     def test_no_tool_free_path_with_a_real_answer_still_completes(self):
-        from opaihub.ask import run_explicit_model
-        from opaihub.completion import result_is_completed
+        from vestahub.ask import run_explicit_model
+        from vestahub.completion import result_is_completed
 
         class ProseOnlyRunner:
             name = "free-api"
@@ -1686,7 +1686,7 @@ class FreeToolCallingTests(unittest.TestCase):
         response" evidence next to a "Failed" verdict). Smalltalk must resolve
         to a plain completion, never the tool loop, so this can't happen.
         """
-        from opaihub.gui_pipeline import request_tool_authority
+        from vestahub.gui_pipeline import request_tool_authority
 
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
@@ -1703,9 +1703,9 @@ class FreeToolCallingTests(unittest.TestCase):
         the smalltalk authority's ``tool_calling_enabled=False`` down to
         ``run_explicit_model`` must route "hi" through the plain completion
         path instead, so ``complete_with_tools`` is never even called."""
-        from opaihub.ask import run_explicit_model
-        from opaihub.completion import result_is_completed
-        from opaihub.gui_pipeline import request_tool_authority
+        from vestahub.ask import run_explicit_model
+        from vestahub.completion import result_is_completed
+        from vestahub.gui_pipeline import request_tool_authority
 
         class UnreliableToolRunner:
             name = "free-api"
@@ -1756,7 +1756,7 @@ class FreeToolCallingTests(unittest.TestCase):
 
     def test_ask_free_threads_tool_calling_enabled_to_explicit_run(self):
         """app_state.ask must pass the pipeline's tool authority down (F6/F7)."""
-        from opai.app_state import ask
+        from vesta.app_state import ask
 
         fake_result = {
             "status": "answered_locally",
@@ -1765,7 +1765,7 @@ class FreeToolCallingTests(unittest.TestCase):
         }
         with (
             mock.patch(
-                "opaihub.ask.run_explicit_model", return_value=fake_result
+                "vestahub.ask.run_explicit_model", return_value=fake_result
             ) as run_explicit,
             mock.patch.dict(
                 os.environ,
@@ -1787,7 +1787,7 @@ class FreeToolCallingTests(unittest.TestCase):
 
     def test_gui_pipeline_threads_tool_authority_to_free_model(self):
         """The pipeline computes RequestToolAuthority and passes it down."""
-        from opaihub.gui_pipeline import handle_gui_message
+        from vestahub.gui_pipeline import handle_gui_message
 
         selected = "free:gemini:gemini-3.1-flash-lite"
         fake_result = {
@@ -1798,7 +1798,7 @@ class FreeToolCallingTests(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(Path(tmp), files={"app.py": "value = 1\n"}, commit=True)
-            with mock.patch("opai.app_state.ask", return_value=fake_result) as ask_mock:
+            with mock.patch("vesta.app_state.ask", return_value=fake_result) as ask_mock:
                 handle_gui_message(
                     root,
                     "Explain this project",
@@ -1812,7 +1812,7 @@ class FreeToolCallingTests(unittest.TestCase):
 
     def test_explicit_run_threads_one_shot_allow_command_to_tool_loop(self):
         """F17/F9: the exact approved command reaches complete_with_tools."""
-        from opaihub.ask import run_explicit_model
+        from vestahub.ask import run_explicit_model
 
         class RecordingLoopRunner:
             name = "free-api"
@@ -1847,7 +1847,7 @@ class FreeToolCallingTests(unittest.TestCase):
 
     def test_allow_command_survives_runners_without_the_parameter(self):
         """Older runners that lack allow_command still run — the grant is additive."""
-        from opaihub.ask import run_explicit_model
+        from vestahub.ask import run_explicit_model
 
         class LegacyLoopRunner:
             name = "free-api"

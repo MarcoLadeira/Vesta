@@ -2,8 +2,8 @@
 
 Acceptance criterion 10 asks for database health, migration status and degraded
 integrity to appear in doctor and diagnostics. This is the first production
-code path that touches the journal at all -- until now nothing in ``opai/`` or
-``opaihub/`` imported ``journal_store``.
+code path that touches the journal at all -- until now nothing in ``vesta/`` or
+``vestahub/`` imported ``journal_store``.
 
 The interesting assertions are about *restraint*. It would be easy to make
 doctor shout about a journal that does not exist yet, and that would be worse
@@ -25,8 +25,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opai import cli
-from opaihub.journal_store import journal_path, open_store
+from vesta import cli
+from vestahub.journal_store import journal_path, open_store
 
 
 def _repo(root: Path) -> Path:
@@ -151,7 +151,7 @@ class JournalDoctorPayloadTests(_DoctorFixture):
         """Doctor reports a problem; it must not become one."""
 
         with mock.patch(
-            "opaihub.journal_store.store_health", side_effect=OSError("no disk")
+            "vestahub.journal_store.store_health", side_effect=OSError("no disk")
         ):
             payload = cli._journal_doctor(self.root)
 
@@ -315,7 +315,7 @@ class MigrationVisibilityTests(_DoctorFixture):
         self.assertEqual(facts["legacy_runs"], 0)
 
     def test_recorded_runs_are_counted(self):
-        from opaihub.journal_runtime import record_admission
+        from vestahub.journal_runtime import record_admission
 
         for index in range(3):
             record_admission(
@@ -331,7 +331,7 @@ class MigrationVisibilityTests(_DoctorFixture):
     def test_an_unreconciled_operation_blocks_and_is_counted(self):
         """The one state doctor *can* judge on its own: work still unanswered."""
 
-        from opaihub import idempotency
+        from vestahub import idempotency
 
         open_store(self.root).close()
         idempotency.begin(
@@ -358,7 +358,7 @@ class MigrationVisibilityTests(_DoctorFixture):
         """Doctor reports a problem; it must not become one."""
 
         with mock.patch(
-            "opaihub.journal_store.open_store", side_effect=OSError("gone")
+            "vestahub.journal_store.open_store", side_effect=OSError("gone")
         ):
             facts = cli._journal_migration(self.root)
 
@@ -378,7 +378,7 @@ class TheMigrationVerdictIsRealTests(_DoctorFixture):
     def _finished_runs(self, count: int) -> None:
         import dataclasses
 
-        from opaihub import background_runs
+        from vestahub import background_runs
 
         for index in range(count):
             run = background_runs.enqueue_automation(
@@ -427,7 +427,7 @@ class TheMigrationVerdictIsRealTests(_DoctorFixture):
     def test_an_unreconciled_operation_reopens_the_gate(self):
         """A finished migration is not permanently finished."""
 
-        from opaihub import idempotency
+        from vestahub import idempotency
 
         self._finished_runs(25)
         self.assertEqual(cli._journal_migration(self.root)["retirement"], "ready")
@@ -457,7 +457,7 @@ class BackupVisibilityTests(_DoctorFixture):
         self.assertEqual(payload["backups"], 0)
 
     def test_a_taken_backup_is_visible(self):
-        from opaihub import journal_backup
+        from vestahub import journal_backup
 
         open_store(self.root).close()
         journal_backup.create_backup(self.root, now="2026-08-26T12:00:00+00:00")
@@ -476,7 +476,7 @@ class BackupVisibilityTests(_DoctorFixture):
 
     def test_backup_health_never_raises(self):
         with mock.patch(
-            "opaihub.journal_backup.backup_health", side_effect=OSError("gone")
+            "vestahub.journal_backup.backup_health", side_effect=OSError("gone")
         ):
             payload = cli._journal_backup_health(self.root)
 
@@ -516,7 +516,7 @@ class RetentionAndPermissionVisibilityTests(_DoctorFixture):
         open_store(self.root).close()
 
         with mock.patch(
-            "opaihub.journal_retention.retention_health", side_effect=OSError("gone")
+            "vestahub.journal_retention.retention_health", side_effect=OSError("gone")
         ):
             self.assertFalse(cli._journal_retention(self.root)["available"])
 
@@ -530,7 +530,7 @@ class RetentionAndPermissionVisibilityTests(_DoctorFixture):
 
     def test_permissions_never_raise(self):
         with mock.patch(
-            "opaihub.journal_store.permissions_health", side_effect=OSError("gone")
+            "vestahub.journal_store.permissions_health", side_effect=OSError("gone")
         ):
             self.assertFalse(cli._journal_permissions(self.root)["checked"])
 

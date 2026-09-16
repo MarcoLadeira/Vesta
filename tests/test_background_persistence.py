@@ -9,15 +9,15 @@ from pathlib import Path
 
 import pytest
 
-from opaihub import background_runs
-from opaihub.background_runs import (
+from vestahub import background_runs
+from vestahub.background_runs import (
     enqueue_automation,
     list_runs,
     load_run,
     request_cancel,
     schedule_automation,
 )
-from opaihub.run_state import TERMINAL_STATES, RunState
+from vestahub.run_state import TERMINAL_STATES, RunState
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,8 +28,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from opaihub.background_runs import BackgroundRunner, load_run, request_cancel, schedule_automation, tick_automations
-from opaihub.run_state import RunState
+from vestahub.background_runs import BackgroundRunner, load_run, request_cancel, schedule_automation, tick_automations
+from vestahub.run_state import RunState
 
 root = Path(sys.argv[1])
 barrier = Path(sys.argv[2])
@@ -130,7 +130,7 @@ def test_background_run_and_schedule_writes_use_shared_atomic_io(
     run = enqueue_automation(tmp_path, "bug_fix", "task")
     schedule_automation(tmp_path, "bug_fix", "nightly sweep", cadence="daily")
 
-    state_dir = tmp_path / ".opaihub" / "agent" / "background"
+    state_dir = tmp_path / ".vestahub" / "agent" / "background"
     assert calls == [
         state_dir / "runs" / f"{run.run_id}.json",
         state_dir / "schedules.json",
@@ -145,7 +145,7 @@ def test_concurrent_schedule_mutations_preserve_every_schedule(tmp_path: Path) -
     assert {item["task"] for item in schedules} == {
         f"task {index}" for index in range(8)
     }
-    path = tmp_path / ".opaihub" / "agent" / "background" / "schedules.json"
+    path = tmp_path / ".vestahub" / "agent" / "background" / "schedules.json"
     assert list(path.parent.glob(f".{path.name}.*.tmp")) == []
 
 
@@ -184,6 +184,6 @@ def test_concurrent_cancel_and_finalization_leave_one_immutable_terminal(
     snapshot = final.to_dict()
     assert request_cancel(tmp_path, run.run_id).to_dict() == snapshot
     path = (
-        tmp_path / ".opaihub" / "agent" / "background" / "runs" / f"{run.run_id}.json"
+        tmp_path / ".vestahub" / "agent" / "background" / "runs" / f"{run.run_id}.json"
     )
     assert list(path.parent.glob(f".{path.name}.*.tmp")) == []

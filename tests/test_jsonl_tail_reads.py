@@ -8,18 +8,18 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub import (
+from vestahub import (
     audit,
     background_runs,
     benchmark,
     cost_telemetry,
     health,
     ledger,
-    opaibench,
+    vestabench,
     runs,
 )
-from opaihub.state import state_dir
-from opaihub.workflow_ledger import WorkflowLedger
+from vestahub.state import state_dir
+from vestahub.workflow_ledger import WorkflowLedger
 
 
 class JsonlTailReadTests(unittest.TestCase):
@@ -96,8 +96,8 @@ class JsonlTailReadTests(unittest.TestCase):
                     lambda: health.health_history(root, limit=2),
                 ),
                 (
-                    opaibench.opaibench_history_path(root),
-                    lambda: opaibench.read_opaibench_history(root, limit=2),
+                    vestabench.vestabench_history_path(root),
+                    lambda: vestabench.read_vestabench_history(root, limit=2),
                 ),
                 (runs.runs_path(root), lambda: runs.recent_runs(root, limit=2)),
                 (workflow.path, lambda: workflow.read(limit=2)),
@@ -136,8 +136,8 @@ class JsonlTailReadTests(unittest.TestCase):
                     lambda: health.health_history(root, limit=0),
                 ),
                 (
-                    opaibench.opaibench_history_path(root),
-                    lambda: opaibench.read_opaibench_history(root, limit=0),
+                    vestabench.vestabench_history_path(root),
+                    lambda: vestabench.read_vestabench_history(root, limit=0),
                 ),
                 (runs.runs_path(root), lambda: runs.recent_runs(root, limit=0)),
                 (workflow.path, lambda: workflow.read(limit=0)),
@@ -206,8 +206,8 @@ class JsonlTailReadTests(unittest.TestCase):
                     lambda: health.health_history(root, limit=2),
                 ),
                 (
-                    opaibench.opaibench_history_path(root),
-                    lambda: opaibench.read_opaibench_history(root, limit=2),
+                    vestabench.vestabench_history_path(root),
+                    lambda: vestabench.read_vestabench_history(root, limit=2),
                 ),
                 (runs.runs_path(root), lambda: runs.recent_runs(root, limit=2)),
             )

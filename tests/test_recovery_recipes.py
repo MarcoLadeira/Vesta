@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import unittest
 
-from opaihub.failure_envelope import FailureCategory, FailureEnvelope
-from opaihub.recovery_recipes import (
+from vestahub.failure_envelope import FailureCategory, FailureEnvelope
+from vestahub.recovery_recipes import (
     READ_ONLY_ACTIONS,
     RECIPES,
     RecipeError,
@@ -42,7 +42,7 @@ class SelectionTests(unittest.TestCase):
         specific = select_recipe(envelope("unknown field", "github-cli"))
         generic = select_recipe(envelope("deprecated api", "some-other-tool"))
         self.assertEqual(specific.action.action, "github_rest_api")
-        self.assertEqual(generic.action.action, "opai_github_connector")
+        self.assertEqual(generic.action.action, "vesta_github_connector")
 
     def test_each_category_has_a_deterministic_action(self) -> None:
         cases = {

@@ -20,8 +20,8 @@ from __future__ import annotations
 
 import pytest
 
-from opaihub.agent_runtime import _FORWARD, RuntimePhase
-from opaihub.run_state import (
+from vestahub.agent_runtime import _FORWARD, RuntimePhase
+from vestahub.run_state import (
     TERMINAL_STATES,
     RunState,
     can_transition,

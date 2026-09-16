@@ -7,14 +7,14 @@ import shutil
 
 import pytest
 
-from opai.asset_identity import (
+from vesta.asset_identity import (
     AssetIntegrityError,
     REQUIRED_WEB_ASSETS,
     asset_manifest,
     load_asset_binding,
     verify_asset_binding,
 )
-from opai.compatibility import (
+from vesta.compatibility import (
     RuntimeCompatibilityError,
     runtime_compatibility_payload,
     validate_runtime_compatibility,
@@ -22,7 +22,7 @@ from opai.compatibility import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
-ASSETS = ROOT / "opai" / "assets"
+ASSETS = ROOT / "vesta" / "assets"
 # A public SHA-256 of the vendored markdown-it bundle, not a credential.
 MARKDOWN_IT_SHA256 = "38c70a1e7ca91ab40e2d9e6e60129851a717ed1c7d4acbbdd41bf9503791cf68"  # pragma: allowlist secret
 

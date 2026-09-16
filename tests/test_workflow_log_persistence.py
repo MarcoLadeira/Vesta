@@ -10,9 +10,9 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub import run_journal, workflow_runner
-from opaihub.run_state import TERMINAL_STATES, RunState, exit_code_for
-from opaihub.workflow_runner import read_workflow_log, run_workflow
+from vestahub import run_journal, workflow_runner
+from vestahub.run_state import TERMINAL_STATES, RunState, exit_code_for
+from vestahub.workflow_runner import read_workflow_log, run_workflow
 
 
 class _CompletedCommand:
@@ -484,14 +484,14 @@ class WorkflowCliParityTests(unittest.TestCase):
     def test_workflow_cli_uses_the_canonical_terminal_exit_code(self) -> None:
         """Scripts can distinguish a partial workflow from an execution failure."""
 
-        from opaihub.cli import cmd_workflow
+        from vestahub.cli import cmd_workflow
 
         args = type(
             "Args",
             (),
             {"project": ".", "id": "workflow", "execute": True, "timeout": 120},
         )()
-        with mock.patch("opaihub.cli.run_workflow") as run:
+        with mock.patch("vestahub.cli.run_workflow") as run:
             run.return_value = {
                 "executed": True,
                 "run_state": RunState.PARTIAL.value,

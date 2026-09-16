@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub.guarded import (
+from vestahub.guarded import (
     build_evidence_packet,
     check_path_lock,
     guard_action,

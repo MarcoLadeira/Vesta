@@ -2,10 +2,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub.eval_harness import run_eval
-from opaihub.local_models import classify_endpoint, discover_local_models
-from opaihub.policy import evaluate_action, list_profiles, resolve_policy, set_profile
-from opaihub.router import route_task
+from vestahub.eval_harness import run_eval
+from vestahub.local_models import classify_endpoint, discover_local_models
+from vestahub.policy import evaluate_action, list_profiles, resolve_policy, set_profile
+from vestahub.router import route_task
 
 
 class PolicyProfileTests(unittest.TestCase):
@@ -145,7 +145,7 @@ class LoopbackValidationTests(unittest.TestCase):
             ),
         ):
             # Ensure no local commands are picked up for this assertion.
-            with mock.patch("opaihub.local_models.shutil.which", return_value=None):
+            with mock.patch("vestahub.local_models.shutil.which", return_value=None):
                 result = discover_local_models(Path(tmp))
         self.assertFalse(result["available"])
         self.assertIn(
@@ -167,7 +167,7 @@ class EvalHarnessTests(unittest.TestCase):
             self.assertNotIn("task", item)
 
     def test_eval_no_write_does_not_create_file(self):
-        from opaihub.eval_harness import eval_path
+        from vestahub.eval_harness import eval_path
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

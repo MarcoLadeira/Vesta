@@ -28,7 +28,7 @@ shadows are per-record JSONL files. They cannot provide:
 
 Use one SQLite database in WAL mode as the transactional runtime journal, with
 the schema #613 specifies, reached only through a typed API in
-`opaihub/journal_store.py`.
+`vestahub/journal_store.py`.
 
 ### Why SQLite WAL
 

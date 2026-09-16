@@ -25,15 +25,15 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub import gui_pipeline, journal_runtime
-from opaihub.cost_telemetry import normalize_account_result
-from opaihub.journal_runtime import (
+from vestahub import gui_pipeline, journal_runtime
+from vestahub.cost_telemetry import normalize_account_result
+from vestahub.journal_runtime import (
     EVENT_ADMITTED,
     EVENT_CANCELLED,
     EVENT_FINISHED,
     record_admission,
 )
-from opaihub.journal_store import journal_path, open_store, read_events
+from vestahub.journal_store import journal_path, open_store, read_events
 
 NOW = "2026-08-25T12:00:00+00:00"
 _UNSET = object()

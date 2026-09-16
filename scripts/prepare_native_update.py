@@ -11,19 +11,19 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from opai.release_identity import (  # noqa: E402
+from vesta.release_identity import (  # noqa: E402
     ReleaseIdentityError,
     validate_artifact_identity,
 )
-from opai.update.models import InstallType  # noqa: E402
-from opai.update.packaging import (  # noqa: E402
+from vesta.update.models import InstallType  # noqa: E402
+from vesta.update.packaging import (  # noqa: E402
     make_msix,
     prepare_macos_sparkle_bundle,
     prepare_msix_layout,
     runtime_identity,
     write_runtime_configuration,
 )
-from opai.update.release import ReleaseError  # noqa: E402
+from vesta.update.release import ReleaseError  # noqa: E402
 
 
 def _object(path: Path) -> dict[str, object]:

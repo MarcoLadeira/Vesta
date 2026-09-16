@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from opaihub.command_runner import run_policy_command
+from vestahub.command_runner import run_policy_command
 
 from . import __version__
 from .context_manager import load_profile
@@ -69,7 +69,7 @@ def integrate_status() -> dict[str, Any]:
         }
     ready = [k for k, v in tools.items() if v["available"]]
     return {
-        "opai_version": __version__,
+        "vesta_version": __version__,
         "tools": tools,
         "ready": ready,
         "status": "ok" if ready else "no AI coding tools found in PATH",
@@ -95,9 +95,9 @@ def launch_tool(tool: str, extra_args: list[str]) -> int:
         print(str(exc), file=sys.stderr)
         return 2
 
-    from opai.cli import main as opai_main
+    from vesta.cli import main as vesta_main
 
-    return opai_main(plan["opai_args"])
+    return vesta_main(plan["vesta_args"])
 
 
 def launch_plan(tool: str, extra_args: list[str]) -> dict[str, Any]:
@@ -107,5 +107,5 @@ def launch_plan(tool: str, extra_args: list[str]) -> dict[str, Any]:
     return {
         "tool": tool,
         "tool_args": list(extra_args),
-        "opai_args": ["launch", tool, "--", *extra_args],
+        "vesta_args": ["launch", tool, "--", *extra_args],
     }

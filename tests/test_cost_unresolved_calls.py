@@ -21,14 +21,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from opaihub.ledger import (
+from vestahub.ledger import (
     cost_reconciliation,
     record_model_call_finalized,
     record_model_call_started,
     unresolved_model_calls,
 )
-from opaihub.usage import build_usage_snapshots
-from opaihub.usage_report import ProviderTurnUsage
+from vestahub.usage import build_usage_snapshots
+from vestahub.usage_report import ProviderTurnUsage
 
 MODELS = [{"id": "m", "provider": "p"}]
 USAGE = ProviderTurnUsage.from_provider(

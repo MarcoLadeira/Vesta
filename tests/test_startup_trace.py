@@ -14,8 +14,8 @@ from unittest import mock
 
 from _helpers import make_repo
 
-from opai import gui_web
-from opaihub.startup_trace import StartupTrace, trace_enabled, trace_path
+from vesta import gui_web
+from vestahub.startup_trace import StartupTrace, trace_enabled, trace_path
 
 
 class _FakeClock:
@@ -68,7 +68,7 @@ class StartupTraceTests(unittest.TestCase):
             enabled2.write(path)
             lines = path.read_text(encoding="utf-8").strip().splitlines()
             self.assertEqual(len(lines), 2)  # appended, not overwritten
-            self.assertEqual(json.loads(lines[0])["kind"], "opai_startup_trace")
+            self.assertEqual(json.loads(lines[0])["kind"], "vesta_startup_trace")
 
     def test_enabled_but_empty_writes_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -78,9 +78,9 @@ class StartupTraceTests(unittest.TestCase):
 
     def test_trace_enabled_flag_parsing(self):
         for value in ("1", "true", "TRUE", "yes", "on"):
-            self.assertTrue(trace_enabled({"OPAI_STARTUP_TRACE": value}), value)
+            self.assertTrue(trace_enabled({"VESTA_STARTUP_TRACE": value}), value)
         for value in ("", "0", "false", "off", "no"):
-            self.assertFalse(trace_enabled({"OPAI_STARTUP_TRACE": value}), value)
+            self.assertFalse(trace_enabled({"VESTA_STARTUP_TRACE": value}), value)
         self.assertFalse(trace_enabled({}))
 
     def test_trace_path_is_local_state(self):

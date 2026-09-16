@@ -6,9 +6,9 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from opaihub import atomic_io, context_engine
-from opaihub.atomic_io import InterprocessLockTimeout
-from opaihub.context_engine import (
+from vestahub import atomic_io, context_engine
+from vestahub.atomic_io import InterprocessLockTimeout
+from vestahub.context_engine import (
     CLIENT_IGNORE_FILES,
     generate_client_ignores,
     profile_context,
@@ -296,7 +296,7 @@ class IgnoreLockPlacementTests(unittest.TestCase):
             root = Path(tmp)
             generate_client_ignores(root)
             self.assertEqual(sorted(p.name for p in root.glob("*.lock")), [])
-            self.assertTrue((root / ".opaihub" / "locks").is_dir())
+            self.assertTrue((root / ".vestahub" / "locks").is_dir())
 
 
 if __name__ == "__main__":

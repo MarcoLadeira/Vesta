@@ -8,7 +8,7 @@ and the GUI's boot waits on one (``save_active_repo``). The unit gate's
 ``test_session_resume`` symlink test hung for exactly this reason, on ``main``,
 until the gate's thirty-minute budget killed the whole run.
 
-``opai/__init__.py`` bounds the loop for every Vesta process. These tests make a
+``vesta/__init__.py`` bounds the loop for every Vesta process. These tests make a
 directory refuse every name, deterministically, rather than depending on a
 machine that happens to have the symlink behaviour.
 """
@@ -22,13 +22,13 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import opai
-from opaihub.atomic_io import atomic_write_text
+import vesta
+from vestahub.atomic_io import atomic_write_text
 
 
 class TempfileAttemptsAreBoundedTests(unittest.TestCase):
-    def test_every_opai_process_bounds_the_retries(self):
-        self.assertLessEqual(tempfile.TMP_MAX, opai.TEMPFILE_ATTEMPTS)
+    def test_every_vesta_process_bounds_the_retries(self):
+        self.assertLessEqual(tempfile.TMP_MAX, vesta.TEMPFILE_ATTEMPTS)
 
     def _write_into_a_directory_that_refuses(self, refusal: OSError):
         attempts: list[str] = []
@@ -66,7 +66,7 @@ class TempfileAttemptsAreBoundedTests(unittest.TestCase):
         )
 
         self.assertIsInstance(error, FileExistsError)
-        self.assertLessEqual(len(attempts), opai.TEMPFILE_ATTEMPTS)
+        self.assertLessEqual(len(attempts), vesta.TEMPFILE_ATTEMPTS)
 
     @unittest.skipUnless(os.name == "nt", "tempfile retries this only on Windows")
     def test_permission_denied_for_every_name_is_an_error_not_a_hang(self):
@@ -75,7 +75,7 @@ class TempfileAttemptsAreBoundedTests(unittest.TestCase):
         )
 
         self.assertIsInstance(error, OSError)
-        self.assertLessEqual(len(attempts), opai.TEMPFILE_ATTEMPTS)
+        self.assertLessEqual(len(attempts), vesta.TEMPFILE_ATTEMPTS)
 
 
 if __name__ == "__main__":  # pragma: no cover

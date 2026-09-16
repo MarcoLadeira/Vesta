@@ -9,10 +9,10 @@ import zipfile
 import pytest
 import yaml
 
-from opai._generated_release import APPLICATION_VERSION, RELEASE_CHANNEL
-from opai.asset_identity import asset_manifest
-from opai.update.models import InstallType
-from opai.update.packaging import runtime_identity
+from vesta._generated_release import APPLICATION_VERSION, RELEASE_CHANNEL
+from vesta.asset_identity import asset_manifest
+from vesta.update.models import InstallType
+from vesta.update.packaging import runtime_identity
 from scripts import prepare_native_update, qualify_native_update
 
 
@@ -47,7 +47,7 @@ def test_production_signing_binds_assets_from_the_candidate_provenance():
     assert '--candidate-provenance "$BUNDLE/provenance.json"' in source
     assert "--candidate-platform windows" in source
     assert "--candidate-platform darwin" in source
-    assert '--asset-root "$GITHUB_WORKSPACE/opai/assets"' not in source
+    assert '--asset-root "$GITHUB_WORKSPACE/vesta/assets"' not in source
 
 
 def test_native_runtime_configuration_uses_validated_candidate_assets(
@@ -55,7 +55,7 @@ def test_native_runtime_configuration_uses_validated_candidate_assets(
 ):
     build_id = "a" * 40
     candidate_version = "0.2.0a1"
-    candidate_assets = asset_manifest(ROOT / "opai" / "assets")
+    candidate_assets = asset_manifest(ROOT / "vesta" / "assets")
     candidate_assets["application_version"] = candidate_version
     candidate_assets["fingerprint_sha256"] = "f" * 64
     candidate_compatibility = {
@@ -126,7 +126,7 @@ def test_native_runtime_configuration_uses_validated_candidate_assets(
             "--install-type",
             "windows_msix",
             "--package-identity",
-            "OPai.Desktop",
+            "Vesta.Desktop",
             "--publisher-identity",
             "CN=Vesta",
         ]
@@ -144,9 +144,9 @@ def test_macos_native_artifact_has_one_canonical_name_across_release_jobs():
     )
     publication = WORKFLOW.read_text(encoding="utf-8")
 
-    assert 'NATIVE_PACKAGE="$NATIVE_OUTPUT/OPai-${RELEASE_TAG}-macos.zip"' in desktop
+    assert 'NATIVE_PACKAGE="$NATIVE_OUTPUT/Vesta-${RELEASE_TAG}-macos.zip"' in desktop
     assert "macos-$(uname -m).zip" not in desktop
-    assert 'MACOS_ARCHIVE="$MACOS_STAGING/OPai-${RELEASE_TAG}-macos.zip"' in publication
+    assert 'MACOS_ARCHIVE="$MACOS_STAGING/Vesta-${RELEASE_TAG}-macos.zip"' in publication
 
 
 def test_publication_requires_both_real_native_matrix_hosts():
@@ -178,16 +178,16 @@ def test_native_qualification_rejects_an_artifact_for_another_build(tmp_path: Pa
         platform="windows",
         architecture="x86_64",
         install_type=InstallType.WINDOWS_MSIX,
-        package_identity="OPai.Desktop",
+        package_identity="Vesta.Desktop",
         publisher_identity="CN=Vesta",
-        assets=asset_manifest(ROOT / "opai" / "assets"),
+        assets=asset_manifest(ROOT / "vesta" / "assets"),
     )
     package = tmp_path / "candidate.msix"
     with zipfile.ZipFile(package, "w") as archive:
         archive.writestr("release-identity.json", json.dumps(identity))
     host = SimpleNamespace(
         platform="windows",
-        package_identity="OPai.Desktop",
+        package_identity="Vesta.Desktop",
         publisher_identity="CN=Vesta",
     )
 

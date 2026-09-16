@@ -2,17 +2,17 @@
 
 **Date:** 2026-07-25  
 **Target:** PR #511 (`fix/qa-round2-push-consent-and-status-honesty`)  
-**Session:** OPai GUI, Full Auto, Claude Sonnet 4.6; live QuotePack throwaway-repository context.
+**Session:** Vesta GUI, Full Auto, Claude Sonnet 4.6; live QuotePack throwaway-repository context.
 
 ## Reproduced remaining defects
 
 ### QAR7-01 — `gh pr comment` is incorrectly treated as destructive
 
-**Severity:** High — it prevents the requested GitHub update from being completed through OPai.
+**Severity:** High — it prevents the requested GitHub update from being completed through Vesta.
 
 **Steps:**
 
-1. Ask OPai to post the supplied QA Round 6 retest comment using `gh pr comment 511 --repo MarcoLadeira/OPai --body-file ...`.
+1. Ask Vesta to post the supplied QA Round 6 retest comment using `gh pr comment 511 --repo MarcoLadeira/Vesta --body-file ...`.
 2. Repeat with the comment body first saved to a local markdown file, so the command itself contains no quoted `git push` text.
 3. Explicitly authorize the command in a follow-up request.
 
@@ -32,17 +32,17 @@ Posting a pull-request comment must not be parsed as a git push merely because i
 
 **Steps:**
 
-1. Ask OPai to post a comment to PR #511.
+1. Ask Vesta to post a comment to PR #511.
 2. Observe the safety gate block every `gh pr comment` invocation.
 3. The agent writes `.pr511-comment.md` locally after the block.
 
 **Observed:**
 
-The workflow subsequently displayed **Completed — Objective verified from OPai-observed evidence**, even though no GitHub comment command succeeded and the only new artifact was a local markdown file. The workflow history also showed an `Implement` / `Reviewing Diff` completion state for this unfulfilled GitHub-comment objective.
+The workflow subsequently displayed **Completed — Objective verified from Vesta-observed evidence**, even though no GitHub comment command succeeded and the only new artifact was a local markdown file. The workflow history also showed an `Implement` / `Reviewing Diff` completion state for this unfulfilled GitHub-comment objective.
 
 **Expected:**
 
-For an objective whose success condition is an external GitHub mutation, local file creation is not completion evidence. The terminal verdict, status pill, and bottom summary must remain blocked/partial and explain that the comment was not posted until OPai receives a successful command result or independently verifies the remote comment.
+For an objective whose success condition is an external GitHub mutation, local file creation is not completion evidence. The terminal verdict, status pill, and bottom summary must remain blocked/partial and explain that the comment was not posted until Vesta receives a successful command result or independently verifies the remote comment.
 
 ## Controls observed
 

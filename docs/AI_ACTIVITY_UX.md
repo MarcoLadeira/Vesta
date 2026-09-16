@@ -24,7 +24,7 @@ shows calm, truthful, logical rows.
 
 ## The event model (schema v2)
 
-Events are created in **`opai/activity.py`** (`make_event`). Schema v2 extends
+Events are created in **`vesta/activity.py`** (`make_event`). Schema v2 extends
 v1 with four optional fields; absent fields keep v1 behavior, so v2 is fully
 backward compatible:
 
@@ -78,7 +78,7 @@ path uses a fixed vocabulary so repeated states **update one row in place**
 
 The per-request state (tool counter, group counter, Codex `item_id → event_id`
 map, one-shot connect guard, start timestamps) lives in an **`ActivitySession`**
-object in `opai/activity.py`, constructed once per request by the runner.
+object in `vesta/activity.py`, constructed once per request by the runner.
 `parse_claude_line` / `parse_codex_line` stay available as module-level
 wrappers during migration.
 
@@ -87,7 +87,7 @@ wrappers during migration.
 Grouping is **presentation, storage is truth**:
 
 - The store keeps every individual raw event.
-- A pure function (`groupRows` in `opai/assets/web/activity.js`) folds
+- A pure function (`groupRows` in `vesta/assets/web/activity.js`) folds
   **consecutive** feed events sharing a `group` key into one logical row:
   `{kind: "group", title: "Read 4 files", status: worst(children), children}`.
 - Group status is worst-of-children (`error` > `warning` > `running` >
@@ -116,14 +116,14 @@ Grouping is **presentation, storage is truth**:
   completion.
 - **Message metadata footer**: model · duration · cost/savings receipt.
 - **Global "AI working" pulse** on the brand dot while a request is active.
-- **CLI mirror** (`opai/cli_stream.py`): same session, same ids. On a TTY the
+- **CLI mirror** (`vesta/cli_stream.py`): same session, same ids. On a TTY the
   phase row renders as one rewriting line (`\r`); non-TTY prints sequential
   lines. Groups print as `├ Read file ×4`.
 
 ## Transport
 
 Events are delivered over the bridge's `activityBatch` signal as JSON arrays
-(`opai/activity_batch.py` `ActivityBatcher`): worker threads append to a
+(`vesta/activity_batch.py` `ActivityBatcher`): worker threads append to a
 lock-guarded buffer, a GUI-thread `QTimer` drains it into one payload every
 ~33 ms, and a force-flush at request end (reply/error/cancel) delivers the
 tail so no event is lost or arrives after the answer. A 200-event turn costs

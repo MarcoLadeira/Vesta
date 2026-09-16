@@ -12,7 +12,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from opaihub.background_runs import (
+from vestahub.background_runs import (
     AutomationRun,
     BackgroundRunner,
     RUN_STATUSES,
@@ -28,9 +28,9 @@ from opaihub.background_runs import (
     schedule_automation,
     tick_automations,
 )
-from opaihub.journal_store import journal_path, open_store
-from opaihub.run_state import RunState
-from opaihub.run_result import RunResult
+from vestahub.journal_store import journal_path, open_store
+from vestahub.run_state import RunState
+from vestahub.run_result import RunResult
 
 
 def _completed_executor(project_root, run, cancel_event):
@@ -47,7 +47,7 @@ def _completed_executor(project_root, run, cancel_event):
     # _canonical_result validates before trusting, and a stub payload is
     # indistinguishable from a corrupted record, so it degrades to
     # needs_attention exactly as it should.
-    from opaihub.run_result import RunResult
+    from vestahub.run_result import RunResult
 
     canonical = RunResult.from_payload(
         state="completed",
@@ -126,7 +126,7 @@ class EnqueueTests(unittest.TestCase):
             run = enqueue_automation(root, "bug_fix", f"rotate token={secret}")
             raw_run = json.dumps(load_run(root, run.run_id).to_dict())
             raw_notes = json.dumps(read_notifications(root))
-            events = (root / ".opaihub" / "agent" / "events.jsonl").read_text(
+            events = (root / ".vestahub" / "agent" / "events.jsonl").read_text(
                 encoding="utf-8"
             )
 
@@ -540,8 +540,8 @@ def _simulate_owner_death(root: Path, run_id: str) -> None:
     a fixture that only rewrites the file is simulating a lie, not a crash.
     """
 
-    from opaihub.call_reconciliation import pid_is_running
-    from opaihub.journal_store import open_store
+    from vestahub.call_reconciliation import pid_is_running
+    from vestahub.journal_store import open_store
 
     dead = _really_dead_pid()
     if pid_is_running(dead) is not False:  # pragma: no cover - pid was reused
@@ -549,7 +549,7 @@ def _simulate_owner_death(root: Path, run_id: str) -> None:
     store = open_store(root)
     try:
         store.execute(
-            "UPDATE leases SET owner_pid = ?, owner_boot = 'a-dead-opai'"
+            "UPDATE leases SET owner_pid = ?, owner_boot = 'a-dead-vesta'"
             " WHERE run_id = ?",
             (dead, run_id),
         )
@@ -563,7 +563,7 @@ class DurabilityTests(unittest.TestCase):
             root = Path(tmp)
             run = enqueue_automation(root, "bug_fix", "task")
             # Simulate a crash: the run file says running, but no session owns it.
-            path = root / ".opaihub" / "agent" / "background" / "runs"
+            path = root / ".vestahub" / "agent" / "background" / "runs"
             data = json.loads((path / f"{run.run_id}.json").read_text("utf-8"))
             data["status"] = "running"
             (path / f"{run.run_id}.json").write_text(json.dumps(data), encoding="utf-8")
@@ -593,7 +593,7 @@ class DurabilityTests(unittest.TestCase):
             # legacy status for CANCEL_REQUESTED is "running" (nothing has
             # observed it stop yet), which is exactly what the orphan sweep
             # scans for.
-            path = root / ".opaihub" / "agent" / "background" / "runs"
+            path = root / ".vestahub" / "agent" / "background" / "runs"
             record_path = path / f"{run.run_id}.json"
             data = json.loads(record_path.read_text("utf-8"))
             data["status"] = "running"
@@ -618,7 +618,7 @@ class DurabilityTests(unittest.TestCase):
             run = enqueue_automation(root, "bug_fix", "task")
             path = (
                 root
-                / ".opaihub"
+                / ".vestahub"
                 / "agent"
                 / "background"
                 / "runs"
@@ -641,7 +641,7 @@ class DurabilityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             run = enqueue_automation(root, "bug_fix", "task")
-            path = root / ".opaihub" / "agent" / "background" / "runs"
+            path = root / ".vestahub" / "agent" / "background" / "runs"
             data = json.loads((path / f"{run.run_id}.json").read_text("utf-8"))
             data["status"] = "running"
             (path / f"{run.run_id}.json").write_text(json.dumps(data), encoding="utf-8")
@@ -695,7 +695,7 @@ class CliTests(unittest.TestCase):
         import contextlib
         import io
 
-        from opaihub.cli import main
+        from vestahub.cli import main
 
         with tempfile.TemporaryDirectory() as tmp:
             out = io.StringIO()
@@ -730,7 +730,7 @@ class CliTests(unittest.TestCase):
         import contextlib
         import io
 
-        from opaihub.cli import main
+        from vestahub.cli import main
 
         with tempfile.TemporaryDirectory() as tmp:
             out = io.StringIO()
@@ -777,13 +777,13 @@ class RecoveryLeavesLiveWorkAloneTests(unittest.TestCase):
     executed by a live Vesta was filed as ``failed`` with the message "the
     owning session ended before it finished", while the owning session was
     demonstrably still there. ``active_run_ids`` could not have prevented it --
-    it names only the calling process's own runs, and `opaihub/cli.py` passes
+    it names only the calling process's own runs, and `vestahub/cli.py` passes
     none at all.
     """
 
     def _running_run(self, root: Path):
         run = enqueue_automation(root, "bug_fix", "task")
-        path = root / ".opaihub" / "agent" / "background" / "runs"
+        path = root / ".vestahub" / "agent" / "background" / "runs"
         record = path / f"{run.run_id}.json"
         data = json.loads(record.read_text("utf-8"))
         data["status"] = "running"
@@ -812,7 +812,7 @@ class RecoveryLeavesLiveWorkAloneTests(unittest.TestCase):
             store = open_store(root)
             try:
                 store.execute(
-                    "UPDATE leases SET owner_pid = ?, owner_boot = 'another-opai'",
+                    "UPDATE leases SET owner_pid = ?, owner_boot = 'another-vesta'",
                     (os.getpid(),),
                 )
             finally:

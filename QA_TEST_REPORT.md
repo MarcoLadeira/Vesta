@@ -1,8 +1,8 @@
-# OPai E2E QA Report
+# Vesta E2E QA Report
 
 ## 1. Summary
 
-This testing-only change expands OPai's browser E2E suite from 25 to 148 tests.
+This testing-only change expands Vesta's browser E2E suite from 25 to 148 tests.
 It exercises the real desktop web assets in Chromium through a deterministic
 mock QWebChannel bridge. No test contacts Claude, Codex, Copilot, Ollama, or any
 paid/network provider.
@@ -13,10 +13,10 @@ paid/network provider.
 - Vitest: 10 passed.
 - Python: 784 passed, 1 skipped.
 - Quality gates: Ruff, formatting, Bandit, registry validation, npm audit, and
-  the OPai benchmark gate passed.
+  the Vesta benchmark gate passed.
 - Product logic changed: no.
 
-## 2. OPai Testing Baseline Report
+## 2. Vesta Testing Baseline Report
 
 | Area | Finding | Risk |
 | --- | --- | --- |
@@ -24,12 +24,12 @@ paid/network provider.
 | Test framework | Python `unittest`, Vitest, and Playwright/Chromium are established. | Low |
 | Existing E2E coverage | 25 tests covered core activity, branding, capture, and folder selection. | High gaps before this PR |
 | Mock provider availability | A QWebChannel mock existed; this PR extends it with deterministic scenarios and state tracking. | Low |
-| App start command | Browser assets are served locally by Playwright; native app is `python -m opai gui`. | Low |
+| App start command | Browser assets are served locally by Playwright; native app is `python -m vesta gui`. | Low |
 | CLI testability | CLI can run in isolated temporary HOME/project directories without provider calls. | Low |
 | CI readiness | Node 22, Chromium, npm audit, Vitest, and Playwright already run in a separate CI job. | Low |
 | Test blockers | Real provider, billing, OS-native Qt dialog, and destructive-operation tests are intentionally excluded. | Controlled |
 
-## 3. OPai Feature Test Map
+## 3. Vesta Feature Test Map
 
 | Feature | Current surface | Critical behaviours | Priority |
 | --- | --- | --- | --- |
@@ -47,7 +47,7 @@ paid/network provider.
 | Inspector | Right-side inspector | Live activity, request/provider/cost detail, open/close | P1 |
 | Prompt Library | Prompt Library | Search, category filter, composer insertion, empty state | P2 |
 | Settings / connections | Settings and Connections | Accounts, privacy, defaults, persistence, sparse data | P1 |
-| Branding and copy | All user surfaces | OPai identity, human errors, no raw route IDs or broken sentinels | P1 |
+| Branding and copy | All user surfaces | Vesta identity, human errors, no raw route IDs or broken sentinels | P1 |
 | Responsiveness | Desktop web surface | Desktop/tablet/mobile usability and overflow | P1 |
 | Accessibility | Core controls and overlays | Names, keyboard operation, focus, status semantics | P1 |
 | CLI parity | Local CLI | Help, GUI contract, Safe Auto, wording and secret isolation | P1 |
@@ -61,7 +61,7 @@ paid/network provider.
 | Auth and recovery states | Success/error matrix | `provider-auth.spec.js`, `errors-recovery.spec.js` |
 | Savings, firewall, context, benchmark | Product-value contracts | `money-saved.spec.js`, `cost-firewall.spec.js`, `context-waste.spec.js`, `benchmark.spec.js` |
 | Prompts, agents, workflows, proof | Major secondary surfaces | `prompt-library.spec.js`, `agents-workflows.spec.js`, `proof-bundle.spec.js` |
-| Inspector, branding, models, modes | User and advanced-state contracts | `inspector.spec.js`, `opai-branding.spec.js`, `model-mode.spec.js` |
+| Inspector, branding, models, modes | User and advanced-state contracts | `inspector.spec.js`, `vesta-branding.spec.js`, `model-mode.spec.js` |
 | Settings and confirmation | State persistence and mutation gates | `settings-connections.spec.js`, `tool-confirmation.spec.js` |
 | Loading, viewport, accessibility | Cross-cutting quality | `loading-states.spec.js`, `responsiveness.spec.js`, `accessibility.spec.js` |
 | CLI and known regressions | Cross-surface contracts | `cli-parity.spec.js`, `regression.spec.js` |
@@ -81,9 +81,9 @@ converted to ordinary passing assertions when the product bug is fixed.
 | Medium | BUG-QA-005: command palette has no dialog semantics | Open the command palette with keyboard. | Named `dialog` available to assistive tech. | Generic overlay only. | `accessibility.spec.js` |
 | Medium | BUG-QA-006: model/mode selectors have no accessible names | Inspect composer controls by role. | Both selects have stable accessible names. | Unnamed comboboxes. | `accessibility.spec.js` |
 | Medium | BUG-QA-008: unavailable models remain selectable | Supply an unavailable model with a disabled reason. | Disabled option explains why. | Option is enabled; reason ignored. | `model-mode.spec.js` |
-| Medium | BUG-QA-011: clean Python crashes while loading GUI workflow data | Run `opai gui --once` without PyYAML installed. | Dependency-free headless state or an actionable dependency error. | YAML registry text is passed to `json.loads` and raises `JSONDecodeError`. | `cli-parity.spec.js` |
-| Low | BUG-QA-007: workspace tooltip loses brand tagline | Load app and inspect workspace tooltip. | OPai tagline remains. | Workspace render overwrites it. | `opai-branding.spec.js` |
-| Low | BUG-QA-010: form controls use an inconsistent fallback font | Compare composer/select/button computed fonts. | Bundled soft UI font is shared. | Controls fall back to Arial. | `opai-branding.spec.js` |
+| Medium | BUG-QA-011: clean Python crashes while loading GUI workflow data | Run `vesta gui --once` without PyYAML installed. | Dependency-free headless state or an actionable dependency error. | YAML registry text is passed to `json.loads` and raises `JSONDecodeError`. | `cli-parity.spec.js` |
+| Low | BUG-QA-007: workspace tooltip loses brand tagline | Load app and inspect workspace tooltip. | Vesta tagline remains. | Workspace render overwrites it. | `vesta-branding.spec.js` |
+| Low | BUG-QA-010: form controls use an inconsistent fallback font | Compare composer/select/button computed fonts. | Bundled soft UI font is shared. | Controls fall back to Arial. | `vesta-branding.spec.js` |
 
 ## 6. Untested Areas
 
@@ -116,7 +116,7 @@ Message logic changed: NO
 BUG-QA-001 through BUG-QA-010 are **fixed**; their `test.fail()` annotations
 were removed and the assertions now run as permanent regression contracts
 (`accessibility`, `activity-truth`, `errors-recovery`, `model-mode`,
-`opai-branding`, `provider-auth`, `responsiveness` specs — all passing).
+`vesta-branding`, `provider-auth`, `responsiveness` specs — all passing).
 BUG-QA-011 (PyYAML-less headless GUI) remains open; its conditional
 annotation in `cli-parity.spec.js` still applies only on Python environments
 without PyYAML.

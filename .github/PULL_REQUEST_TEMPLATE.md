@@ -13,5 +13,5 @@
 ```sh
 python -m ruff check .
 python -m unittest discover -s tests
-python -m opaihub validate
+python -m vestahub validate
 ```

@@ -25,7 +25,7 @@ only bounded local diagnostics.
 
 ## Architecture
 
-`opaihub.verification_execution` is the only module allowed to create a
+`vestahub.verification_execution` is the only module allowed to create a
 verification result. It contains immutable records for an execution context,
 attempt, check record, artifact reference, evidence manifest, and verification
 verdict.
@@ -41,7 +41,7 @@ verdict.
    launch failures become typed check outcomes rather than exceptions or
    successes.
 3. **Evidence storage** writes redacted, bounded per-attempt output under
-   `.opaihub/verification-evidence/<task>/<run>/`. The artifact digest, output
+   `.vestahub/verification-evidence/<task>/<run>/`. The artifact digest, output
    digest, policy digest, repository fingerprint, tool/runtime facts, and check
    records form a canonical JSON manifest. Atomic writes make the manifest safe
    to recover after an application restart.
@@ -108,7 +108,7 @@ artifact invalidates the relevant check.
 
 ## Surface integration
 
-`opai verify run` resolves a policy, persists its policy artifact, executes it,
+`vesta verify run` resolves a policy, persists its policy artifact, executes it,
 then emits the manifest and derived verdict as JSON or a concise human summary.
 The GUI pipeline runs the same engine after an edit-capable provider result with
 the captured repository handle and inserts the unchanged manifest payload into

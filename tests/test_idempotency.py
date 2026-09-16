@@ -24,7 +24,7 @@ from unittest import mock
 
 from _helpers import make_repo
 
-from opaihub.idempotency import (
+from vestahub.idempotency import (
     DONE,
     FRESH,
     IN_FLIGHT,
@@ -152,13 +152,13 @@ class LifecycleTests(unittest.TestCase):
         self.assertLessEqual(len(stored), 8)
 
     def test_an_unwritable_store_blocks_the_external_effect(self) -> None:
-        with mock.patch("opaihub.idempotency._save", side_effect=OSError("read-only")):
+        with mock.patch("vestahub.idempotency._save", side_effect=OSError("read-only")):
             outcome = begin(self.root, self.key)
         self.assertEqual(outcome["state"], IN_FLIGHT)
         self.assertTrue(outcome["persistence_blocked"])
 
     def test_a_corrupt_store_blocks_instead_of_forgetting_uncertainty(self) -> None:
-        from opaihub import idempotency
+        from vestahub import idempotency
 
         path = idempotency._path(self.root)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -170,7 +170,7 @@ class LifecycleTests(unittest.TestCase):
         self.assertTrue(outcome["persistence_blocked"])
 
     def test_a_malformed_record_blocks_instead_of_looking_fresh(self) -> None:
-        from opaihub import idempotency
+        from vestahub import idempotency
 
         path = idempotency._path(self.root)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -185,7 +185,7 @@ class LifecycleTests(unittest.TestCase):
         self.assertTrue(outcome["persistence_blocked"])
 
     def test_store_capacity_never_evicts_exact_once_history(self) -> None:
-        from opaihub import idempotency
+        from vestahub import idempotency
 
         path = idempotency._path(self.root)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -238,7 +238,7 @@ class OpenPrTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def _executor(self):
-        from opaihub.provider_tools import RepositoryToolExecutor
+        from vestahub.provider_tools import RepositoryToolExecutor
 
         executor = RepositoryToolExecutor(
             self.root, allow_edits=True, allow_git_ops=True, allow_github_write=True
@@ -255,7 +255,7 @@ class OpenPrTests(unittest.TestCase):
 
         executor = self._executor()
         with mock.patch(
-            "opaihub.github_connector.create_pull_request", side_effect=fake_create
+            "vestahub.github_connector.create_pull_request", side_effect=fake_create
         ):
             executor._open_pr({"title": "Fix the bug", "base": "main"})
             second = executor._open_pr({"title": "Fix the bug", "base": "main"})
@@ -272,7 +272,7 @@ class OpenPrTests(unittest.TestCase):
             raise RuntimeError("connection lost after the request was sent")
 
         with mock.patch(
-            "opaihub.github_connector.create_pull_request", side_effect=die
+            "vestahub.github_connector.create_pull_request", side_effect=die
         ):
             with self.assertRaises(RuntimeError):
                 executor._open_pr({"title": "Fix the bug", "base": "main"})
@@ -284,7 +284,7 @@ class OpenPrTests(unittest.TestCase):
             return {"ok": True, "url": "https://example/pr/9", "number": 9}
 
         with mock.patch(
-            "opaihub.github_connector.create_pull_request", side_effect=fake_create
+            "vestahub.github_connector.create_pull_request", side_effect=fake_create
         ):
             retry = executor._open_pr({"title": "Fix the bug", "base": "main"})
 
@@ -299,9 +299,9 @@ class OpenPrTests(unittest.TestCase):
         executor = self._executor()
 
         with (
-            mock.patch("opaihub.idempotency._save", side_effect=OSError("disk full")),
+            mock.patch("vestahub.idempotency._save", side_effect=OSError("disk full")),
             mock.patch(
-                "opaihub.github_connector.create_pull_request",
+                "vestahub.github_connector.create_pull_request",
                 side_effect=lambda *args, **kwargs: calls.append((args, kwargs)),
             ),
         ):
@@ -314,7 +314,7 @@ class OpenPrTests(unittest.TestCase):
     def test_a_rejected_request_leaves_a_corrected_retry_free(self) -> None:
         executor = self._executor()
         with mock.patch(
-            "opaihub.github_connector.create_pull_request",
+            "vestahub.github_connector.create_pull_request",
             return_value={"ok": False, "error": "A PR title is required"},
         ):
             executor._open_pr({"title": "Fix the bug", "base": "main"})
@@ -326,7 +326,7 @@ class OpenPrTests(unittest.TestCase):
             return {"ok": True, "url": "https://example/pr/3", "number": 3}
 
         with mock.patch(
-            "opaihub.github_connector.create_pull_request", side_effect=fake_create
+            "vestahub.github_connector.create_pull_request", side_effect=fake_create
         ):
             retry = executor._open_pr({"title": "Fix the bug", "base": "main"})
         self.assertEqual(len(calls), 1)
@@ -342,7 +342,7 @@ class OpenPrTests(unittest.TestCase):
 
         executor = self._executor()
         with mock.patch(
-            "opaihub.github_connector.create_pull_request", side_effect=fake_create
+            "vestahub.github_connector.create_pull_request", side_effect=fake_create
         ):
             executor._open_pr({"title": "Fix the bug", "base": "main"})
             executor._open_pr({"title": "A different change", "base": "main"})
@@ -360,7 +360,7 @@ class CommentPrTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def _adapter(self, run):
-        from opaihub.github_workflow import GitHubAdapter
+        from vestahub.github_workflow import GitHubAdapter
 
         adapter = GitHubAdapter(self.root)
         adapter._run = run  # type: ignore[method-assign]
@@ -436,7 +436,7 @@ class GithubCommentToolTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def _executor(self):
-        from opaihub.provider_tools import RepositoryToolExecutor
+        from vestahub.provider_tools import RepositoryToolExecutor
 
         return RepositoryToolExecutor(
             self.root, allow_edits=False, allow_github_write=True
@@ -451,7 +451,7 @@ class GithubCommentToolTests(unittest.TestCase):
 
         executor = self._executor()
         executor.grant_command_once("gh pr comment 5")
-        with mock.patch("opaihub.github_connector.add_comment", side_effect=fake_add):
+        with mock.patch("vestahub.github_connector.add_comment", side_effect=fake_add):
             first = executor._github_comment({"number": 5, "body": "hi"})
             second = executor._github_comment({"number": 5, "body": "hi"})
 
@@ -466,7 +466,7 @@ class GithubCommentToolTests(unittest.TestCase):
         def die(root, number, body, **kwargs):
             raise RuntimeError("connection lost after the request was sent")
 
-        with mock.patch("opaihub.github_connector.add_comment", side_effect=die):
+        with mock.patch("vestahub.github_connector.add_comment", side_effect=die):
             with self.assertRaises(RuntimeError):
                 executor._github_comment({"number": 5, "body": "hi"})
 
@@ -477,7 +477,7 @@ class GithubCommentToolTests(unittest.TestCase):
             return {"ok": True, "url": "https://example/pr/5#comment"}
 
         executor.grant_command_once("gh pr comment 5")
-        with mock.patch("opaihub.github_connector.add_comment", side_effect=fake_add):
+        with mock.patch("vestahub.github_connector.add_comment", side_effect=fake_add):
             retry = executor._github_comment({"number": 5, "body": "hi"})
 
         self.assertEqual(calls, [], "an unconfirmed comment must not be posted again")
@@ -503,10 +503,10 @@ class GithubCommentToolTests(unittest.TestCase):
 
         executor = self._executor()
         executor.grant_command_once("gh pr comment 5")
-        with mock.patch("opaihub.github_connector.add_comment", side_effect=fake_add):
+        with mock.patch("vestahub.github_connector.add_comment", side_effect=fake_add):
             executor._github_comment({"number": 5, "body": "First thought"})
         executor.grant_command_once("gh pr comment 5")
-        with mock.patch("opaihub.github_connector.add_comment", side_effect=fake_add):
+        with mock.patch("vestahub.github_connector.add_comment", side_effect=fake_add):
             executor._github_comment({"number": 5, "body": "Second thought"})
         self.assertEqual(len(calls), 2)
 
@@ -525,7 +525,7 @@ class MergePrTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def _adapter(self, run):
-        from opaihub.github_workflow import GitHubAdapter
+        from vestahub.github_workflow import GitHubAdapter
 
         adapter = GitHubAdapter(self.root)
         adapter._run = run  # type: ignore[method-assign]
@@ -591,7 +591,7 @@ class MergePrTests(unittest.TestCase):
         # between GitHub accepting the merge and Vesta recording it. With the
         # remote unobservable, a retry must refuse to guess — never a silent
         # second merge, never a false "merged".
-        from opaihub.idempotency import begin, operation_key
+        from vestahub.idempotency import begin, operation_key
 
         def run(args, **kwargs):
             if args[:2] == ["pr", "view"]:
@@ -621,7 +621,7 @@ class GithubRequestReviewToolTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def _executor(self):
-        from opaihub.provider_tools import RepositoryToolExecutor
+        from vestahub.provider_tools import RepositoryToolExecutor
 
         return RepositoryToolExecutor(
             self.root, allow_edits=False, allow_github_write=True
@@ -637,7 +637,7 @@ class GithubRequestReviewToolTests(unittest.TestCase):
         executor = self._executor()
         executor.grant_command_once("gh pr edit 7 --add-reviewer alice")
         with mock.patch(
-            "opaihub.github_connector.request_reviewers", side_effect=fake_request
+            "vestahub.github_connector.request_reviewers", side_effect=fake_request
         ):
             first = executor._github_request_review(
                 {"number": 7, "reviewers": ["alice"]}
@@ -659,7 +659,7 @@ class GithubRequestReviewToolTests(unittest.TestCase):
         executor = self._executor()
         executor.grant_command_once("gh pr edit 7 --add-reviewer alice,bob")
         with mock.patch(
-            "opaihub.github_connector.request_reviewers", side_effect=fake_request
+            "vestahub.github_connector.request_reviewers", side_effect=fake_request
         ):
             executor._github_request_review(
                 {"number": 7, "reviewers": ["alice", "bob"]}
@@ -682,7 +682,7 @@ class GithubRequestReviewToolTests(unittest.TestCase):
         executor = self._executor()
         executor.grant_command_once("gh pr edit 7 --add-reviewer alice")
         with mock.patch(
-            "opaihub.github_connector.request_reviewers", side_effect=fake_request
+            "vestahub.github_connector.request_reviewers", side_effect=fake_request
         ):
             failed = executor._github_request_review(
                 {"number": 7, "reviewers": ["alice"]}
@@ -690,7 +690,7 @@ class GithubRequestReviewToolTests(unittest.TestCase):
         self.assertEqual(failed["error_code"], "GITHUB_WRITE_FAILED")
         executor.grant_command_once("gh pr edit 7 --add-reviewer alice")
         with mock.patch(
-            "opaihub.github_connector.request_reviewers", side_effect=fake_request
+            "vestahub.github_connector.request_reviewers", side_effect=fake_request
         ):
             retry = executor._github_request_review(
                 {"number": 7, "reviewers": ["alice"]}
@@ -699,7 +699,7 @@ class GithubRequestReviewToolTests(unittest.TestCase):
         self.assertEqual(len(attempts), 2)
 
     def test_an_unconfirmed_attempt_fails_closed_as_uncertain(self) -> None:
-        from opaihub.idempotency import begin, operation_key
+        from vestahub.idempotency import begin, operation_key
 
         executor = self._executor()
         key = operation_key(
@@ -736,7 +736,7 @@ class GitPushToolTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def _executor(self):
-        from opaihub.provider_tools import RepositoryToolExecutor
+        from vestahub.provider_tools import RepositoryToolExecutor
 
         # allow_edits=True so the repository-safety handle is established;
         # the mutation gate fails closed without it.
@@ -870,7 +870,7 @@ class GitPushToolTests(unittest.TestCase):
         # Crash between dispatch and record: the key is in_flight. The next
         # attempt observes the remote first; finding the head there turns the
         # retry into a confirmation without a second push.
-        from opaihub.idempotency import begin, operation_key
+        from vestahub.idempotency import begin, operation_key
 
         dispatches: list[list[str]] = []
 
@@ -915,7 +915,7 @@ class GrantedCommandToolTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def _executor(self, git_run):
-        from opaihub.provider_tools import RepositoryToolExecutor
+        from vestahub.provider_tools import RepositoryToolExecutor
 
         return RepositoryToolExecutor(
             self.root, allow_edits=True, allow_git_ops=True, git_run=git_run
@@ -1013,14 +1013,14 @@ class WriteFileToolTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def _executor(self):
-        from opaihub.provider_tools import RepositoryToolExecutor
+        from vestahub.provider_tools import RepositoryToolExecutor
 
         return RepositoryToolExecutor(self.root, allow_edits=True)
 
     def _key(self, path: str, content: str) -> str:
         import hashlib
 
-        from opaihub.idempotency import operation_key
+        from vestahub.idempotency import operation_key
 
         sha = hashlib.sha256(content.encode("utf-8")).hexdigest()
         return operation_key("write_file", root=str(self.root), path=path, sha=sha)
@@ -1043,7 +1043,7 @@ class WriteFileToolTests(unittest.TestCase):
     def test_a_crash_after_landing_is_confirmed_from_disk(self) -> None:
         # Process died between writing the bytes and recording them: the key
         # is in_flight while the file already holds the intended content.
-        from opaihub.idempotency import begin
+        from vestahub.idempotency import begin
 
         (self.root / "a.txt").write_text("one", encoding="utf-8", newline="\n")
         key = self._key("a.txt", "one")
@@ -1053,7 +1053,7 @@ class WriteFileToolTests(unittest.TestCase):
         self.assertIn("confirmed on disk", result["message"])
 
     def test_a_crash_before_landing_leaves_the_retry_free(self) -> None:
-        from opaihub.idempotency import begin
+        from vestahub.idempotency import begin
 
         key = self._key("a.txt", "one")
         self.assertEqual(begin(self.root, key)["state"], "fresh")
@@ -1062,7 +1062,7 @@ class WriteFileToolTests(unittest.TestCase):
         self.assertEqual((self.root / "a.txt").read_text(encoding="utf-8"), "one")
 
     def test_different_content_on_disk_fails_closed(self) -> None:
-        from opaihub.idempotency import begin
+        from vestahub.idempotency import begin
 
         # The file holds something the operation cannot explain — a partial
         # write or a user's edit — so the retry must not overwrite it blind.
@@ -1102,14 +1102,14 @@ class ApplyPatchToolTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def _executor(self):
-        from opaihub.provider_tools import RepositoryToolExecutor
+        from vestahub.provider_tools import RepositoryToolExecutor
 
         return RepositoryToolExecutor(self.root, allow_edits=True)
 
     def _key(self) -> str:
         import hashlib
 
-        from opaihub.idempotency import operation_key
+        from vestahub.idempotency import operation_key
 
         sha = hashlib.sha256(self.PATCH.encode("utf-8")).hexdigest()
         return operation_key("apply_patch", root=str(self.root), sha=sha)
@@ -1138,7 +1138,7 @@ class ApplyPatchToolTests(unittest.TestCase):
         )
 
     def test_a_crash_after_landing_is_confirmed_by_reverse_check(self) -> None:
-        from opaihub.idempotency import begin
+        from vestahub.idempotency import begin
 
         self._apply_on_disk()
         self.assertEqual(begin(self.root, self._key())["state"], "fresh")
@@ -1147,7 +1147,7 @@ class ApplyPatchToolTests(unittest.TestCase):
         self.assertIn("confirmed on disk", result["message"])
 
     def test_a_crash_before_landing_leaves_the_retry_free(self) -> None:
-        from opaihub.idempotency import begin
+        from vestahub.idempotency import begin
 
         self.assertEqual(begin(self.root, self._key())["state"], "fresh")
         result = self._executor()._apply_patch({"patch": self.PATCH})
@@ -1157,7 +1157,7 @@ class ApplyPatchToolTests(unittest.TestCase):
         )
 
     def test_an_unexplainable_file_state_fails_closed(self) -> None:
-        from opaihub.idempotency import begin
+        from vestahub.idempotency import begin
 
         # Hand-edited to match neither the unpatched nor the patched state.
         (self.root / "a.txt").write_text("something\nelse entirely\n", encoding="utf-8")
@@ -1191,7 +1191,7 @@ class GithubAdapterReconcileTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def _adapter(self, run):
-        from opaihub.github_workflow import GitHubAdapter
+        from vestahub.github_workflow import GitHubAdapter
 
         adapter = GitHubAdapter(self.root)
         adapter._run = run  # type: ignore[method-assign]
@@ -1213,7 +1213,7 @@ class GithubAdapterReconcileTests(unittest.TestCase):
         self.assertEqual(len(dispatches), 1)
 
     def test_an_unconfirmed_merge_with_an_open_pr_retries_safely(self) -> None:
-        from opaihub.idempotency import begin, operation_key
+        from vestahub.idempotency import begin, operation_key
 
         dispatches: list[list[str]] = []
 
@@ -1245,7 +1245,7 @@ class GithubAdapterReconcileTests(unittest.TestCase):
         self.assertEqual(len(dispatches), 1)
 
     def test_an_unconfirmed_comment_absent_on_github_posts_normally(self) -> None:
-        from opaihub.idempotency import begin, operation_key
+        from vestahub.idempotency import begin, operation_key
 
         dispatches: list[list[str]] = []
 
@@ -1304,7 +1304,7 @@ class GithubToolReconcileTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def _executor(self):
-        from opaihub.provider_tools import RepositoryToolExecutor
+        from vestahub.provider_tools import RepositoryToolExecutor
 
         executor = RepositoryToolExecutor(
             self.root, allow_edits=True, allow_git_ops=True, allow_github_write=True
@@ -1329,12 +1329,12 @@ class GithubToolReconcileTests(unittest.TestCase):
 
         executor = self._executor()
         with mock.patch(
-            "opaihub.github_connector.create_pull_request", side_effect=fake_create
+            "vestahub.github_connector.create_pull_request", side_effect=fake_create
         ):
             first = executor._open_pr({"title": "Fix", "base": "main"})
         self.assertEqual(first["error_code"], "PR_STATE_UNCERTAIN")
         with mock.patch(
-            "opaihub.github_connector.find_pull_request", side_effect=fake_find
+            "vestahub.github_connector.find_pull_request", side_effect=fake_find
         ):
             second = executor._open_pr({"title": "Fix", "base": "main"})
         self.assertTrue(second["ok"], second)
@@ -1355,12 +1355,12 @@ class GithubToolReconcileTests(unittest.TestCase):
 
         executor = self._executor()
         with mock.patch(
-            "opaihub.github_connector.create_pull_request", side_effect=fake_create
+            "vestahub.github_connector.create_pull_request", side_effect=fake_create
         ):
             first = executor._open_pr({"title": "Fix", "base": "main"})
             self.assertEqual(first["error_code"], "PR_STATE_UNCERTAIN")
             with mock.patch(
-                "opaihub.github_connector.find_pull_request", side_effect=fake_find
+                "vestahub.github_connector.find_pull_request", side_effect=fake_find
             ):
                 second = executor._open_pr({"title": "Fix", "base": "main"})
         self.assertTrue(second["ok"], second)
@@ -1378,10 +1378,10 @@ class GithubToolReconcileTests(unittest.TestCase):
 
         executor = self._executor()
         executor.grant_command_once("gh pr comment 5")
-        with mock.patch("opaihub.github_connector.add_comment", side_effect=fake_add):
+        with mock.patch("vestahub.github_connector.add_comment", side_effect=fake_add):
             first = executor._github_comment({"number": 5, "body": "hi"})
         self.assertEqual(first["error_code"], "COMMENT_STATE_UNCERTAIN")
-        with mock.patch("opaihub.github_connector.find_comment", side_effect=fake_find):
+        with mock.patch("vestahub.github_connector.find_comment", side_effect=fake_find):
             second = executor._github_comment({"number": 5, "body": "hi"})
         self.assertTrue(second["ok"], second)
         self.assertIn("confirmed", second["message"])
@@ -1400,14 +1400,14 @@ class GithubToolReconcileTests(unittest.TestCase):
         executor = self._executor()
         executor.grant_command_once("gh pr edit 7 --add-reviewer alice")
         with mock.patch(
-            "opaihub.github_connector.request_reviewers", side_effect=fake_request
+            "vestahub.github_connector.request_reviewers", side_effect=fake_request
         ):
             first = executor._github_request_review(
                 {"number": 7, "reviewers": ["alice"]}
             )
         self.assertEqual(first["error_code"], "REVIEW_REQUEST_UNCERTAIN")
         with mock.patch(
-            "opaihub.github_connector.find_requested_reviewers", side_effect=fake_find
+            "vestahub.github_connector.find_requested_reviewers", side_effect=fake_find
         ):
             second = executor._github_request_review(
                 {"number": 7, "reviewers": ["alice"]}
