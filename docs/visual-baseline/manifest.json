@@ -1,0 +1,681 @@
+{
+  "generatedAt": "2026-09-18T23:29:06.421Z",
+  "durationMs": 68899,
+  "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+  "branch": "audit/vesta-visual-baseline",
+  "captureMethod": "Playwright Chromium (no Qt) + injected mock bridge (opai/assets/web/__tests__/e2e/mock-bridge.js); static server on 127.0.0.1:8123; viewport 1440x900",
+  "artifacts": [
+    {
+      "id": "SHELL-LAUNCH-001",
+      "file": "screens/shell/SHELL-LAUNCH-001-fresh-launch.png",
+      "type": "screenshot",
+      "area": "shell",
+      "state": "fresh launch, empty conversation, sidebar lists saved conversations",
+      "trigger": "app boot with mock bridge default scenario",
+      "expected": "branded empty state, composer, header, status strip, sidebar recents",
+      "observed": "captured — see image (file 264 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/index.html",
+        "opai/assets/web/app.js",
+        "opai/assets/web/styles.css"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:27:58.001Z",
+      "bytes": 270197
+    },
+    {
+      "id": "COMPOSER-TYPED-001",
+      "file": "screens/composer/COMPOSER-TYPED-001-text-entered.png",
+      "type": "screenshot",
+      "area": "composer",
+      "state": "prompt text typed, not yet sent",
+      "trigger": "type into #input",
+      "expected": "text visible in composer, Send enabled",
+      "observed": "captured — see image (file 202 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/index.html",
+        "opai/assets/web/composer.js",
+        "opai/assets/web/app.js"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:27:58.115Z",
+      "bytes": 207353
+    },
+    {
+      "id": "SHELL-MODEL-POP-002",
+      "file": "screens/shell/SHELL-MODEL-POP-002-model-selector-open.png",
+      "type": "screenshot",
+      "area": "shell",
+      "state": "model selector popover open",
+      "trigger": "click #modelBtn",
+      "expected": "model list with account/free/local/auto groups and badges",
+      "observed": "captured — see image (file 191 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/index.html",
+        "opai/assets/web/app.js",
+        "opai/assets/web/styles.css"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:27:58.589Z",
+      "bytes": 195626
+    },
+    {
+      "id": "SHELL-MODE-POP-003",
+      "file": "screens/shell/SHELL-MODE-POP-003-run-mode-selector-open.png",
+      "type": "screenshot",
+      "area": "shell",
+      "state": "run-mode selector popover open",
+      "trigger": "click #modeBtn",
+      "expected": "Ask / Plan / Approve Edits / Safe Auto / Auto-Accept Edits / Full Auto",
+      "observed": "captured — see image (file 178 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/index.html",
+        "opai/assets/web/app.js",
+        "opai/assets/web/styles.css"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:27:58.722Z",
+      "bytes": 181846
+    },
+    {
+      "id": "EXEC-STREAMING-001",
+      "file": "screens/execution/EXEC-STREAMING-001-streaming-in-progress.png",
+      "type": "screenshot",
+      "area": "execution",
+      "state": "assistant response streaming, Stop control active, activity line running",
+      "trigger": "send prompt, emit tokens + activity events without reply",
+      "expected": "partial markdown text, streaming status, composer shows Stop",
+      "observed": "captured — see image (file 249 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/app.js",
+        "opai/assets/web/activity.js",
+        "opai/assets/web/message-state.js",
+        "opai/assets/web/run-result.js"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:28:01.578Z",
+      "bytes": 254663
+    },
+    {
+      "id": "EXEC-COMPLETE-002",
+      "file": "screens/execution/EXEC-COMPLETE-002-run-completed.png",
+      "type": "screenshot",
+      "area": "execution",
+      "state": "completed run with answer and collapsed turn summary",
+      "trigger": "emitReply status=answered with receipt",
+      "expected": "final message, turn summary row, Send restored",
+      "observed": "captured — see image (file 243 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/app.js",
+        "opai/assets/web/activity.js",
+        "opai/assets/web/message-state.js",
+        "opai/assets/web/run-result.js"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:28:02.103Z",
+      "bytes": 249274
+    },
+    {
+      "id": "EXEC-TURN-DETAILS-003",
+      "file": "screens/execution/EXEC-TURN-DETAILS-003-turn-summary-expanded.png",
+      "type": "screenshot",
+      "area": "execution",
+      "state": "turn diagnostics expanded (evidence/receipt behind disclosure)",
+      "trigger": "click .ts-verdict on the turn summary",
+      "expected": "expanded diagnostics incl. cost receipt",
+      "observed": "captured — see image (file 251 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/app.js",
+        "opai/assets/web/activity.js",
+        "opai/assets/web/message-state.js",
+        "opai/assets/web/run-result.js"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:28:02.587Z",
+      "bytes": 256907
+    },
+    {
+      "id": "EXEC-STOP-PENDING-004",
+      "file": "screens/execution/EXEC-STOP-PENDING-004-stop-requested-unconfirmed.png",
+      "type": "screenshot",
+      "area": "execution",
+      "state": "stop requested, backend confirmation pending",
+      "trigger": "press Escape during streaming, before confirmCancel",
+      "expected": "intermediate stopping presentation (waits for backend confirm per #380)",
+      "observed": "captured — see image (file 274 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/app.js",
+        "opai/assets/web/activity.js",
+        "opai/assets/web/message-state.js",
+        "opai/assets/web/run-result.js"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:28:03.004Z",
+      "bytes": 280248
+    },
+    {
+      "id": "EXEC-STOPPED-005",
+      "file": "screens/execution/EXEC-STOPPED-005-stopped-card.png",
+      "type": "screenshot",
+      "area": "execution",
+      "state": "cancellation confirmed, stopped card shown",
+      "trigger": "confirmCancel after Escape",
+      "expected": ".stopped-card terminal presentation with edit/retry affordances",
+      "observed": "captured — see image (file 276 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/app.js",
+        "opai/assets/web/activity.js",
+        "opai/assets/web/message-state.js",
+        "opai/assets/web/run-result.js"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:28:03.327Z",
+      "bytes": 282172
+    },
+    {
+      "id": "PERMISSIONS-CMD-APPROVAL-001",
+      "file": "screens/permissions/PERMISSIONS-CMD-APPROVAL-001-command-approval-card.png",
+      "type": "screenshot",
+      "area": "permissions",
+      "state": "command blocked by run-mode policy, approval card with exact command",
+      "trigger": "send prompt; mock replies needs_command_approval",
+      "expected": "approval card shows command verbatim with Approve once / Deny",
+      "observed": "captured — see image (file 249 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/index.html",
+        "opai/assets/web/composer.js",
+        "opai/assets/web/app.js",
+        "opai/assets/web/app.js"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:28:05.725Z",
+      "bytes": 254819
+    },
+    {
+      "id": "PERMISSIONS-CMD-APPROVED-002",
+      "file": "screens/permissions/PERMISSIONS-CMD-APPROVED-002-command-approved.png",
+      "type": "screenshot",
+      "area": "permissions",
+      "state": "approval granted, re-run completed",
+      "trigger": "click Approve once",
+      "expected": "card state flips to Approved, answer message appended",
+      "observed": "captured — see image (file 259 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/index.html",
+        "opai/assets/web/composer.js",
+        "opai/assets/web/app.js"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:28:06.411Z",
+      "bytes": 264919
+    },
+    {
+      "id": "PERMISSIONS-EDIT-APPROVAL-003",
+      "file": "screens/permissions/PERMISSIONS-EDIT-APPROVAL-003-edit-approval-card.png",
+      "type": "screenshot",
+      "area": "permissions",
+      "state": "file edits gated, approval card lists exact files",
+      "trigger": "send prompt; mock replies needs_edit_approval",
+      "expected": "card lists file paths verbatim with Allow edits once / Deny",
+      "observed": "captured — see image (file 252 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/index.html",
+        "opai/assets/web/composer.js",
+        "opai/assets/web/app.js"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:28:08.829Z",
+      "bytes": 257818
+    },
+    {
+      "id": "CHANGES-CHANGESET-001",
+      "file": "screens/changes/CHANGES-CHANGESET-001-proposed-changeset.png",
+      "type": "screenshot",
+      "area": "changes",
+      "state": "proposed changeset pending review (2 files, 1 risky)",
+      "trigger": "reply with workflow.diff_review payload (phase reviewing_diff)",
+      "expected": "changeset card lists every file with approve/reject",
+      "observed": "captured — see image (file 268 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/app.js",
+        "opai/assets/web/run-result.js"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:28:11.360Z",
+      "bytes": 274034
+    },
+    {
+      "id": "CHANGES-DIFF-FILE-002",
+      "file": "screens/changes/CHANGES-DIFF-FILE-002-file-diff-expanded.png",
+      "type": "screenshot",
+      "area": "changes",
+      "state": "per-file diff hunks expanded",
+      "trigger": "expand first file entry in the changeset card",
+      "expected": "diff hunks with +/- lines",
+      "observed": "captured — see image (file 255 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/app.js",
+        "opai/assets/web/run-result.js"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:28:11.714Z",
+      "bytes": 261065
+    },
+    {
+      "id": "ERRORS-ACCOUNT-001",
+      "file": "screens/errors/ERRORS-ACCOUNT-001-provider-error-card.png",
+      "type": "screenshot",
+      "area": "errors",
+      "state": "recoverable provider error with retry / switch model",
+      "trigger": "reply status=account_error",
+      "expected": "one .error-card with message and Retry affordance",
+      "observed": "captured — see image (file 237 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/app.js",
+        "opai/assets/web/run-result.js"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:28:14.159Z",
+      "bytes": 242883
+    },
+    {
+      "id": "ERRORS-NOT-CONNECTED-002",
+      "file": "screens/errors/ERRORS-NOT-CONNECTED-002-account-not-connected.png",
+      "type": "screenshot",
+      "area": "errors",
+      "state": "second error: selected account not connected",
+      "trigger": "reply status=account_not_connected",
+      "expected": "error card prompting to connect an account",
+      "observed": "captured — see image (file 253 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/app.js",
+        "opai/assets/web/run-result.js"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:28:14.692Z",
+      "bytes": 258583
+    },
+    {
+      "id": "SETTINGS-OVERVIEW-001",
+      "file": "screens/settings/SETTINGS-OVERVIEW-001-overview.png",
+      "type": "screenshot",
+      "area": "settings",
+      "state": "settings rail page \"overview\" — settings overview: status card + quick tiles",
+      "trigger": "click settings rail item overview",
+      "expected": "page content visible in #settingsPage, rail marks aria-current",
+      "observed": "captured — see image (file 204 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/settings.js",
+        "opai/assets/web/styles.css"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:28:15.724Z",
+      "bytes": 209195
+    },
+    {
+      "id": "PROVIDERS-CONNECTED-001",
+      "file": "screens/providers/PROVIDERS-CONNECTED-001-providers.png",
+      "type": "screenshot",
+      "area": "providers",
+      "state": "settings rail page \"providers\" — providers & connections, all accounts connected",
+      "trigger": "click settings rail item providers",
+      "expected": "page content visible in #settingsPage, rail marks aria-current",
+      "observed": "captured — see image (file 209 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/settings.js"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:28:16.183Z",
+      "bytes": 214204
+    },
+    {
+      "id": "SETTINGS-MODELS-001",
+      "file": "screens/settings/SETTINGS-MODELS-001-models.png",
+      "type": "screenshot",
+      "area": "settings",
+      "state": "settings rail page \"models\" — models & routing page",
+      "trigger": "click settings rail item models",
+      "expected": "page content visible in #settingsPage, rail marks aria-current",
+      "observed": "captured — see image (file 197 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/settings.js",
+        "opai/assets/web/styles.css"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:28:16.622Z",
+      "bytes": 201487
+    },
+    {
+      "id": "SETTINGS-FIREWALL-001",
+      "file": "screens/settings/SETTINGS-FIREWALL-001-firewall.png",
+      "type": "screenshot",
+      "area": "settings",
+      "state": "settings rail page \"firewall\" — cost firewall page with budget caps and panic mode",
+      "trigger": "click settings rail item firewall",
+      "expected": "page content visible in #settingsPage, rail marks aria-current",
+      "observed": "captured — see image (file 194 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/settings.js",
+        "opai/assets/web/styles.css"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:28:17.121Z",
+      "bytes": 199037
+    },
+    {
+      "id": "SETTINGS-USAGE-001",
+      "file": "screens/settings/SETTINGS-USAGE-001-usage.png",
+      "type": "screenshot",
+      "area": "settings",
+      "state": "settings rail page \"usage\" — model usage page: one provider per state (unavailable/live/balance/not configured)",
+      "trigger": "click settings rail item usage",
+      "expected": "page content visible in #settingsPage, rail marks aria-current",
+      "observed": "captured — see image (file 215 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/settings.js",
+        "opai/assets/web/styles.css"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:28:17.591Z",
+      "bytes": 220277
+    },
+    {
+      "id": "PERMISSIONS-SAFETY-001",
+      "file": "screens/permissions/PERMISSIONS-SAFETY-001-permissions.png",
+      "type": "screenshot",
+      "area": "permissions",
+      "state": "settings rail page \"permissions\" — permissions & safety page with per-mode permission summaries",
+      "trigger": "click settings rail item permissions",
+      "expected": "page content visible in #settingsPage, rail marks aria-current",
+      "observed": "captured — see image (file 207 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/settings.js",
+        "opai/assets/web/styles.css"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:28:18.041Z",
+      "bytes": 212366
+    },
+    {
+      "id": "SETTINGS-PRIVACY-001",
+      "file": "screens/settings/SETTINGS-PRIVACY-001-privacy.png",
+      "type": "screenshot",
+      "area": "settings",
+      "state": "settings rail page \"privacy\" — privacy & data page",
+      "trigger": "click settings rail item privacy",
+      "expected": "page content visible in #settingsPage, rail marks aria-current",
+      "observed": "captured — see image (file 195 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/settings.js",
+        "opai/assets/web/styles.css"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:28:18.490Z",
+      "bytes": 199494
+    },
+    {
+      "id": "SETTINGS-APPEARANCE-001",
+      "file": "screens/settings/SETTINGS-APPEARANCE-001-appearance.png",
+      "type": "screenshot",
+      "area": "settings",
+      "state": "settings rail page \"appearance\" — appearance page (density/theme)",
+      "trigger": "click settings rail item appearance",
+      "expected": "page content visible in #settingsPage, rail marks aria-current",
+      "observed": "captured — see image (file 221 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/settings.js",
+        "opai/assets/web/styles.css"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:28:18.958Z",
+      "bytes": 225873
+    },
+    {
+      "id": "SETTINGS-TOOLS-001",
+      "file": "screens/settings/SETTINGS-TOOLS-001-tools.png",
+      "type": "screenshot",
+      "area": "settings",
+      "state": "settings rail page \"tools\" — tools & insights page: prompt library + 7 insight dashboards",
+      "trigger": "click settings rail item tools",
+      "expected": "page content visible in #settingsPage, rail marks aria-current",
+      "observed": "captured — see image (file 180 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/settings.js",
+        "opai/assets/web/styles.css"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:28:19.410Z",
+      "bytes": 184090
+    },
+    {
+      "id": "SETTINGS-ABOUT-001",
+      "file": "screens/settings/SETTINGS-ABOUT-001-about.png",
+      "type": "screenshot",
+      "area": "settings",
+      "state": "settings rail page \"about\" — about page with asset build identity and update controls",
+      "trigger": "click settings rail item about",
+      "expected": "page content visible in #settingsPage, rail marks aria-current",
+      "observed": "captured — see image (file 181 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/settings.js",
+        "opai/assets/web/styles.css"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:28:19.869Z",
+      "bytes": 185503
+    },
+    {
+      "id": "SETTINGS-DASH-MONEY-SAVED-001",
+      "file": "screens/settings/SETTINGS-DASH-MONEY-SAVED-001-home.png",
+      "type": "screenshot",
+      "area": "settings",
+      "state": "Money Saved insight dashboard",
+      "trigger": "Settings → Tools & Insights → home",
+      "expected": "dashboard view rendered from mock dashboard payload",
+      "observed": "captured — see image (file 174 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/settings.js",
+        "opai/assets/web/styles.css"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:28:20.773Z",
+      "bytes": 178346
+    },
+    {
+      "id": "AGENTS-READINESS-001",
+      "file": "screens/agents/AGENTS-READINESS-001-agents.png",
+      "type": "screenshot",
+      "area": "agents",
+      "state": "Agents readiness dashboard (capture status per client)",
+      "trigger": "Settings → Tools & Insights → agents",
+      "expected": "dashboard view rendered from mock dashboard payload",
+      "observed": "captured — see image (file 126 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/settings.js",
+        "opai/assets/web/styles.css"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:28:22.010Z",
+      "bytes": 128930
+    },
+    {
+      "id": "SETTINGS-DASH-COST-FIREWALL-001",
+      "file": "screens/settings/SETTINGS-DASH-COST-FIREWALL-001-firewall.png",
+      "type": "screenshot",
+      "area": "settings",
+      "state": "Cost Firewall insight dashboard",
+      "trigger": "Settings → Tools & Insights → firewall",
+      "expected": "dashboard view rendered from mock dashboard payload",
+      "observed": "captured — see image (file 135 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/settings.js",
+        "opai/assets/web/styles.css"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:28:23.227Z",
+      "bytes": 138501
+    },
+    {
+      "id": "AGENTS-WORKFLOWS-001",
+      "file": "screens/agents/AGENTS-WORKFLOWS-001-workflows.png",
+      "type": "screenshot",
+      "area": "agents",
+      "state": "Guarded workflows dashboard",
+      "trigger": "Settings → Tools & Insights → workflows",
+      "expected": "dashboard view rendered from mock dashboard payload",
+      "observed": "captured — see image (file 137 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/settings.js",
+        "opai/assets/web/styles.css"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:28:24.444Z",
+      "bytes": 140020
+    },
+    {
+      "id": "PROVIDERS-DISCONNECTED-001",
+      "file": "screens/providers/PROVIDERS-DISCONNECTED-001-none-connected.png",
+      "type": "screenshot",
+      "area": "providers",
+      "state": "all provider accounts disconnected",
+      "trigger": "settings.providers with connected=false for every account",
+      "expected": "connect prompts instead of connected badges",
+      "observed": "captured — see image (file 225 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/settings.js"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:28:26.228Z",
+      "bytes": 230718
+    },
+    {
+      "id": "EMPTY-SIDEBAR-001",
+      "file": "screens/empty-states/EMPTY-SIDEBAR-001-no-conversations.png",
+      "type": "screenshot",
+      "area": "empty-states",
+      "state": "sidebar with zero saved conversations",
+      "trigger": "boot payload with conversations=[] recents=[]",
+      "expected": "honest empty sidebar, no phantom rows",
+      "observed": "captured — see image (file 274 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/app.js",
+        "opai/assets/web/index.html",
+        "opai/assets/web/onboarding.js"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:28:26.684Z",
+      "bytes": 280459
+    },
+    {
+      "id": "EMPTY-ONBOARDING-001",
+      "file": "screens/empty-states/EMPTY-ONBOARDING-001-first-run-tour.png",
+      "type": "screenshot",
+      "area": "empty-states",
+      "state": "first-run onboarding overlay",
+      "trigger": "boot prefs.onboardingSeen=false",
+      "expected": "onboarding tour card over the shell",
+      "observed": "captured — see image (file 134 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/app.js",
+        "opai/assets/web/index.html",
+        "opai/assets/web/onboarding.js"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:28:27.780Z",
+      "bytes": 136957
+    },
+    {
+      "id": "REC-OPEN-READY-001",
+      "file": "recordings/01-open-ready.webm",
+      "type": "recording",
+      "area": "shell",
+      "state": "cold open to ready, model selector opened and dismissed",
+      "trigger": "boot + click #modelBtn",
+      "expected": "app becomes ready, popover opens",
+      "observed": "captured — see video (file 574 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/index.html",
+        "opai/assets/web/app.js",
+        "opai/assets/web/styles.css"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:28:33.612Z",
+      "bytes": 587360
+    },
+    {
+      "id": "REC-SEND-COMPLETE-002",
+      "file": "recordings/02-send-stream-complete.webm",
+      "type": "recording",
+      "area": "execution",
+      "state": "send → streaming tokens → completed answer",
+      "trigger": "send prompt, emit tokens with pauses, then reply",
+      "expected": "live token rendering then terminal state",
+      "observed": "captured — see video (file 487 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/app.js",
+        "opai/assets/web/activity.js",
+        "opai/assets/web/message-state.js",
+        "opai/assets/web/run-result.js"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:28:40.227Z",
+      "bytes": 498662
+    },
+    {
+      "id": "REC-STOP-CANCEL-003",
+      "file": "recordings/03-stop-cancel.webm",
+      "type": "recording",
+      "area": "execution",
+      "state": "stop requested mid-stream, confirmed, stopped card",
+      "trigger": "Escape during streaming + confirmCancel",
+      "expected": "Stop control, pending state, terminal stopped card",
+      "observed": "captured — see video (file 516 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/app.js",
+        "opai/assets/web/activity.js",
+        "opai/assets/web/message-state.js",
+        "opai/assets/web/run-result.js"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:28:46.979Z",
+      "bytes": 528397
+    },
+    {
+      "id": "REC-SETTINGS-TOUR-004",
+      "file": "recordings/04-settings-tour.webm",
+      "type": "recording",
+      "area": "settings",
+      "state": "walk through every settings rail page",
+      "trigger": "click each rail item",
+      "expected": "each page renders, rail aria-current follows",
+      "observed": "captured — see video (file 1228 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/settings.js",
+        "opai/assets/web/styles.css"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:28:59.791Z",
+      "bytes": 1256981
+    },
+    {
+      "id": "REC-CMD-APPROVAL-005",
+      "file": "recordings/05-command-approval.webm",
+      "type": "recording",
+      "area": "permissions",
+      "state": "blocked command → approval card → approve → completion",
+      "trigger": "send gated prompt, click Approve once",
+      "expected": "card appears, state flips to Approved, answer lands",
+      "observed": "captured — see video (file 558 KiB)",
+      "sourceAreas": [
+        "opai/assets/web/index.html",
+        "opai/assets/web/composer.js",
+        "opai/assets/web/app.js"
+      ],
+      "commit": "8192bf0fff41f7b4776a5957892b86b7500325b5",
+      "capturedAt": "2026-09-18T23:29:06.360Z",
+      "bytes": 571641
+    }
+  ],
+  "captureFailures": [],
+  "coverageNote": "NOT captured: the Qt/PySide6 desktop wrapper (window chrome, native menus, OS dialogs) — PySide6 is not installed in the capture environment; the web UI is the real production UI rendered in QtWebEngine.\nNOT captured: real provider streaming/latency — all tokens, replies, errors and approvals come from the mock bridge.\nNOT captured: states the mock bridge cannot produce (native file pickers' OS UI, actual update downloads, real keychain prompts).\nProvider login OAuth redirect flow and connection doctor refresh were not exercised visually.\nNo capture failures."
+}
