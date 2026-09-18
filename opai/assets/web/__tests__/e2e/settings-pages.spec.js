@@ -24,6 +24,7 @@ test("the rail groups related destinations like the desktop settings reference",
     "Appearance",
     "Models & Routing",
     "Agents",
+    "Plugins",
     "Usage & Budgets",
     "Workspace",
     "Integrations",
@@ -34,6 +35,15 @@ test("the rail groups related destinations like the desktop settings reference",
   await expect(page.locator("#settingsPage")).toContainText("Defaults for new tasks", seen);
   await expect(page.locator("#settingsPage")).not.toContainText("Connection Doctor", seen);
   await expect(page.locator("#settingsPage")).not.toContainText("Daily cap", seen);
+});
+
+test("Plugins has its own destination for reusable tools", async ({ page }) => {
+  await railItem(page, "plugins").click();
+
+  await expect(page.locator("#set-sec-plugins .pane-title")).toHaveText("Plugins");
+  await expect(page.locator("#set-sec-plugins")).toContainText("Prompt Library", seen);
+  await expect(page.locator("#set-sec-plugins [data-settings-target=\"connections\"]")).toBeVisible();
+  expect(page.url()).toContain("#settings/plugins");
 });
 
 test("Settings owns the workspace until the back arrow returns to Chat", async ({ page }) => {
@@ -126,6 +136,7 @@ test("choosing a destination replaces the detail pane and writes a canonical lin
 test("Advanced shows the exact hosted asset build identity", async ({ page }) => {
   await railItem(page, "advanced").click();
   const settings = page.locator("#settingsPage");
+  await settings.locator("[data-settings-build-details] summary").click();
   await expect(settings).toContainText("ASSET BUILD", seen);
   await expect(settings).toContainText("7ac9f12b4e88", seen);
   await expect(settings).toContainText("source checkout", seen);

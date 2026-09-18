@@ -2581,7 +2581,7 @@ html[data-motion="on"] .update-shell .update-dot { animation: none !important; }
   left: 2px;
   min-height: 58px;
   border-radius: 7px;
-  background: var(--muted);
+  background: var(--faint);
   box-shadow: none;
   cursor: grab;
   touch-action: none;

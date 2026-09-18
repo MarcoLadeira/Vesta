@@ -15,7 +15,7 @@ async function openTools(page, destination = "advanced") {
 test("Settings offers every page that left the sidebar", async ({ page }) => {
   await openApp(page, {});
   for (const [destination, titles] of Object.entries({
-    connections: ["Prompt Library"],
+    plugins: ["Prompt Library"],
     agents: ["Agents", "Proof Bundle", "Workflows"],
     advanced: ["Money Saved", "Cost Firewall", "Context Waste", "Benchmark"],
   })) {
@@ -30,7 +30,7 @@ test("Settings offers every page that left the sidebar", async ({ page }) => {
 
 test("a tile leaves Settings for the real view", async ({ page }) => {
   await openApp(page, {});
-  await openTools(page, "connections");
+  await openTools(page, "plugins");
   await page.locator('[data-go-view="prompts"]').click();
   // It navigates the app, not the settings rail.
   await expect(page.locator("#settingsPage")).toBeHidden();

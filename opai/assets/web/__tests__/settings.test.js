@@ -126,6 +126,7 @@ describe("section registry (#236)", () => {
       "appearance",
       "models",
       "agents",
+      "plugins",
       "usage",
       "workspace",
       "connections",
@@ -135,6 +136,7 @@ describe("section registry (#236)", () => {
     expect(OPaiSettings.sections.map((s) => s.group)).toEqual([
       "Vesta",
       "Vesta",
+      "AI",
       "AI",
       "AI",
       "AI",
@@ -164,6 +166,10 @@ describe("section registry (#236)", () => {
     expect(OPaiSettings.resolveSettingsTarget("providers")).toEqual({
       sectionId: "connections",
       subsectionId: "connections",
+    });
+    expect(OPaiSettings.resolveSettingsTarget("plugins")).toEqual({
+      sectionId: "plugins",
+      subsectionId: null,
     });
     expect(OPaiSettings.resolveSettingsTarget("balance")).toEqual({
       sectionId: "usage",

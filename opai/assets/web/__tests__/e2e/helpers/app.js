@@ -220,6 +220,10 @@ export async function openNav(page, label) {
   const destination = route[1]
     ? page.locator(`[data-go-view="${route[1]}"]`)
     : page.locator(`[data-go-view]:visible`).filter({ hasText: label }).first();
+  const disclosure = destination.locator("xpath=ancestor::details[1]");
+  if (await disclosure.count() && !(await disclosure.evaluate((node) => node.open))) {
+    await disclosure.locator("summary").first().click();
+  }
   await destination.click();
 }
 

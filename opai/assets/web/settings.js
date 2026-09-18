@@ -1675,12 +1675,6 @@
         "connections",
         "Provider connections",
         providersHtml(d, settingsContext(ctx, { settingsBodyOnly: true }))
-      ) +
-      settingsSubsection(
-        ctx.esc,
-        "built-in-tools",
-        "Reusable tools",
-        toolsHtml(d, settingsContext(ctx, { settingsBodyOnly: true, settingsPart: "plugins" }))
       )
     );
   }
@@ -1771,6 +1765,35 @@
           d,
           settingsContext(ctx, { settingsBodyOnly: true, settingsPart: "agents" })
         )
+      )
+    );
+  }
+
+  function pluginsHtml(d, ctx) {
+    var esc = ctx.esc;
+    return (
+      heroHtml(
+        esc,
+        "Plugins",
+        "Keep reusable tools and connected capabilities in one place.",
+        ["app", "local"]
+      ) +
+      settingsSubsection(
+        esc,
+        "built-in-tools",
+        "Built-in tools",
+        toolsHtml(
+          d,
+          settingsContext(ctx, { settingsBodyOnly: true, settingsPart: "plugins" })
+        )
+      ) +
+      settingsSubsection(
+        esc,
+        "plugin-connections",
+        "Plugin connections",
+        '<div class="set-head">Connected capabilities</div>' +
+          '<div class="set-note">Installable plugin management is not available in this build. Provider and GitHub integrations remain available in Integrations.</div>' +
+          '<div class="actions"><button class="btn" type="button" data-settings-target="connections">Open Integrations</button></div>'
       )
     );
   }
@@ -1940,6 +1963,10 @@
       { label: "Workflows", group: "Agent tools", selector: '[data-go-view="workflows"]', keywords: "repeatable multi step tasks automation" },
       { label: "Proof Bundle", group: "Agent tools", selector: '[data-go-view="proof"]', keywords: "evidence handoff results" },
     ],
+    plugins: [
+      { label: "Prompt Library", group: "Built-in tools", selector: '[data-go-view="prompts"]', keywords: "saved prompt template reusable" },
+      { label: "Integrations", group: "Plugin connections", selector: '[data-settings-target="connections"]', keywords: "provider github account connection capability" },
+    ],
     workspace: [
       { label: "Current project", group: "Projects", subsectionId: "projects", keywords: "workspace folder directory browse files" },
       { label: "Terminal", group: "Terminal", subsectionId: "terminal", keywords: "shell command approval" },
@@ -1948,7 +1975,6 @@
       { label: "Environment", group: "Environment", subsectionId: "environment", keywords: "indexed files providers local context" },
     ],
     connections: [
-      { label: "Prompt Library", group: "Reusable tools", selector: '[data-go-view="prompts"]', keywords: "plugins saved prompt template reusable" },
       { label: "Provider connections", group: "Connections", subsectionId: "connections", keywords: "provider account api key credential sign in connect subscription" },
       { label: "Connection Doctor", group: "Connections", selector: ".connection-doctor", keywords: "health test repair failed degraded cli" },
       { label: "GitHub connection", group: "Connections", selector: "[data-github-card]", keywords: "github push pull request pat" },
@@ -1992,7 +2018,6 @@
   };
 
   var SECTION_ALIASES = {
-    plugins: { sectionId: "connections", subsectionId: "built-in-tools" },
     integrations: { sectionId: "connections", subsectionId: "connections" },
     overview: { sectionId: "general", subsectionId: "defaults" },
     providers: { sectionId: "connections", subsectionId: "connections" },
@@ -2090,6 +2115,15 @@
       keywords: "agents background work workflows proof outcomes",
       searchItems: SEARCH_ITEMS.agents,
       render: agentsHtml,
+    },
+    {
+      id: "plugins",
+      group: "AI",
+      title: "Plugins",
+      summary: "Reusable tools and integrations",
+      keywords: "plugins extensions prompts integrations connected capabilities",
+      searchItems: SEARCH_ITEMS.plugins,
+      render: pluginsHtml,
     },
     {
       id: "usage",

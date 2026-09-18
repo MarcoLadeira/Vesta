@@ -4,10 +4,10 @@ This document is the implementation inventory for the second-pass Settings infor
 
 ## Information architecture
 
-The Settings rail has nine task-oriented destinations grouped by similarity:
+The Settings rail has ten task-oriented destinations grouped by similarity:
 
 1. Vesta: General, Appearance
-2. AI: Models & Routing, Agents, Usage & Budgets
+2. AI: Models & Routing, Agents, Plugins, Usage & Budgets
 3. Development: Workspace, Integrations
 4. Trust: Safety & Privacy
 5. System: Advanced
@@ -28,7 +28,7 @@ The former Overview dashboard is intentionally removed. Settings now opens at Ge
 | Privacy & Data | Safety & Privacy | Data & privacy | `#settings/privacy` -> `#settings/safety` |
 | Appearance | Appearance | Appearance | `#settings/appearance` |
 | Tools & Insights | Agents | Agents, Workflows, and Proof Bundle | `#settings/agents` |
-| Plugins / Tools & Insights | Integrations | Prompt Library | `#settings/plugins` -> `#settings/connections` |
+| Plugins / Tools & Insights | Plugins | Prompt Library and integration guidance | `#settings/plugins` |
 | Tools & Insights | Advanced | Remaining tools and insights | `#settings/tools` -> `#settings/advanced` |
 | Workspace | Workspace | Projects, Terminal, Git & GitHub, Rules, and Environment | `#settings/workspace` |
 | About | Advanced | About & updates | `#settings/about` -> `#settings/advanced` |
@@ -128,12 +128,12 @@ Every segmented control is exposed as a radio group with one checked, tabbable o
 | Team defaults | Use an AI team | `savePref("multi_agent_enabled")` and shared composer state | New Settings entry point for the existing preference; does not grant cloud consent |
 | Agent tools | Agents, Workflows, and Proof Bundle | Existing top-level views | Grouped into a dedicated AI destination; navigation retained |
 
-### Reusable tools in Integrations
+### Plugins
 
 | Surface | Control or status | Existing owner | Disposition |
 | --- | --- | --- | --- |
-| Reusable tools | Prompt Library | Existing top-level view | Consolidated into Integrations; legacy Plugins links still work |
-| Integrations | Provider and GitHub setup | Existing connection bridges | Available in the same destination without unsupported plugin persistence |
+| Plugin tools | Prompt Library | Existing top-level view | Moved into the Plugins destination; navigation retained |
+| Integrations | Provider and GitHub setup | Existing connection bridges | Cross-link retained without unsupported plugin persistence |
 
 ### Workspace
 

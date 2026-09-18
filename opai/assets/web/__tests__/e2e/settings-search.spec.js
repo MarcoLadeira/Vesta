@@ -45,7 +45,7 @@ test("a search result navigates to its canonical setting and clears search", asy
 });
 
 for (const [query, label, destination] of [
-  ["prompt library", "Prompt Library", "connections"],
+  ["prompt library", "Prompt Library", "plugins"],
   ["workflows", "Workflows", "agents"],
 ]) {
   test(`${label} search opens its grouped destination`, async ({ page }) => {

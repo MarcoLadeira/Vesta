@@ -9,6 +9,7 @@ const DESTINATIONS = [
   ["appearance", "appearance"],
   ["models", "models-routing"],
   ["agents", "agents"],
+  ["plugins", "plugins"],
   ["usage", "usage-budgets"],
   ["workspace", "workspace"],
   ["connections", "connections"],
