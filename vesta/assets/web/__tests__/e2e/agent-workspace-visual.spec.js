@@ -80,6 +80,10 @@ for (const scenario of [
 ]) {
   test(`${scenario.density} agent workspace visual`, async ({ page }) => {
     await page.setViewportSize({ width: scenario.width, height: scenario.height });
+    // The turn is stamped with the time of day it arrived.
+    const morning = new Date();
+    morning.setHours(11, 7, 0, 0);
+    await page.clock.setFixedTime(morning);
     await openApp(page, { boot: { prefs: { responseDensity: scenario.density } } });
     const id = await sendPrompt(page, "Fix the updater regression and verify the result");
     await finishRequest(page, id, completedWorkspace());

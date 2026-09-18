@@ -11,12 +11,12 @@ import { openApp, openSettings } from "./helpers/app.js";
 
 const seen = { useInnerText: true };
 
-test("the rail exposes Model Usage as its own page under Spend & safety", async ({ page }) => {
+test("the rail exposes model usage as its own Usage & Budgets page", async ({ page }) => {
   await openApp(page);
   await openSettings(page);
   await expect(
     page.locator('.settings-rail-item[data-rail-target="usage"] .settings-rail-label')
-  ).toHaveText("Model Usage");
+  ).toHaveText("Usage & Budgets");
 });
 
 test("a live-limit provider renders a real progress bar and a ticking reset countdown", async ({ page }) => {
@@ -102,9 +102,13 @@ test("the page shows a discoverable empty state when no providers are connected"
   await expect(page.locator("#settingsPage")).toContainText("No providers connected yet", seen);
 });
 
-test("search finds the Model Usage page from another page", async ({ page }) => {
+test("search finds provider usage from another page", async ({ page }) => {
   await openApp(page);
   await openSettings(page, "overview");
-  await page.locator("#settingsSearch").fill("session window");
-  await expect(page.locator("#settingsPage")).toContainText("5-hour session window", seen);
+  // Search matches setting names and keywords; the result opens the page.
+  await page.locator("#settingsSearch").fill("rate window");
+  const result = page.locator("[data-settings-search-result]").filter({ hasText: "Provider usage" }).first();
+  await expect(result).toContainText("Usage & Budgets");
+  await result.click();
+  await expect(page.locator("#set-sec-usage")).toContainText("5-hour session window", seen);
 });

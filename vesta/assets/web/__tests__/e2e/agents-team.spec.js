@@ -29,7 +29,7 @@ test('one click enables the team and chat remains the main workspace', async ({ 
   await page.setViewportSize({ width: 1440, height: 1000 });
   const { diagnostics } = await startTeam(page);
   expect(await page.evaluate(() => window.__vesta.state.view)).toBe('chat');
-  await expect(page.getByRole('complementary', { name: 'AI Team' })).toBeVisible();
+  await expect(page.getByRole('complementary', { name: 'AI Team', exact: true })).toBeVisible();
   await expect(page.locator('.team-roster .team-person')).toHaveCount(3);
   await expect(page.locator('.team-roster svg')).toHaveCount(3);
   await expect(page.locator('[data-agent-chat-objective] .team-feed')).toContainText('Added token validation in auth.ts');
@@ -90,7 +90,7 @@ test('team review keeps its canonical revision and approval keeps its request fe
   await startTeam(page);
   await page.evaluate((o) => window.__mock.emitObjectiveControl({ ok: true, workspaceRoot: '/demo', objective: { ...o, revision: 8, allowed_actions: ['request_review'], assignments: [{ ...o.assignments[0], allowed_actions: ['approve'], pending_approval: { request_id: 'grant-1', kind: 'command', command: ['python', 'check.py'], reason: 'Run the recorded check' } }] } }), objective);
   await page.locator('.team-roster [data-team-select="alex"]').click();
-  await expect(page.locator('.team-approval')).toContainText('check.py');
+  await expect(page.locator('.team-attention-detail')).toContainText('check.py');
   await page.getByRole('button', { name: 'Approve once', exact: true }).click();
   await page.getByRole('button', { name: 'Ask for team review', exact: true }).click();
   expect(await page.evaluate(() => window.__mock.objectiveControls)).toEqual([
@@ -137,12 +137,16 @@ test('reopened teams refresh in chat and reject older journal snapshots', async 
     window.__mock.updateDashboard('agents', { objectives: [{ ...o, revision: 5, timeline: [...o.timeline, { sequence: 7, assignment_id: 'sam', kind: 'activity', activity: 'Reviewing the completed changes' }], assignments: o.assignments.map((a) => a.assignment_id === 'sam' ? { ...a, activity: 'Reviewing the completed changes', status: 'running' } : a) }] });
   }, objective);
   await expect(page.locator('.team-detail')).toContainText('Reviewing the completed changes');
-  await expect(page.locator('[data-team-back]')).toBeFocused();
+  // The compact inspector keeps Back in its options menu; focus lands on close.
+  await expect(page.locator('#agentsTeam [data-team-close]')).toBeFocused();
   await page.evaluate((o) => window.__mock.updateDashboard('agents', { objectives: [o] }), objective);
   await expect.poll(() => page.evaluate(() => window.__mock.dashboardRequests.filter((r) => r.requestId.startsWith('team-')).length)).toBeGreaterThan(2);
   await expect(page.locator('.team-detail')).toContainText('Reviewing the completed changes');
   await page.getByRole('button', { name: 'Collapse AI Team' }).click();
-  expect(await page.evaluate(() => window.__vesta.state.teamPollTimer)).toBeNull();
+  // Collapsing closes the panel; a team that is still running keeps its updates
+  // coming so its shortcuts and chat card stay live everywhere.
+  expect(await page.evaluate(() => window.__vesta.state.teamOpen)).toBe(false);
+  expect(await page.evaluate(() => window.__vesta.state.teamPollTimer)).not.toBeNull();
 });
 
 test('live chat updates keep keyboard focus on the same agent', async ({ page }) => {

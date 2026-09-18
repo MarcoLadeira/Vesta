@@ -151,7 +151,7 @@ test("automatic downloads use app-wide updater policy instead of workspace prefe
   await openApp(page);
   await openSettings(page, "about");
   const row = page.locator('[data-update-policy="automatic_downloads"]');
-  await row.getByRole("button", { name: "On" }).click();
+  await row.getByRole("radio", { name: "On" }).click();
   await expect.poll(() => page.evaluate(() => window.__mock.updatePolicies)).toContainEqual(["automatic_downloads", true]);
   expect(await page.evaluate(() => window.__mock.savedPrefs)).not.toContainEqual(["auto_update", "true"]);
 });
@@ -160,21 +160,21 @@ test("install-on-quit requires separate explicit app-wide consent", async ({ pag
   await openApp(page);
   await openSettings(page, "about");
   const row = page.locator('[data-update-policy="automatic_install_on_quit"]');
-  await expect(row.getByRole("button", { name: "Off" })).toHaveAttribute("aria-pressed", "true");
-  await expect(row.getByRole("button", { name: "On" })).toBeDisabled();
-  await page.locator('[data-update-policy="automatic_downloads"]').getByRole("button", { name: "On" }).click();
-  await expect(row.getByRole("button", { name: "On" })).toBeEnabled();
-  await row.getByRole("button", { name: "On" }).click();
+  await expect(row.getByRole("radio", { name: "Off" })).toHaveAttribute("aria-checked", "true");
+  await expect(row.getByRole("radio", { name: "On" })).toBeDisabled();
+  await page.locator('[data-update-policy="automatic_downloads"]').getByRole("radio", { name: "On" }).click();
+  await expect(row.getByRole("radio", { name: "On" })).toBeEnabled();
+  await row.getByRole("radio", { name: "On" }).click();
   await expect.poll(() => page.evaluate(() => window.__mock.updatePolicies)).toContainEqual(["automatic_install_on_quit", true]);
 });
 
 test("update consent survives a workspace switch because it is application-wide", async ({ page }) => {
   await openApp(page);
   await openSettings(page, "about");
-  await page.locator('[data-update-policy="automatic_downloads"]').getByRole("button", { name: "On" }).click();
+  await page.locator('[data-update-policy="automatic_downloads"]').getByRole("radio", { name: "On" }).click();
   await page.evaluate(() => window.__mock.switchWorkspace("/other/workspace"));
   await openSettings(page, "about");
-  await expect(page.locator('[data-update-policy="automatic_downloads"]').getByRole("button", { name: "On" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator('[data-update-policy="automatic_downloads"]').getByRole("radio", { name: "On" })).toHaveAttribute("aria-checked", "true");
 });
 
 test("download progress exposes bounded assistive progress", async ({ page }) => {
