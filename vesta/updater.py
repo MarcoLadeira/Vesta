@@ -38,6 +38,7 @@ CHECK_TTL_SECONDS = 3600.0
 DEFAULT_BRANCH = "main"
 _GIT_TIMEOUT_SECONDS = 8.0
 _DUNDER_VERSION = re.compile(r'(?m)^\s*__version__\s*=\s*"([^"]+)"')
+_APPLICATION_VERSION = re.compile(r'(?m)^\s*APPLICATION_VERSION\s*=\s*"([^"]+)"')
 
 GitRunner = Callable[[Path, Sequence[str]], "subprocess.CompletedProcess[str]"]
 PipInstaller = Callable[[Path], "subprocess.CompletedProcess[str]"]
@@ -199,7 +200,15 @@ def check_for_update(
         return result
 
     try:
-        fetched = git(root, ["fetch", "--quiet", "origin", branch])
+        fetched = git(
+            root,
+            [
+                "fetch",
+                "--quiet",
+                "origin",
+                f"refs/heads/{branch}:refs/remotes/origin/{branch}",
+            ],
+        )
     except subprocess.TimeoutExpired:
         result = _not_checked("Update check timed out — you may be offline.", branch)
         _save_cache(cache_path, result)
@@ -226,21 +235,38 @@ def check_for_update(
         "reason": None,
     }
 
-    count = git(root, ["rev-list", "--count", f"HEAD..{remote_ref}"])
-    behind = (
-        int(count.stdout.strip())
-        if count.returncode == 0 and count.stdout.strip().isdigit()
-        else 0
-    )
+    try:
+        count = git(root, ["rev-list", "--count", f"HEAD..{remote_ref}"])
+    except (OSError, subprocess.SubprocessError):
+        count = None
+    if count is None or count.returncode != 0 or not count.stdout.strip().isdigit():
+        result = _not_checked(
+            "Could not compare the installed code with the latest main branch. Try checking again.",
+            branch,
+        )
+        _save_cache(cache_path, result)
+        return result
+    behind = int(count.stdout.strip())
     result["commits_behind"] = behind
     result["up_to_date"] = behind == 0
 
     latest_version = None
-    version_show = git(root, ["show", f"{remote_ref}:vesta/__init__.py"])
-    if version_show.returncode == 0:
-        match = _DUNDER_VERSION.search(version_show.stdout)
+    for filename, pattern in (
+        ("_generated_release.py", _APPLICATION_VERSION),
+        ("__init__.py", _DUNDER_VERSION),
+    ):
+        try:
+            version_show = git(root, ["show", f"{remote_ref}:vesta/{filename}"])
+        except (OSError, subprocess.SubprocessError):
+            continue
+        match = (
+            pattern.search(version_show.stdout)
+            if version_show.returncode == 0
+            else None
+        )
         if match:
             latest_version = match.group(1)
+            break
     result["latest_version"] = latest_version
 
     _save_cache(cache_path, result)
@@ -315,7 +341,15 @@ def apply_update(
 
     stage(1)
     try:
-        fetch = git(root, ["fetch", "--quiet", "origin", branch])
+        fetch = git(
+            root,
+            [
+                "fetch",
+                "--quiet",
+                "origin",
+                f"refs/heads/{branch}:refs/remotes/origin/{branch}",
+            ],
+        )
     except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired) as exc:
         if stashed:
             git(root, ["stash", "pop"])
@@ -382,13 +416,19 @@ def apply_update(
         }
 
     new_version = CURRENT_VERSION
-    version_file = root / "vesta" / "__init__.py"
-    try:
-        match = _DUNDER_VERSION.search(version_file.read_text(encoding="utf-8"))
+    for filename, pattern in (
+        ("_generated_release.py", _APPLICATION_VERSION),
+        ("__init__.py", _DUNDER_VERSION),
+    ):
+        try:
+            match = pattern.search(
+                (root / "vesta" / filename).read_text(encoding="utf-8")
+            )
+        except OSError:
+            continue
         if match:
             new_version = match.group(1)
-    except OSError:
-        pass
+            break
 
     _save_cache(
         cache_path or _default_state_path(),

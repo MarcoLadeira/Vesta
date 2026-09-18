@@ -87,6 +87,7 @@ _BRIDGE_PREFERENCE_KEYS = frozenset(
         "default_task_mode",
         "default_output_format",
         "show_control_panel",
+        "show_agents_strip",
         # Bypass Permissions is a switch layered over the selected mode, so it
         # persists like any other preference rather than through the Full Auto
         # pin slot below (that slot exists for a mode; this is not one).
@@ -908,6 +909,7 @@ def boot_payload(root: Path, *, initial_task: str | None = None) -> dict[str, An
             # empty chat opened with an empty inspector taking the right third
             # of the window.
             "showPanel": bool(prefs.get("show_control_panel", False)),
+            "showAgentsStrip": prefs.get("show_agents_strip") is not False,
             # Bypass is a switch layered over the mode, so the composer needs
             # it separately from the selected mode id.
             "bypassPermissions": bool(prefs.get("bypass_permissions", False)),
@@ -2860,6 +2862,7 @@ def _run_gui(
                         else safe_detail(exc),
                         "control": {
                             "action": payload.get("action"),
+                            "assignment_id": payload.get("assignment_id"),
                             "revision": payload.get("value", {}).get("revision")
                             if isinstance(payload.get("value"), dict)
                             else None,

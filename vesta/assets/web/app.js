@@ -340,6 +340,7 @@ function applyBootSelection(b) {
   // stored default. `!== false` treated undefined as "show", which is how
   // a first run ended up with an empty inspector open.
   state.panel = b.prefs.showPanel === true;
+  state.teamStripVisible = b.prefs.showAgentsStrip !== false;
   // Authority layered over the mode, not a mode of its own.
   state.bypassPermissions = b.prefs.bypassPermissions === true;
   state.focus = b.prefs.focus || "general";
@@ -4490,6 +4491,7 @@ function paintAgentChatCards() {
   restoreChatScroll(scroll);
 }
 function peekAgentTeam(objectiveId, assignmentId) {
+  setAgentsStripVisible(true);
   state.teamObjectiveId = objectiveId;
   state.teamAgentId = assignmentId || null;
   state.teamOpen = true;
@@ -4557,8 +4559,9 @@ function teamModels() {
   return Array.from($('#modelSel')?.options || []).filter((o) => !o.disabled).map((o) => ({ value: o.value, label: o.value === 'auto' ? 'Auto model' : o.textContent }));
 }
 function teamControl(payload) {
-  if (bridge.controlObjective) bridge.controlObjective(JSON.stringify(payload));
-  else toast('Team controls are unavailable in this host.');
+  if (bridge.controlObjective) { bridge.controlObjective(JSON.stringify(payload)); return true; }
+  toast('Team controls are unavailable in this host.');
+  return false;
 }
 function teamMapOptions(objective) {
   const root = state.boot.workspace?.root;
@@ -4610,6 +4613,11 @@ function paintAgentTeam() {
       if (focused) (Array.from(strip.querySelectorAll('[data-team-shortcut]')).find((b) => b.dataset.teamShortcut === shortcut && b.dataset.teamObjective === focusedObjective) || strip.querySelector('button')).focus({ preventScroll: true });
     }
     strip.querySelector('.team-strip-open').onclick = () => peekAgentTeam(objective?.objective_id);
+    strip.querySelector('[data-team-strip-collapse]').onclick = () => {
+      state.teamOpen = false;
+      setAgentsStripVisible(false);
+      $('#headerAgents')?.focus();
+    };
     strip.querySelectorAll('[data-team-shortcut]').forEach((button) => { button.onclick = () => peekAgentTeam(button.dataset.teamObjective, button.dataset.teamShortcut); });
   }
   if (element.hidden || document.querySelector('.agents-artifact-dialog[open]')) return;
@@ -4709,7 +4717,7 @@ function onObjectiveReady(json) {
   state.teamObjectiveId = d.objective.objective_id;
   state.teamAgentId = null;
   state.teamMapOpen = false;
-  state.teamOpen = true;
+  state.teamOpen = state.teamStripVisible !== false;
   stopTimer(); cancelTokenRender();
   state.currentRequest = null;
   state.message = null;
@@ -4730,7 +4738,10 @@ function onObjectiveControlReady(json) {
   settleTeamMessage(d);
   window.VestaTeamMap?.settle(d);
   window.VestaAgentsTeam?.settle($('#agentsTeam'), d);
-  if (!d.ok) { toast(safeStateReason(d.error, "Objective control failed.")); return; }
+  if (!d.ok) {
+    if (d.objective && applyObjectiveSnapshot(d.objective)) { state.dashRequest = null; paintAgentsWorkspace(); }
+    toast(safeStateReason(d.error, "Objective control failed.")); return;
+  }
   // Invalidate a pre-control poll so it cannot overwrite the newer snapshot.
   state.dashRequest = null;
   if (applyObjectiveSnapshot(d.objective)) paintAgentsWorkspace();
@@ -5147,13 +5158,20 @@ function togglePanel() {
   if (state.panel) refreshInspector();
   bridge.savePref("show_control_panel", state.panel ? "true" : "false");
 }
+function setAgentsStripVisible(visible) {
+  state.teamStripVisible = visible === true;
+  if (state.boot?.prefs) state.boot.prefs.showAgentsStrip = state.teamStripVisible;
+  if (bridge?.savePref) bridge.savePref('show_agents_strip', String(state.teamStripVisible));
+  applyPanel();
+}
 function applyPanel() {
   const team = state.teamOpen;
-  const collapsed = !team;
+  const stripVisible = state.teamStripVisible !== false;
+  const collapsed = stripVisible && !team;
   const chatTeam = state.view === 'chat' && !!state.teamObjectiveId;
-  $('#app').classList.add('team-access');
+  $('#app').classList.toggle('team-access', stripVisible);
   $('#app').classList.toggle('team-collapsed', collapsed);
-  if ($('#agentsTeamStrip')) $('#agentsTeamStrip').hidden = false;
+  if ($('#agentsTeamStrip')) $('#agentsTeamStrip').hidden = !stripVisible;
   $('#app').classList.toggle('team-open', team);
   if ($('#agentsTeam')) $('#agentsTeam').hidden = !team;
   $('#app').classList.toggle('panel-hidden', !team && (!state.panel || chatTeam));
@@ -5321,7 +5339,7 @@ function wire() {
   const sidebarNewChat = $("#newChat");
   if (sidebarNewChat) sidebarNewChat.onclick = startNewChat;
   $("#headerNewChat").onclick = startNewChat;
-  $("#headerAgents").onclick = () => switchView("agents");
+  $("#headerAgents").onclick = () => { setAgentsStripVisible(true); switchView("agents"); };
   $("#footSettings").onclick = () => switchView("settings");
   $("#headerSettings").onclick = () => switchView("settings");
   $("#sidebarToggle").onclick = toggleSidebar;

@@ -39,6 +39,8 @@
 .team-detail-person .team-avatar { width: 28px; height: 28px; }
 .team-detail h3 { font-size: var(--type-body-lg); overflow-wrap: anywhere; }
 .team-empty, .team-result { margin: var(--space-4) 0; color: var(--muted); font-size: var(--type-label); line-height: 1.6; overflow-wrap: anywhere; }
+.team-setup { margin-block: var(--space-4); padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--r-md); font-size: var(--type-label); line-height: 1.6; overflow-wrap: anywhere; }
+.team-setup > p { margin: var(--space-2) 0 0; }
 .team-connection { display: flex; gap: var(--space-2); padding: var(--space-2) 0; color: var(--muted); font-size: var(--type-caption); border-left: 1px solid var(--border-strong); padding-left: var(--space-3); }
 .team-connection button { border: 0; padding: 0; color: var(--accent); background: transparent; font: inherit; cursor: pointer; }
 .team-explanation, .team-name-editor { margin: var(--space-2) 0; color: var(--muted); font-size: var(--type-label); }
@@ -157,6 +159,9 @@
 .app.team-access .agents-team-strip { grid-column: 4; grid-row: 2; position: static; width: auto; min-height: 0; display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3) var(--space-1); border-radius: 0; }
 .team-strip-open { flex: none; min-height: 32px; align-content: center; border-radius: var(--r-md); }
 .team-strip-open:hover { background: var(--glass-hi); color: var(--ink); }
+.team-strip-collapse { display: grid; place-items: center; flex: none; width: 100%; min-height: 32px; margin-top: auto; padding: 0; border: 0; border-radius: var(--r-md); background: transparent; color: var(--muted); cursor: pointer; }
+.team-strip-collapse:hover { background: var(--glass-hi); color: var(--ink); }
+.team-strip-collapse:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .team-shortcuts { min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; display: flex; flex-direction: column; align-items: center; gap: var(--space-3); padding: var(--space-1) 0; }
 .team-shortcut { position: relative; flex: none; display: grid; place-items: center; padding: 0; width: 36px; height: 38px; color: var(--ink); border: 1px solid transparent; border-radius: var(--r-md); background: transparent; cursor: pointer; }
 .team-shortcut .team-avatar { width: 28px; height: 28px; }

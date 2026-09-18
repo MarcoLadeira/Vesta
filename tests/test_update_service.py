@@ -738,6 +738,7 @@ def _auto_source_service(
     apply_result: dict[str, object] | Exception,
     checks: list[dict[str, object]],
     automatic_downloads: bool = True,
+    automatic_install_on_quit: bool = True,
     safe_to_install: bool = True,
     stages: tuple[str, ...] = (),
 ) -> tuple[UpdateService, list[bool], list[bool]]:
@@ -769,7 +770,11 @@ def _auto_source_service(
     monkeypatch.setattr(legacy_updater, "apply_update", _apply)
     store = UpdateStore(UpdaterPaths.for_home(tmp_path))
     store.save_policy(
-        UpdatePolicy(automatic_downloads=automatic_downloads, rollout_cohort=42)
+        UpdatePolicy(
+            automatic_downloads=automatic_downloads,
+            automatic_install_on_quit=automatic_install_on_quit,
+            rollout_cohort=42,
+        )
     )
     service = UpdateService(
         store=store,
@@ -791,6 +796,45 @@ def _auto_source_service(
 AHEAD = {"checked": True, "up_to_date": False, "commits_behind": 3, "reason": None}
 CURRENT = {"checked": True, "up_to_date": True, "commits_behind": 0, "reason": None}
 APPLIED = {"ok": True, "restart_required": True, "installed_version": "0.2.1a2"}
+
+
+def test_source_check_does_not_install_even_with_automatic_downloads(
+    tmp_path, monkeypatch
+):
+    service, _, applied = _auto_source_service(
+        tmp_path, monkeypatch, apply_result=APPLIED, checks=[AHEAD]
+    )
+    service.check_now()
+    assert applied == []
+    assert service.store.load_operation().state is UpdateState.UNSUPPORTED_INSTALL
+
+
+def test_source_main_discovery_does_not_use_packaged_feed(tmp_path, monkeypatch):
+    service, _, applied = _auto_source_service(
+        tmp_path,
+        monkeypatch,
+        apply_result=APPLIED,
+        checks=[AHEAD],
+        automatic_downloads=False,
+    )
+    service.trust = {"feed_url": "https://updates.invalid/manifest.json"}
+    result = service.check(force=True)
+    assert result.state is UpdateState.UNSUPPORTED_INSTALL
+    assert "3 commits behind origin/main" in result.safe_diagnostic
+    assert applied == []
+
+
+def test_source_install_on_quit_requires_install_consent(tmp_path, monkeypatch):
+    service, _, applied = _auto_source_service(
+        tmp_path,
+        monkeypatch,
+        apply_result=APPLIED,
+        checks=[AHEAD],
+        automatic_install_on_quit=False,
+    )
+    service.check(force=True)
+    service.install_on_quit()
+    assert applied == []
 
 
 def test_status_says_whether_the_app_can_restart_itself(
@@ -918,7 +962,7 @@ def test_source_checkout_publishes_progress_while_it_updates(
         stages=("Fetching the latest version", "Reinstalling Vesta"),
     )
 
-    operation = service.check(force=True)
+    operation = service.install_on_quit()
 
     assert seen == [
         ("Fetching the latest version", 0, 2),
@@ -942,7 +986,7 @@ def test_source_checkout_progress_is_cleared_when_the_update_fails(
         stages=("Fetching the latest version",),
     )
 
-    operation = service.check(force=True)
+    operation = service.install_on_quit()
 
     assert operation.state is UpdateState.UNSUPPORTED_INSTALL
     assert operation.progress_label == ""
@@ -960,20 +1004,20 @@ def test_source_checkout_progress_is_cleared_when_the_update_raises(
         stages=("Fetching the latest version",),
     )
 
-    operation = service.check(force=True)
+    operation = service.install_on_quit()
 
     assert operation.state is UpdateState.UNSUPPORTED_INSTALL
     assert operation.progress_label == ""
 
 
-def test_source_checkout_updates_itself_when_automatic_downloads_are_on(
+def test_source_checkout_updates_on_quit_with_install_consent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     service, _, apply_forces = _auto_source_service(
         tmp_path, monkeypatch, apply_result=APPLIED, checks=[AHEAD]
     )
 
-    operation = service.check(force=True)
+    operation = service.install_on_quit()
 
     assert operation.state is UpdateState.COMPLETED
     assert "fast-forwarded 3 commits" in operation.safe_diagnostic
@@ -992,7 +1036,7 @@ def test_source_checkout_auto_update_uses_singular_for_one_commit(
         checks=[{**AHEAD, "commits_behind": 1}],
     )
 
-    operation = service.check(force=True)
+    operation = service.install_on_quit()
 
     assert "fast-forwarded 1 commit from" in operation.safe_diagnostic
 
@@ -1008,7 +1052,8 @@ def test_source_checkout_auto_update_needs_the_automatic_downloads_consent(
         automatic_downloads=False,
     )
 
-    operation = service.check(force=True)
+    service.check(force=True)
+    operation = service.install_on_quit()
 
     assert apply_forces == []  # permission to look is not permission to act
     assert operation.state is UpdateState.UNSUPPORTED_INSTALL
@@ -1032,7 +1077,8 @@ def test_source_checkout_auto_update_waits_for_active_work_to_finish(
         safe_to_install=False,
     )
 
-    operation = service.check(force=True)
+    service.check(force=True)
+    operation = service.install_on_quit()
 
     assert apply_forces == []
     assert operation.state is UpdateState.UNSUPPORTED_INSTALL
@@ -1057,7 +1103,7 @@ def test_source_checkout_auto_update_takes_one_lease_for_the_whole_check(
         tmp_path, monkeypatch, apply_result=APPLIED, checks=[AHEAD]
     )
 
-    service.check(force=True)
+    service.install_on_quit()
 
     assert check_forces == [True]
     assert apply_forces == [False]
@@ -1073,7 +1119,7 @@ def test_source_checkout_auto_update_settles_up_to_date_on_the_next_cycle(
         tmp_path, monkeypatch, apply_result=APPLIED, checks=[AHEAD, CURRENT]
     )
 
-    assert service.check(force=True).state is UpdateState.COMPLETED
+    assert service.install_on_quit().state is UpdateState.COMPLETED
     operation = service.check(force=True)
 
     assert operation.state is UpdateState.UP_TO_DATE
@@ -1094,7 +1140,7 @@ def test_source_checkout_auto_update_leaves_a_dirty_tree_alone(
         checks=[AHEAD],
     )
 
-    operation = service.check(force=True)
+    operation = service.install_on_quit()
 
     assert apply_forces == [False]  # refused rather than stashed behind the user
     assert operation.state is UpdateState.UNSUPPORTED_INSTALL
@@ -1114,7 +1160,7 @@ def test_source_checkout_auto_update_leaves_diverged_history_alone(
         checks=[AHEAD],
     )
 
-    operation = service.check(force=True)
+    operation = service.install_on_quit()
 
     assert operation.state is UpdateState.UNSUPPORTED_INSTALL
     assert apply_forces == [False]  # attempted, then absorbed
@@ -1130,7 +1176,7 @@ def test_source_checkout_auto_update_failure_never_invents_a_state(
         checks=[AHEAD],
     )
 
-    operation = service.check(force=True)
+    operation = service.install_on_quit()
 
     assert operation.state is UpdateState.UNSUPPORTED_INSTALL
     assert apply_forces == [False]  # attempted, then absorbed
@@ -1148,13 +1194,13 @@ def test_source_checkout_auto_update_reports_without_a_version(
         checks=[AHEAD],
     )
 
-    operation = service.check(force=True)
+    operation = service.install_on_quit()
 
     assert operation.state is UpdateState.COMPLETED
     assert "fast-forwarded 3 commits from origin/main." in operation.safe_diagnostic
 
 
-def test_maintain_advances_a_stale_source_checkout_without_a_prompt(
+def test_maintain_discovers_then_quit_installs_source_update(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     """The whole point: a checkout left alone updates on its own timer."""
@@ -1162,7 +1208,10 @@ def test_maintain_advances_a_stale_source_checkout_without_a_prompt(
         tmp_path, monkeypatch, apply_result=APPLIED, checks=[AHEAD]
     )
 
-    operation = service.maintain()
+    discovered = service.maintain()
+    assert discovered.state is UpdateState.UNSUPPORTED_INSTALL
+    assert apply_forces == []
+    operation = service.install_on_quit()
 
     assert apply_forces == [False]
     assert operation.state is UpdateState.COMPLETED
@@ -1185,7 +1234,7 @@ def test_a_restart_banner_does_not_survive_the_restart_it_asked_for(
     service, _, _ = _auto_source_service(
         tmp_path, monkeypatch, apply_result=APPLIED, checks=[AHEAD, CURRENT]
     )
-    applied = service.check(force=True)
+    applied = service.install_on_quit()
     assert applied.state is UpdateState.COMPLETED
     assert "Restart Vesta" in applied.safe_diagnostic
 
@@ -1224,7 +1273,7 @@ def test_a_pending_restart_banner_survives_until_the_restart(
         "_PROCESS_STARTED_AT",
         datetime.now(timezone.utc) - timedelta(minutes=5),
     )
-    applied = service.check(force=True)
+    applied = service.install_on_quit()
     assert applied.state is UpdateState.COMPLETED
 
     operation = service.maintain()

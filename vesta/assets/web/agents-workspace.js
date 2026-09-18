@@ -176,7 +176,8 @@
     const assignments = global.VestaAgentsTeam ? global.VestaAgentsTeam.agents(objective) : list(objective.assignments);
     const working = assignments.filter((a) => a.status === 'running').length;
     const attention = assignments.filter(needsAttention).length;
-    const summary = working ? working + (working === 1 ? ' agent working' : ' agents working') : objective.status === 'completed' ? 'Team finished' : objective.status === 'ready-to-integrate' ? 'Ready for combined checks' : objective.status === 'planning' || !assignments.length ? 'Putting your team together' : assignments.length + ' agents · ' + status(objective.status);
+    const setup = global.VestaAgentsTeam?.setupState(objective);
+    const summary = setup ? esc(setup.label) : working ? working + (working === 1 ? ' agent working' : ' agents working') : objective.status === 'completed' ? 'Team finished' : objective.status === 'ready-to-integrate' ? 'Ready for combined checks' : objective.status === 'planning' ? 'Putting your team together' : assignments.length + ' agents · ' + status(objective.status);
     return '<section class="agents-chat-card" aria-label="Team summary"><span class="agents-state' + (working ? ' agents-state-active' : '') + '"><i aria-hidden="true"></i>' + summary + '</span><span class="team-summary-cost">' + cost(objective.cost_usd) + (objective.cost_complete !== true ? ' · incomplete' : '') + '</span>' + (attention ? '<span class="agents-note">' + attention + (attention === 1 ? ' assignment needs attention' : ' assignments need attention') + '</span>' : '') + '<button type="button" class="team-quiet" data-open-team>View team</button></section>';
   }
   function mount(element, snapshot, options) {

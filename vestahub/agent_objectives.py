@@ -1883,7 +1883,15 @@ class ObjectiveStore:
         self._release_proven_executions(objective_id)
 
     def interrupt_execution(
-        self, objective_id, owner, dispatch_fence, *, assignment_id=None, phase=None
+        self,
+        objective_id,
+        owner,
+        dispatch_fence,
+        *,
+        assignment_id=None,
+        phase=None,
+        reason="Worker termination is unconfirmed; capacity is retained",
+        result=None,
     ):
         with self._db(True) as db:
             obj, item = self._execution_target(
@@ -1893,8 +1901,10 @@ class ObjectiveStore:
                 status="needs-attention",
                 fence=dispatch_fence + 1,
                 expires_at=None,
-                blocked_reason="Worker termination is unconfirmed; capacity is retained",
+                blocked_reason=reason,
             )
+            if result is not None:
+                item["result"] = result
             if not phase:
                 self._save_assignment(db, item)
             obj["status"] = "needs-attention"

@@ -33,6 +33,7 @@ DEFAULT_PREFERENCES: dict[str, Any] = {
     # Simple by default: the Inspector is powerful but optional — first-time
     # users get a clean chat; power users toggle it (Ctrl+I / header pill).
     "show_control_panel": False,
+    "show_agents_strip": True,
     "auto_tools": True,
     # Appearance (#241): density scales spacing; reduced_motion overrides the
     # OS media query ("system" defers to it, "on" force-disables animations,
@@ -88,6 +89,7 @@ _ALLOWED_KEYS = {
     "default_task_mode",
     "default_output_format",
     "show_control_panel",
+    "show_agents_strip",
     "auto_tools",
     "density",
     "response_density",
@@ -138,6 +140,7 @@ def _sanitize(data: dict[str, Any]) -> dict[str, Any]:
         clean["activity_copy"] = "on"
     clean["onboarding_seen"] = bool(clean.get("onboarding_seen"))
     clean["multi_agent_enabled"] = clean.get("multi_agent_enabled") is True
+    clean["show_agents_strip"] = clean.get("show_agents_strip") is not False
     safe = clean.get("safe_auto")
     if not isinstance(safe, dict):
         clean["safe_auto"] = DEFAULT_PREFERENCES["safe_auto"]

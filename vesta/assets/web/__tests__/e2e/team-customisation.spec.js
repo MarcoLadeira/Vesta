@@ -75,7 +75,8 @@ test('add agent preserves its draft and exposes model/group before optional star
   await dialog.getByLabel('Group', { exact: true }).fill('Security');
   await page.evaluate((o) => window.__mock.emitObjectiveControl({ ok: true, workspaceRoot: '/demo', objective: { ...o, revision: 6 } }), objective);
   await expect(dialog.getByLabel('What should this agent do?')).toHaveValue('Review token expiry');
-  await expect(dialog.getByLabel('Start immediately')).not.toBeChecked();
+  await expect(dialog.getByLabel('Start immediately')).toBeChecked();
+  await dialog.getByLabel('Start immediately').uncheck();
   const bounds = await dialog.boundingBox(); expect(bounds.x).toBeGreaterThanOrEqual(0); expect(bounds.x + bounds.width).toBeLessThanOrEqual(520);
   await page.screenshot({ path: testInfo.outputPath('add-agent-mobile.png'), animations: 'disabled' });
   await dialog.getByRole('button', { name: 'Add agent', exact: true }).click();

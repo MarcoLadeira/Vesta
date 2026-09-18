@@ -293,13 +293,32 @@
     element._objectiveId = objective.objective_id;
     document.body.appendChild(element);
     element.querySelector('[data-dialog-close]').onclick = () => element.close();
-    element.onclose = () => { element.remove(); if (previous?.isConnected) previous.focus({ preventScroll: true }); options.onDialogClose?.(); };
+    element.onclose = () => { clearTimeout(element._controlTimer); element.remove(); if (previous?.isConnected) previous.focus({ preventScroll: true }); options.onDialogClose?.(); };
     element.showModal();
+    element.finishControl = (message) => {
+      clearTimeout(element._controlTimer);
+      element._control = null;
+      element.removeAttribute('aria-busy');
+      element.querySelectorAll('[data-control-disabled]').forEach((input) => { input.disabled = false; delete input.dataset.controlDisabled; });
+      element.querySelector('.team-form-error').textContent = message;
+    };
     element.submitControl = (action, value, assignmentId) => {
+      if (element._control) return;
       const current = options.getObjective ? options.getObjective() : objective;
       if (!current || current.objective_id !== objective.objective_id) { element.close(); return; }
       element._control = { action, revision: current.team_revision || 0, assignment_id: assignmentId };
-      options.onControl({ objective_id: objective.objective_id, ...(assignmentId ? { assignment_id: assignmentId } : {}), action, value: { revision: current.team_revision || 0, ...value } });
+      element.setAttribute('aria-busy', 'true');
+      element.querySelectorAll('input:not(:disabled), textarea:not(:disabled), select:not(:disabled), button:not(:disabled):not([data-dialog-close])').forEach((input) => { input.dataset.controlDisabled = 'true'; input.disabled = true; });
+      element.querySelector('.team-form-error').textContent = action === 'add_agent' ? 'Adding your agent…' : 'Saving…';
+      element._controlTimer = setTimeout(() => {
+        element.querySelector('.team-form-error').textContent = 'Still waiting for Vesta to confirm. You can close this window and check your team before trying again.';
+      }, 15000);
+      try {
+        const sent = options.onControl({ objective_id: objective.objective_id, ...(assignmentId ? { assignment_id: assignmentId } : {}), action, value: { revision: current.team_revision || 0, ...value } });
+        if (sent === false) element.finishControl('Team controls are unavailable in this host. Your draft is still here.');
+      } catch (_) {
+        element.finishControl('Could not send this request to Vesta. Your draft is still here.');
+      }
     };
     return element;
   }
@@ -308,10 +327,13 @@
     const element = dialog('Add an agent', '<form data-add-agent><label>What should this agent do?<textarea name="task" rows="3" maxlength="8000" required placeholder="Review the sign-in flow…"></textarea></label><div class="team-form-row"><label>Name<input name="agentName" maxlength="40" placeholder="Vesta chooses a name"></label><label>AI model<select name="model" aria-label="AI model">' + team().modelOptions('auto', options.models) + '</select></label></div><details><summary>Group & budget</summary><label>Group<input name="group" maxlength="40" list="mapGroups" placeholder="No group"></label><datalist id="mapGroups">' + groups.map((g) => '<option value="' + esc(g) + '"></option>').join('') + '</datalist><label>Task budget ($)<input name="budget" inputmode="decimal" pattern="[0-9]+([.][0-9]+)?" placeholder="Optional"></label></details><label class="team-form-check"><input type="checkbox" name="start">Start immediately</label><p class="team-empty">Leave this off to arrange connections before starting. Existing permissions and objective budget apply.</p><button type="submit" class="btn primary">Add agent</button></form>', objective, options);
     element.querySelector('form').onsubmit = (event) => {
       event.preventDefault(); const form = event.currentTarget;
-      if (!form.reportValidity()) return;
       const fields = form.elements;
+      fields.task.setCustomValidity(fields.task.value.trim() ? '' : 'Enter a task for this agent.');
+      if (!form.reportValidity()) return;
       element.submitControl('add_agent', { objective: fields.task.value.trim(), ...(fields.agentName.value.trim() ? { name: fields.agentName.value.trim() } : {}), model: fields.model.value, group: fields.group.value.trim(), start: fields.start.checked, budget_usd: fields.budget.value || null });
     };
+    element.querySelector('[name="start"]').checked = true;
+    element.querySelector('[name="task"]').oninput = (event) => event.target.setCustomValidity('');
     element.querySelector('textarea').focus();
   }
   function connectionDialog(objective, source, target, options) {
@@ -336,8 +358,10 @@
     }
     const element = document.querySelector('.team-edit-dialog');
     if (!element?._control) return;
-    if (!response.ok) { element.querySelector('.team-form-error').textContent = response.error?.userMessage || (typeof response.error === 'string' ? response.error : 'Could not save. Your draft is still here.'); return; }
-    if (response.objective?.objective_id === element._objectiveId && response.control?.action === element._control.action && response.control?.revision === element._control.revision) element.close();
+    const control = response.control;
+    if ((response.objective?.objective_id || control?.objective_id) !== element._objectiveId || control?.action !== element._control.action || control?.revision !== element._control.revision || (control?.assignment_id || null) !== (element._control.assignment_id || null)) return;
+    if (!response.ok) { element.finishControl(response.error?.userMessage || (typeof response.error === 'string' ? response.error : 'Could not save. Your draft is still here.')); return; }
+    element.close();
   }
   global.VestaTeamMap = { mount, arrange, edges, graphHtml, addDialog, settle, status };
 })(typeof window !== 'undefined' ? window : globalThis);

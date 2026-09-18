@@ -59,3 +59,25 @@ test("a quiet updater keeps the banner out of the way", async ({ page }) => {
 
   await expect(page.locator("#updateShell")).toBeHidden();
 });
+
+test('main updates remain visible with automatic installation disabled and the agents strip hidden', async ({ page }, testInfo) => {
+  await openApp(page, { boot: {
+    prefs: { showAgentsStrip: false },
+    update: {
+      schema_version: 1,
+      installed: { install_type: 'source_checkout' },
+      operation: { state: 'unsupported_install', error_category: 'manual_update_required', safe_diagnostic: 'This source checkout is 3 commits behind origin/main.' },
+      policy: { automatic_downloads: false, automatic_install_on_quit: false },
+      discovery: { self_updatable: true, summary: { title: 'Update available', message: 'A newer Vesta is ready. Update when you are ready.' } },
+    },
+  } });
+  await expect(page.locator('#agentsTeamStrip')).toBeHidden();
+  await expect(page.locator('#updateShell')).toBeVisible();
+  await page.locator('#updateBanner').click();
+  const apply = page.locator('[data-update-action="developer_apply"]');
+  await expect(apply).toBeVisible();
+  await expect(apply).toBeEnabled();
+  await page.screenshot({ path: testInfo.outputPath('manual-update-hidden-sidebar.png'), animations: 'disabled' });
+  await apply.click();
+  expect(await page.evaluate(() => window.__mock.updateActions)).toContain('developer_apply');
+});
