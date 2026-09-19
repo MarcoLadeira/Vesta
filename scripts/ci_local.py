@@ -243,6 +243,29 @@ WEB_STEPS = (
     ),
 )
 
+GUI_STEPS = (
+    # The real-window render smoke tests are gated on
+    # `find_spec("PySide6")`, so without the desktop-gui extra they skip in
+    # every lane and a broken renderer ships green (#908). Declaring PySide6
+    # as a required module keeps this fail-closed: a lane without the extra
+    # is `unavailable` + `failed`, never a green skip. Qt runs offscreen so
+    # the hosted runner needs no display.
+    Step(
+        "gui-smoke",
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "tests/test_desktop_gui.py",
+            "tests/test_gui_controls.py",
+            "tests/test_gui_web.py",
+            "-q",
+        ],
+        required_modules=("pytest", "PySide6"),
+        env=(("QT_QPA_PLATFORM", "offscreen"),),
+    ),
+)
+
 SUPPLY_CHAIN_STEPS = (
     Step(
         "python-pytest",
@@ -299,7 +322,12 @@ PROVIDER_STEPS = (
 )
 
 PROFILE_COMPONENT_STEPS: dict[str, dict[str, tuple[Step, ...]]] = {
-    "fast": {"python": PYTHON_STEPS, "hostile": HOSTILE_STEPS, "web": WEB_STEPS},
+    "fast": {
+        "python": PYTHON_STEPS,
+        "hostile": HOSTILE_STEPS,
+        "web": WEB_STEPS,
+        "gui": GUI_STEPS,
+    },
     "full": {
         "python": PYTHON_STEPS,
         "hostile": HOSTILE_STEPS,
@@ -926,7 +954,7 @@ def _expected_check_ids(profile: str, component: str | None = None) -> list[str]
             raise ValueError(f"component {component_name!r} check IDs are invalid")
         by_component[str(component_name)] = values
     if profile == "fast":
-        components = [component] if component else ["python", "hostile", "web"]
+        components = [component] if component else ["python", "hostile", "web", "gui"]
     elif profile == "full":
         components = (
             [component]
