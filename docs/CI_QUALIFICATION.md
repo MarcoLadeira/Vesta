@@ -12,6 +12,7 @@ credentials, and failed artifact uploads are non-success states.
 | Required Python | PRs/merge queue targeting `main`, `release/**`, or `rc/**`; every push to those branches; weekly full run | GitHub-hosted, read-only, credential-free | Ruff format/lint, generated lifecycle drift, unittest, registry validation, Bandit including release scripts, enforcing secret scan |
 | Required hostile environment | Same as required Python | GitHub-hosted, read-only, fake provider keys and hostile keyring only | unittest and pytest; any skip/failure remains non-green |
 | Required web | Same as required Python | GitHub-hosted Windows, read-only, no secrets | locked `npm ci`, audit, tokens, Vitest, locked Chromium install, Playwright with no retry |
+| Required desktop GUI | Same as required Python | GitHub-hosted, read-only, credential-free, `QT_QPA_PLATFORM=offscreen` | desktop-gui extra installed; real-window PySide6 render smoke tests execute, never skip |
 | Full supply chain | Monday 03:17 UTC and manual `full` dispatch | GitHub-hosted, credential-free | full pytest plus `pip-audit` |
 | Native wheel | Monday 03:17 UTC and manual `full` dispatch | Ephemeral Windows/Linux/macOS runners | isolated wheel install/smoke for the exact SHA |
 | Trusted self-hosted | Every push to `main`; main-only dispatch | Long-lived labelled Windows runner after a hosted health preflight | exact-SHA Python component; never PR code |
@@ -44,6 +45,7 @@ The exact checks for `main` are:
 - `Required - Python quality (3.13)`
 - `Required - hostile-environment Python suites`
 - `Required - web UI security and E2E`
+- `Required - desktop GUI smoke (offscreen)`
 
 The manifest maps each stable check name to its workflow, job, local component,
 trusted GitHub app, and required internal check IDs. `tests/test_ci_architecture.py`
@@ -66,17 +68,18 @@ and merge-queue runs bind source and candidate to the event commit itself.
 
 ## Local profiles
 
-The aggregate `fast` profile is the same contract as all three PR jobs. Hosted
+The aggregate `fast` profile is the same contract as all four PR jobs. Hosted
 CI uses `--component` only to parallelize it.
 
 ```powershell
-# Full PR-equivalent contract: Python + hostile + web.
+# Full PR-equivalent contract: Python + hostile + web + gui.
 python scripts/ci_local.py --profile fast --manifest .vestahub/ci-evidence/fast.json
 
 # One parallelizable component.
 python scripts/ci_local.py --profile fast --component python --manifest .vestahub/ci-evidence/python.json
 python scripts/ci_local.py --profile fast --component hostile --manifest .vestahub/ci-evidence/hostile.json
 python scripts/ci_local.py --profile fast --component web --manifest .vestahub/ci-evidence/web.json
+python scripts/ci_local.py --profile fast --component gui --manifest .vestahub/ci-evidence/gui.json
 
 # Adds full pytest and dependency audit.
 python scripts/ci_local.py --profile full --manifest .vestahub/ci-evidence/full.json
@@ -154,7 +157,7 @@ network outages are infrastructure rather than product failures.
 Configure a ruleset targeting `main`, `release/**`, and `rc/**` with:
 
 1. Pull requests required before merge.
-2. All three exact checks above, from GitHub Actions, required and up to date.
+2. All four exact checks above, from GitHub Actions, required and up to date.
 3. At least one approval, stale approvals dismissed, Code Owner approval for
    workflow/CI/release files, and conversation resolution.
 4. No bypass, force push, or branch deletion.

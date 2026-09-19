@@ -13,6 +13,9 @@
       "hostile-unittest",
       "hostile-pytest"
     ],
+    "gui": [
+      "gui-smoke"
+    ],
     "native": [
       "isolated-wheel-smoke"
     ],
@@ -59,7 +62,8 @@
       "components": [
         "python",
         "hostile",
-        "web"
+        "web",
+        "gui"
       ],
       "manual": [
         "workflow_dispatch:fast",
@@ -194,6 +198,18 @@
         "web-unit",
         "playwright-browser-install",
         "web-e2e"
+      ],
+      "trusted_app": "github-actions",
+      "workflow": "Vesta CI (hosted)"
+    },
+    {
+      "component": "gui",
+      "job": "mandatory-gui",
+      "job_name_template": "Required - desktop GUI smoke (offscreen)",
+      "name": "Required - desktop GUI smoke (offscreen)",
+      "required_check_ids": [
+        "candidate-sha",
+        "gui-smoke"
       ],
       "trusted_app": "github-actions",
       "workflow": "Vesta CI (hosted)"
