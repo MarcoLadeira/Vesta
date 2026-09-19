@@ -1,0 +1,847 @@
+{
+  "generatedAt": "2026-09-19T11:34:59.692Z",
+  "durationMs": 72880,
+  "commit": "2d7185c774df6675937f6dd228173312f541334e",
+  "branch": "audit/vesta-visual-baseline-2026-09-19",
+  "captureMethod": "Playwright Chromium (no Qt) + injected mock bridge (vesta/assets/web/__tests__/e2e/mock-bridge.js); static server on 127.0.0.1:8124; viewport 1440x900",
+  "artifacts": [
+    {
+      "id": "SHELL-LAUNCH-001",
+      "file": "screens/shell/SHELL-LAUNCH-001-fresh-launch.png",
+      "type": "screenshot",
+      "area": "shell",
+      "state": "fresh launch, Vesta branding, empty hero, sidebar recents, provider status strip",
+      "trigger": "app boot with mock bridge default scenario",
+      "expected": "header-brand 'Vesta', hero #empty, composer, #statusLine spend line, #acct provider states, sidebar conversations",
+      "observed": "captured — see image (file 153 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/index.html",
+        "vesta/assets/web/app.js",
+        "vesta/assets/web/styles.css",
+        "vesta/assets/web/theme.js"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:33:47.317Z",
+      "bytes": 156462
+    },
+    {
+      "id": "COMPOSER-TYPED-001",
+      "file": "screens/composer/COMPOSER-TYPED-001-text-entered.png",
+      "type": "screenshot",
+      "area": "composer",
+      "state": "prompt text typed, not yet sent",
+      "trigger": "type into #input",
+      "expected": "text visible in composer, Send enabled",
+      "observed": "captured — see image (file 154 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/index.html",
+        "vesta/assets/web/composer.js",
+        "vesta/assets/web/app.js"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:33:47.421Z",
+      "bytes": 157656
+    },
+    {
+      "id": "SHELL-MODEL-POP-002",
+      "file": "screens/shell/SHELL-MODEL-POP-002-model-selector-open.png",
+      "type": "screenshot",
+      "area": "shell",
+      "state": "model selector popover open",
+      "trigger": "click #modelBtn",
+      "expected": "model list with account/free/local/auto groups and badges",
+      "observed": "captured — see image (file 175 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/index.html",
+        "vesta/assets/web/app.js",
+        "vesta/assets/web/styles.css",
+        "vesta/assets/web/theme.js"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:33:47.575Z",
+      "bytes": 178794
+    },
+    {
+      "id": "SHELL-MODE-POP-003",
+      "file": "screens/shell/SHELL-MODE-POP-003-run-mode-selector-open.png",
+      "type": "screenshot",
+      "area": "shell",
+      "state": "run-mode selector popover open",
+      "trigger": "click #modeBtn",
+      "expected": "Ask / Plan / Approve Edits / Safe Auto / Auto-Accept Edits / Full Auto",
+      "observed": "captured — see image (file 174 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/index.html",
+        "vesta/assets/web/app.js",
+        "vesta/assets/web/styles.css",
+        "vesta/assets/web/theme.js"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:33:47.717Z",
+      "bytes": 177773
+    },
+    {
+      "id": "COMPOSER-MORE-002",
+      "file": "screens/composer/COMPOSER-MORE-002-composer-settings-menu.png",
+      "type": "screenshot",
+      "area": "composer",
+      "state": "composer settings menu open",
+      "trigger": "click #moreBtn",
+      "expected": "menu with composer/task-mode options",
+      "observed": "captured — see image (file 167 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/index.html",
+        "vesta/assets/web/composer.js",
+        "vesta/assets/web/app.js"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:33:48.164Z",
+      "bytes": 171047
+    },
+    {
+      "id": "SHELL-PALETTE-004",
+      "file": "screens/shell/SHELL-PALETTE-004-command-palette.png",
+      "type": "screenshot",
+      "area": "shell",
+      "state": "command palette open",
+      "trigger": "Ctrl+K",
+      "expected": "#palette overlay with command list",
+      "observed": "captured — see image (file 133 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/index.html",
+        "vesta/assets/web/app.js",
+        "vesta/assets/web/styles.css",
+        "vesta/assets/web/theme.js"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:33:48.699Z",
+      "bytes": 135929
+    },
+    {
+      "id": "EXEC-STREAMING-001",
+      "file": "screens/execution/EXEC-STREAMING-001-streaming-in-progress.png",
+      "type": "screenshot",
+      "area": "execution",
+      "state": "assistant response streaming, Stop control active, work log running",
+      "trigger": "send prompt, emit tokens + activity events without reply",
+      "expected": "partial markdown text, streaming status, composer shows Stop",
+      "observed": "captured — see image (file 255 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/app.js",
+        "vesta/assets/web/activity.js",
+        "vesta/assets/web/message-state.js",
+        "vesta/assets/web/run-result.js"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:33:50.805Z",
+      "bytes": 261387
+    },
+    {
+      "id": "EXEC-COMPLETE-002",
+      "file": "screens/execution/EXEC-COMPLETE-002-run-completed.png",
+      "type": "screenshot",
+      "area": "execution",
+      "state": "completed run with answer and collapsed turn summary",
+      "trigger": "emitReply status=answered with receipt",
+      "expected": "final message, turn summary row, Send restored",
+      "observed": "captured — see image (file 245 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/app.js",
+        "vesta/assets/web/activity.js",
+        "vesta/assets/web/message-state.js",
+        "vesta/assets/web/run-result.js"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:33:51.406Z",
+      "bytes": 250934
+    },
+    {
+      "id": "EXEC-TURN-DETAILS-003",
+      "file": "screens/execution/EXEC-TURN-DETAILS-003-turn-summary-expanded.png",
+      "type": "screenshot",
+      "area": "execution",
+      "state": "turn diagnostics expanded (evidence/receipt behind disclosure)",
+      "trigger": "click .ts-verdict on the turn summary",
+      "expected": "expanded diagnostics incl. cost receipt",
+      "observed": "captured — see image (file 252 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/app.js",
+        "vesta/assets/web/activity.js",
+        "vesta/assets/web/message-state.js",
+        "vesta/assets/web/run-result.js"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:33:51.935Z",
+      "bytes": 258205
+    },
+    {
+      "id": "EXEC-STOP-PENDING-004",
+      "file": "screens/execution/EXEC-STOP-PENDING-004-stop-requested-unconfirmed.png",
+      "type": "screenshot",
+      "area": "execution",
+      "state": "stop requested, backend confirmation pending",
+      "trigger": "press Escape during streaming, before confirmCancel",
+      "expected": "intermediate stopping presentation (waits for backend confirm)",
+      "observed": "captured — see image (file 274 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/app.js",
+        "vesta/assets/web/activity.js",
+        "vesta/assets/web/message-state.js",
+        "vesta/assets/web/run-result.js"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:33:52.387Z",
+      "bytes": 280068
+    },
+    {
+      "id": "EXEC-STOPPED-005",
+      "file": "screens/execution/EXEC-STOPPED-005-stopped-card.png",
+      "type": "screenshot",
+      "area": "execution",
+      "state": "cancellation confirmed, stopped card shown",
+      "trigger": "confirmCancel after Escape",
+      "expected": ".stopped-card terminal presentation with edit/retry affordances",
+      "observed": "captured — see image (file 277 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/app.js",
+        "vesta/assets/web/activity.js",
+        "vesta/assets/web/message-state.js",
+        "vesta/assets/web/run-result.js"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:33:52.800Z",
+      "bytes": 283261
+    },
+    {
+      "id": "PERMISSIONS-CMD-APPROVAL-001",
+      "file": "screens/permissions/PERMISSIONS-CMD-APPROVAL-001-command-approval-card.png",
+      "type": "screenshot",
+      "area": "permissions",
+      "state": "command blocked by run-mode policy, approval card with exact command",
+      "trigger": "send prompt; mock replies needs_command_approval",
+      "expected": "approval card shows command verbatim with Approve once / Deny",
+      "observed": "captured — see image (file 252 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/index.html",
+        "vesta/assets/web/composer.js",
+        "vesta/assets/web/app.js",
+        "vesta/assets/web/app.js"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:33:54.470Z",
+      "bytes": 257915
+    },
+    {
+      "id": "PERMISSIONS-CMD-APPROVED-002",
+      "file": "screens/permissions/PERMISSIONS-CMD-APPROVED-002-command-approved.png",
+      "type": "screenshot",
+      "area": "permissions",
+      "state": "approval granted, re-run completed",
+      "trigger": "click Approve once",
+      "expected": "card state flips to Approved, answer message appended",
+      "observed": "captured — see image (file 262 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/index.html",
+        "vesta/assets/web/composer.js",
+        "vesta/assets/web/app.js"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:33:55.187Z",
+      "bytes": 268166
+    },
+    {
+      "id": "PERMISSIONS-EDIT-APPROVAL-003",
+      "file": "screens/permissions/PERMISSIONS-EDIT-APPROVAL-003-edit-approval-card.png",
+      "type": "screenshot",
+      "area": "permissions",
+      "state": "file edits gated, approval card lists exact files",
+      "trigger": "send prompt; mock replies needs_edit_approval",
+      "expected": "card lists file paths verbatim with Allow edits once / Deny",
+      "observed": "captured — see image (file 255 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/index.html",
+        "vesta/assets/web/composer.js",
+        "vesta/assets/web/app.js"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:33:56.910Z",
+      "bytes": 261036
+    },
+    {
+      "id": "CHANGES-CHANGESET-001",
+      "file": "screens/changes/CHANGES-CHANGESET-001-proposed-changeset.png",
+      "type": "screenshot",
+      "area": "changes",
+      "state": "proposed changeset pending review (2 files, 1 risky)",
+      "trigger": "reply with workflow.diff_review payload (phase reviewing_diff)",
+      "expected": "changeset card lists every file with approve/reject",
+      "observed": "captured — see image (file 270 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/app.js",
+        "vesta/assets/web/run-result.js"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:33:58.641Z",
+      "bytes": 276598
+    },
+    {
+      "id": "CHANGES-DIFF-FILE-002",
+      "file": "screens/changes/CHANGES-DIFF-FILE-002-file-diff-expanded.png",
+      "type": "screenshot",
+      "area": "changes",
+      "state": "per-file diff hunks expanded",
+      "trigger": "expand first file entry in the changeset card",
+      "expected": "diff hunks with +/- lines",
+      "observed": "captured — see image (file 258 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/app.js",
+        "vesta/assets/web/run-result.js"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:33:59.039Z",
+      "bytes": 263680
+    },
+    {
+      "id": "ERRORS-ACCOUNT-001",
+      "file": "screens/errors/ERRORS-ACCOUNT-001-provider-error-card.png",
+      "type": "screenshot",
+      "area": "errors",
+      "state": "recoverable provider error with retry / switch model",
+      "trigger": "reply status=account_error",
+      "expected": "one .error-card with human Vesta-language message and Retry affordance",
+      "observed": "captured — see image (file 240 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/app.js",
+        "vesta/assets/web/run-result.js"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:34:00.712Z",
+      "bytes": 245326
+    },
+    {
+      "id": "ERRORS-NOT-CONNECTED-002",
+      "file": "screens/errors/ERRORS-NOT-CONNECTED-002-account-not-connected.png",
+      "type": "screenshot",
+      "area": "errors",
+      "state": "second error: selected account not connected",
+      "trigger": "reply status=account_not_connected",
+      "expected": "error card prompting to connect an account",
+      "observed": "captured — see image (file 254 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/app.js",
+        "vesta/assets/web/run-result.js"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:34:01.285Z",
+      "bytes": 260311
+    },
+    {
+      "id": "SETTINGS-GENERAL-001",
+      "file": "screens/settings/SETTINGS-GENERAL-001-general.png",
+      "type": "screenshot",
+      "area": "settings",
+      "state": "settings rail page \"general\" — general / overview page",
+      "trigger": "click settings rail item general",
+      "expected": "page content visible, rail marks the active item",
+      "observed": "captured — see image (file 81 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/settings.js",
+        "vesta/assets/web/styles.css"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:34:02.480Z",
+      "bytes": 82617
+    },
+    {
+      "id": "SETTINGS-APPEARANCE-002",
+      "file": "screens/settings/SETTINGS-APPEARANCE-002-appearance.png",
+      "type": "screenshot",
+      "area": "settings",
+      "state": "settings rail page \"appearance\" — appearance page (theme/density)",
+      "trigger": "click settings rail item appearance",
+      "expected": "page content visible, rail marks the active item",
+      "observed": "captured — see image (file 147 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/settings.js",
+        "vesta/assets/web/styles.css"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:34:02.910Z",
+      "bytes": 150136
+    },
+    {
+      "id": "SETTINGS-MODELS-003",
+      "file": "screens/settings/SETTINGS-MODELS-003-models.png",
+      "type": "screenshot",
+      "area": "settings",
+      "state": "settings rail page \"models\" — models & routing page",
+      "trigger": "click settings rail item models",
+      "expected": "page content visible, rail marks the active item",
+      "observed": "captured — see image (file 127 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/settings.js",
+        "vesta/assets/web/styles.css"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:34:03.336Z",
+      "bytes": 130016
+    },
+    {
+      "id": "SETTINGS-AGENTS-004",
+      "file": "screens/agents/SETTINGS-AGENTS-004-agents.png",
+      "type": "screenshot",
+      "area": "agents",
+      "state": "settings rail page \"agents\" — agents settings page (team defaults)",
+      "trigger": "click settings rail item agents",
+      "expected": "page content visible, rail marks the active item",
+      "observed": "captured — see image (file 117 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/settings.js",
+        "vesta/assets/web/styles.css"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:34:03.772Z",
+      "bytes": 119819
+    },
+    {
+      "id": "SETTINGS-USAGE-005",
+      "file": "screens/settings/SETTINGS-USAGE-005-usage.png",
+      "type": "screenshot",
+      "area": "settings",
+      "state": "settings rail page \"usage\" — model usage + cost firewall page",
+      "trigger": "click settings rail item usage",
+      "expected": "page content visible, rail marks the active item",
+      "observed": "captured — see image (file 149 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/settings.js",
+        "vesta/assets/web/styles.css"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:34:04.217Z",
+      "bytes": 152738
+    },
+    {
+      "id": "SETTINGS-WORKSPACE-006",
+      "file": "screens/settings/SETTINGS-WORKSPACE-006-workspace.png",
+      "type": "screenshot",
+      "area": "settings",
+      "state": "settings rail page \"workspace\" — workspace page",
+      "trigger": "click settings rail item workspace",
+      "expected": "page content visible, rail marks the active item",
+      "observed": "captured — see image (file 126 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/settings.js",
+        "vesta/assets/web/styles.css"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:34:04.640Z",
+      "bytes": 129344
+    },
+    {
+      "id": "PROVIDERS-CONNECTED-001",
+      "file": "screens/providers/PROVIDERS-CONNECTED-001-connections.png",
+      "type": "screenshot",
+      "area": "providers",
+      "state": "settings rail page \"connections\" — integrations page: providers & connections, all accounts connected",
+      "trigger": "click settings rail item connections",
+      "expected": "page content visible, rail marks the active item",
+      "observed": "captured — see image (file 135 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/settings.js"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:34:05.060Z",
+      "bytes": 137867
+    },
+    {
+      "id": "PERMISSIONS-SAFETY-001",
+      "file": "screens/permissions/PERMISSIONS-SAFETY-001-safety.png",
+      "type": "screenshot",
+      "area": "permissions",
+      "state": "settings rail page \"safety\" — safety page: permissions + privacy",
+      "trigger": "click settings rail item safety",
+      "expected": "page content visible, rail marks the active item",
+      "observed": "captured — see image (file 138 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/settings.js",
+        "vesta/assets/web/styles.css"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:34:05.487Z",
+      "bytes": 141537
+    },
+    {
+      "id": "SETTINGS-ADVANCED-007",
+      "file": "screens/settings/SETTINGS-ADVANCED-007-advanced.png",
+      "type": "screenshot",
+      "area": "settings",
+      "state": "settings rail page \"advanced\" — advanced page with tools & insights",
+      "trigger": "click settings rail item advanced",
+      "expected": "page content visible, rail marks the active item",
+      "observed": "captured — see image (file 106 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/settings.js",
+        "vesta/assets/web/styles.css"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:34:05.899Z",
+      "bytes": 108219
+    },
+    {
+      "id": "SETTINGS-TOOLS-EXPANDED-008",
+      "file": "screens/settings/SETTINGS-TOOLS-EXPANDED-008-tools-insights-expanded.png",
+      "type": "screenshot",
+      "area": "settings",
+      "state": "advanced page with Tools & insights disclosure open",
+      "trigger": "expand details[data-settings-tools]",
+      "expected": "links to Money Saved / Cost Firewall / Context Waste / Benchmark dashboards",
+      "observed": "captured — see image (file 108 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/settings.js",
+        "vesta/assets/web/styles.css"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:34:06.600Z",
+      "bytes": 111001
+    },
+    {
+      "id": "SETTINGS-DASH-MONEY-SAVED-009",
+      "file": "screens/settings/SETTINGS-DASH-MONEY-SAVED-009-home.png",
+      "type": "screenshot",
+      "area": "settings",
+      "state": "Money Saved insight dashboard",
+      "trigger": "Settings → Advanced → Tools & insights → home",
+      "expected": "dashboard view rendered from mock dashboard payload",
+      "observed": "captured — see image (file 172 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/settings.js",
+        "vesta/assets/web/styles.css"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:34:07.232Z",
+      "bytes": 176532
+    },
+    {
+      "id": "SETTINGS-DASH-COST-FIREWALL-010",
+      "file": "screens/settings/SETTINGS-DASH-COST-FIREWALL-010-firewall.png",
+      "type": "screenshot",
+      "area": "settings",
+      "state": "Cost Firewall insight dashboard",
+      "trigger": "Settings → Advanced → Tools & insights → firewall",
+      "expected": "dashboard view rendered from mock dashboard payload",
+      "observed": "captured — see image (file 138 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/settings.js",
+        "vesta/assets/web/styles.css"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:34:08.890Z",
+      "bytes": 140955
+    },
+    {
+      "id": "AGENTS-READINESS-001",
+      "file": "screens/agents/AGENTS-READINESS-001-agents.png",
+      "type": "screenshot",
+      "area": "agents",
+      "state": "Agent Readiness dashboard (capture status per client)",
+      "trigger": "Settings → Agents → agents",
+      "expected": "dashboard view rendered from mock dashboard payload",
+      "observed": "captured — see image (file 143 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/settings.js",
+        "vesta/assets/web/styles.css"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:34:10.892Z",
+      "bytes": 146388
+    },
+    {
+      "id": "AGENTS-WORKFLOWS-002",
+      "file": "screens/agents/AGENTS-WORKFLOWS-002-workflows.png",
+      "type": "screenshot",
+      "area": "agents",
+      "state": "Guarded workflows dashboard",
+      "trigger": "Settings → Agents → workflows",
+      "expected": "dashboard view rendered from mock dashboard payload",
+      "observed": "captured — see image (file 138 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/settings.js",
+        "vesta/assets/web/styles.css"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:34:12.320Z",
+      "bytes": 141628
+    },
+    {
+      "id": "AGENTS-PROOF-003",
+      "file": "screens/agents/AGENTS-PROOF-003-proof.png",
+      "type": "screenshot",
+      "area": "agents",
+      "state": "Proof Bundle dashboard",
+      "trigger": "Settings → Agents → proof",
+      "expected": "dashboard view rendered from mock dashboard payload",
+      "observed": "captured — see image (file 139 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/settings.js",
+        "vesta/assets/web/styles.css"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:34:13.723Z",
+      "bytes": 142377
+    },
+    {
+      "id": "PROVIDERS-DISCONNECTED-001",
+      "file": "screens/providers/PROVIDERS-DISCONNECTED-001-none-connected.png",
+      "type": "screenshot",
+      "area": "providers",
+      "state": "all provider accounts disconnected",
+      "trigger": "settings.accounts with connected=false for every account",
+      "expected": "connect prompts instead of connected badges",
+      "observed": "captured — see image (file 142 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/settings.js"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:34:15.745Z",
+      "bytes": 145544
+    },
+    {
+      "id": "EMPTY-SIDEBAR-001",
+      "file": "screens/empty-states/EMPTY-SIDEBAR-001-no-conversations.png",
+      "type": "screenshot",
+      "area": "empty-states",
+      "state": "sidebar with zero saved conversations",
+      "trigger": "boot payload with conversations=[] recents=[]",
+      "expected": "honest empty sidebar, no phantom rows",
+      "observed": "captured — see image (file 157 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/app.js",
+        "vesta/assets/web/index.html",
+        "vesta/assets/web/onboarding.js"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:34:16.169Z",
+      "bytes": 160482
+    },
+    {
+      "id": "EMPTY-ONBOARDING-001",
+      "file": "screens/empty-states/EMPTY-ONBOARDING-001-first-run-step1.png",
+      "type": "screenshot",
+      "area": "empty-states",
+      "state": "first-run onboarding overlay, step 1 of 3 (connect a provider)",
+      "trigger": "boot prefs.onboardingSeen=false",
+      "expected": "onboarding tour card over the shell",
+      "observed": "captured — see image (file 136 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/app.js",
+        "vesta/assets/web/index.html",
+        "vesta/assets/web/onboarding.js"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:34:17.128Z",
+      "bytes": 139448
+    },
+    {
+      "id": "EMPTY-ONBOARDING-002",
+      "file": "screens/empty-states/EMPTY-ONBOARDING-002-first-run-step2.png",
+      "type": "screenshot",
+      "area": "empty-states",
+      "state": "first-run onboarding overlay, step 2 of 3 (pick a model)",
+      "trigger": "click Next on step 1",
+      "expected": "step 2 with model picker",
+      "observed": "captured — see image (file 135 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/app.js",
+        "vesta/assets/web/index.html",
+        "vesta/assets/web/onboarding.js"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:34:17.753Z",
+      "bytes": 138250
+    },
+    {
+      "id": "EMPTY-ONBOARDING-003",
+      "file": "screens/empty-states/EMPTY-ONBOARDING-003-first-run-step3.png",
+      "type": "screenshot",
+      "area": "empty-states",
+      "state": "first-run onboarding overlay, step 3 of 3 (first task opt-in)",
+      "trigger": "click Next on step 2",
+      "expected": "step 3 with labelled first-task opt-in",
+      "observed": "captured — see image (file 143 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/app.js",
+        "vesta/assets/web/index.html",
+        "vesta/assets/web/onboarding.js"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:34:18.711Z",
+      "bytes": 146870
+    },
+    {
+      "id": "AGENTS-TEAM-TOGGLE-001",
+      "file": "screens/agents/AGENTS-TEAM-TOGGLE-001-team-toggle-menu.png",
+      "type": "screenshot",
+      "area": "agents",
+      "state": "composer Team toggle switched to Team ON (single click toggles; no menu opened)",
+      "trigger": "click #teamModeBtn",
+      "expected": "team mode menu / popover near the composer",
+      "observed": "captured — see image; NOTE: one click toggles Team ON directly, no menu appeared at capture time (file 152 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/agents-team.js",
+        "vesta/assets/web/agents-workspace.js",
+        "vesta/assets/web/app.js"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:34:19.577Z",
+      "bytes": 155502
+    },
+    {
+      "id": "AGENTS-TEAM-PANEL-002",
+      "file": "screens/agents/AGENTS-TEAM-PANEL-002-team-running.png",
+      "type": "screenshot",
+      "area": "agents",
+      "state": "AI Team running: roster of 3 agents + activity feed beside chat",
+      "trigger": "Enable AI Team, send objective, emitObjective with 3 assignments",
+      "expected": "complementary 'AI Team' panel with roster (Alex/Sam/Taylor) and team feed",
+      "observed": "captured — see image (file 254 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/agents-team.js",
+        "vesta/assets/web/agents-workspace.js",
+        "vesta/assets/web/app.js"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:34:21.778Z",
+      "bytes": 260373
+    },
+    {
+      "id": "AGENTS-TEAM-DETAIL-003",
+      "file": "screens/agents/AGENTS-TEAM-DETAIL-003-agent-detail.png",
+      "type": "screenshot",
+      "area": "agents",
+      "state": "agent detail drawer for a selected teammate",
+      "trigger": "click roster entry 'Sam'",
+      "expected": "detail panel with collaboration links and recorded work",
+      "observed": "captured — see image (file 266 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/agents-team.js",
+        "vesta/assets/web/agents-workspace.js",
+        "vesta/assets/web/app.js"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:34:22.302Z",
+      "bytes": 272361
+    },
+    {
+      "id": "AGENTS-WORKSPACE-004",
+      "file": "screens/agents/AGENTS-WORKSPACE-004-header-agents-button.png",
+      "type": "screenshot",
+      "area": "agents",
+      "state": "Agents workspace opened from the header Agents button",
+      "trigger": "click #headerAgents",
+      "expected": "agents workspace view with objective list",
+      "observed": "captured — see image (file 178 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/agents-team.js",
+        "vesta/assets/web/agents-workspace.js",
+        "vesta/assets/web/app.js"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:34:23.361Z",
+      "bytes": 182680
+    },
+    {
+      "id": "REC-OPEN-READY-001",
+      "file": "recordings/01-open-ready.webm",
+      "type": "recording",
+      "area": "shell",
+      "state": "cold open to ready, model selector opened and dismissed",
+      "trigger": "boot + click #modelBtn",
+      "expected": "app becomes ready, popover opens",
+      "observed": "captured — see video (file 357 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/index.html",
+        "vesta/assets/web/app.js",
+        "vesta/assets/web/styles.css",
+        "vesta/assets/web/theme.js"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:34:29.130Z",
+      "bytes": 365153
+    },
+    {
+      "id": "REC-SEND-COMPLETE-002",
+      "file": "recordings/02-send-stream-complete.webm",
+      "type": "recording",
+      "area": "execution",
+      "state": "send → streaming tokens → completed answer",
+      "trigger": "send prompt, emit tokens with pauses, then reply",
+      "expected": "live token rendering then terminal state",
+      "observed": "captured — see video (file 407 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/app.js",
+        "vesta/assets/web/activity.js",
+        "vesta/assets/web/message-state.js",
+        "vesta/assets/web/run-result.js"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:34:34.861Z",
+      "bytes": 416550
+    },
+    {
+      "id": "REC-STOP-CANCEL-003",
+      "file": "recordings/03-stop-cancel.webm",
+      "type": "recording",
+      "area": "execution",
+      "state": "stop requested mid-stream, confirmed, stopped card",
+      "trigger": "Escape during streaming + confirmCancel",
+      "expected": "Stop control, pending state, terminal stopped card",
+      "observed": "captured — see video (file 349 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/app.js",
+        "vesta/assets/web/activity.js",
+        "vesta/assets/web/message-state.js",
+        "vesta/assets/web/run-result.js"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:34:40.725Z",
+      "bytes": 357860
+    },
+    {
+      "id": "REC-SETTINGS-TOUR-004",
+      "file": "recordings/04-settings-tour.webm",
+      "type": "recording",
+      "area": "settings",
+      "state": "walk through every settings rail page",
+      "trigger": "click each rail item",
+      "expected": "each page renders, active rail item follows",
+      "observed": "captured — see video (file 1321 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/settings.js",
+        "vesta/assets/web/styles.css"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:34:53.061Z",
+      "bytes": 1352711
+    },
+    {
+      "id": "REC-CMD-APPROVAL-005",
+      "file": "recordings/05-command-approval.webm",
+      "type": "recording",
+      "area": "permissions",
+      "state": "blocked command → approval card → approve → completion",
+      "trigger": "send gated prompt, click Approve once",
+      "expected": "card appears, state flips to Approved, answer lands",
+      "observed": "captured — see video (file 477 KiB)",
+      "sourceAreas": [
+        "vesta/assets/web/index.html",
+        "vesta/assets/web/composer.js",
+        "vesta/assets/web/app.js"
+      ],
+      "commit": "2d7185c774df6675937f6dd228173312f541334e",
+      "capturedAt": "2026-09-19T11:34:59.646Z",
+      "bytes": 488095
+    }
+  ],
+  "captureFailures": [],
+  "coverageNote": "NOT captured: the Qt/PySide6 desktop wrapper (window chrome, native menus, OS dialogs) — PySide6 is not installed in the capture environment; the web UI is the real production UI rendered in QtWebEngine.\nNOT captured: real provider streaming/latency — all tokens, replies, errors and approvals come from the mock bridge.\nNOT captured: states the mock bridge cannot produce (native file pickers' OS UI, actual update downloads, real keychain prompts).\nProvider login OAuth redirect flow and connection doctor refresh were not exercised visually.\nNo capture failures."
+}
